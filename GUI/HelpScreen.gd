@@ -1,0 +1,300 @@
+## Controls and game-modes reference.
+extends Control
+
+const MAIN_MENU := "res://GUI/MainMenu.tscn"
+
+signal back
+var embedded := false
+
+const CONTROLS_TEXT := """[b]ПОЛІТ ТА КЕРУВАННЯ[/b]
+SPACE — увімкнути / вимкнути двигуни
+W / S — газ (лівий стік ↕)
+A / D — рискання (лівий стік ↔)
+← / → — крен (правий стік)
+↑ / ↓ — тангаж (правий стік)
+C / V — нахил FPV-камери
+ESC — пауза
+R / LB — респавн; у школі T / B — повторити модуль
+
+[b]БОЙОВІ ФУНКЦІЇ[/b]
+G / X — скинути бомбу (дрони зі скидом)
+F / Y — активувати БЧ / миттєва детонація камікадзе
+T — тепловізор (бомбер)
+F3 — якість графіки
+F6 — FPV-ефекти (за бажанням)
+F4 — день / ніч / тепловізор
+F5 — погода
+F2 / Start — довідка школи (у навчанні)
+
+[b]ПУЛЬТИ ТА ГЕЙМПАДИ[/b]
+Лівий стік — газ і рискання; правий стік — тангаж і крен
+RS — двигуни · X — скид · Y — БЧ
+LB — респавн · Back — пауза · Start — довідка
+A — цикл режимів · LS — утримання висоти
+D-pad: ↑ горизонт · → кут · ↓ швидкість · ← позиція
+Підтримка RadioMaster TX12/Pocket/Zorro (Mode 2), BetaFPV,
+Xbox і PlayStation з автокалібруванням осей.
+У меню «Керування» рядок «Активація БЧ / миттєва детонація»
+призначається кнопкою «Авто» на будь-який тумблер пульта."""
+
+const MODES_TEXT := """[b]БОЙОВІ МІСІЇ (КАМПАНІЯ 1–5)[/b]
+• TAC-01: Піхота (виявлення та ліквідація живої сили)
+• TAC-02: Танк і БТР (знищення броньованої колони)
+• TAC-03: Гелікоптер (перехоплення низьковисотної авіації)
+• TAC-04: Шахед-136 (перехоплення швидкісного дрона-камікадзе)
+• TAC-05: Кримська ГЕС (лише морський дрон «МАГУРА-Х»; таран машинного залу)
+Місії відкриваються послідовно: наступна — лише після завершення
+попередньої. Брифінг → виліт → дебрифінг ідуть безперервно, а кнопка
+«ПРОДОВЖИТИ КАМПАНІЮ» веде до першої незавершеної місії.
+
+[b]ФАЗИ БОЙОВОГО ВИЛЬОТУ[/b]
+1/3 РОЗВІДКА — підлетіти до зони й утримати 3 секунди.
+2/3 УДАР — знищити всі цілі, позначені маркерами.
+3/3 ВИХІД — повернутися в зону евакуації та утримати 3 секунди.
+Для TAC-05 фази коротші: удар → вихід із зони ураження.
+Маркер фази показує відстань і відсоток утримання зони.
+
+[b]ЕФЕКТИ ВЛУЧАНЬ[/b]
+Кожен тип цілі має власну Blender-сцену влучання: танк, БМП, БТР,
+вантажівка, ЗРК, гелікоптер, «Шахед» і піхота. Додатково працюють
+іскри, пил, дим і спалах, тому влучання читається навіть у русі.
+
+[b]ШКОЛА ПІЛОТА (10 МОДУЛІВ)[/b]
+1. Увімкнення та вимкнення двигунів на землі
+2. Газ і висіння на 2–4 м
+3. Правий стік: тангаж, крен і повернення в центр
+4. Рискання на 70° і повернення на початковий курс
+5. Перший політ крізь широкі ворота
+6. Слалом: два зміщені ворота
+7. Висота: низькі та високі ворота
+8. Точний проліт крізь вікно 3.6 × 3.2 м
+9. Гальмування у позначеній зоні
+10. М'яка посадка та вимкнення двигунів
+Асистент підказує перегазовку, втрату горизонту, VRS і бічний знос.
+Пульт: B — повторити модуль, Start — довідка.
+
+[b]ТРЕНУВАННЯ / ВІЛЬНИЙ ПОЛІТ[/b]
+4 карти без супротивника: село, промзона, степ, плавні. Практика стіків, воріт, низьких прольотів і посадок.
+
+[b]ЗЛІТ[/b]
+Повітряні дрони стартують з тактичної пускової бочки; Магура-Х — з води.
+
+[b]ВИБІР ДРОНА[/b]
+Стрілки ◄ / ►, ангар або миша. Один клік мишею перемикає рівно на один борт.
+
+[b]ПОЛІТ НА ЧАС[/b]
+Траса з неонових воріт із хронометражем.
+
+[b]РЕЙТИ ТА ФІЗИКА[/b]
+ESC → «Параметри борту та рейти»: кут FPV-камери, маса акумулятора, Betaflight Rates (RC / Super / Expo)."""
+
+
+const CONTROLS_TEXT_EN := """[b]FLIGHT & CONTROLS[/b]
+SPACE — start / stop engines
+W / S — throttle (left stick ↕)
+A / D — yaw (left stick ↔)
+← / → — roll (right stick)
+↑ / ↓ — pitch (right stick)
+C / V — FPV camera tilt
+ESC — pause
+R / LB — respawn; in school T / B — retry module
+
+[b]COMBAT ACTIONS[/b]
+G / X — release bomb (drones with a drop payload)
+F / Y — arm / instant-detonate the kamikaze warhead
+T — thermal camera (bomber)
+F3 — graphics quality
+F6 — FPV downlink effects (optional)
+F4 — day / night / thermal vision
+F5 — weather
+F2 / Start — flight-school help
+
+[b]CONTROLLERS[/b]
+Left stick — throttle and yaw; right stick — pitch and roll
+RS — engines · X — release · Y — warhead
+LB — respawn · Back — pause · Start — help
+A — cycle flight modes · LS — altitude hold
+D-pad: ↑ horizon · → angle · ↓ speed · ← position
+RadioMaster TX12/Pocket/Zorro (Mode 2), BetaFPV, Xbox and
+PlayStation controllers are supported with axis calibration.
+In Controls, the row “Activate warhead / instant detonation”
+can be bound to any transmitter switch with the “Auto” button."""
+
+const MODES_TEXT_EN := """[b]COMBAT CAMPAIGN 1–5[/b]
+• TAC-01: infantry
+• TAC-02: tank and APC
+• TAC-03: helicopter
+• TAC-04: Shahed-136
+• TAC-05: Crimean HPP (MAGURA-X only)
+Missions unlock sequentially. The next sortie opens only after the previous
+one is completed. Briefing → mission → debriefing flows continuously, and
+“CONTINUE CAMPAIGN” jumps to the first unfinished mission.
+
+[b]MISSION PHASES[/b]
+1/3 RECON — reach the zone and hold it for 3 seconds.
+2/3 STRIKE — destroy every primary target.
+3/3 EXTRACT — return to the evacuation zone and hold it for 3 seconds.
+TAC-05 is shorter: strike → leave the blast area.
+The phase marker shows distance and hold percentage.
+
+[b]HIT EFFECTS[/b]
+Every target class has its own authored Blender hit scene: tank, BMP, APC,
+truck, SAM, helicopter, Shahed and infantry. Additive sparks, dust, smoke
+and a flash layer make the impact readable even at speed.
+
+[b]FLIGHT SCHOOL (10 MODULES)[/b]
+1. Start and stop the engines on the ground
+2. Throttle and a steady 2–4 m hover
+3. Right stick: pitch, roll and centring
+4. Yaw 70° and return to the start heading
+5. First flight through a wide gate
+6. Slalom through two offset gates
+7. Altitude: low gate, then high gate
+8. Precision pass through a 3.6 × 3.2 m window
+9. Brake inside the marked zone
+10. Soft landing and disarm
+The coach warns about throttle spikes, lost horizon, VRS and side slip.
+Gamepad: B — retry module, Start — help.
+
+[b]FREE FLIGHT[/b]
+Four maps without opponents: village, industrial, steppe and wetlands. Practise sticks, gates, low passes and landings.
+
+[b]TAKEOFF[/b]
+Air drones launch from a field tube; MAGURA-X starts from the water.
+
+[b]AIRCRAFT SELECTION[/b]
+◄ / ►, the Hangar or the mouse. One mouse click now moves exactly one aircraft.
+
+[b]TIME TRIAL[/b]
+Neon checkpoint course with a precise timer.
+
+[b]RATES & PHYSICS[/b]
+ESC → Aircraft & Rates: FPV camera tilt, battery mass, Betaflight rates (RC / Super / Expo)."""
+
+
+func _ready() -> void:
+	theme = MenuUI.theme()
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	_build()
+	MenuUI.localize_tree(self)
+
+
+func _build() -> void:
+	add_child(MenuUI.background(MenuUI.BG))
+
+	var center := CenterContainer.new()
+	MenuUI.full_rect(center)
+	add_child(center)
+
+	var panel := PanelContainer.new()
+	var viewport_size := get_viewport_rect().size
+	var panel_width := minf(980.0, viewport_size.x - 24.0)
+	var column_width := maxf(250.0, (panel_width - 100.0) * 0.5)
+	panel.custom_minimum_size = Vector2(panel_width, 0)
+	center.add_child(panel)
+
+	var margin := MarginContainer.new()
+	for side in ["left", "right"]:
+		margin.add_theme_constant_override("margin_%s" % side, 22)
+	margin.add_theme_constant_override("margin_top", 14)
+	margin.add_theme_constant_override("margin_bottom", 14)
+	panel.add_child(margin)
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	margin.add_child(box)
+
+	box.add_child(MenuUI.title("ДОВІДКА ТА КЕРУВАННЯ", 30))
+
+	var columns := HBoxContainer.new()
+	columns.add_theme_constant_override("separation", 20)
+	columns.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var col_left := VBoxContainer.new()
+	col_left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col_left.add_theme_constant_override("separation", 10)
+	col_left.add_child(MenuUI.section("РОЗКЛАДКА КЕРУВАННЯ", "ПІЛОТ"))
+	var controls := RichTextLabel.new()
+	controls.bbcode_enabled = true
+	controls.text = CONTROLS_TEXT_EN if MenuUI.is_english() else CONTROLS_TEXT
+	controls.fit_content = true
+	controls.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	controls.custom_minimum_size = Vector2(column_width, 0)
+	controls.add_theme_font_size_override("normal_font_size", 16)
+	col_left.add_child(controls)
+	columns.add_child(col_left)
+
+	var col_right := VBoxContainer.new()
+	col_right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col_right.add_theme_constant_override("separation", 10)
+	col_right.add_child(MenuUI.section("РЕЖИМИ ВИЛЬОТУ ТА ПОЛІГОНИ", "РЕЖИМ"))
+	var modes := RichTextLabel.new()
+	modes.bbcode_enabled = true
+	modes.text = MODES_TEXT_EN if MenuUI.is_english() else MODES_TEXT
+	modes.fit_content = true
+	modes.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	modes.custom_minimum_size = Vector2(column_width, 0)
+	modes.add_theme_font_size_override("normal_font_size", 16)
+	col_right.add_child(modes)
+	columns.add_child(col_right)
+
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(0, maxf(160.0, minf(480.0, viewport_size.y - 170.0)))
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.add_child(columns)
+	box.add_child(scroll)
+
+	var action_row := HBoxContainer.new()
+	action_row.add_theme_constant_override("separation", 14)
+
+	var tut_btn := Button.new()
+	tut_btn.text = "🎓  РОЗПОЧАТИ КУРС ПІЛОТА"
+	tut_btn.custom_minimum_size = Vector2(0, 48)
+	tut_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tut_btn.add_theme_stylebox_override("normal", MenuUI._style(MenuUI.BUTTON_ACTIVE, MenuUI.ACCENT, 2, 1, 14, 8, 4))
+	tut_btn.add_theme_stylebox_override("hover", MenuUI._style(MenuUI.BUTTON_ACTIVE.lightened(0.08), MenuUI.ACCENT, 2, 1, 14, 8, 4))
+	# The button is focused on entry; without a matching focus style the theme's
+	# white focus box hid the white label completely.
+	tut_btn.add_theme_stylebox_override("focus", MenuUI._style(MenuUI.BUTTON_ACTIVE.lightened(0.08), MenuUI.ACCENT, 2, 1, 14, 8, 4))
+	tut_btn.add_theme_stylebox_override("pressed", MenuUI._style(MenuUI.BUTTON_ACTIVE.darkened(0.08), MenuUI.ACCENT, 2, 1, 14, 8, 4))
+	tut_btn.add_theme_font_size_override("font_size", 16)
+	tut_btn.add_theme_color_override("font_color", Color.WHITE)
+	tut_btn.add_theme_color_override("font_hover_color", Color.WHITE)
+	tut_btn.add_theme_color_override("font_focus_color", Color.WHITE)
+	tut_btn.pressed.connect(_launch_tutorial)
+	action_row.add_child(tut_btn)
+
+	var back_btn := MenuUI.button("←  НАЗАД", 38)
+	back_btn.custom_minimum_size = Vector2(200, 48)
+	back_btn.pressed.connect(_go_back)
+	action_row.add_child(back_btn)
+
+	box.add_child(action_row)
+	tut_btn.grab_focus()
+
+
+func _launch_tutorial() -> void:
+	Global.play_mode = Global.PlayMode.TUTORIAL
+	if Global.drone_preset == 10:
+		QuadSettings.custom_rates = false
+		DroneCatalog.apply(0)
+	# Same persistent loading card as the main menu, including the authored
+	# battlefield photograph, so the tutorial does not flash a black screen.
+	var overlay: Dictionary = LoadingScreen.build(Global.PlayMode.TUTORIAL, 0,
+			"village", Global.get_difficulty_name(), false)
+	get_tree().root.add_child.call_deferred(overlay["layer"])
+	await get_tree().process_frame
+	get_tree().change_scene_to_file("res://sceneries/VillageLevel.tscn")
+
+
+func _go_back() -> void:
+	if embedded:
+		back.emit()
+		return
+	get_tree().change_scene_to_file(MAIN_MENU)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel"):
+		accept_event()
+		_go_back()

@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://qavehcombat01"]
+
+[ext_resource type="Script" path="res://test/qa_vehicle_combat.gd" id="1_vehqa"]
+
+[node name="QAVehicleCombat" type="Node3D"]
+script = ExtResource("1_vehqa")

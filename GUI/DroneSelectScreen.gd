@@ -1,0 +1,522 @@
+## Drone selection screen with a live 3D preview (third person) of each model
+## and a caption. In-game the drone is flown in first person (FPV).
+extends Control
+
+const MAIN_MENU := "res://GUI/MainMenu.tscn"
+const DronePropellerSystem = preload("res://scripts/util/DronePropellerSystem.gd")
+const GlbMaterialUtilsScript = preload("res://scripts/util/glb_material_utils.gd")
+
+var _pending := 0
+var _rows: Array[Dictionary] = []
+var _preview: SubViewport = null
+var _preview_container: SubViewportContainer = null
+var _holder: Node3D = null
+var _preview_camera: Camera3D = null
+var _preview_ring: MeshInstance3D = null
+var _caption: Label = null
+var _tag: Label = null
+var _specs: Label = null
+var _info: Label = null
+var _choose: Button = null
+var _confirm: Label = null
+
+
+func _ready() -> void:
+	theme = MenuUI.theme()
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	if OS.has_environment("DRONE_HANGAR_TEST_PRESET"):
+		Global.drone_preset = int(OS.get_environment("DRONE_HANGAR_TEST_PRESET"))
+	_pending = Global.drone_preset
+	_build()
+	_pending = Global.drone_preset
+	_refresh()
+	_show_model(_pending)
+	MenuUI.localize_tree(self)
+	if OS.has_environment("DRONE_HANGAR_TEST_SELECT"):
+		call_deferred("_qa_select_preset",
+				int(OS.get_environment("DRONE_HANGAR_TEST_SELECT")))
+
+
+func _build() -> void:
+	add_child(MenuUI.background(MenuUI.BG))
+
+	var center := CenterContainer.new()
+	MenuUI.full_rect(center)
+	center.offset_top = 16.0
+	center.offset_bottom = -56.0
+	add_child(center)
+
+	var panel := PanelContainer.new()
+	var viewport_size := get_viewport_rect().size
+	var panel_width := minf(1840.0, maxf(320.0, viewport_size.x - 24.0))
+	var column_width := minf(720.0, maxf(260.0, (panel_width - 110.0) * 0.47))
+	panel.custom_minimum_size = Vector2(panel_width, 0)
+	center.add_child(panel)
+
+	var margin := MarginContainer.new()
+	for side in ["left", "right"]:
+		margin.add_theme_constant_override("margin_%s" % side, 18)
+	margin.add_theme_constant_override("margin_top", 12)
+	margin.add_theme_constant_override("margin_bottom", 12)
+	panel.add_child(margin)
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	margin.add_child(box)
+
+	box.add_child(MenuUI.title("ОБРАТИ ДРОН", 30))
+	box.add_child(MenuUI.subtitle("Готові моделі для тренування та бойових місій"))
+
+	var columns := HBoxContainer.new()
+	columns.add_theme_constant_override("separation", 20)
+	columns.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_child(columns)
+
+	# left: list
+	var list_scroll := ScrollContainer.new()
+	list_scroll.custom_minimum_size = Vector2(column_width, clampf(viewport_size.y - 280.0, 220.0, 520.0))
+	list_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list_scroll.size_flags_stretch_ratio = 1.0
+	list_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	columns.add_child(list_scroll)
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 8)
+	list_scroll.add_child(list)
+	for i in range(DroneCatalog.count()):
+		list.add_child(_make_row(i))
+
+	# right: 3D preview + caption
+	var right := VBoxContainer.new()
+	right.add_theme_constant_override("separation", 8)
+	right.custom_minimum_size.x = column_width
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.size_flags_stretch_ratio = 1.0
+	columns.add_child(right)
+
+	var container := SubViewportContainer.new()
+	container.stretch = true
+	container.mouse_filter = Control.MOUSE_FILTER_STOP
+	container.custom_minimum_size = Vector2(column_width, clampf(viewport_size.y * 0.46, 280.0, 500.0))
+	container.gui_input.connect(_on_preview_gui_input)
+	right.add_child(container)
+	_preview_container = container
+	_preview = SubViewport.new()
+	_preview.size = Vector2i(1600, 800)
+	_preview.own_world_3d = true
+	_preview.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	# Separate viewport: inherit no root MSAA, so ask for it explicitly.
+	_preview.msaa_3d = Viewport.MSAA_4X
+	_preview.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA
+	container.add_child(_preview)
+	_setup_preview_world()
+
+	_caption = MenuUI.body("", 24, MenuUI.TEXT)
+	_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_caption.custom_minimum_size = Vector2(column_width, 0)
+	right.add_child(_caption)
+	_tag = MenuUI.body("", 13, MenuUI.ACCENT)
+	_tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_tag.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_tag.custom_minimum_size = Vector2(column_width, 0)
+	right.add_child(_tag)
+	_specs = MenuUI.body("", 14, MenuUI.MUTED)
+	_specs.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_specs.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_specs.custom_minimum_size = Vector2(column_width, 0)
+	right.add_child(_specs)
+	_info = MenuUI.body("", 13, MenuUI.MUTED)
+	_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_info.custom_minimum_size = Vector2(column_width, 48)
+	right.add_child(_info)
+
+	_pending = Global.drone_preset
+	_choose = MenuUI.button("ОБРАТИ ЦЕЙ ДРОН", 48)
+	_choose.pressed.connect(_apply_pending)
+	right.add_child(_choose)
+
+	_confirm = MenuUI.body("", 15, MenuUI.ACCENT)
+	_confirm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_confirm.custom_minimum_size = Vector2(column_width, 44)
+	_confirm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var selected_preset := DroneCatalog.preset(Global.drone_preset)
+	var selected_name := str(selected_preset["name"])
+	if MenuUI.is_english():
+		selected_name = str(selected_preset.get("name_en", MenuUI.translate_text(selected_name)))
+	_confirm.text = ("Selected: %s" if MenuUI.is_english() else "Зараз обрано: %s") % selected_name
+	right.add_child(_confirm)
+
+	var back := MenuUI.button("←  НАЗАД", 46)
+	back.pressed.connect(_go_back)
+	box.add_child(back)
+	back.grab_focus()
+
+
+func _setup_preview_world() -> void:
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	# A near-black hangar swallowed the carbon airframes.  A mid-dark slate
+	# backdrop plus a stronger ambient fill keeps even black drones readable.
+	env.background_color = Color(0.18, 0.22, 0.20)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.74, 0.81, 0.76)
+	env.ambient_light_energy = 1.35
+	env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env.tonemap_exposure = 1.08
+	env.adjustment_enabled = true
+	env.adjustment_brightness = 1.05
+	env.adjustment_contrast = 1.01
+	env.adjustment_saturation = 1.08
+	var world := WorldEnvironment.new()
+	world.environment = env
+	_preview.add_child(world)
+
+	# Key Light (top-front-right)
+	var key := DirectionalLight3D.new()
+	key.light_energy = 2.2
+	key.light_color = Color(1.0, 0.96, 0.86)
+	key.rotation_degrees = Vector3(-35.0, 45.0, 0.0)
+	_preview.add_child(key)
+
+	# Fill Light (left-side)
+	var fill := DirectionalLight3D.new()
+	fill.light_energy = 1.3
+	fill.light_color = Color(0.52, 0.80, 0.64)
+	fill.rotation_degrees = Vector3(-20.0, -60.0, 0.0)
+	_preview.add_child(fill)
+
+	# Strong Back / Rim Light to highlight dark carbon silhouettes
+	var rim := DirectionalLight3D.new()
+	rim.light_energy = 2.0
+	rim.light_color = Color(0.80, 0.96, 0.84)
+	rim.rotation_degrees = Vector3(25.0, -145.0, 0.0)
+	_preview.add_child(rim)
+
+	# Low frontal fill keeps the nose and payload visible when the holder
+	# turns the model away from the key light.
+	var front := DirectionalLight3D.new()
+	front.light_energy = 0.9
+	front.light_color = Color(0.78, 0.88, 0.90)
+	front.rotation_degrees = Vector3(-8.0, 0.0, 0.0)
+	_preview.add_child(front)
+
+	# Illuminated tactical turntable pedestal
+	var pedestal := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 0.36
+	cyl.bottom_radius = 0.40
+	cyl.height = 0.04
+	pedestal.mesh = cyl
+	pedestal.position = Vector3(0.0, -0.35, 0.0)
+	var ped_mat := StandardMaterial3D.new()
+	ped_mat.albedo_color = Color(0.12, 0.16, 0.14)
+	ped_mat.roughness = 0.75
+	ped_mat.metallic = 0.3
+	ped_mat.emission_enabled = true
+	ped_mat.emission = Color(0.05, 0.15, 0.10)
+	pedestal.material_override = ped_mat
+	_preview.add_child(pedestal)
+
+	# Glowing tactical accent ring around pedestal
+	var ring := MeshInstance3D.new()
+	var torus := TorusMesh.new()
+	torus.inner_radius = 0.34
+	torus.outer_radius = 0.38
+	ring.mesh = torus
+	ring.position = Vector3(0.0, -0.328, 0.0)
+	var ring_mat := StandardMaterial3D.new()
+	ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ring_mat.albedo_color = MenuUI.ACCENT
+	ring.material_override = ring_mat
+	_preview.add_child(ring)
+	_preview_ring = ring
+
+	var cam := Camera3D.new()
+	cam.fov = 42.0
+	cam.position = Vector3(0.60, 0.42, 1.00)
+	_preview.add_child(cam)
+	cam.look_at(Vector3(0, -0.02, 0), Vector3.UP)
+	cam.current = true
+	_preview_camera = cam
+
+	_holder = Node3D.new()
+	_preview.add_child(_holder)
+
+
+func _make_row(index: int) -> Control:
+	var p := DroneCatalog.preset(index)
+	var row := PanelContainer.new()
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 12)
+	margin.add_theme_constant_override("margin_right", 12)
+	margin.add_theme_constant_override("margin_top", 6)
+	margin.add_theme_constant_override("margin_bottom", 6)
+	row.add_child(margin)
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 10)
+	margin.add_child(hbox)
+	var info := VBoxContainer.new()
+	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hbox.add_child(info)
+	var title_row := HBoxContainer.new()
+	title_row.add_theme_constant_override("separation", 8)
+	info.add_child(title_row)
+	var display_name := str(p["name"])
+	if MenuUI.is_english():
+		display_name = str(p.get("name_en", MenuUI.translate_text(display_name)))
+	var name_label := MenuUI.body(display_name, 19, MenuUI.TEXT)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# Long military-airframe names must shrink inside the list column instead
+	# of forcing the whole right-hand preview off the screen.
+	name_label.clip_text = true
+	name_label.custom_minimum_size = Vector2(0, 0)
+	title_row.add_child(name_label)
+	var tag_label := MenuUI.body(str(p.get("tag", "")), 11, MenuUI.ACCENT)
+	tag_label.clip_text = true
+	title_row.add_child(tag_label)
+	var desc_label := MenuUI.body(MenuUI.translate_text(str(p["desc"])), 12,
+			MenuUI.MUTED)
+	desc_label.clip_text = true
+	info.add_child(desc_label)
+	var pick := MenuUI.button("ОБРАТИ", 40)
+	pick.custom_minimum_size = Vector2(160, 40)
+	pick.pressed.connect(_on_row_clicked.bind(index))
+	hbox.add_child(pick)
+	var mark := MenuUI.body("", 15, MenuUI.ACCENT)
+	mark.custom_minimum_size = Vector2(90, 0)
+	mark.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	hbox.add_child(mark)
+	_rows.append({"mark": mark})
+	return row
+
+
+func _qa_select_preset(index: int) -> void:
+	_on_row_clicked(index)
+	var p := DroneCatalog.preset(index)
+	print("[HANGAR-TEST] requested=", index, " selected=", Global.drone_preset,
+			" combat=", bool(p.get("combat", false)),
+			" mode=", Global.play_mode,
+			" confirm='", _confirm.text.replace("\n", " | "), "'")
+	get_tree().quit(0 if Global.drone_preset == index else 1)
+
+
+func _on_row_clicked(index: int) -> void:
+	# Always allow the preview/selection.  A civilian/recon airframe is not a
+	# valid combat loadout, so _apply_pending() switches the sortie to Free
+	# Flight instead of silently doing nothing (the old behaviour made AVATA 2
+	# look "unselectable" whenever the menu happened to be in Combat mode).
+	_pending = index
+	_apply_pending()
+	_show_model(index)
+
+
+func _on_preview_gui_input(event: InputEvent) -> void:
+	# Clicking the large hangar turntable selects the previewed airframe.
+	# Keyboard/row selection is unchanged.
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed:
+			_apply_pending()
+			accept_event()
+	elif event is InputEventScreenTouch:
+		var touch := event as InputEventScreenTouch
+		if touch.pressed:
+			_apply_pending()
+			accept_event()
+
+
+## Combat sorties may only use combat airframes.  Magura-X (10) is the special
+## naval case and is handled by the mission logic.
+func _combat_locked(index: int) -> bool:
+	if Global.play_mode != Global.PlayMode.COMBAT:
+		return false
+	if index == 10:
+		return false
+	if DroneCatalog.is_combat(index):
+		return false
+	if _confirm != null:
+		_confirm.text = ("This airframe is not available for combat missions.\nPick a strike / bomber drone." if MenuUI.is_english() else "Цей дрон недоступний для бойових місій.\nОберіть ударний дрон або дрон зі скидом.")
+	return true
+
+
+func _select_preview(index: int) -> void:
+	_pending = index
+	_refresh()
+	_show_model(index)
+	if _confirm != null:
+		var preset := DroneCatalog.preset(index)
+		var preset_name := str(preset["name"])
+		if MenuUI.is_english():
+			preset_name = str(preset.get("name_en", MenuUI.translate_text(preset_name)))
+		_confirm.text = ("Previewing %s. Select this drone to confirm." if MenuUI.is_english() else "Перегляд: %s. Натисніть «ОБРАТИ ЦЕЙ ДРОН»." ) % preset_name
+
+
+func _apply_pending() -> void:
+	var was_combat_locked := _combat_locked(_pending)
+	# A civilian/recon airframe cannot fly an armed combat sortie.  Instead of
+	# rejecting the click, select the drone and switch the pending sortie to
+	# Free Flight (the mode where it is actually available).  Combat launches
+	# still have a hard safety net in MainMenu._launch_current_selection().
+	if was_combat_locked:
+		Global.play_mode = Global.PlayMode.TRAINING
+		Global.special_mission = 0
+		Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
+		Global.menu_settings["selected_special"] = 0
+	# Choosing a drone in the menu opts back into that drone's factory rates.
+	QuadSettings.custom_rates = false
+	DroneCatalog.apply(_pending)
+	Global.drone_preset = _pending
+	Global.menu_settings["drone_preset"] = _pending
+	Global.save_menu_settings()
+	if _pending == 10:
+		# Magura-X is exclusively for TAC-05!
+		Global.play_mode = Global.PlayMode.COMBAT
+		Global.combat_mission = 5
+	elif Global.play_mode == Global.PlayMode.COMBAT and Global.combat_mission == 5:
+		# Aerial drones cannot execute TAC-05 (only Magura-X can!)
+		Global.combat_mission = 1
+	_refresh()
+	var preset := DroneCatalog.preset(_pending)
+	var preset_name := str(preset["name"])
+	if MenuUI.is_english():
+		preset_name = str(preset.get("name_en", MenuUI.translate_text(preset_name)))
+	if _choose != null:
+		_choose.text = "SELECTED ✓" if MenuUI.is_english() else "ОБРАНО ✓"
+	if _confirm != null:
+		if _pending == 10:
+			_confirm.text = "✓ MAGURA-X is a dedicated USV.\nAvailable only for mission TAC-05 [CRIMEAN HPP]." if MenuUI.is_english() else "✓ «МАГУРА-Х» — спеціальний морський USV.\nДоступний лише для місії TAC-05 [КРИМСЬКА ГЕС]."
+		elif was_combat_locked:
+			_confirm.text = ("✓ %s selected for Free Flight (no combat payload).\nCombat sorties still require a strike / bomber drone." if MenuUI.is_english() else "✓ %s обрано для вільного польоту (без бойової БЧ).\nДля бойових місій потрібен ударний дрон або дрон зі скидом.") % preset_name
+		else:
+			_confirm.text = ("✓ %s is selected for your next sortie.\nGo back to choose a flight mode." if MenuUI.is_english() else "✓ %s — саме цей дрон злетить у наступному польоті.\nНатисніть «НАЗАД» і виберіть режим.") % preset_name
+
+
+func _show_model(index: int) -> void:
+	var p := DroneCatalog.preset(index)
+	var is_en := MenuUI.is_english()
+	_caption.text = str(p.get("name_en", MenuUI.translate_text(str(p["name"])))) if is_en else str(p["name"])
+	_tag.text = MenuUI.translate_text(str(p.get("tag", "")))
+	var ammo := int(p.get("payload", 0))
+	if bool(p.get("is_naval", false)):
+		var mass := float(p["dry"]) + float(p["batt"])
+		_specs.text = ("%.0f kg · 45-knot waterjet · length %.1f m · 320 kg HE payload" if is_en else "%.0f кг · водомет 45 вузлів (85 км/год) · довжина %.1f м · БЧ 320 кг (ОФ)") % [
+				mass, float(p["dimensions"].z)]
+	else:
+		var is_combat: bool = bool(p.get("combat", false))
+		var has_drop: bool = bool(p.get("has_drop", false))
+		var ammo_count := int(p.get("payload", 0)) if is_combat else 0
+		var ammo_str: String
+		if not is_combat:
+			ammo_str = "no payload (sport / recon)" if is_en else "без БЧ (спорт / розвідка)"
+		elif has_drop:
+			ammo_str = "drop: %s" % str(p.get("drop_name_en", "%d× VOG-17" % ammo_count)) if is_en else "скид: %s" % str(p.get("drop_name", "%d× ВОГ-17" % ammo_count))
+		else:
+			ammo_str = "%d× kamikaze payload" % ammo_count if is_en else "%d× БЧ камікадзе" % ammo_count
+		_specs.text = ("%.2f kg · %d KV · %.1f\" propeller · %d blades · %s" if is_en else "%.2f кг · %d KV · пропелер %.1f\" · %d лопаті · %s") % [
+				float(p["dry"]) + float(p["batt"]), int(p["kv"]), float(p["prop_d"]),
+				int(p["blades"]), ammo_str]
+	var base_info := str(p.get("info", p.get("desc", "")))
+	_info.text = str(p.get("info_en", MenuUI.translate_text(base_info))) if is_en else base_info
+	if _holder == null:
+		return
+	for child in _holder.get_children():
+		child.queue_free()
+	var path := str(p.get("model", ""))
+	if path.is_empty() or not ResourceLoader.exists(path):
+		return
+	var packed := load(path) as PackedScene
+	if packed == null:
+		return
+	var model := packed.instantiate() as Node3D
+	if model == null:
+		return
+	_holder.add_child(model)
+	# The hangar preview instantiates the PackedScene directly instead of going
+	# through DroneCatalog.attach_model(), so it needs the same material wrapper.
+	GlbMaterialUtilsScript.ensure_pbr(model)
+	model.rotation.y = float(p.get("model_yaw", 0.0))
+	model.rotation_degrees.x = float(p.get("model_pitch", 0.0))
+	DronePropellerSystem.setup_propellers(model, index,
+			float(p.get("prop_d", 5.0)), int(p.get("blades", 3)))
+	DroneCatalog._apply_composite_detail(model, index)
+	MenuUI.fit_preview_model(model, 1.25, -0.18)
+	_fit_preview_camera()
+
+
+func _fit_preview_camera() -> void:
+	if _holder == null or _preview_camera == null:
+		return
+	var box := _combined_aabb(_holder)
+	if box.size.length() < 0.01:
+		return
+	var center := box.get_center()
+	var fov := 40.0
+	var aspect := 1600.0 / 800.0
+	if _preview != null and _preview.size.y > 0:
+		aspect = float(_preview.size.x) / float(_preview.size.y)
+	var half_w := maxf(box.size.x, box.size.z) * 0.5
+	var half_h := box.size.y * 0.5
+	var vfov := deg_to_rad(fov)
+	var hfov := 2.0 * atan(tan(vfov * 0.5) * aspect)
+	var dist_w := half_w / maxf(tan(hfov * 0.5), 0.001)
+	var dist_h := half_h / maxf(tan(vfov * 0.5), 0.001)
+	var dist := maxf(maxf(dist_w, dist_h) * 1.65, 0.62)
+	var dir := Vector3(0.62, 0.38, 1.0).normalized()
+	var focus := center - Vector3(0.0, box.size.y * 0.06, 0.0)
+	_preview_camera.fov = fov
+	_preview_camera.position = focus + dir * dist
+	_preview_camera.look_at(focus, Vector3.UP)
+	# Keep the illuminated turntable proportional to the airframe.
+	if _preview_ring != null:
+		var ring_scale := clampf(maxf(box.size.x, box.size.z) / 0.76, 0.7, 2.2)
+		_preview_ring.scale = Vector3(ring_scale, 1.0, ring_scale)
+
+
+func _combined_aabb(node: Node3D) -> AABB:
+	var result := AABB()
+	var first := true
+	var stack: Array = [node]
+	while not stack.is_empty():
+		var n = stack.pop_back()
+		if n is VisualInstance3D:
+			var b: AABB = (n as VisualInstance3D).global_transform * (n as VisualInstance3D).get_aabb()
+			if first:
+				result = b
+				first = false
+			else:
+				result = result.merge(b)
+		for child in n.get_children():
+			stack.append(child)
+	return result
+
+
+func _refresh() -> void:
+	for i in range(_rows.size()):
+		var mark: Label = _rows[i]["mark"]
+		if mark != null:
+			mark.text = ("SELECTED" if i == Global.drone_preset else ("PREVIEW" if i == _pending else "")) if MenuUI.is_english() else ("ОБРАНО" if i == Global.drone_preset else ("ГЛЯНУ" if i == _pending else ""))
+	if _choose != null:
+		_choose.text = ("SELECTED ✓" if _pending == Global.drone_preset else "SELECT THIS DRONE") if MenuUI.is_english() else ("ОБРАНО ✓" if _pending == Global.drone_preset else "ОБРАТИ ЦЕЙ ДРОН")
+
+
+func _process(delta: float) -> void:
+	if _holder != null:
+		_holder.rotate_y(delta * 0.5)
+		for m in _holder.get_children():
+			if m is Node3D:
+				DroneCatalog.animate_propellers(m as Node3D, delta)
+
+
+func _go_back() -> void:
+	# The hangar is opened from the fleet panel of MainMenu; returning to the
+	# intro clip looked like the selection was discarded.  Go back where the
+	# player came from so the new craft/mode is immediately visible.
+	get_tree().change_scene_to_file(MAIN_MENU)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel"):
+		accept_event()
+		_go_back()

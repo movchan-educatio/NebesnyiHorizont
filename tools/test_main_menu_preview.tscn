@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://df7x8k1m2n3p"]
+
+[ext_resource type="Script" path="res://tools/test_main_menu_preview.gd" id="1_test"]
+
+[node name="TestMainMenuPreview" type="Node"]
+script = ExtResource("1_test")

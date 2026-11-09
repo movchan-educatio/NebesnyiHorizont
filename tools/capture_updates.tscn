@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://b7updates001"]
+
+[ext_resource type="Script" path="res://tools/capture_updates.gd" id="1_updates"]
+
+[node name="UpdatesCapture" type="Node3D"]
+script = ExtResource("1_updates")

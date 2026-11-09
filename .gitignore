@@ -1,0 +1,24 @@
+# Godot cache and build outputs
+.godot/
+build/
+dist_*/
+installer_output/
+qa_shots/
+screenshots/
+
+# Local binaries
+Godot_v*.exe
+Godot_v*_console.exe
+*.exe
+*.zip
+*.mp4
+
+# Local backups / experiments
+_backup_*/
+*.blend1
+*.log
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store

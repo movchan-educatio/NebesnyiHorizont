@@ -1,0 +1,350 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "author": "Antigravity FPV Technical Artist",
+    "units": {
+      "weight": "grams",
+      "thrust": "grams",
+      "voltage": "volts",
+      "dimensions": "meters"
+    }
+  },
+  "parts": [
+    {
+      "id": "frame_race_5",
+      "name": "Race X-5 Carbon",
+      "category": "frame",
+      "type": "civilian",
+      "weight_g": 68,
+      "mesh_path": "res://assets/drone_parts/Frame_Race_5.glb",
+      "size_inch": 5.0,
+      "max_battery_weight": 220,
+      "description": "Ультралегка симетрична True-X рама для FPV-перегонів.",
+      "mounts": {
+        "motor_fl": [
+          -0.078,
+          0.078,
+          0.0
+        ],
+        "motor_fr": [
+          0.078,
+          0.078,
+          0.0
+        ],
+        "motor_bl": [
+          -0.078,
+          -0.078,
+          0.0
+        ],
+        "motor_br": [
+          0.078,
+          -0.078,
+          0.0
+        ],
+        "camera": [
+          0.0,
+          0.065,
+          0.015
+        ],
+        "battery": [
+          0.0,
+          -0.02,
+          -0.015
+        ],
+        "payload": [
+          0.0,
+          0.0,
+          -0.025
+        ]
+      }
+    },
+    {
+      "id": "frame_freestyle_7",
+      "name": "Apex LongRange 7",
+      "category": "frame",
+      "type": "civilian",
+      "weight_g": 142,
+      "mesh_path": "res://assets/drone_parts/Frame_Freestyle_7.glb",
+      "size_inch": 7.0,
+      "max_battery_weight": 650,
+      "description": "Подовжена рама Stretched-X для далеких польотів та носіння важких акумуляторів.",
+      "mounts": {
+        "motor_fl": [
+          -0.125,
+          0.085,
+          0.0
+        ],
+        "motor_fr": [
+          0.125,
+          0.085,
+          0.0
+        ],
+        "motor_bl": [
+          -0.105,
+          -0.115,
+          0.0
+        ],
+        "motor_br": [
+          0.105,
+          -0.115,
+          0.0
+        ],
+        "camera": [
+          0.0,
+          0.11,
+          0.02
+        ],
+        "battery": [
+          0.0,
+          -0.03,
+          0.025
+        ],
+        "payload": [
+          0.0,
+          -0.01,
+          -0.025
+        ]
+      }
+    },
+    {
+      "id": "frame_heavy_10",
+      "name": "Грім-10 Тактична Рама",
+      "category": "frame",
+      "type": "military",
+      "weight_g": 265,
+      "mesh_path": "res://assets/drone_parts/Frame_Heavy_10.glb",
+      "size_inch": 10.0,
+      "max_battery_weight": 1400,
+      "description": "Посилена військова рама з 8-мм фермовими променями для важких дронів-камікадзе.",
+      "mounts": {
+        "motor_fl": [
+          -0.16,
+          0.16,
+          0.0
+        ],
+        "motor_fr": [
+          0.16,
+          0.16,
+          0.0
+        ],
+        "motor_bl": [
+          -0.16,
+          -0.16,
+          0.0
+        ],
+        "motor_br": [
+          0.16,
+          -0.16,
+          0.0
+        ],
+        "camera": [
+          0.0,
+          0.14,
+          0.025
+        ],
+        "battery": [
+          0.0,
+          0.02,
+          0.03
+        ],
+        "payload": [
+          0.0,
+          -0.02,
+          -0.045
+        ]
+      }
+    },
+    {
+      "id": "frame_cinewhoop_3",
+      "name": "BumbleBee 3 Whoop",
+      "category": "frame",
+      "type": "civilian",
+      "weight_g": 95,
+      "mesh_path": "res://assets/drone_parts/Frame_Cinewhoop_3.glb",
+      "size_inch": 3.0,
+      "max_battery_weight": 280,
+      "description": "Рама з захисними кільцевими дактами для безпечних зйомок та польотів у приміщенні.",
+      "mounts": {
+        "motor_fl": [
+          -0.052,
+          0.052,
+          0.0
+        ],
+        "motor_fr": [
+          0.052,
+          0.052,
+          0.0
+        ],
+        "motor_bl": [
+          -0.052,
+          -0.052,
+          0.0
+        ],
+        "motor_br": [
+          0.052,
+          -0.052,
+          0.0
+        ],
+        "camera": [
+          0.0,
+          0.05,
+          0.015
+        ],
+        "battery": [
+          0.0,
+          -0.01,
+          0.025
+        ],
+        "payload": [
+          0.0,
+          0.0,
+          -0.02
+        ]
+      }
+    },
+    {
+      "id": "motor_2207_highkv",
+      "name": "Xing2 2207 (2450KV)",
+      "category": "motor",
+      "type": "civilian",
+      "weight_g": 32,
+      "mesh_path": "res://assets/drone_parts/Motor_2207_HighKV.glb",
+      "thrust_g": 1620,
+      "kv_rating": 2450,
+      "max_prop_inch": 5.1,
+      "description": "Високооборотний гоночний двигун для 5-дюймових гвинтів."
+    },
+    {
+      "id": "motor_2807_lowkv",
+      "name": "FlashHobby 2807 (1300KV)",
+      "category": "motor",
+      "type": "military",
+      "weight_g": 54,
+      "mesh_path": "res://assets/drone_parts/Motor_2807_LowKV.glb",
+      "thrust_g": 2450,
+      "kv_rating": 1300,
+      "max_prop_inch": 10.0,
+      "description": "Тяговитий мотор зі сталевим валом для 7-10 дюймових ударних FPV."
+    },
+    {
+      "id": "prop_5x4x3",
+      "name": "Gemfan 51466 V2 (3-Blade)",
+      "category": "prop",
+      "type": "civilian",
+      "weight_g": 4.2,
+      "mesh_path": "res://assets/drone_parts/Prop_5x4x3.glb",
+      "diameter_inch": 5.1,
+      "pitch_inch": 4.6,
+      "blades": 3,
+      "description": "Швидкісний полікарбонатний гвинт для агресивного фрістайлу."
+    },
+    {
+      "id": "prop_7x4x3",
+      "name": "HQProp 7040 (3-Blade)",
+      "category": "prop",
+      "type": "civilian",
+      "weight_g": 9.1,
+      "mesh_path": "res://assets/drone_parts/Prop_7x4x3.glb",
+      "diameter_inch": 7.0,
+      "pitch_inch": 4.0,
+      "blades": 3,
+      "description": "Ефективний гвинт великого радіусу дії з низьким рівнем шуму."
+    },
+    {
+      "id": "prop_10x5x3",
+      "name": "Master Airscrew 1050 (3-Blade)",
+      "category": "prop",
+      "type": "military",
+      "weight_g": 18.5,
+      "mesh_path": "res://assets/drone_parts/Prop_10x5x3.glb",
+      "diameter_inch": 10.0,
+      "pitch_inch": 5.0,
+      "blades": 3,
+      "description": "Вантажний армований гвинт для підйому бойової частини."
+    },
+    {
+      "id": "battery_4s_1500",
+      "name": "Tattu R-Line 4S 1500mAh 120C",
+      "category": "battery",
+      "type": "civilian",
+      "weight_g": 178,
+      "mesh_path": "res://assets/drone_parts/Battery_4S_1500.glb",
+      "capacity_mah": 1500,
+      "voltage_v": 14.8,
+      "max_discharge_c": 120,
+      "description": "Легкий гоночний LiPo акумулятор із миттєвою струмовіддачею."
+    },
+    {
+      "id": "battery_6s_4500",
+      "name": "Molicel P42A 6S2P 8400mAh Li-Ion",
+      "category": "battery",
+      "type": "military",
+      "weight_g": 860,
+      "mesh_path": "res://assets/drone_parts/Battery_6S_4500.glb",
+      "capacity_mah": 8400,
+      "voltage_v": 22.2,
+      "max_discharge_c": 45,
+      "description": "Важка збірка з елементів 21700 для бойових операцій на великих дистанціях."
+    },
+    {
+      "id": "camera_analog",
+      "name": "Foxeer Predator 5 Micro",
+      "category": "camera",
+      "type": "civilian",
+      "weight_g": 8.5,
+      "mesh_path": "res://assets/drone_parts/Camera_Analog.glb",
+      "latency_ms": 4.0,
+      "sensor_type": "daylight_rgb",
+      "fov_deg": 125,
+      "description": "Ультранизька затримка сигналу для швидкісного пілотування."
+    },
+    {
+      "id": "camera_thermal",
+      "name": "FLIR Boson 640 Thermal Core",
+      "category": "camera",
+      "type": "military",
+      "weight_g": 38.0,
+      "mesh_path": "res://assets/drone_parts/Camera_Thermal.glb",
+      "latency_ms": 18.0,
+      "sensor_type": "thermal_flir",
+      "fov_deg": 95,
+      "description": "Тепловізійний бойовий модуль для виявлення замаскованої техніки вночі."
+    },
+    {
+      "id": "payload_empty",
+      "name": "Без навантаження (Чистий політ)",
+      "category": "payload",
+      "type": "civilian",
+      "weight_g": 5,
+      "mesh_path": "res://assets/drone_parts/Payload_Empty.glb",
+      "damage_radius": 0.0,
+      "armor_penetration": 0.0,
+      "is_explosive": false,
+      "description": "Стандартний монтажний замок без боєприпасу."
+    },
+    {
+      "id": "payload_drop_vog",
+      "name": "Система скиду (ВОГ-17 ОФ)",
+      "category": "payload",
+      "type": "military",
+      "weight_g": 340,
+      "mesh_path": "res://assets/drone_parts/Payload_Drop_VOG.glb",
+      "damage_radius": 7.5,
+      "armor_penetration": 12.0,
+      "is_explosive": true,
+      "description": "30-мм осколкова граната з хвостовиком та сервоприводом дистанційного скиду."
+    },
+    {
+      "id": "payload_kamikaze_pg7",
+      "name": "Кумулятивна БЧ ПГ-7ВР (Камікадзе)",
+      "category": "payload",
+      "type": "military",
+      "weight_g": 1450,
+      "mesh_path": "res://assets/drone_parts/Payload_Kamikaze_PG7.glb",
+      "damage_radius": 4.0,
+      "armor_penetration": 650.0,
+      "is_explosive": true,
+      "description": "Важка бронебійна кумулятивна бойова частина для знищення танків прямим ударом."
+    }
+  ]
+}

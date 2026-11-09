@@ -1,0 +1,23 @@
+[gd_scene load_steps=5 format=2]
+
+[ext_resource path="res://tracks/Checkpoint.gd" type="Script" id=1]
+[ext_resource path="res://tracks/objects/Gate_5x5_Simple.tscn" type="PackedScene" id=2]
+[ext_resource path="res://tracks/Gate.gd" type="Script" id=3]
+
+
+
+[sub_resource type="BoxShape3D" id=1]
+extents = Vector3( 0.75, 0.75, 0.01 )
+
+[node name="Gate" type="Node3D"]
+script = ExtResource( 3 )
+
+[node name="Gate_5x5_Simple" parent="." instance=ExtResource( 2 )]
+
+[node name="Checkpoint" type="Area3D" parent="."]
+script = ExtResource( 1 )
+backward = false
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Checkpoint"]
+transform = Transform3D( 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.75, 0 )
+shape = SubResource( 1 )

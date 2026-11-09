@@ -1,0 +1,132 @@
+name: Build iOS (unsigned IPA)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+env:
+  GODOT_VERSION: 4.6.1-stable
+  IOS_PRESET: iOS
+  NAME: NebesnyiHorizont
+
+jobs:
+  build-ios:
+    runs-on: macos-15
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Cache Godot and iOS templates
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/godot
+            ${{ runner.temp }}/templates
+          key: godot-${{ env.GODOT_VERSION }}-ios-v1
+
+      - name: Download Godot (macOS)
+        run: |
+          set -e
+          mkdir -p "$RUNNER_TEMP/godot"
+          if [ ! -x "$RUNNER_TEMP/godot/Godot.app/Contents/MacOS/Godot" ]; then
+            curl -L --fail \
+              "https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_macos.universal.zip" \
+              -o "$RUNNER_TEMP/godot.zip"
+            unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          fi
+          GODOT="$RUNNER_TEMP/godot/Godot.app/Contents/MacOS/Godot"
+          chmod +x "$GODOT"
+          xattr -dr com.apple.quarantine "$RUNNER_TEMP/godot/Godot.app" || true
+          "$GODOT" --version
+
+      - name: Download iOS export template
+        run: |
+          set -e
+          mkdir -p "$RUNNER_TEMP/templates"
+          if [ ! -f "$RUNNER_TEMP/templates/ios.zip" ]; then
+            curl -L --fail \
+              "https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz" \
+              -o "$RUNNER_TEMP/templates.tpz"
+            rm -rf "$RUNNER_TEMP/tpl_extract"
+            mkdir -p "$RUNNER_TEMP/tpl_extract"
+            tar -xf "$RUNNER_TEMP/templates.tpz" -C "$RUNNER_TEMP/tpl_extract"
+            find "$RUNNER_TEMP/tpl_extract" -name ios.zip -exec cp {} "$RUNNER_TEMP/templates/ios.zip" \;
+            find "$RUNNER_TEMP/tpl_extract" -name version.txt -exec cp {} "$RUNNER_TEMP/templates/version.txt" \;
+          fi
+          test -f "$RUNNER_TEMP/templates/ios.zip"
+          mkdir -p "$HOME/Library/Application Support/Godot/export_templates/4.6.1.stable"
+          cp "$RUNNER_TEMP/templates/ios.zip" \
+            "$HOME/Library/Application Support/Godot/export_templates/4.6.1.stable/ios.zip"
+          cp "$RUNNER_TEMP/templates/version.txt" \
+            "$HOME/Library/Application Support/Godot/export_templates/4.6.1.stable/version.txt"
+          ls -lh "$HOME/Library/Application Support/Godot/export_templates/4.6.1.stable"
+
+      - name: Import project
+        run: |
+          set -e
+          GODOT="$RUNNER_TEMP/godot/Godot.app/Contents/MacOS/Godot"
+          "$GODOT" --headless --path . --import
+
+      - name: Export Xcode project
+        run: |
+          set -e
+          GODOT="$RUNNER_TEMP/godot/Godot.app/Contents/MacOS/Godot"
+          mkdir -p build/ios
+          "$GODOT" --headless --path . --export-release "$IOS_PRESET" \
+            "build/ios/${NAME}.xcodeproj"
+          ls -la build/ios
+
+      - name: Show Xcode schemes
+        run: |
+          xcodebuild -project "build/ios/${NAME}.xcodeproj" -list
+
+      - name: Build unsigned archive
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project "build/ios/${NAME}.xcodeproj" \
+            -scheme "${NAME}" \
+            -archivePath "build/ios/App.xcarchive" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package IPA
+        run: |
+          set -e
+          cd build/ios
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R App.xcarchive/Products/Applications/*.app Payload/
+          zip -qry "${NAME}-unsigned.ipa" Payload
+          ls -lh "${NAME}-unsigned.ipa"
+
+      - name: Upload IPA to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ios-build-${{ github.run_number }}
+          name: "iOS unsigned build #${{ github.run_number }}"
+          body: |
+            Unsigned iOS IPA for personal testing.
+
+            iPhone 14 (Lightning): use Sideloadly on Windows with a free
+            Apple ID. The app expires after 7 days and must be re-signed.
+
+            ExpressLRS: enable WiFi on the TX module, connect the iPhone to
+            the "ExpressLRS TX" access point (password: expresslrs), allow
+            Local Network access, and launch the game.
+          files: build/ios/${{ env.NAME }}-unsigned.ipa
+          make_latest: true

@@ -1,0 +1,37 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://fpv/fpv_overlay.gd" id="1_overlay"]
+[ext_resource type="Shader" path="res://shaders/fpv_composite.gdshader" id="2_shader"]
+
+[sub_resource type="ShaderMaterial" id="OverlayMat"]
+shader = ExtResource("2_shader")
+shader_parameter/noise_amount = 0.025
+shader_parameter/scanline_amount = 0.08
+shader_parameter/vignette_amount = 0.42
+shader_parameter/aberration = 0.0022
+shader_parameter/barrel = 0.038
+shader_parameter/desaturation = 0.06
+shader_parameter/flicker = 0.015
+shader_parameter/tint = Vector3(0.96, 1, 0.98)
+shader_parameter/video_mode = 0
+shader_parameter/link_quality = 1.0
+shader_parameter/signal_strength = 1.0
+shader_parameter/bitrate_mbps = 50.0
+shader_parameter/packet_loss = 0.0
+shader_parameter/latency_spike = 0.0
+shader_parameter/throttle = 0.0
+shader_parameter/tear_amount = 0.0
+shader_parameter/interference = 0.0
+
+[node name="FPVOverlay" type="CanvasLayer"]
+layer = 10
+script = ExtResource("1_overlay")
+
+[node name="Overlay" type="ColorRect" parent="."]
+material = SubResource("OverlayMat")
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
