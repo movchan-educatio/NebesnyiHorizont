@@ -63,6 +63,19 @@ func _ready() -> void:
 	_discard = pause_menu.connect("resumed", Callable(self, "_on_resume"))
 	_discard = pause_menu.connect("menu", Callable(self, "_on_return_to_menu"))
 
+	# Touch sticks are available in every level, not only BigLevel.  The
+	# overlay also owns the on-screen ARM button, so City/Course levels get
+	# the same phone control scheme.
+	var touch := get_node_or_null("/root/TouchControls")
+	if touch != null:
+		touch.call("begin", get_instance_id())
+
+
+func _exit_tree() -> void:
+	var touch := get_node_or_null("/root/TouchControls")
+	if touch != null:
+		touch.call("end", get_instance_id())
+
 
 func _input(event: InputEvent) -> void:
 	if Controls.is_action_edge(event, "respawn"):

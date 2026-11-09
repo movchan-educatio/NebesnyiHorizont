@@ -12,7 +12,7 @@ for _ in range(10):
     sock.sendto(b"ELRS", (HOST, PORT))
     time.sleep(0.05)
 
-end = time.time() + 15.0
+end = time.time() + 60.0
 while time.time() < end:
     # 16 channels, 15-bit values.  CH1..4 centered, CH5 low (disarmed).
     values = [16384, 16384, 16000, 16384] + [16384] * 12

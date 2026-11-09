@@ -143,6 +143,8 @@ func _on_http_completed(result: int, response_code: int, _headers: PackedStringA
 func _send_release() -> void:
 	if module_ip.is_empty():
 		return
+	if not is_inside_tree() or _http == null:
+		return
 	if _http_busy:
 		return
 	_http_busy = true

@@ -30,6 +30,7 @@ KeyboardControls="*res://autoloads/KeyboardControls.gd"
 DroneCatalog="*res://autoloads/DroneCatalog.gd"
 DebugShot="*res://autoloads/DebugShot.gd"
 ElrsWifiInput="*res://autoloads/ElrsWifiInput.gd"
+TouchControls="*res://autoloads/TouchControls.gd"
 
 [display]
 

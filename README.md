@@ -69,6 +69,9 @@ FPV-симулятор бойового/цивільного дрона на **G
   «Velocidrone Mobile»): iPhone → `ExpressLRS TX`, у грі `ELRS: STREAMING`.
 - Канали: CH1 roll, CH2 pitch, CH3 throttle, CH4 yaw, CH5 arm, CH6 режими,
   CH7 відео. На екрані є кнопка **ARM**.
+- **Сенсорне керування:** два віртуальні стіки (лівий — газ/рискання,
+  правий — тангаж/крен), кнопка **MODE: TOUCH/RADIO** і **ARM**. Працює без
+  пульта; на Windows тестується з `TOUCH_CONTROLS=1`.
 - Покроково: `docs/IOS_GITHUB_BUILD.md`.
 
 ## Що нового у v15

@@ -33,7 +33,7 @@ var _hud: CanvasLayer = null
 var _hud_label: Label = null
 var _hud_message: Label = null
 var _elrs_status_label: Label = null
-var _touch_arm_button: Button = null
+var _touch_controls: Node = null
 var _crosshair: Control = null
 var _stick_overlay: Control = null
 var _diag: Label = null
@@ -3960,12 +3960,21 @@ func _on_boost_entered(body: Node3D) -> void:
 
 # ------------------------------------------------------------------ HUD
 func _setup_hud() -> void:
+	_touch_controls = get_node_or_null("/root/TouchControls")
+	var touch_enabled: bool = _touch_controls != null \
+			and bool(_touch_controls.get("enabled"))
 	_hud = CanvasLayer.new()
 	_hud.layer = 12
 	add_child(_hud)
 	_stick_overlay = StickOverlayScript.new()
 	_stick_overlay.name = "StickOverlay"
 	_hud.add_child(_stick_overlay)
+	if _touch_controls != null:
+		var mode_cb := Callable(self, "_on_touch_mode_changed")
+		if not _touch_controls.is_connected("mode_changed", mode_cb):
+			_touch_controls.connect("mode_changed", mode_cb)
+	_stick_overlay.visible = not (touch_enabled \
+			and bool(_touch_controls.get("touch_mode")))
 	if not GameSettings.hud_config_updated.is_connected(_apply_stick_overlay):
 		GameSettings.hud_config_updated.connect(_apply_stick_overlay)
 	_diag = Label.new()
@@ -4014,7 +4023,7 @@ func _setup_hud() -> void:
 	_hud.add_child(_threat_indicator)
 	# iOS / WiFi ELRS touch helpers.  The Pocket's CH5 switch also maps to
 	# toggle_arm; the button is a fallback for a phone without a radio.
-	if ElrsWifiInput.enabled:
+	if ElrsWifiInput.enabled or touch_enabled:
 		_elrs_status_label = Label.new()
 		_elrs_status_label.add_theme_font_size_override("font_size", 13)
 		_elrs_status_label.add_theme_color_override("font_color", Color(0.55, 1.0, 0.72, 0.95))
@@ -4025,17 +4034,6 @@ func _setup_hud() -> void:
 		_elrs_status_label.offset_top = 108
 		_elrs_status_label.text = ElrsWifiInput.status_text
 		_hud.add_child(_elrs_status_label)
-		_touch_arm_button = Button.new()
-		_touch_arm_button.text = "ARM"
-		_touch_arm_button.add_theme_font_size_override("font_size", 24)
-		_touch_arm_button.focus_mode = Control.FOCUS_NONE
-		_touch_arm_button.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-		_touch_arm_button.offset_left = 28
-		_touch_arm_button.offset_top = -118
-		_touch_arm_button.offset_right = 212
-		_touch_arm_button.offset_bottom = -42
-		_touch_arm_button.pressed.connect(_on_touch_arm)
-		_hud.add_child(_touch_arm_button)
 	_radio_subtitle = Label.new()
 	_radio_subtitle.add_theme_font_size_override("font_size", 14)
 	_radio_subtitle.add_theme_color_override("font_color", Color(0.78, 1.0, 0.88, 0.98))
@@ -4055,14 +4053,6 @@ func _setup_hud() -> void:
 	_build_chain_briefing()
 	if Global.play_mode == Global.PlayMode.TUTORIAL and _flight_school != null:
 		_flight_school.setup_hud(_hud)
-
-
-func _on_touch_arm() -> void:
-	var event := InputEventAction.new()
-	event.action = "toggle_arm"
-	event.pressed = true
-	event.strength = 1.0
-	Input.parse_input_event(event)
 
 
 func _terrain_y(x: float, z: float) -> float:
@@ -5186,10 +5176,19 @@ func _apply_osd() -> void:
 	_apply_stick_overlay()
 
 
+func _on_touch_mode_changed(_using_touch: bool) -> void:
+	# Touch mode has its own sticks at the screen corners; the centre-bottom
+	# radio visualiser would duplicate them.
+	_apply_stick_overlay()
+
+
 ## Bottom stick indicators in every mission, tied to the "Індикатори стіків"
 ## HUD switch. The drone's built-in stick widgets are hidden so only these show.
 func _apply_stick_overlay() -> void:
 	var on := bool(GameSettings.hud_config.get("sticks", true))
+	if _touch_controls != null and bool(_touch_controls.get("enabled")) \
+			and bool(_touch_controls.get("touch_mode")):
+		on = false
 	if _stick_overlay != null:
 		_stick_overlay.visible = on
 	var drone := get_node_or_null("Drone")
@@ -5585,7 +5584,12 @@ func _process(delta: float) -> void:
 		_hud_tick = 0.083
 		_update_hud()
 		if _elrs_status_label != null:
-			_elrs_status_label.text = ElrsWifiInput.status_text
+			if _touch_controls != null \
+					and bool(_touch_controls.get("enabled")) \
+					and bool(_touch_controls.get("touch_mode")):
+				_elrs_status_label.text = "TOUCH CONTROL"
+			else:
+				_elrs_status_label.text = ElrsWifiInput.status_text
 	_update_audio_mix(delta)
 	# Audio-bus trimming and the nav marker only need human-perceptible update
 	# rates.  Running them at 120 Hz changed four AudioServer buses and shaped

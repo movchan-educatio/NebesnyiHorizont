@@ -247,13 +247,29 @@ func read_input() -> void:
 
 	# Radio/gamepad sticks come from the saved per-channel bindings, not from
 	# the InputMap actions.  This keeps one physical axis from driving two
-	# channels when an old config has duplicate bindings.  WiFi ELRS channels
-	# (iOS-safe) take precedence when a valid UDP stream is alive.
+	# channels when an old config has duplicate bindings.  On a phone the
+	# on-screen twin sticks are a deliberate mode switch and take precedence;
+	# otherwise a live WiFi ELRS stream overrides the physical gamepad.
 	var wifi := get_node_or_null("/root/ElrsWifiInput")
+	var touch := get_node_or_null("/root/TouchControls")
+	var touch_active: bool = touch != null and bool(touch.get("enabled")) \
+			and bool(touch.get("touch_mode"))
 	var wifi_active: bool = wifi != null and bool(wifi.get("valid"))
-	var pad_yaw := float(wifi.yaw()) if wifi_active else Controls.channel_value("yaw")
-	var pad_roll := float(wifi.roll()) if wifi_active else Controls.channel_value("roll")
-	var pad_pitch := float(wifi.pitch()) if wifi_active else Controls.channel_value("pitch")
+	var pad_yaw := 0.0
+	var pad_roll := 0.0
+	var pad_pitch := 0.0
+	if touch_active:
+		pad_yaw = float(touch.get("yaw"))
+		pad_roll = float(touch.get("roll"))
+		pad_pitch = float(touch.get("pitch"))
+	elif wifi_active:
+		pad_yaw = float(wifi.yaw())
+		pad_roll = float(wifi.roll())
+		pad_pitch = float(wifi.pitch())
+	else:
+		pad_yaw = Controls.channel_value("yaw")
+		pad_roll = Controls.channel_value("roll")
+		pad_pitch = Controls.channel_value("pitch")
 	var yaw := kb_yaw if absf(kb_yaw) > 0.01 else (0.0 if is_nan(pad_yaw) else pad_yaw)
 	var roll := kb_roll if absf(kb_roll) > 0.01 else (0.0 if is_nan(pad_roll) else pad_roll)
 	var pitch := kb_pitch if absf(kb_pitch) > 0.01 else (0.0 if is_nan(pad_pitch) else pad_pitch)
@@ -280,7 +296,13 @@ func read_input() -> void:
 
 	if _device < 0 or not Input.get_connected_joypads().has(_device):
 		_device = Controls.ensure_active_joypad()
-	var pad_power := float(wifi.throttle()) if wifi_active else _radio_throttle()
+	var pad_power := -1.0
+	if touch_active:
+		pad_power = float(touch.get("throttle"))
+	elif wifi_active:
+		pad_power = float(wifi.throttle())
+	else:
+		pad_power = _radio_throttle()
 
 	var power := 0.0
 	if key_up:
