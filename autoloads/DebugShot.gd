@@ -55,6 +55,27 @@ func _ready() -> void:
 			bind_node.name = "QaActionBind"
 			get_tree().root.add_child.call_deferred(bind_node)
 		return
+	if OS.has_environment("TOUCH_STICKS_QA"):
+		var stick_runner = load("res://test/qa_touch_sticks.gd")
+		if stick_runner != null:
+			var stick_node = stick_runner.new()
+			stick_node.name = "QaTouchSticks"
+			get_tree().root.add_child.call_deferred(stick_node)
+		return
+	if OS.has_environment("TOUCH_POSE_QA"):
+		var pose_runner = load("res://test/qa_touch_pose.gd")
+		if pose_runner != null:
+			var pose_node = pose_runner.new()
+			pose_node.name = "QaTouchPose"
+			get_tree().root.add_child.call_deferred(pose_node)
+		return
+	if OS.has_environment("INVERSION_QA"):
+		var inv_runner = load("res://test/qa_inversion.gd")
+		if inv_runner != null:
+			var inv_node = inv_runner.new()
+			inv_node.name = "QaInversion"
+			get_tree().root.add_child.call_deferred(inv_node)
+		return
 	var path := OS.get_environment("SHOT_PATH")
 	if path.is_empty():
 		return

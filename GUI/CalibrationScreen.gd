@@ -157,10 +157,7 @@ func _ready() -> void:
 	Controls.load_input_map()
 	Controls.refresh_stick_bindings()
 	_virtual_source = MobileInput.source()
-	if MobileInput.is_mobile_screen():
-		_build_mobile_ui()
-	else:
-		_build_ui()
+	_build_ui()
 	reset_calibration()
 	_update_virtual_preview()
 	MenuUI.localize_tree(self)

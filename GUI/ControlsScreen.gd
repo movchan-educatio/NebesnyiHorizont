@@ -75,6 +75,8 @@ var _radio: Node = null
 var _stick_values := {}
 var _action_values := {}
 var _invert_state_label: Label
+var _virtual_invert_elrs: CheckBox = null
+var _virtual_invert_touch: CheckBox = null
 var _latency_label: Label
 ## Timestamp of the last joypad event, used to measure input-to-frame latency.
 var _motion_stamp_usec := -1
@@ -108,13 +110,11 @@ var _keep_source_override := false
 func _ready() -> void:
 	theme = MenuUI.theme()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
-	if MobileInput.is_mobile_screen():
-		_build_mobile()
-	else:
-		_build()
+	_build()
 	Input.joy_connection_changed.connect(_on_joy_connection_changed)
 	_refresh_devices()
 	_refresh_binding_labels()
+	_sync_virtual_options()
 	MenuUI.localize_tree(self)
 
 
@@ -329,13 +329,10 @@ func _card() -> PanelContainer:
 	var base := MenuUI.theme().get_stylebox("panel", "PanelContainer")
 	if base is StyleBoxFlat:
 		var style: StyleBoxFlat = (base as StyleBoxFlat).duplicate()
-		var mobile := MobileInput.is_mobile_screen()
-		var pad_h := 34 if mobile else 16
-		var pad_v := 26 if mobile else 14
-		style.content_margin_left = pad_h
-		style.content_margin_right = pad_h
-		style.content_margin_top = pad_v
-		style.content_margin_bottom = pad_v
+		style.content_margin_left = 16
+		style.content_margin_right = 16
+		style.content_margin_top = 14
+		style.content_margin_bottom = 14
 		panel.add_theme_stylebox_override("panel", style)
 	return panel
 
@@ -420,25 +417,23 @@ func _build_axis_column() -> Control:
 
 
 func _build_axis_cell(index: int) -> Control:
-	var mobile := MobileInput.is_mobile_screen()
 	var cell := VBoxContainer.new()
-	cell.custom_minimum_size = Vector2(300 if mobile else 145, 0)
-	cell.add_theme_constant_override("separation", 6 if mobile else 2)
+	cell.custom_minimum_size = Vector2(145, 0)
+	cell.add_theme_constant_override("separation", 2)
 
 	var top := HBoxContainer.new()
-	top.add_theme_constant_override("separation", 10 if mobile else 4)
+	top.add_theme_constant_override("separation", 4)
 	cell.add_child(top)
 
-	var name_label := MenuUI.body("%s %d" % [_ui_text("ВІСЬ", "AXIS"), index],
-			28 if mobile else 11, MenuUI.MUTED)
+	var name_label := MenuUI.body("%s %d" % [_ui_text("ВІСЬ", "AXIS"), index], 11, MenuUI.MUTED)
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(name_label)
 
-	var tag := MenuUI.body("", 26 if mobile else 10, MenuUI.ACCENT)
+	var tag := MenuUI.body("", 10, MenuUI.ACCENT)
 	top.add_child(tag)
 
-	var value := MenuUI.body("0.00", 26 if mobile else 10, MenuUI.MUTED)
-	value.custom_minimum_size = Vector2(90 if mobile else 36, 0)
+	var value := MenuUI.body("0.00", 10, MenuUI.MUTED)
+	value.custom_minimum_size = Vector2(36, 0)
 	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	top.add_child(value)
 
@@ -448,7 +443,7 @@ func _build_axis_cell(index: int) -> Control:
 	bar.step = 0.01
 	bar.editable = false
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bar.custom_minimum_size = Vector2(0, 36 if mobile else 18)
+	bar.custom_minimum_size = Vector2(0, 18)
 	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cell.add_child(bar)
 
@@ -459,14 +454,12 @@ func _build_axis_cell(index: int) -> Control:
 
 
 func _build_channel_row(channel: String) -> Control:
-	var mobile := MobileInput.is_mobile_screen()
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 18 if mobile else 8)
+	row.add_theme_constant_override("separation", 8)
 
 	var name_label := MenuUI.body("%s  %s" % [
-			CHANNEL_LABELS[channel], CHANNEL_AXIS_HINTS[channel]],
-			34 if mobile else 14, MenuUI.TEXT)
-	name_label.custom_minimum_size = Vector2(280 if mobile else 108, 0)
+			CHANNEL_LABELS[channel], CHANNEL_AXIS_HINTS[channel]], 14, MenuUI.TEXT)
+	name_label.custom_minimum_size = Vector2(108, 0)
 	row.add_child(name_label)
 
 	var bar := HSlider.new()
@@ -475,12 +468,12 @@ func _build_channel_row(channel: String) -> Control:
 	bar.step = 0.01
 	bar.editable = false
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bar.custom_minimum_size = Vector2(0, 40 if mobile else 18)
+	bar.custom_minimum_size = Vector2(0, 18)
 	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(bar)
 
-	var value := MenuUI.body("0.00", 32 if mobile else 13, MenuUI.MUTED)
-	value.custom_minimum_size = Vector2(110 if mobile else 44, 0)
+	var value := MenuUI.body("0.00", 13, MenuUI.MUTED)
+	value.custom_minimum_size = Vector2(44, 0)
 	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	row.add_child(value)
 
@@ -504,6 +497,33 @@ func _build_device_bindings_column() -> Control:
 	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	column.add_theme_constant_override("separation", 6)
 	outer.add_child(column)
+
+	column.add_child(MenuUI.section("ELRS / СЕНСОР"))
+	var virtual_panel := _card()
+	column.add_child(virtual_panel)
+	var virtual_box := VBoxContainer.new()
+	virtual_box.add_theme_constant_override("separation", 4)
+	virtual_panel.add_child(virtual_box)
+
+	_virtual_invert_elrs = CheckBox.new()
+	_virtual_invert_elrs.text = _ui_text("Інверсія крену (ELRS)", "Invert roll (ELRS)")
+	_virtual_invert_elrs.add_theme_font_size_override("font_size", 14)
+	_virtual_invert_elrs.add_theme_color_override("font_color", MenuUI.TEXT)
+	_virtual_invert_elrs.toggled.connect(_on_virtual_invert_elrs)
+	virtual_box.add_child(_virtual_invert_elrs)
+
+	_virtual_invert_touch = CheckBox.new()
+	_virtual_invert_touch.text = _ui_text("Інверсія крену (сенсор)", "Invert roll (touch)")
+	_virtual_invert_touch.add_theme_font_size_override("font_size", 14)
+	_virtual_invert_touch.add_theme_color_override("font_color", MenuUI.TEXT)
+	_virtual_invert_touch.toggled.connect(_on_virtual_invert_touch)
+	virtual_box.add_child(_virtual_invert_touch)
+
+	var virtual_hint := MenuUI.body(_ui_text(
+			"Якщо крен перевернутий — увімкни відповідний пункт. Зберігається автоматично.",
+			"If roll is reversed, enable the matching option. Saved automatically."), 11, MenuUI.MUTED)
+	virtual_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	virtual_box.add_child(virtual_hint)
 
 	column.add_child(MenuUI.section("ПРИСТРІЙ"))
 
@@ -649,20 +669,19 @@ func _build_device_bindings_column() -> Control:
 
 
 func _binding_row(kind: String, key: String, label_text: String) -> Control:
-	var mobile := MobileInput.is_mobile_screen()
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10 if mobile else 4)
-	var label := MenuUI.body(label_text, 30 if mobile else 15)
+	row.add_theme_constant_override("separation", 4)
+	var label := MenuUI.body(label_text, 15)
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(label)
-	var value := MenuUI.body("—", 28 if mobile else 13, MenuUI.MUTED)
-	value.custom_minimum_size = Vector2(180 if mobile else 80, 0)
+	var value := MenuUI.body("—", 13, MenuUI.MUTED)
+	value.custom_minimum_size = Vector2(80, 0)
 	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	row.add_child(value)
-	var detect := MenuUI.button("Авто", 84 if mobile else 30)
-	detect.add_theme_font_size_override("font_size", 28 if mobile else 14)
-	detect.custom_minimum_size = Vector2(160 if mobile else 64, 84 if mobile else 30)
+	var detect := MenuUI.button("Авто", 30)
+	detect.add_theme_font_size_override("font_size", 14)
+	detect.custom_minimum_size = Vector2(64, 30)
 	detect.pressed.connect(_start_detect.bind(kind, key))
 	if kind == "action" and key == "activate_payload":
 		var tip := _ui_text(
@@ -672,15 +691,15 @@ func _binding_row(kind: String, key: String, label_text: String) -> Control:
 		detect.tooltip_text = tip
 	row.add_child(detect)
 	if kind == "stick":
-		var invert := MenuUI.button("⇄", 84 if mobile else 30)
-		invert.add_theme_font_size_override("font_size", 28 if mobile else 14)
-		invert.custom_minimum_size = Vector2(84 if mobile else 36, 84 if mobile else 30)
+		var invert := MenuUI.button("⇄", 30)
+		invert.add_theme_font_size_override("font_size", 14)
+		invert.custom_minimum_size = Vector2(36, 30)
 		invert.tooltip_text = _ui_text("Інвертувати напрямок стіка", "Invert stick direction")
 		invert.pressed.connect(_invert_binding.bind(key))
 		row.add_child(invert)
-	var clear := MenuUI.button("✕", 84 if mobile else 30)
-	clear.add_theme_font_size_override("font_size", 28 if mobile else 14)
-	clear.custom_minimum_size = Vector2(84 if mobile else 36, 84 if mobile else 30)
+	var clear := MenuUI.button("✕", 30)
+	clear.add_theme_font_size_override("font_size", 14)
+	clear.custom_minimum_size = Vector2(36, 30)
 	clear.pressed.connect(_clear_binding.bind(kind, key))
 	row.add_child(clear)
 	if kind == "stick":
@@ -820,6 +839,42 @@ func _on_default_toggled(pressed: bool) -> void:
 		return
 	var device: int = int(entry.get("device", 0))
 	Controls.update_default_device(device if pressed else -1)
+
+
+func _sync_virtual_options() -> void:
+	var elrs := _elrs()
+	if _virtual_invert_elrs != null:
+		_virtual_invert_elrs.set_pressed_no_signal(
+				elrs != null and bool(elrs.get("invert_roll")))
+	if _virtual_invert_touch != null:
+		var pad := get_node_or_null("/root/TouchControls")
+		_virtual_invert_touch.set_pressed_no_signal(
+				pad != null and bool(pad.get("invert_roll")))
+
+
+func _on_virtual_invert_elrs(on: bool) -> void:
+	var elrs := _elrs()
+	if elrs == null:
+		return
+	elrs.set("invert_roll", on)
+	elrs.call("save_settings")
+	var state := _ui_text("увімкнено", "enabled") if on else _ui_text("вимкнено", "disabled")
+	_message.text = _ui_text("Інверсію крену ELRS %s",
+			"ELRS roll inversion %s") % state
+
+
+func _on_virtual_invert_touch(on: bool) -> void:
+	var pad := get_node_or_null("/root/TouchControls")
+	if pad != null:
+		pad.set("invert_roll", on)
+	var settings := get_node_or_null("/root/GameSettings")
+	if settings != null:
+		var hud: Dictionary = settings.get("hud_config")
+		hud["touch_invert_roll"] = on
+		settings.call("save_hud_config")
+	var state := _ui_text("увімкнено", "enabled") if on else _ui_text("вимкнено", "disabled")
+	_message.text = _ui_text("Інверсію крену сенсора %s",
+			"Touch roll inversion %s") % state
 
 
 # ------------------------------------------------------------------ bindings

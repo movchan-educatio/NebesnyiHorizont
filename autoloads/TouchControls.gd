@@ -99,12 +99,10 @@ func _ready() -> void:
 
 	_pause_button = _make_top_button("МЕНЮ", _on_pause_pressed)
 	_flight_button = _make_top_button("РЕЖИМ", _on_flight_pressed)
-	_setup_button = _make_top_button("НАЛАШТ.", _on_setup_pressed)
 	_drop_button = _make_top_button("СКИД", _on_action_pressed.bind("deploy_payload"))
 	_use_button = _make_top_button("ЗАСТ.", _on_action_pressed.bind("activate_payload"))
 	_reset_button = _make_top_button("РЕСЕТ", _on_action_pressed.bind("respawn"))
 	_video_button = _make_top_button("ВІДЕО", _on_action_pressed.bind("cycle_video_mode"))
-	_build_setup_panel()
 
 	visible = false
 	set_process_input(false)
@@ -231,10 +229,10 @@ func _layout() -> void:
 		# instruction card and action buttons clear in the middle.  The UI
 		# canvas is 1080 units high on a phone (canvas_items stretch), hence
 		# the larger radius than the raw physical window might suggest.
-		_radius = clampf(minf(vs.x, vs.y) * 0.14, 110.0, 150.0)
-		var preview_bottom := vs.y - 20.0
-		_left_center = Vector2(_radius + 42.0, preview_bottom - _radius)
-		_right_center = Vector2(vs.x - _radius - 42.0, preview_bottom - _radius)
+		_radius = clampf(minf(vs.x, vs.y) * 0.115, 96.0, 120.0)
+		var preview_bottom := vs.y - 16.0
+		_left_center = Vector2(_radius + 34.0, preview_bottom - _radius)
+		_right_center = Vector2(vs.x - _radius - 34.0, preview_bottom - _radius)
 	else:
 		_radius = clampf(minf(vs.x, vs.y) * 0.135, 62.0, 132.0)
 		var bottom := vs.y - maxf(BOTTOM_MARGIN, MARGIN)
@@ -242,15 +240,13 @@ func _layout() -> void:
 				bottom - _radius)
 		_right_center = Vector2(vs.x - maxf(MARGIN + _radius, _radius + 12.0),
 				bottom - _radius)
-	var bar_w := 96.0 + 8.0 + 108.0 + 8.0 + 96.0 + 8.0 + 176.0
+	var bar_w := 96.0 + 8.0 + 108.0 + 8.0 + 176.0
 	var bar_x := (vs.x - bar_w) * 0.5
 	_pause_button.position = Vector2(bar_x, 144.0)
 	_pause_button.size = Vector2(96.0, 38.0)
 	_flight_button.position = Vector2(bar_x + 104.0, 144.0)
 	_flight_button.size = Vector2(108.0, 38.0)
-	_setup_button.position = Vector2(bar_x + 220.0, 144.0)
-	_setup_button.size = Vector2(96.0, 38.0)
-	_mode_button.position = Vector2(bar_x + 324.0, 144.0)
+	_mode_button.position = Vector2(bar_x + 220.0, 144.0)
 	_mode_button.size = Vector2(176.0, 38.0)
 	var row2: Array[Button] = [_drop_button, _use_button, _reset_button, _video_button]
 	var row2_w := 4.0 * 90.0 + 3.0 * 8.0
