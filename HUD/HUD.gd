@@ -79,6 +79,11 @@ func show_component(component: int, show: bool = true) -> void:
 		Component.STICKS:
 			hud_component.append(stick_left)
 			hud_component.append(stick_right)
+			# These begin hidden in _ready(); modulate alone cannot reveal them.
+			if stick_left != null:
+				stick_left.visible = show
+			if stick_right != null:
+				stick_right.visible = show
 		Component.RPM:
 			hud_component.append(rpm_table)
 	for comp in hud_component:

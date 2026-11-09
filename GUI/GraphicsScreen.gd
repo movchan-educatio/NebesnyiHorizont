@@ -45,10 +45,14 @@ func _build() -> void:
 
 	var center := CenterContainer.new()
 	MenuUI.full_rect(center)
+	var viewport_size := get_viewport_rect().size
+	if MenuUI.is_mobile_ui():
+		var edges := MenuUI.mobile_edge_margins(viewport_size)
+		center.offset_top = int(edges.y)
+		center.offset_bottom = -int(edges.w)
 	add_child(center)
 
 	var panel := PanelContainer.new()
-	var viewport_size := get_viewport_rect().size
 	var panel_width := minf(900.0, viewport_size.x - 24.0)
 	panel.custom_minimum_size = Vector2(panel_width, 0)
 	center.add_child(panel)
@@ -97,7 +101,9 @@ func _build() -> void:
 	box.add_child(q_hint)
 
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(maxf(240.0, panel_width - 56.0), maxf(150.0, minf(420.0, viewport_size.y - 260.0)))
+	var scroll_height := viewport_size.y - (330.0 if MenuUI.is_mobile_ui() else 260.0)
+	scroll.custom_minimum_size = Vector2(maxf(240.0, panel_width - 56.0),
+			maxf(130.0, minf(420.0, scroll_height)))
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	box.add_child(scroll)
 
@@ -312,6 +318,9 @@ func _on_reset_pressed() -> void:
 func _go_back() -> void:
 	if embedded:
 		back.emit()
+		return
+	if OS.has_feature("mobile"):
+		get_tree().change_scene_to_file("res://GUI/mobile/MobileMenu.tscn")
 		return
 	get_tree().change_scene_to_file(MAIN_MENU)
 

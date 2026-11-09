@@ -33,7 +33,9 @@ var _pause_button: Button = null
 var _flight_button: Button = null
 var _setup_button: Button = null
 var _drop_button: Button = null
-var _use_button: Button = null
+var _toast: Label = null
+var _toast_time := 0.0
+var _mode_refresh := 0.0
 var _reset_button: Button = null
 var _video_button: Button = null
 var _setup_root: Control = null
@@ -78,7 +80,7 @@ func _ready() -> void:
 	_mode_button.name = "TouchModeButton"
 	_mode_button.focus_mode = Control.FOCUS_NONE
 	_mode_button.mouse_filter = Control.MOUSE_FILTER_STOP
-	_mode_button.add_theme_font_size_override("font_size", 16)
+	_mode_button.add_theme_font_size_override("font_size", 20)
 	_mode_button.add_theme_color_override("font_color", Color(0.9, 0.96, 1.0))
 	_mode_button.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 	_mode_button.add_theme_constant_override("outline_size", 3)
@@ -99,10 +101,33 @@ func _ready() -> void:
 
 	_pause_button = _make_top_button("МЕНЮ", _on_pause_pressed)
 	_flight_button = _make_top_button("РЕЖИМ", _on_flight_pressed)
-	_drop_button = _make_top_button("СКИД", _on_action_pressed.bind("deploy_payload"))
-	_use_button = _make_top_button("ЗАСТ.", _on_action_pressed.bind("activate_payload"))
 	_reset_button = _make_top_button("РЕСЕТ", _on_action_pressed.bind("respawn"))
 	_video_button = _make_top_button("ВІДЕО", _on_action_pressed.bind("cycle_video_mode"))
+
+	_drop_button = Button.new()
+	_drop_button.name = "TouchDropButton"
+	_drop_button.text = "СКИД"
+	_drop_button.focus_mode = Control.FOCUS_NONE
+	_drop_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	_drop_button.add_theme_font_size_override("font_size", 22)
+	_drop_button.add_theme_color_override("font_color", Color(1.0, 0.95, 0.86))
+	_drop_button.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_drop_button.add_theme_constant_override("outline_size", 4)
+	_drop_button.pressed.connect(_on_action_pressed.bind("deploy_payload"))
+	_drop_button.visible = false
+	_root.add_child(_drop_button)
+
+	_toast = Label.new()
+	_toast.name = "TouchToast"
+	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_toast.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_toast.add_theme_font_size_override("font_size", 22)
+	_toast.add_theme_color_override("font_color", Color(1.0, 0.86, 0.55))
+	_toast.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
+	_toast.add_theme_constant_override("outline_size", 5)
+	_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_toast.visible = false
+	_root.add_child(_toast)
 
 	visible = false
 	set_process_input(false)
@@ -151,7 +176,7 @@ func set_menu_preview(on: bool) -> void:
 		_layout()
 		_reset_sticks()
 		for b in [_pause_button, _flight_button, _setup_button, _drop_button,
-				_use_button, _reset_button, _video_button, _mode_button, _arm_button]:
+				_reset_button, _video_button, _mode_button, _arm_button]:
 			if b != null:
 				b.visible = false
 		if _setup_root != null:
@@ -163,10 +188,12 @@ func set_menu_preview(on: bool) -> void:
 	_preview = false
 	process_mode = Node.PROCESS_MODE_INHERIT
 	set_enabled(false)
-	for b in [_pause_button, _flight_button, _setup_button, _drop_button,
-			_use_button, _reset_button, _video_button, _mode_button, _arm_button]:
+	for b in [_pause_button, _flight_button, _setup_button,
+			_reset_button, _video_button, _mode_button, _arm_button]:
 		if b != null:
 			b.visible = true
+	if _drop_button != null:
+		_drop_button.visible = false
 
 
 func _should_enable() -> bool:
@@ -196,6 +223,8 @@ func set_enabled(value: bool) -> void:
 			_on_setup_close()
 		touch_mode = false
 		_reset_sticks()
+		if _drop_button != null:
+			_drop_button.visible = false
 	mode_changed.emit(touch_mode)
 
 
@@ -205,7 +234,7 @@ func _make_top_button(text: String, cb: Callable) -> Button:
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
 	b.mouse_filter = Control.MOUSE_FILTER_STOP
-	b.add_theme_font_size_override("font_size", 15)
+	b.add_theme_font_size_override("font_size", 20)
 	b.add_theme_color_override("font_color", Color(0.90, 0.96, 1.0))
 	b.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	b.add_theme_constant_override("outline_size", 3)
@@ -224,38 +253,64 @@ func _layout() -> void:
 	_root.size = vs
 	_drawer.position = Vector2.ZERO
 	_drawer.size = vs
+	# Notch / rounded-corner / home-indicator safe area.  In sensor-landscape
+	# the cutout can be on the left or right after the device is rotated.
+	var notch := MenuUI.mobile_notch_insets(vs)
 	if _preview:
 		# Menu calibration: compact sticks in the bottom corners keep the
 		# instruction card and action buttons clear in the middle.  The UI
 		# canvas is 1080 units high on a phone (canvas_items stretch), hence
 		# the larger radius than the raw physical window might suggest.
 		_radius = clampf(minf(vs.x, vs.y) * 0.115, 96.0, 120.0)
-		var preview_bottom := vs.y - 16.0
-		_left_center = Vector2(_radius + 34.0, preview_bottom - _radius)
-		_right_center = Vector2(vs.x - _radius - 34.0, preview_bottom - _radius)
+		var preview_bottom := vs.y - 16.0 - notch.w
+		_left_center = Vector2(_radius + 34.0 + notch.x, preview_bottom - _radius)
+		_right_center = Vector2(vs.x - _radius - 34.0 - notch.z, preview_bottom - _radius)
 	else:
-		_radius = clampf(minf(vs.x, vs.y) * 0.135, 62.0, 132.0)
-		var bottom := vs.y - maxf(BOTTOM_MARGIN, MARGIN)
-		_left_center = Vector2(maxf(MARGIN + _radius, _radius + 12.0),
+		# Larger sticks pulled in from the edges and lifted clear of the
+		# home-indicator strip.  The pilot's thumbs naturally rest at
+		# 28 % / 72 % of the width.
+		_radius = clampf(minf(vs.x, vs.y) * 0.16, 86.0, 176.0)
+		var bottom := vs.y - maxf(64.0, notch.w + 16.0)
+		_left_center = Vector2(maxf(vs.x * 0.28, _radius + notch.x + 12.0),
 				bottom - _radius)
-		_right_center = Vector2(vs.x - maxf(MARGIN + _radius, _radius + 12.0),
-				bottom - _radius)
-	var bar_w := 96.0 + 8.0 + 108.0 + 8.0 + 176.0
+		_right_center = Vector2(minf(vs.x * 0.72,
+				vs.x - _radius - notch.z - 12.0), bottom - _radius)
+	var bar_w := 150.0 + 10.0 + 190.0 + 10.0 + 250.0
 	var bar_x := (vs.x - bar_w) * 0.5
-	_pause_button.position = Vector2(bar_x, 144.0)
-	_pause_button.size = Vector2(96.0, 38.0)
-	_flight_button.position = Vector2(bar_x + 104.0, 144.0)
-	_flight_button.size = Vector2(108.0, 38.0)
-	_mode_button.position = Vector2(bar_x + 220.0, 144.0)
-	_mode_button.size = Vector2(176.0, 38.0)
-	var row2: Array[Button] = [_drop_button, _use_button, _reset_button, _video_button]
-	var row2_w := 4.0 * 90.0 + 3.0 * 8.0
+	_pause_button.position = Vector2(bar_x, 96.0 + notch.y)
+	_pause_button.size = Vector2(150.0, 62.0)
+	_flight_button.position = Vector2(bar_x + 160.0, 96.0 + notch.y)
+	_flight_button.size = Vector2(190.0, 62.0)
+	_flight_button.add_theme_font_size_override("font_size", 17)
+	_mode_button.position = Vector2(bar_x + 360.0, 96.0 + notch.y)
+	_mode_button.size = Vector2(250.0, 62.0)
+	var row2: Array[Button] = [_reset_button, _video_button]
+	var row2_w := 2.0 * 150.0 + 10.0
 	var row2_x := (vs.x - row2_w) * 0.5
 	for i in range(row2.size()):
-		row2[i].position = Vector2(row2_x + i * 98.0, 190.0)
-		row2[i].size = Vector2(90.0, 34.0)
-	_arm_button.position = Vector2(vs.x * 0.5 - 86.0, vs.y - 198.0)
-	_arm_button.size = Vector2(172.0, 64.0)
+		row2[i].position = Vector2(row2_x + i * 160.0, 170.0 + notch.y)
+		row2[i].size = Vector2(150.0, 54.0)
+	_arm_button.position = Vector2(vs.x * 0.5 - 95.0, vs.y - 160.0 - notch.w)
+	_arm_button.size = Vector2(190.0, 70.0)
+	var drop_size := clampf(_radius * 0.60, 78.0, 106.0)
+	_drop_button.position = Vector2(_left_center.x + _radius + 24.0,
+			_left_center.y - drop_size * 0.5)
+	_drop_button.size = Vector2(drop_size, drop_size)
+	_drop_button.add_theme_font_size_override("font_size", int(clampf(drop_size * 0.24, 16.0, 24.0)))
+	var drop_style := StyleBoxFlat.new()
+	drop_style.bg_color = Color(0.20, 0.075, 0.04, 0.86)
+	drop_style.border_color = Color(1.0, 0.60, 0.30, 0.85)
+	drop_style.set_border_width_all(2)
+	drop_style.set_corner_radius_all(int(drop_size * 0.5))
+	var drop_pressed := drop_style.duplicate() as StyleBoxFlat
+	drop_pressed.bg_color = Color(0.48, 0.14, 0.07, 0.95)
+	_drop_button.add_theme_stylebox_override("normal", drop_style)
+	_drop_button.add_theme_stylebox_override("hover", drop_style)
+	_drop_button.add_theme_stylebox_override("pressed", drop_pressed)
+	_drop_button.visible = enabled and touch_mode and not _preview
+	if _toast != null:
+		_toast.position = Vector2(vs.x * 0.5 - 330.0, 238.0 + notch.y)
+		_toast.size = Vector2(660.0, 52.0)
 	if _setup_root != null:
 		_setup_root.position = Vector2.ZERO
 		_setup_root.size = vs
@@ -281,7 +336,7 @@ func _apply_button_style() -> void:
 	_mode_button.add_theme_stylebox_override("normal", normal)
 	_mode_button.add_theme_stylebox_override("hover", normal)
 	_mode_button.add_theme_stylebox_override("pressed", pressed)
-	for b in [_pause_button, _flight_button, _setup_button, _drop_button, _use_button, _reset_button, _video_button]:
+	for b in [_pause_button, _flight_button, _setup_button, _reset_button, _video_button]:
 		if b != null:
 			b.add_theme_stylebox_override("normal", normal)
 			b.add_theme_stylebox_override("hover", normal)
@@ -304,6 +359,8 @@ func _update_mode_button() -> void:
 	if _mode_button == null:
 		return
 	_mode_button.text = "ВВІД: СЕНСОР" if touch_mode else "ВВІД: ПУЛЬТ"
+	if _drop_button != null:
+		_drop_button.visible = enabled and touch_mode and not _preview
 
 
 func _on_mode_pressed() -> void:
@@ -338,7 +395,61 @@ func _on_flight_pressed() -> void:
 
 
 func _on_action_pressed(action: String) -> void:
+	if action == "deploy_payload":
+		if not _payload_available():
+			_show_toast("НЕМАЄ БОЄПРИПАСУ")
+			return
+		_show_toast("СКИД")
 	_dispatch_action(action)
+
+
+func _payload_available() -> bool:
+	var scene := get_tree().current_scene
+	if scene == null:
+		return true
+	if scene.has_method("_ammo_count"):
+		if int(scene.call("_ammo_count")) <= 0:
+			return false
+	var enabled = scene.get("_payload_enabled")
+	if enabled is bool and not bool(enabled):
+		return false
+	return true
+
+
+func _show_toast(text: String) -> void:
+	if _toast == null:
+		return
+	_toast.text = text
+	_toast.visible = true
+	_toast_time = 1.4
+
+
+func _process(delta: float) -> void:
+	if _toast_time > 0.0:
+		_toast_time -= delta
+		if _toast_time <= 0.0 and _toast != null:
+			_toast.visible = false
+	_mode_refresh -= delta
+	if _mode_refresh <= 0.0:
+		_mode_refresh = 0.35
+		_sync_flight_mode_label()
+
+
+func _sync_flight_mode_label() -> void:
+	if _flight_button == null:
+		return
+	var scene := get_tree().current_scene
+	if scene == null:
+		return
+	var drone := scene.get_node_or_null("Drone")
+	var fc = drone.get("flight_controller") if drone != null else null
+	if fc == null:
+		_flight_button.text = "РЕЖИМ"
+		return
+	var mode := int(fc.get("flight_mode"))
+	var names := ["ACRO", "ANGLE", "SPEED", "TRACK", "LAUNCH", "TURTLE", "AUTO", "HORIZON"]
+	var label: String = names[mode] if mode >= 0 and mode < names.size() else str(mode)
+	_flight_button.text = "РЕЖИМ: %s" % label
 
 
 func _dispatch_action(action: String) -> void:

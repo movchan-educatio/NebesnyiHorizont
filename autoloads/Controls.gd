@@ -25,7 +25,7 @@ var stick_conflicts := []
 ## controller (InputMap.cfg section), unlike the global tuning values.
 var stick_ranges := {}
 
-const STICK_TUNING_VERSION := 5
+const STICK_TUNING_VERSION := 6
 ## Calibration data written before this version came from the old wizard
 ## (threshold-crossing endpoints and a centre sampled mid-return), so it is
 ## discarded once on upgrade instead of silently shifting the neutral point.
@@ -35,9 +35,14 @@ const STICK_CALIBRATION_VERSION := 4
 ## noise around the centre is smoothed away.  0 = completely raw input.
 const DEFAULT_STICK_SMOOTHING := 0.16
 
-## Controller deadband applied to every stick channel (±0.02 default).
+## Controller deadband applied to every stick channel (±0.02 PC default).
 ## Values inside this range are snapped to zero to kill jitter / drift.
 const DEFAULT_STICK_DEADZONE := 0.02
+
+## The phone build keeps the same 2% deadband as before and only uses a
+## slightly lighter smoothing filter for a quicker response.
+const MOBILE_STICK_SMOOTHING := 0.10
+const MOBILE_STICK_DEADZONE := DEFAULT_STICK_DEADZONE
 @export var stick_deadzone := DEFAULT_STICK_DEADZONE: set = _set_deadzone
 ## Smoothing strength (0.0 = none / instant, 0.5 = strongest).  Internally it
 ## maps to a short time constant, not a per-frame alpha, so the feel is the
@@ -356,6 +361,13 @@ func update_default_device(device: int) -> int:
 
 
 func load_input_map(update_controller: bool = false) -> String:
+	# Fall back to the mobile defaults even on a fresh install where the config
+	# file does not exist yet.  Saved values are loaded below and win.
+	if MenuUI.is_mobile_ui():
+		if is_equal_approx(stick_deadzone, DEFAULT_STICK_DEADZONE):
+			stick_deadzone = MOBILE_STICK_DEADZONE
+		if is_equal_approx(stick_smoothing, DEFAULT_STICK_SMOOTHING):
+			stick_smoothing = MOBILE_STICK_SMOOTHING
 	var config := ConfigFile.new()
 	var err := config.load(input_map_path)
 	if err != OK:
@@ -368,6 +380,7 @@ func load_input_map(update_controller: bool = false) -> String:
 	var tuning_version := int(config.get_value("controls", "stick_tuning_version", 0))
 	stick_deadzone = clampf(float(config.get_value("controls", "stick_deadzone", stick_deadzone)), 0.0, 0.25)
 	stick_smoothing = clampf(float(config.get_value("controls", "stick_smoothing", stick_smoothing)), 0.0, 0.5)
+	var mobile_tuning := MenuUI.is_mobile_ui()
 	if tuning_version < STICK_TUNING_VERSION:
 		# Old builds defaulted to 0, which felt twitchy on cheap radios.  Only
 		# replace the untouched default; an explicitly customised value stays.
@@ -397,6 +410,15 @@ func load_input_map(update_controller: bool = false) -> String:
 		var tuning_err := config.save(input_map_path)
 		if tuning_err != OK:
 			Global.log_error(tuning_err, "Could not migrate stick tuning settings.")
+	# Mobile-only feel: the deadband stays at the previous 2%; only the
+	# smoothing default is lighter.  A custom slider value is preserved.
+	if mobile_tuning and is_equal_approx(stick_smoothing, 0.16):
+		stick_smoothing = MOBILE_STICK_SMOOTHING
+		config.set_value("controls", "stick_smoothing", stick_smoothing)
+		config.set_value("controls", "stick_tuning_version", STICK_TUNING_VERSION)
+		var mobile_err := config.save(input_map_path)
+		if mobile_err != OK:
+			Global.log_error(mobile_err, "Could not save mobile stick tuning.")
 	for channel in stick_invert.keys():
 		stick_invert[channel] = bool(config.get_value(
 				"controls", "stick_invert_" + channel, stick_invert[channel]))
@@ -1061,7 +1083,7 @@ func describe_binding(action: String) -> String:
 func _add_axis_event(action: String, axis: int, value: float) -> void:
 	if not InputMap.has_action(action):
 		InputMap.add_action(action)
-	InputMap.action_set_deadzone(action, 0.02)
+	InputMap.action_set_deadzone(action, stick_deadzone)
 	InputMap.action_erase_events(action)
 	var event := InputEventJoypadMotion.new()
 	event.axis = axis
@@ -1219,7 +1241,7 @@ func _run_selftest() -> void:
 		print("[INPUT-SELFTEST] PASS input bindings")
 	else:
 		print("[INPUT-SELFTEST] FAIL input bindings")
-	stick_deadzone = 0.02
+	stick_deadzone = DEFAULT_STICK_DEADZONE
 	stick_smoothing = DEFAULT_STICK_SMOOTHING
 	stick_invert["yaw"] = false
 	stick_ranges.clear()

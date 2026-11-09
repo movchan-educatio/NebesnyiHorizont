@@ -87,9 +87,15 @@ func _apply_military_styling() -> void:
 	center.add_child(panel)
 
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	panel.custom_minimum_size = Vector2(minf(560.0, get_viewport_rect().size.x - 40.0), 0)
-	panel.add_theme_stylebox_override("panel",
-			MenuUI._style(MenuUI.PANEL, MenuUI.BORDER_HIGHLIGHT, 2, 3, 30, 24, 5))
+	var pause_vp := get_viewport_rect().size
+	var pause_safe := MenuUI.mobile_safe_margin(pause_vp) if MenuUI.is_mobile_ui() else 20.0
+	panel.custom_minimum_size = Vector2(
+			minf(720.0 if MenuUI.is_mobile_ui() else 560.0,
+					pause_vp.x - pause_safe * 2.0), 0)
+	panel.add_theme_stylebox_override("panel", MenuUI._style(
+			MenuUI.FPV_BG_CARD if MenuUI.is_mobile_ui() else MenuUI.PANEL,
+			MenuUI.BORDER_HIGHLIGHT, 2,
+			16 if MenuUI.is_mobile_ui() else 3, 30, 24, 5))
 	vbox.mouse_filter = Control.MOUSE_FILTER_PASS
 	vbox.add_theme_constant_override("separation", 14)
 
@@ -102,20 +108,36 @@ func _apply_military_styling() -> void:
 		title_lbl.text = "ПАУЗА"
 		title_lbl.add_theme_font_size_override("font_size", 28)
 		title_lbl.add_theme_color_override("font_color", MenuUI.FPV_TEXT)
+		if MenuUI.is_mobile_ui():
+			title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 	for b in [btn_resume, btn_quad, btn_options, btn_main_menu, btn_quit]:
 		if b != null:
 			b.mouse_filter = Control.MOUSE_FILTER_STOP
 			b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 
+	var pause_btn_height := 58.0 if MenuUI.is_mobile_ui() else 48.0
 	btn_resume.text = "▶  ПРОДОВЖИТИ ПОЛІТ"
-	btn_resume.custom_minimum_size = Vector2(0, 48)
+	btn_resume.custom_minimum_size = Vector2(0, pause_btn_height)
 	btn_quad.text = "✈  ПАРАМЕТРИ БОРТУ ТА РЕЙТИ"
-	btn_quad.custom_minimum_size = Vector2(0, 48)
+	btn_quad.custom_minimum_size = Vector2(0, pause_btn_height)
 	btn_options.text = "⚙  НАЛАШТУВАННЯ ТА КЕРУВАННЯ"
-	btn_options.custom_minimum_size = Vector2(0, 48)
+	btn_options.custom_minimum_size = Vector2(0, pause_btn_height)
 	btn_main_menu.text = "⌂  ДО ГОЛОВНОГО МЕНЮ"
-	btn_main_menu.custom_minimum_size = Vector2(0, 48)
+	btn_main_menu.custom_minimum_size = Vector2(0, pause_btn_height)
+	if MenuUI.is_mobile_ui():
+		var primary := MenuUI.feel_style(Color(0.62, 0.74, 0.55, 1.0),
+				MenuUI.FPV_GREEN, 2, 14, 18, 12)
+		var primary_hover := MenuUI.feel_style(Color(0.70, 0.82, 0.62, 1.0),
+				MenuUI.FPV_GREEN, 2, 14, 18, 12)
+		btn_resume.add_theme_stylebox_override("normal", primary)
+		btn_resume.add_theme_stylebox_override("hover", primary_hover)
+		btn_resume.add_theme_stylebox_override("focus", primary_hover)
+		btn_resume.add_theme_stylebox_override("pressed", MenuUI.feel_style(
+				Color(0.10, 0.22, 0.15, 1.0), MenuUI.FPV_GREEN, 2, 14, 18, 12))
+		btn_resume.add_theme_color_override("font_color", Color(0.06, 0.09, 0.07))
+		btn_resume.add_theme_color_override("font_hover_color", Color(0.06, 0.09, 0.07))
+		btn_resume.add_theme_color_override("font_pressed_color", MenuUI.FPV_TEXT)
 
 
 func _on_visibility_changed() -> void:

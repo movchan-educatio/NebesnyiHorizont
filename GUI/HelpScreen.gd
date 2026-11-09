@@ -37,6 +37,32 @@ Xbox і PlayStation з автокалібруванням осей.
 У меню «Керування» рядок «Активація БЧ / миттєва детонація»
 призначається кнопкою «Авто» на будь-який тумблер пульта."""
 
+const TOUCH_TEXT := """[b]СЕНСОРНИЙ ЕКРАН[/b]
+Лівий стік — газ / рискання; правий — тангаж / крен
+АРМ — увімкнути / вимкнути двигуни
+РЕЖИМ — поточний режим (ANGLE, ACRO, SPEED…)
+СКИД — кругла кнопка праворуч від лівого стіка
+ВІДЕО — цикл FPV-фільтра: аналог / O3 / тепловізор
+МЕНЮ — пауза; РЕСЕТ — респавн
+ВВІД: СЕНСОР / ПУЛЬТ — перемикання джерела
+Екран повертається за пристроєм; інтерфейс враховує виріз камери.
+
+[b]ПУЛЬТИ[/b]
+RadioMaster TX12 / Pocket / Zorro, BetaFPV, Xbox, PlayStation."""
+
+const TOUCH_TEXT_EN := """[b]TOUCH SCREEN[/b]
+Left stick — throttle / yaw; right stick — pitch / roll
+ARM — arm / disarm the motors
+MODE — current flight mode (ANGLE, ACRO, SPEED…)
+DROP — round button to the right of the left stick
+VIDEO — cycles the FPV filter: analog / O3 / thermal
+MENU — pause; RESET — respawn
+INPUT: TOUCH / RADIO — switch control source
+The screen rotates with the device and respects the camera notch.
+
+[b]CONTROLLERS[/b]
+RadioMaster TX12 / Pocket / Zorro, BetaFPV, Xbox, PlayStation."""
+
 const MODES_TEXT := """[b]БОЙОВІ МІСІЇ (КАМПАНІЯ 1–5)[/b]
 • TAC-01: Піхота (виявлення та ліквідація живої сили)
 • TAC-02: Танк і БТР (знищення броньованої колони)
@@ -184,10 +210,14 @@ func _build() -> void:
 
 	var center := CenterContainer.new()
 	MenuUI.full_rect(center)
+	var viewport_size := get_viewport_rect().size
+	if MenuUI.is_mobile_ui():
+		var edges := MenuUI.mobile_edge_margins(viewport_size)
+		center.offset_top = int(edges.y)
+		center.offset_bottom = -int(edges.w)
 	add_child(center)
 
 	var panel := PanelContainer.new()
-	var viewport_size := get_viewport_rect().size
 	var panel_width := minf(980.0, viewport_size.x - 24.0)
 	var column_width := maxf(250.0, (panel_width - 100.0) * 0.5)
 	panel.custom_minimum_size = Vector2(panel_width, 0)
@@ -216,7 +246,11 @@ func _build() -> void:
 	col_left.add_child(MenuUI.section("РОЗКЛАДКА КЕРУВАННЯ", "ПІЛОТ"))
 	var controls := RichTextLabel.new()
 	controls.bbcode_enabled = true
-	controls.text = CONTROLS_TEXT_EN if MenuUI.is_english() else CONTROLS_TEXT
+	var controls_body := CONTROLS_TEXT_EN if MenuUI.is_english() else CONTROLS_TEXT
+	if MenuUI.is_mobile_ui():
+		# The phone help must not send the pilot to PC keyboard shortcuts.
+		controls_body = TOUCH_TEXT_EN if MenuUI.is_english() else TOUCH_TEXT
+	controls.text = controls_body
 	controls.fit_content = true
 	controls.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	controls.custom_minimum_size = Vector2(column_width, 0)
@@ -239,7 +273,8 @@ func _build() -> void:
 	columns.add_child(col_right)
 
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(0, maxf(160.0, minf(480.0, viewport_size.y - 170.0)))
+	var help_scroll_height := viewport_size.y - (260.0 if MenuUI.is_mobile_ui() else 170.0)
+	scroll.custom_minimum_size = Vector2(0, maxf(150.0, minf(480.0, help_scroll_height)))
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.add_child(columns)
 	box.add_child(scroll)
@@ -251,16 +286,27 @@ func _build() -> void:
 	tut_btn.text = "🎓  РОЗПОЧАТИ КУРС ПІЛОТА"
 	tut_btn.custom_minimum_size = Vector2(0, 48)
 	tut_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tut_btn.add_theme_stylebox_override("normal", MenuUI._style(MenuUI.BUTTON_ACTIVE, MenuUI.ACCENT, 2, 1, 14, 8, 4))
-	tut_btn.add_theme_stylebox_override("hover", MenuUI._style(MenuUI.BUTTON_ACTIVE.lightened(0.08), MenuUI.ACCENT, 2, 1, 14, 8, 4))
-	# The button is focused on entry; without a matching focus style the theme's
-	# white focus box hid the white label completely.
-	tut_btn.add_theme_stylebox_override("focus", MenuUI._style(MenuUI.BUTTON_ACTIVE.lightened(0.08), MenuUI.ACCENT, 2, 1, 14, 8, 4))
-	tut_btn.add_theme_stylebox_override("pressed", MenuUI._style(MenuUI.BUTTON_ACTIVE.darkened(0.08), MenuUI.ACCENT, 2, 1, 14, 8, 4))
-	tut_btn.add_theme_font_size_override("font_size", 16)
-	tut_btn.add_theme_color_override("font_color", Color.WHITE)
-	tut_btn.add_theme_color_override("font_hover_color", Color.WHITE)
-	tut_btn.add_theme_color_override("font_focus_color", Color.WHITE)
+	if MenuUI.is_mobile_ui():
+		tut_btn.add_theme_stylebox_override("normal", MenuUI._style(Color(0.62, 0.74, 0.55, 1.0), MenuUI.FPV_GREEN, 2, 12, 16, 10, 4))
+		tut_btn.add_theme_stylebox_override("hover", MenuUI._style(Color(0.70, 0.82, 0.62, 1.0), MenuUI.FPV_GREEN, 2, 12, 16, 10, 4))
+		tut_btn.add_theme_stylebox_override("focus", MenuUI._style(Color(0.70, 0.82, 0.62, 1.0), MenuUI.FPV_GREEN, 2, 12, 16, 10, 4))
+		tut_btn.add_theme_stylebox_override("pressed", MenuUI._style(Color(0.10, 0.22, 0.15, 1.0), MenuUI.FPV_GREEN, 2, 12, 16, 10, 4))
+		tut_btn.add_theme_font_size_override("font_size", 18)
+		tut_btn.add_theme_color_override("font_color", Color(0.06, 0.09, 0.07))
+		tut_btn.add_theme_color_override("font_hover_color", Color(0.06, 0.09, 0.07))
+		tut_btn.add_theme_color_override("font_focus_color", Color(0.06, 0.09, 0.07))
+		tut_btn.add_theme_color_override("font_pressed_color", MenuUI.FPV_TEXT)
+	else:
+		tut_btn.add_theme_stylebox_override("normal", MenuUI._style(MenuUI.BUTTON_ACTIVE, MenuUI.ACCENT, 2, 1, 14, 8, 4))
+		tut_btn.add_theme_stylebox_override("hover", MenuUI._style(MenuUI.BUTTON_ACTIVE.lightened(0.08), MenuUI.ACCENT, 2, 1, 14, 8, 4))
+		# The button is focused on entry; without a matching focus style the theme's
+		# white focus box hid the white label completely.
+		tut_btn.add_theme_stylebox_override("focus", MenuUI._style(MenuUI.BUTTON_ACTIVE.lightened(0.08), MenuUI.ACCENT, 2, 1, 14, 8, 4))
+		tut_btn.add_theme_stylebox_override("pressed", MenuUI._style(MenuUI.BUTTON_ACTIVE.darkened(0.08), MenuUI.ACCENT, 2, 1, 14, 8, 4))
+		tut_btn.add_theme_font_size_override("font_size", 16)
+		tut_btn.add_theme_color_override("font_color", Color.WHITE)
+		tut_btn.add_theme_color_override("font_hover_color", Color.WHITE)
+		tut_btn.add_theme_color_override("font_focus_color", Color.WHITE)
 	tut_btn.pressed.connect(_launch_tutorial)
 	action_row.add_child(tut_btn)
 
@@ -290,6 +336,9 @@ func _launch_tutorial() -> void:
 func _go_back() -> void:
 	if embedded:
 		back.emit()
+		return
+	if OS.has_feature("mobile"):
+		get_tree().change_scene_to_file("res://GUI/mobile/MobileMenu.tscn")
 		return
 	get_tree().change_scene_to_file(MAIN_MENU)
 

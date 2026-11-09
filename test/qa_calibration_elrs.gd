@@ -37,6 +37,13 @@ func _run() -> void:
 	_set_channels(0, 16383, 16383, 16383)
 	_cal.call("reset_calibration")
 
+	# Step 0 requires all four axes to move; step 1 requires the self-centring
+	# axes released.  ELRS shares the virtual input path, so demonstrate both.
+	_set_channels(32767, 0, 0, 0)
+	await get_tree().create_timer(0.9).timeout
+	_set_channels(0, 16383, 16383, 16383)
+	await get_tree().create_timer(1.1).timeout
+
 	# Hold the value each step asks for until the wizard advances.  This is
 	# robust against the exact frame timing of the centre/extreme detectors.
 	var last_step := -999

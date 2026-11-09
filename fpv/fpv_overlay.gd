@@ -131,6 +131,18 @@ func set_video_mode(mode: int) -> void:
 	_on_video_mode_changed(mode)
 
 
+## Force the downlink filter on/off from the touch VIDEO button.  The link-loss
+## auto layer is bypassed once the pilot makes a manual choice.
+func set_user_visible(on: bool) -> void:
+	_manual_override = true
+	_user_visible = on
+	visible = on
+
+
+func is_user_visible() -> bool:
+	return _user_visible
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if Controls.is_action_edge(event, "toggle_fpv_effects"):
 		# Once the pilot touches the shortcut, the link-loss auto layer stops

@@ -92,10 +92,19 @@ func _apply_military_styling() -> void:
 	# Wrap PanelContainer inside a padded MarginContainer so it sits framed inside the C2 border
 	var frame_margin := MarginContainer.new()
 	var viewport_size := get_viewport_rect().size
-	for side in ["left", "right"]:
-		frame_margin.add_theme_constant_override("margin_%s" % side, minf(48.0, viewport_size.x * 0.025))
-	for side in ["top", "bottom"]:
-		frame_margin.add_theme_constant_override("margin_%s" % side, minf(36.0, viewport_size.y * 0.04))
+	if MenuUI.is_mobile_ui():
+		var rate_edges := MenuUI.mobile_edge_margins(viewport_size)
+		frame_margin.add_theme_constant_override("margin_left", int(rate_edges.x))
+		frame_margin.add_theme_constant_override("margin_right", int(rate_edges.z))
+		frame_margin.add_theme_constant_override("margin_top", maxi(20, int(rate_edges.y)))
+		frame_margin.add_theme_constant_override("margin_bottom", maxi(20, int(rate_edges.w)))
+	else:
+		for side in ["left", "right"]:
+			frame_margin.add_theme_constant_override("margin_%s" % side,
+					minf(48.0, viewport_size.x * 0.025))
+		for side in ["top", "bottom"]:
+			frame_margin.add_theme_constant_override("margin_%s" % side,
+					minf(36.0, viewport_size.y * 0.04))
 	remove_child(panel)
 	add_child(frame_margin)
 	frame_margin.add_child(panel)
@@ -139,6 +148,8 @@ func _apply_military_styling() -> void:
 		_title_label.text = _ui_text("ПАРАМЕТРИ ДРОНА", "DRONE SETTINGS")
 		_title_label.add_theme_font_size_override("font_size", 28)
 		_title_label.add_theme_color_override("font_color", MenuUI.FPV_TEXT)
+		if MenuUI.is_mobile_ui():
+			_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 	# Translate Left Grid Labels
 	var angle_lbl := quad_grid.get_node_or_null("AngleLabel") as Label
@@ -477,5 +488,14 @@ func _on_reset_rates_pressed() -> void:
 
 
 func _on_back_pressed() -> void:
+	# The pause menu hosts this scene and listens to `closed`.  Opened as a
+	# standalone screen from the mobile menu there is no listener, so return
+	# to the phone shell instead of leaving an empty hidden screen.
+	if get_signal_connection_list("closed").is_empty():
+		if OS.has_feature("mobile"):
+			get_tree().change_scene_to_file("res://GUI/mobile/MobileMenu.tscn")
+			return
+		get_tree().change_scene_to_file("res://GUI/MainMenu.tscn")
+		return
 	show_menu(false)
 	emit_signal("closed")

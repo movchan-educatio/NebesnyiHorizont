@@ -54,6 +54,13 @@ const ACTION_ROWS := [
 	["pause_menu", "Пауза"],
 ]
 
+
+func _action_rows() -> Array:
+	var rows := ACTION_ROWS.duplicate()
+	if MenuUI.is_mobile_ui():
+		rows.append(["cycle_video_mode", "Цикл відеофільтра"])
+	return rows
+
 signal back
 
 ## When true the screen is embedded by the legacy options menu and «Назад»
@@ -110,6 +117,10 @@ var _keep_source_override := false
 func _ready() -> void:
 	theme = MenuUI.theme()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	if MenuUI.is_mobile_ui():
+		# The phone screen can be opened directly (and is the place where the
+		# stick tuning is read); apply the mobile defaults before building.
+		Controls.load_input_map(true)
 	_build()
 	Input.joy_connection_changed.connect(_on_joy_connection_changed)
 	_refresh_devices()
@@ -247,7 +258,7 @@ func _build_mobile() -> void:
 	bindings.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bindings.add_theme_constant_override("separation", 10)
 	bindings_panel.add_child(bindings)
-	for entry in ACTION_ROWS:
+	for entry in _action_rows():
 		bindings.add_child(_binding_row("action", entry[0], entry[1]))
 
 	_latency_label = MenuUI.body("", 28, MenuUI.MUTED)
@@ -273,10 +284,11 @@ func _build() -> void:
 	var margin := MarginContainer.new()
 	MenuUI.full_rect(margin)
 	var viewport_size := get_viewport_rect().size
-	for side in ["left", "right"]:
-		margin.add_theme_constant_override("margin_%s" % side, minf(24.0, viewport_size.x * 0.025))
-	margin.add_theme_constant_override("margin_top", 12)
-	margin.add_theme_constant_override("margin_bottom", 32)
+	var edges := MenuUI.mobile_edge_margins(viewport_size) if MenuUI.is_mobile_ui() else Vector4(24, 12, 24, 32)
+	margin.add_theme_constant_override("margin_left", int(edges.x))
+	margin.add_theme_constant_override("margin_right", int(edges.z))
+	margin.add_theme_constant_override("margin_top", maxi(12, int(edges.y)))
+	margin.add_theme_constant_override("margin_bottom", maxi(32, int(edges.w)))
 	add_child(margin)
 
 	var box := VBoxContainer.new()
@@ -288,21 +300,33 @@ func _build() -> void:
 			_ui_text("Пульт TX12 повторює рухи стіків — сітка осей показує живий вхід",
 				"The TX12 preview mirrors your stick inputs; the axis grid shows live signals.")))
 
-	var radio_column := _build_radio_column()
+	var stacked_layout := viewport_size.x < 1100.0 \
+			or (MenuUI.is_mobile_ui() and viewport_size.y < 700.0)
+	var radio_column := _build_radio_column(stacked_layout)
 	var axis_column := _build_axis_column()
 	var bindings_column := _build_device_bindings_column()
-	if viewport_size.x < 1100.0:
+	if stacked_layout:
 		var scroll := ScrollContainer.new()
 		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 		scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		scroll.custom_minimum_size.y = maxf(180.0, viewport_size.y - 220.0)
+		scroll.custom_minimum_size.y = clampf(viewport_size.y - 290.0, 180.0, 480.0)
 		box.add_child(scroll)
 		var stacked := VBoxContainer.new()
 		stacked.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		stacked.add_theme_constant_override("separation", 12)
 		scroll.add_child(stacked)
-		stacked.add_child(radio_column)
-		stacked.add_child(axis_column)
+		# Keep the transmitter monitor and the live axes side by side.  This
+		# fills the card width and avoids the large empty column that a
+		# full-width preview would leave on a landscape phone.
+		var top_row := HBoxContainer.new()
+		top_row.add_theme_constant_override("separation", 14)
+		top_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		stacked.add_child(top_row)
+		radio_column.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		radio_column.custom_minimum_size.x = 360
+		top_row.add_child(radio_column)
+		axis_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		top_row.add_child(axis_column)
 		stacked.add_child(bindings_column)
 	else:
 		var main := HBoxContainer.new()
@@ -337,7 +361,7 @@ func _card() -> PanelContainer:
 	return panel
 
 
-func _build_radio_column() -> Control:
+func _build_radio_column(compact: bool = false) -> Control:
 	var column := VBoxContainer.new()
 	column.custom_minimum_size = Vector2(360, 0)
 	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -347,13 +371,14 @@ func _build_radio_column() -> Control:
 	column.add_child(MenuUI.section("ПУЛЬТ  RADIOMASTER  TX12"))
 
 	var panel := _card()
-	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN if compact \
+			else Control.SIZE_EXPAND_FILL
 	column.add_child(panel)
 
 	var holder := SubViewportContainer.new()
 	holder.stretch = true
-	holder.custom_minimum_size = Vector2(0, 380)
-	holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	holder.custom_minimum_size = Vector2(0, 150 if compact else 380)
+	holder.size_flags_vertical = Control.SIZE_SHRINK_BEGIN if compact else Control.SIZE_EXPAND_FILL
 	panel.add_child(holder)
 
 	var viewport := SubViewport.new()
@@ -524,6 +549,8 @@ func _build_device_bindings_column() -> Control:
 			"If roll is reversed, enable the matching option. Saved automatically."), 11, MenuUI.MUTED)
 	virtual_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	virtual_box.add_child(virtual_hint)
+	_style_checkbox(_virtual_invert_elrs)
+	_style_checkbox(_virtual_invert_touch)
 
 	column.add_child(MenuUI.section("ПРИСТРІЙ"))
 
@@ -662,7 +689,7 @@ func _build_device_bindings_column() -> Control:
 
 	bindings.add_child(MenuUI.spacer(2))
 	bindings.add_child(MenuUI.section("КНОПКИ ТА ПЕРЕМИКАЧІ"))
-	for entry in ACTION_ROWS:
+	for entry in _action_rows():
 		bindings.add_child(_binding_row("action", entry[0], entry[1]))
 
 	return outer
@@ -841,6 +868,34 @@ func _on_default_toggled(pressed: bool) -> void:
 	Controls.update_default_device(device if pressed else -1)
 
 
+func _checkbox_style(bg: Color, border: Color, radius: int = 8) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = bg
+	style.border_color = border
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(radius)
+	style.content_margin_left = 12
+	style.content_margin_right = 12
+	style.content_margin_top = 4
+	style.content_margin_bottom = 4
+	return style
+
+
+func _style_checkbox(cb: CheckBox) -> void:
+	if cb == null:
+		return
+	cb.custom_minimum_size = Vector2(0, 34)
+	cb.add_theme_color_override("font_color", MenuUI.TEXT)
+	cb.add_theme_color_override("font_hover_color", MenuUI.TEXT)
+	cb.add_theme_color_override("font_pressed_color", MenuUI.TEXT)
+	cb.add_theme_stylebox_override("normal", _checkbox_style(
+			Color(0.03, 0.07, 0.055, 0.55), Color(0.30, 0.44, 0.36, 0.45)))
+	cb.add_theme_stylebox_override("hover", _checkbox_style(
+			Color(0.06, 0.12, 0.09, 0.8), MenuUI.FPV_GREEN))
+	cb.add_theme_stylebox_override("pressed", _checkbox_style(
+			Color(0.08, 0.16, 0.11, 0.9), MenuUI.FPV_GREEN))
+
+
 func _sync_virtual_options() -> void:
 	var elrs := _elrs()
 	if _virtual_invert_elrs != null:
@@ -896,7 +951,7 @@ func _refresh_binding_labels() -> void:
 		else:
 			value.text = "%s%s" % [Controls.joy_axis_string(binding["axis"]),
 					_ui_text("  (інв.)", "  (inv.)") if binding["inverted"] else ""]
-	for entry in ACTION_ROWS:
+	for entry in _action_rows():
 		var action: String = entry[0]
 		var value: Label = _action_values.get(action)
 		if value == null:
@@ -1218,7 +1273,7 @@ func _stick_hint(channel: String) -> String:
 
 
 func _action_label(action: String) -> String:
-	for entry in ACTION_ROWS:
+	for entry in _action_rows():
 		if entry[0] == action:
 			return MenuUI.translate_text(str(entry[1]))
 	return action
@@ -1386,6 +1441,9 @@ func _sign_text(value: float, positive: String, negative: String) -> String:
 func _go_back() -> void:
 	if embedded:
 		back.emit()
+		return
+	if OS.has_feature("mobile"):
+		get_tree().change_scene_to_file("res://GUI/mobile/MobileMenu.tscn")
 		return
 	get_tree().change_scene_to_file(MAIN_MENU)
 

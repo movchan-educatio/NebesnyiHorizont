@@ -42,13 +42,15 @@ func _build() -> void:
 
 	var center := CenterContainer.new()
 	MenuUI.full_rect(center)
-	center.offset_top = 16.0
-	center.offset_bottom = -56.0
+	var viewport_size := get_viewport_rect().size
+	var short_screen := MenuUI.is_mobile_ui() and viewport_size.y < 700.0
+	var hangar_edges := MenuUI.mobile_edge_margins(viewport_size) if MenuUI.is_mobile_ui() else Vector4(12, 12, 12, 24)
+	center.offset_top = 10.0 if short_screen else maxf(16.0, hangar_edges.y)
+	center.offset_bottom = -10.0 if short_screen else -maxf(24.0, hangar_edges.w)
 	add_child(center)
 
 	var panel := PanelContainer.new()
-	var viewport_size := get_viewport_rect().size
-	var panel_width := minf(1840.0, maxf(320.0, viewport_size.x - 24.0))
+	var panel_width := minf(1840.0, maxf(320.0, viewport_size.x - (hangar_edges.x + hangar_edges.z)))
 	var column_width := minf(720.0, maxf(260.0, (panel_width - 110.0) * 0.47))
 	panel.custom_minimum_size = Vector2(panel_width, 0)
 	center.add_child(panel)
@@ -56,16 +58,18 @@ func _build() -> void:
 	var margin := MarginContainer.new()
 	for side in ["left", "right"]:
 		margin.add_theme_constant_override("margin_%s" % side, 18)
-	margin.add_theme_constant_override("margin_top", 12)
-	margin.add_theme_constant_override("margin_bottom", 12)
+	margin.add_theme_constant_override("margin_top", 8 if short_screen else 12)
+	margin.add_theme_constant_override("margin_bottom", 8 if short_screen else 12)
 	panel.add_child(margin)
 
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 8)
+	box.add_theme_constant_override("separation", 6 if short_screen else 8)
 	margin.add_child(box)
 
-	box.add_child(MenuUI.title("ОБРАТИ ДРОН", 30))
-	box.add_child(MenuUI.subtitle("Готові моделі для тренування та бойових місій"))
+	var title := MenuUI.title("ОБРАТИ ДРОН", 26 if short_screen else 30)
+	box.add_child(title)
+	if not short_screen:
+		box.add_child(MenuUI.subtitle("Готові моделі для тренування та бойових місій"))
 
 	var columns := HBoxContainer.new()
 	columns.add_theme_constant_override("separation", 20)
@@ -74,7 +78,9 @@ func _build() -> void:
 
 	# left: list
 	var list_scroll := ScrollContainer.new()
-	list_scroll.custom_minimum_size = Vector2(column_width, clampf(viewport_size.y - 280.0, 220.0, 520.0))
+	var list_height := (viewport_size.y * 0.50 if short_screen
+			else viewport_size.y - 280.0)
+	list_scroll.custom_minimum_size = Vector2(column_width, clampf(list_height, 200.0, 520.0))
 	list_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	list_scroll.size_flags_stretch_ratio = 1.0
 	list_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -97,8 +103,12 @@ func _build() -> void:
 	var container := SubViewportContainer.new()
 	container.stretch = true
 	container.mouse_filter = Control.MOUSE_FILTER_STOP
-	container.custom_minimum_size = Vector2(column_width, clampf(viewport_size.y * 0.46, 280.0, 500.0))
+	var preview_height := viewport_size.y * (0.40 if short_screen
+			else (0.48 if MenuUI.is_mobile_ui() else 0.46))
+	container.custom_minimum_size = Vector2(column_width, clampf(preview_height, 200.0, 560.0))
 	container.gui_input.connect(_on_preview_gui_input)
+	if MenuUI.is_mobile_ui():
+		container.resized.connect(_on_preview_resized)
 	right.add_child(container)
 	_preview_container = container
 	_preview = SubViewport.new()
@@ -111,44 +121,50 @@ func _build() -> void:
 	container.add_child(_preview)
 	_setup_preview_world()
 
-	_caption = MenuUI.body("", 24, MenuUI.TEXT)
+	_caption = MenuUI.body("", 20 if MenuUI.is_mobile_ui() else 24, MenuUI.TEXT)
 	_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_caption.custom_minimum_size = Vector2(column_width, 0)
 	right.add_child(_caption)
-	_tag = MenuUI.body("", 13, MenuUI.ACCENT)
+	_tag = MenuUI.body("", 12 if MenuUI.is_mobile_ui() else 13, MenuUI.ACCENT)
 	_tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_tag.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_tag.custom_minimum_size = Vector2(column_width, 0)
 	right.add_child(_tag)
-	_specs = MenuUI.body("", 14, MenuUI.MUTED)
+	_specs = MenuUI.body("", 12 if MenuUI.is_mobile_ui() else 14, MenuUI.MUTED)
 	_specs.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_specs.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_specs.custom_minimum_size = Vector2(column_width, 0)
 	right.add_child(_specs)
-	_info = MenuUI.body("", 13, MenuUI.MUTED)
+	_info = MenuUI.body("", 11 if MenuUI.is_mobile_ui() else 13, MenuUI.MUTED)
 	_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_info.custom_minimum_size = Vector2(column_width, 48)
+	_info.custom_minimum_size = Vector2(column_width, 0 if short_screen else 48)
+	# On phone/tablet the long descriptive paragraph is the first thing to go;
+	# the stats, selection state and buttons stay visible.  PC keeps it.
+	_info.visible = not MenuUI.is_mobile_ui()
 	right.add_child(_info)
 
 	_pending = Global.drone_preset
-	_choose = MenuUI.button("ОБРАТИ ЦЕЙ ДРОН", 48)
+	_choose = MenuUI.button("ОБРАТИ ЦЕЙ ДРОН", 40 if short_screen else 48)
 	_choose.pressed.connect(_apply_pending)
 	right.add_child(_choose)
 
 	_confirm = MenuUI.body("", 15, MenuUI.ACCENT)
 	_confirm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_confirm.custom_minimum_size = Vector2(column_width, 44)
+	_confirm.custom_minimum_size = Vector2(column_width, 30 if short_screen else 44)
 	_confirm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var selected_preset := DroneCatalog.preset(Global.drone_preset)
 	var selected_name := str(selected_preset["name"])
 	if MenuUI.is_english():
 		selected_name = str(selected_preset.get("name_en", MenuUI.translate_text(selected_name)))
 	_confirm.text = ("Selected: %s" if MenuUI.is_english() else "Зараз обрано: %s") % selected_name
+	# The highlighted "ОБРАНО ✓" button already states the selection; the
+	# repeated caption is dropped on mobile to keep the back button on screen.
+	_confirm.visible = not MenuUI.is_mobile_ui()
 	right.add_child(_confirm)
 
-	var back := MenuUI.button("←  НАЗАД", 46)
+	var back := MenuUI.button("←  НАЗАД", 38 if short_screen else 46)
 	back.pressed.connect(_go_back)
 	box.add_child(back)
 	back.grab_focus()
@@ -217,6 +233,7 @@ func _setup_preview_world() -> void:
 	ped_mat.emission_enabled = true
 	ped_mat.emission = Color(0.05, 0.15, 0.10)
 	pedestal.material_override = ped_mat
+	pedestal.visible = not MenuUI.is_mobile_ui()
 	_preview.add_child(pedestal)
 
 	# Glowing tactical accent ring around pedestal
@@ -266,7 +283,7 @@ func _make_row(index: int) -> Control:
 	var display_name := str(p["name"])
 	if MenuUI.is_english():
 		display_name = str(p.get("name_en", MenuUI.translate_text(display_name)))
-	var name_label := MenuUI.body(display_name, 19, MenuUI.TEXT)
+	var name_label := MenuUI.body(display_name, 18 if MenuUI.is_mobile_ui() else 19, MenuUI.TEXT)
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	# Long military-airframe names must shrink inside the list column instead
 	# of forcing the whole right-hand preview off the screen.
@@ -275,17 +292,22 @@ func _make_row(index: int) -> Control:
 	title_row.add_child(name_label)
 	var tag_label := MenuUI.body(str(p.get("tag", "")), 11, MenuUI.ACCENT)
 	tag_label.clip_text = true
+	# The description below already carries the class/role; dropping the tag
+	# on the phone leaves enough width for the full drone name.
+	tag_label.visible = not MenuUI.is_mobile_ui()
 	title_row.add_child(tag_label)
 	var desc_label := MenuUI.body(MenuUI.translate_text(str(p["desc"])), 12,
 			MenuUI.MUTED)
 	desc_label.clip_text = true
 	info.add_child(desc_label)
 	var pick := MenuUI.button("ОБРАТИ", 40)
-	pick.custom_minimum_size = Vector2(160, 40)
+	pick.custom_minimum_size = Vector2(120 if MenuUI.is_mobile_ui() else 160, 40)
+	if MenuUI.is_mobile_ui():
+		pick.add_theme_font_size_override("font_size", 18)
 	pick.pressed.connect(_on_row_clicked.bind(index))
 	hbox.add_child(pick)
 	var mark := MenuUI.body("", 15, MenuUI.ACCENT)
-	mark.custom_minimum_size = Vector2(90, 0)
+	mark.custom_minimum_size = Vector2(60 if MenuUI.is_mobile_ui() else 90, 0)
 	mark.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	hbox.add_child(mark)
 	_rows.append({"mark": mark})
@@ -443,6 +465,19 @@ func _show_model(index: int) -> void:
 	DroneCatalog._apply_composite_detail(model, index)
 	MenuUI.fit_preview_model(model, 1.25, -0.18)
 	_fit_preview_camera()
+	if MenuUI.is_mobile_ui():
+		_on_preview_resized.call_deferred()
+
+
+func _on_preview_resized() -> void:
+	if _preview == null or _preview_container == null:
+		return
+	var target := _preview_container.size
+	if target.x < 16.0 or target.y < 16.0:
+		return
+	_preview.size = Vector2i(clampi(int(target.x), 64, 1600),
+			clampi(int(target.y), 64, 1000))
+	_fit_preview_camera()
 
 
 func _fit_preview_camera() -> void:
@@ -451,27 +486,41 @@ func _fit_preview_camera() -> void:
 	var box := _combined_aabb(_holder)
 	if box.size.length() < 0.01:
 		return
-	var center := box.get_center()
+	# Keep the airframe as the framing target: the turntable is decoration and
+	# must not shrink the drone just to keep its full ring on screen.
+	var ring_scale := 1.0
+	if _preview_ring != null:
+		# The pedestal ring is decorative.  On a phone the preview panel is
+		# shallower, so hide it rather than show a sliced circle under the drone.
+		_preview_ring.visible = not MenuUI.is_mobile_ui()
+		if MenuUI.is_mobile_ui():
+			# Small pedestal that fits fully inside the phone preview instead of
+			# a large ring sliced by the bottom edge.
+			ring_scale = clampf(maxf(box.size.x, box.size.z) / 1.6, 0.48, 0.62)
+			_preview_ring.position.y = -0.20
+		else:
+			ring_scale = clampf(maxf(box.size.x, box.size.z) / 0.76, 0.7, 2.2)
+			_preview_ring.position.y = -0.328
+		_preview_ring.scale = Vector3(ring_scale, 1.0, ring_scale)
+	var frame_box := box
+	var center := frame_box.get_center()
 	var fov := 40.0
 	var aspect := 1600.0 / 800.0
 	if _preview != null and _preview.size.y > 0:
 		aspect = float(_preview.size.x) / float(_preview.size.y)
-	var half_w := maxf(box.size.x, box.size.z) * 0.5
-	var half_h := box.size.y * 0.5
+	var half_w := maxf(frame_box.size.x, frame_box.size.z) * 0.5
+	var half_h := frame_box.size.y * 0.5
 	var vfov := deg_to_rad(fov)
 	var hfov := 2.0 * atan(tan(vfov * 0.5) * aspect)
 	var dist_w := half_w / maxf(tan(hfov * 0.5), 0.001)
 	var dist_h := half_h / maxf(tan(vfov * 0.5), 0.001)
-	var dist := maxf(maxf(dist_w, dist_h) * 1.65, 0.62)
+	var dist_mult := 1.55 if MenuUI.is_mobile_ui() else 1.65
+	var dist := maxf(maxf(dist_w, dist_h) * dist_mult, 0.62)
 	var dir := Vector3(0.62, 0.38, 1.0).normalized()
-	var focus := center - Vector3(0.0, box.size.y * 0.06, 0.0)
+	var focus := center - Vector3(0.0, frame_box.size.y * 0.04, 0.0)
 	_preview_camera.fov = fov
 	_preview_camera.position = focus + dir * dist
 	_preview_camera.look_at(focus, Vector3.UP)
-	# Keep the illuminated turntable proportional to the airframe.
-	if _preview_ring != null:
-		var ring_scale := clampf(maxf(box.size.x, box.size.z) / 0.76, 0.7, 2.2)
-		_preview_ring.scale = Vector3(ring_scale, 1.0, ring_scale)
 
 
 func _combined_aabb(node: Node3D) -> AABB:
@@ -513,6 +562,9 @@ func _go_back() -> void:
 	# The hangar is opened from the fleet panel of MainMenu; returning to the
 	# intro clip looked like the selection was discarded.  Go back where the
 	# player came from so the new craft/mode is immediately visible.
+	if OS.has_feature("mobile"):
+		get_tree().change_scene_to_file("res://GUI/mobile/MobileMenu.tscn")
+		return
 	get_tree().change_scene_to_file(MAIN_MENU)
 
 

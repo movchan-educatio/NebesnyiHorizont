@@ -1277,7 +1277,14 @@ func _on_hud_config_updated() -> void:
 	hud.show_component(HUD.Component.SPEED, GameSettings.hud_config["speed"])
 	hud.show_component(HUD.Component.ALTITUDE, GameSettings.hud_config["altitude"])
 	hud.show_component(HUD.Component.HEADING, GameSettings.hud_config["heading"])
-	hud.show_component(HUD.Component.STICKS, false)
+	# Live axis monitor: useful with a real radio/keyboard.  It is hidden only
+	# when the on-screen twin sticks already show the same input.
+	var show_stick_monitor := MenuUI.is_mobile_ui() \
+			and bool(GameSettings.hud_config.get("sticks", true))
+	var touch_pad := get_node_or_null("/root/TouchControls")
+	if touch_pad != null and bool(touch_pad.get("touch_mode")):
+		show_stick_monitor = false
+	hud.show_component(HUD.Component.STICKS, show_stick_monitor)
 	hud.show_component(HUD.Component.RPM, GameSettings.hud_config["rpm"])
 	sim_thrust_mode = bool(GameSettings.hud_config.get("sim_thrust", true))
 	if flight_controller != null:

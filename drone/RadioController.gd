@@ -61,6 +61,9 @@ var _stick_filtered := Vector3.ZERO
 var _stick_filter_ready := false
 const STICK_FILTER_TAU := 0.06
 const STICK_SLEW := 7.0
+## The phone build gets a snappier filter; PC keeps the original feel.
+const MOBILE_STICK_FILTER_TAU := 0.045
+const MOBILE_STICK_SLEW := 9.0
 
 
 func _ready() -> void:
@@ -292,7 +295,7 @@ func read_input() -> void:
 	var roll := kb_roll if absf(kb_roll) > 0.01 else (0.0 if is_nan(pad_roll) else pad_roll)
 	var pitch := kb_pitch if absf(kb_pitch) > 0.01 else (0.0 if is_nan(pad_pitch) else pad_pitch)
 
-	# Dynamic deadband (0.02) around stick centre: kills jitter and prevents
+	# Dynamic deadband (0.05) around stick centre: kills jitter and prevents
 	# the drone from drifting when the sticks are released.
 	# Filtered through Controls.channel_value (deadband + smoothing).
 
@@ -347,18 +350,24 @@ func read_input() -> void:
 		if _since_arm < 0.6:
 			power = minf(power, ASSIST_HOVER_THROTTLE)
 	# Throttle smoothing: radio ADC noise and keyboard steps both produce
-	# visible vertical jitter when the raw value is fed to the mixer.  A 120 ms
+	# visible vertical jitter when the raw value is fed to the mixer.  A 90 ms
 	# low-pass plus a slew limit keeps the climb smooth without adding
 	# perceptible lag to throttle punches.
 	var dt := maxf(get_physics_process_delta_time(), 0.0001)
+	var mobile_feel := MenuUI.is_mobile_ui()
+	var throttle_tau := 0.09 if mobile_feel else 0.12
+	var throttle_slew_up := 3.2 if mobile_feel else 2.4
+	var throttle_slew_down := 7.0 if mobile_feel else 6.0
 	if not _throttle_filter_ready or not armed:
 		_throttle_filtered = power
 		_throttle_filter_ready = true
 	else:
-		_throttle_filtered = lerpf(_throttle_filtered, power, 1.0 - exp(-dt / 0.12))
+		_throttle_filtered = lerpf(_throttle_filtered, power,
+				1.0 - exp(-dt / throttle_tau))
 		# Climb changes are slewed gently; throttle cuts stay quick so the
 		# pilot can still drop power immediately.
-		var slew := 2.4 if power > _throttle_filtered else 6.0
+		var slew := throttle_slew_up if power > _throttle_filtered \
+				else throttle_slew_down
 		_throttle_filtered = move_toward(_throttle_filtered, power, slew * dt)
 
 	# Roll/pitch/yaw smoothing.  The test hooks and the first armed frame must
@@ -369,9 +378,12 @@ func read_input() -> void:
 		_stick_filtered = target_sticks
 		_stick_filter_ready = true
 	else:
-		var blend := 1.0 - exp(-dt / STICK_FILTER_TAU)
+		var filter_tau := MOBILE_STICK_FILTER_TAU if mobile_feel \
+				else STICK_FILTER_TAU
+		var slew_cap := MOBILE_STICK_SLEW if mobile_feel else STICK_SLEW
+		var blend := 1.0 - exp(-dt / filter_tau)
 		_stick_filtered = _stick_filtered.lerp(target_sticks, blend)
-		var max_step := STICK_SLEW * dt
+		var max_step := slew_cap * dt
 		_stick_filtered.x = move_toward(_stick_filtered.x, target_sticks.x, max_step)
 		_stick_filtered.y = move_toward(_stick_filtered.y, target_sticks.y, max_step)
 		_stick_filtered.z = move_toward(_stick_filtered.z, target_sticks.z, max_step)

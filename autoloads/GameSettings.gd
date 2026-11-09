@@ -31,7 +31,16 @@ var hud_config := {"fps": 20, "crosshair": false, "horizon": true, "ladder": fal
 		"elrs_video_channel": 6,
 		"elrs_action_channels": {},
 		"touch_invert_roll": false,
-		"mobile_input_calibration": {}}
+		"mobile_input_calibration": {},
+		"mobile_pilot_name": "ПІЛОТ",
+		"mobile_render_scale": 80,
+		"mobile_stream_mode": false,
+		"mobile_ghost": false,
+		"mobile_racing_line": false,
+		"mobile_distance_units": "km",
+		"mobile_rate_profiles": {},
+		"mobile_drone_tint": "ХАКІ",
+		"mobile_drone_parts": {}}
 
 
 func load_hud_config() -> void:
@@ -60,8 +69,17 @@ func load_hud_config() -> void:
 					elif key in ["elrs_arm_channel", "elrs_mode_channel", "elrs_video_channel"] \
 							and (value is int or value is float):
 						hud_config[key] = clampi(int(value), 0, 15)
-					elif key in ["mobile_input_calibration", "elrs_action_channels"] \
+					elif key in ["mobile_input_calibration", "elrs_action_channels",
+							"mobile_rate_profiles", "mobile_drone_parts"] \
 							and value is Dictionary:
+						hud_config[key] = value
+					elif key in ["mobile_pilot_name", "mobile_distance_units",
+							"mobile_drone_tint"] and value is String:
+						hud_config[key] = value
+					elif key == "mobile_render_scale" and (value is int or value is float):
+						hud_config[key] = clampi(int(value), 50, 100)
+					elif key in ["mobile_stream_mode", "mobile_ghost", "mobile_racing_line"] \
+							and value is bool:
 						hud_config[key] = value
 					elif value is bool:
 						hud_config[key] = value

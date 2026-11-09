@@ -7,6 +7,7 @@ extends Control
 
 const VIDEO_PATH := "res://Assets/video/start_loop.ogv"
 const MAIN_MENU := "res://GUI/MainMenu.tscn"
+const MOBILE_MENU := "res://GUI/mobile/MobileMenu.tscn"
 const DRONE_HANGAR := "res://GUI/DroneSelectScreen.tscn"
 const OPTIONS_SCENE := "res://GUI/OptionsMenu.tscn"
 const LEVEL := "res://sceneries/CourseLevel.tscn"
@@ -93,6 +94,12 @@ func _ready() -> void:
 		var bench_level := OS.get_environment("DRONE_BENCH_LEVEL")
 		get_tree().change_scene_to_file.call_deferred(
 				bench_level if not bench_level.is_empty() else LEVEL)
+		return
+	# Phones boot straight into the finger-sized tactical menu.  The desktop
+	# keeps the cinematic video home screen.
+	if OS.has_feature("mobile"):
+		_initialize_settings()
+		get_tree().change_scene_to_file.call_deferred(MOBILE_MENU)
 		return
 	theme = MenuUI.theme()
 	_initialize_settings()

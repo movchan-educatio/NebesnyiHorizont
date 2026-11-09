@@ -33,10 +33,14 @@ func _build_ui() -> void:
 
 	_center_container = CenterContainer.new()
 	MenuUI.full_rect(_center_container)
+	var viewport_size := get_viewport_rect().size
+	if MenuUI.is_mobile_ui():
+		var edges := MenuUI.mobile_edge_margins(viewport_size)
+		_center_container.offset_top = int(edges.y)
+		_center_container.offset_bottom = -int(edges.w)
 	add_child(_center_container)
 
 	var card := PanelContainer.new()
-	var viewport_size := get_viewport_rect().size
 	card.custom_minimum_size = Vector2(minf(580.0, viewport_size.x - 32.0), minf(520.0, viewport_size.y - 32.0))
 	var card_sb := MenuUI._style(MenuUI.PANEL, MenuUI.BORDER_HIGHLIGHT, 2, 3, 24, 20, 5)
 	card.add_theme_stylebox_override("panel", card_sb)
@@ -50,17 +54,18 @@ func _build_ui() -> void:
 	card.add_child(margin)
 
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 8)
+	vbox.add_theme_constant_override("separation", 6 if MenuUI.is_mobile_ui() else 8)
 	margin.add_child(vbox)
 
-	var title := MenuUI.title("НАЛАШТУВАННЯ", 24)
+	var title := MenuUI.title("НАЛАШТУВАННЯ", 22 if MenuUI.is_mobile_ui() else 24)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(title)
 
-	var sub := MenuUI.body("Керування, графіка, звук і симуляція", 12, MenuUI.MUTED)
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(sub)
-	vbox.add_child(MenuUI.spacer(6))
+	if not MenuUI.is_mobile_ui():
+		var sub := MenuUI.body("Керування, графіка, звук і симуляція", 12, MenuUI.MUTED)
+		sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vbox.add_child(sub)
+	vbox.add_child(MenuUI.spacer(4 if MenuUI.is_mobile_ui() else 6))
 
 	var btn_controls := MenuUI.button("КЕРУВАННЯ", 38)
 	_bind_button(btn_controls, _open_screen.bind(CONTROLS_SCREEN))
@@ -83,11 +88,26 @@ func _build_ui() -> void:
 	_bind_button(btn_help, _open_screen.bind(HELP_SCREEN))
 	vbox.add_child(btn_help)
 
+	var btn_mobile := MenuUI.button("МОБІЛЬНИЙ ІНТЕРФЕЙС", 38)
+	_bind_button(btn_mobile, func() -> void:
+		get_tree().change_scene_to_file("res://GUI/mobile/MobileMenu.tscn"))
+	# On the phone this screen is already the mobile interface; the entry is
+	# only a desktop preview link.
+	btn_mobile.visible = not MenuUI.is_mobile_ui()
+	vbox.add_child(btn_mobile)
+
 	vbox.add_child(MenuUI.spacer(4))
 
 	var btn_back := MenuUI.button("←  НАЗАД", 38)
 	_bind_button(btn_back, _on_back_pressed)
 	vbox.add_child(btn_back)
+
+	if MenuUI.is_mobile_ui():
+		# Seven rows plus a title must fit a 590 px-tall phone screen with
+		# safe margins; 50 px is still a comfortable thumb target.
+		for child in vbox.get_children():
+			if child is Button:
+				(child as Button).custom_minimum_size.y = 46.0
 
 	if not visibility_changed.is_connected(_on_visibility_changed):
 		visibility_changed.connect(_on_visibility_changed)
@@ -143,6 +163,11 @@ func _on_sub_screen_back() -> void:
 func _on_back_pressed() -> void:
 	if _active_sub_screen != null and is_instance_valid(_active_sub_screen):
 		_on_sub_screen_back()
+		return
+	if get_signal_connection_list("back").is_empty():
+		# Opened as a full screen from the mobile menu: return there instead
+		# of emitting into the void.
+		get_tree().change_scene_to_file("res://GUI/mobile/MobileMenu.tscn")
 		return
 	emit_signal("back")
 

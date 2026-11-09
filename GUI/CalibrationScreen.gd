@@ -60,6 +60,11 @@ var calibration_step := -1
 var calibration_finished := false
 var _no_controller := false
 var _step_elapsed := 0.0
+## Touch sources have a fixed AETR map, but the pilot must still demonstrate
+## that each axis moves and that the sticks return to centre before the wizard
+## advances.  This keeps the first three steps from flashing past in a second.
+var _virtual_start: Array = []
+var _virtual_seen: Array = [false, false, false, false]
 
 ## Centre-measurement state for the current wizard step.  The centre is only
 ## accepted after the stick has left the previous end stop and has stopped
@@ -268,10 +273,12 @@ func _build_ui() -> void:
 
 	var root_margin := MarginContainer.new()
 	MenuUI.full_rect(root_margin)
-	root_margin.add_theme_constant_override("margin_left", 28)
-	root_margin.add_theme_constant_override("margin_right", 28)
-	root_margin.add_theme_constant_override("margin_top", 18)
-	root_margin.add_theme_constant_override("margin_bottom", 32)
+	var cal_viewport := get_viewport_rect().size
+	var cal_edges := MenuUI.mobile_edge_margins(cal_viewport) if MenuUI.is_mobile_ui() else Vector4(28, 18, 28, 32)
+	root_margin.add_theme_constant_override("margin_left", int(cal_edges.x))
+	root_margin.add_theme_constant_override("margin_right", int(cal_edges.z))
+	root_margin.add_theme_constant_override("margin_top", maxi(18, int(cal_edges.y)))
+	root_margin.add_theme_constant_override("margin_bottom", maxi(32, int(cal_edges.w)))
 	add_child(root_margin)
 
 	var main_vbox := VBoxContainer.new()
@@ -319,16 +326,20 @@ func _build_ui() -> void:
 	outer.add_child(MenuUI.title("КАЛІБРУВАННЯ СТІКІВ ПУЛЬТА", 34))
 
 	var viewport_size := get_viewport_rect().size
+	var stacked_layout := viewport_size.x < 1100.0 \
+			or (MenuUI.is_mobile_ui() and viewport_size.y < 700.0)
 	var content: BoxContainer
-	if viewport_size.x < 1100.0:
+	if stacked_layout:
 		var scroll := ScrollContainer.new()
 		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 		scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		scroll.custom_minimum_size.y = maxf(180.0, viewport_size.y - 250.0)
+		scroll.custom_minimum_size.y = clampf(viewport_size.y - 250.0, 220.0, 420.0)
 		outer.add_child(scroll)
-		var stacked := VBoxContainer.new()
+		# Side-by-side: the 3D transmitter stays visible while the step card
+		# explains what to do.  On a narrow phone the pair can still scroll.
+		var stacked := HBoxContainer.new()
 		stacked.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		stacked.add_theme_constant_override("separation", 12)
+		stacked.add_theme_constant_override("separation", 16)
 		scroll.add_child(stacked)
 		content = stacked
 	else:
@@ -338,7 +349,7 @@ func _build_ui() -> void:
 		outer.add_child(columns)
 		content = columns
 
-	content.add_child(_build_radio_preview())
+	content.add_child(_build_radio_preview(stacked_layout))
 
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 14)
@@ -520,11 +531,13 @@ func _build_mobile_ui() -> void:
 	root.add_child(_mobile_pad)
 
 
-func _build_radio_preview() -> Control:
+func _build_radio_preview(compact: bool = false) -> Control:
 	var col := VBoxContainer.new()
 	col.custom_minimum_size = Vector2(420, 0)
 	col.add_theme_constant_override("separation", 8)
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	if compact:
+		col.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 
 	col.add_child(MenuUI.section("3D-МОНІТОР ПУЛЬТА RADIOMASTER TX12", "TX12"))
 
@@ -544,7 +557,10 @@ func _build_radio_preview() -> Control:
 
 	var container := SubViewportContainer.new()
 	container.stretch = true
-	container.custom_minimum_size = Vector2(400, 300)
+	container.custom_minimum_size = Vector2(400, 170 if compact else 300)
+	if compact:
+		container.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		frame.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	frame.add_child(container)
 
 	var viewport := SubViewport.new()
@@ -709,6 +725,11 @@ func go_to_next_step() -> void:
 	_step_elapsed = 0.0
 	_reset_center_tracking()
 	_reset_extreme_tracking()
+	if _is_virtual() and calibration_step == 0:
+		_virtual_start = [
+			_axis_value(0), _axis_value(1), _axis_value(2), _axis_value(3),
+		]
+		_virtual_seen = [false, false, false, false]
 	if _back_step_button != null:
 		_back_step_button.visible = (calibration_step > 0 and not calibration_finished)
 	if calibration_step >= 0 and calibration_step < STEP_TEXTS.size():
@@ -809,18 +830,39 @@ func _poll_calibration_steps() -> void:
 	match calibration_step:
 		0:
 			if _is_virtual():
-				# The mobile bridge has a fixed AETR mapping, so there is
-				# nothing to discover: show all four axes and give the pilot
-				# a moment to see them move.
+				# Fixed AETR mapping.  On the phone require real movement on
+				# all four axes so the step is not skipped; the desktop virtual
+				# path keeps its original short delay.
 				if axes.size() < 4:
 					axes = [0, 1, 2, 3]
-				if _step_elapsed >= 0.7:
-					go_to_next_step()
+				if not MenuUI.is_mobile_ui():
+					if _step_elapsed >= 0.7:
+						go_to_next_step()
+				else:
+					if _virtual_start.size() < 4:
+						_virtual_start = [
+							_axis_value(0), _axis_value(1), _axis_value(2),
+							_axis_value(3),
+						]
+					for i in range(4):
+						if absf(_axis_value(i) - _virtual_start[i]) > 0.35:
+							_virtual_seen[i] = true
+					if not _virtual_seen.has(false) and _step_elapsed >= 0.8:
+						go_to_next_step()
 			elif axes.size() >= 4:
 				go_to_next_step()
 		1:
 			if _is_virtual():
-				if _step_elapsed >= 0.7:
+				if not MenuUI.is_mobile_ui():
+					if _step_elapsed >= 0.7:
+						go_to_next_step()
+					return
+				# The self-centring axes must be released; throttle may stay
+				# at the bottom exactly as the instruction says.
+				var centred := absf(_axis_value(0)) < 0.22 \
+						and absf(_axis_value(1)) < 0.22 \
+						and absf(_axis_value(3)) < 0.22
+				if centred and _step_elapsed >= 0.6:
 					go_to_next_step()
 				return
 			var off_centre := 0
@@ -864,7 +906,11 @@ func _poll_calibration_steps() -> void:
 ## is tracked and captured once the stick has settled against its stop, so the
 ## saved range covers the real physical travel.
 func _poll_first_extreme(target: Array, used: Array) -> void:
-	if _step_elapsed < 0.35:
+	# Keep each instruction on screen long enough to read before a stick that
+	# is already at the requested stop can advance the wizard.  The shorter PC
+	# timing is preserved.
+	var min_dwell := 0.8 if MenuUI.is_mobile_ui() else 0.35
+	if _step_elapsed < min_dwell:
 		return
 	var best_axis := -1
 	var best_value := 0.0
@@ -898,7 +944,8 @@ func _poll_first_extreme(target: Array, used: Array) -> void:
 ## Only values on the far side of the centre are considered, and the furthest
 ## one is captured after it settles — same reasoning as above.
 func _poll_opposite_extreme(target: Array) -> void:
-	if target.size() < 2 or _step_elapsed < 0.25:
+	var min_dwell := 0.5 if MenuUI.is_mobile_ui() else 0.25
+	if target.size() < 2 or _step_elapsed < min_dwell:
 		return
 	var axis := int(target[0])
 	var first := target[1] as InputEventJoypadMotion
@@ -1140,12 +1187,13 @@ func _on_calibration_done() -> void:
 					negative_end, positive_end, center)
 
 		for action in ["throttle_up", "throttle_down", "yaw_left", "yaw_right", "pitch_up", "pitch_down", "roll_left", "roll_right"]:
-			InputMap.action_set_deadzone(action, 0.02)
+			InputMap.action_set_deadzone(action, Controls.stick_deadzone)
 		# A correct calibration gives an exact neutral, so a huge deadband that was
 		# set to mask centre drift is no longer needed.  Leaving it at e.g. 0.25
 		# would itself feel like a dead spot for the first quarter of stick travel.
 		if Controls.stick_deadzone > 0.10:
-			Controls.stick_deadzone = Controls.DEFAULT_STICK_DEADZONE
+			Controls.stick_deadzone = Controls.MOBILE_STICK_DEADZONE \
+					if MenuUI.is_mobile_ui() else Controls.DEFAULT_STICK_DEADZONE
 		Controls.refresh_stick_bindings()
 		Controls.reset_stick_filters()
 		Controls.restore_keyboard_shortcuts()
@@ -1168,6 +1216,8 @@ func _get_return_scene() -> String:
 		return Global.calibration_return_scene
 	if not return_scene.is_empty():
 		return return_scene
+	if OS.has_feature("mobile"):
+		return "res://GUI/mobile/MobileMenu.tscn"
 	return MAIN_MENU
 
 

@@ -538,6 +538,10 @@ static func translate_text(text: String) -> String:
 static func localize_tree(root: Node) -> void:
 	if root == null:
 		return
+	if root is ScrollContainer and is_mobile_ui():
+		# Keyboard/gamepad focus moves the active control into view, and the
+		# visible themed scrollbar lets a finger drag the list directly.
+		(root as ScrollContainer).follow_focus = true
 	if root is OptionButton:
 		var option := root as OptionButton
 		for i in range(option.item_count):
@@ -678,6 +682,74 @@ static func _style(bg: Color, border: Color, border_w: int, radius: int,
 	return sb
 
 
+## True on iOS/Android, or when a desktop QA run asks for the phone skin.
+## The PC layout and the phone layout intentionally use separate styles.
+static func is_mobile_ui() -> bool:
+	return OS.has_feature("mobile") or OS.has_environment("MOBILE_UI")
+
+
+## Empty space between the screen edge and any tappable control.  Around 3%
+## of the short side keeps thumbs away from the display edge on phones.
+static func mobile_safe_margin(viewport_size: Vector2) -> float:
+	return maxf(32.0, minf(viewport_size.x, viewport_size.y) * 0.06)
+
+
+## Camera notch / rounded-corner insets, converted from screen pixels into the
+## current viewport.  In sensor-landscape the notch can end up on either side.
+static func mobile_notch_insets(viewport_size: Vector2) -> Vector4:
+	if not is_mobile_ui():
+		return Vector4.ZERO
+	var screen := DisplayServer.screen_get_size()
+	if screen.x <= 0 or screen.y <= 0:
+		return Vector4.ZERO
+	var safe := DisplayServer.get_display_safe_area()
+	if safe.size.x <= 0 or safe.size.y <= 0:
+		return Vector4.ZERO
+	var sx := viewport_size.x / float(screen.x)
+	var sy := viewport_size.y / float(screen.y)
+	return Vector4(
+		maxf(0.0, float(safe.position.x) * sx),
+		maxf(0.0, float(safe.position.y) * sy),
+		maxf(0.0, float(screen.x - safe.end.x) * sx),
+		maxf(0.0, float(screen.y - safe.end.y) * sy))
+
+
+## Base breathing room plus the notch/home-indicator safe area.
+static func mobile_edge_margins(viewport_size: Vector2) -> Vector4:
+	var base := mobile_safe_margin(viewport_size)
+	var notch := mobile_notch_insets(viewport_size)
+	# Reserve the cutout symmetrically.  This keeps the layout safe after the
+	# phone is rotated 180° and the notch swaps sides, without rebuilding every
+	# screen on an orientation change.
+	var horizontal := maxf(notch.x, notch.z)
+	var vertical := maxf(notch.y, notch.w)
+	return Vector4(base + horizontal, base + vertical,
+			base + horizontal, base + vertical)
+
+
+## Soft cut-off for a scrolling card list.  Keeps a half-visible row from
+## looking like a layout bug at the bottom edge of the viewport.
+static func bottom_fade(color: Color, height: int = 48) -> TextureRect:
+	var grad := Gradient.new()
+	grad.colors = PackedColorArray([
+		Color(color.r, color.g, color.b, 0.0),
+		Color(color.r, color.g, color.b, 0.97),
+	])
+	grad.offsets = PackedFloat32Array([0.0, 1.0])
+	var tex := GradientTexture2D.new()
+	tex.gradient = grad
+	tex.width = 4
+	tex.height = maxi(16, height)
+	tex.fill_from = Vector2(0, 0)
+	tex.fill_to = Vector2(0, 1)
+	var tr := TextureRect.new()
+	tr.texture = tex
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_SCALE
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return tr
+
+
 static func theme() -> Theme:
 	if _theme != null:
 		return _theme
@@ -731,11 +803,122 @@ static func theme() -> Theme:
 
 	t.set_color("font_color", "RichTextLabel", TEXT)
 	t.set_font_size("font_size", "RichTextLabel", 19)
+	if is_mobile_ui():
+		_apply_mobile_theme(t)
 	_theme = t
 	return t
 
 
+## Phone skin: the same olive/sage/amber language as the mobile operations
+## shell.  PC menus keep the original paper-white controls.
+static func _apply_mobile_theme(t: Theme) -> void:
+	var panel_bg := Color(0.025, 0.060, 0.048, 0.92)
+	var border := Color(0.30, 0.44, 0.36, 0.60)
+	var button_bg := Color(0.040, 0.080, 0.065, 0.90)
+	var button_hover := Color(0.080, 0.150, 0.110, 0.98)
+	var active_bg := Color(0.62, 0.74, 0.55, 1.0)
+	var active_text := Color(0.06, 0.09, 0.07)
+
+	t.default_font_size = 22
+
+	t.set_stylebox("normal", "Button", _style(button_bg, border, 1, 12, 18, 12))
+	t.set_stylebox("hover", "Button", _style(button_hover, FPV_GREEN, 1, 12, 18, 12))
+	t.set_stylebox("pressed", "Button", _style(active_bg, Color(0.75, 0.85, 0.65, 0.95), 1, 12, 18, 12))
+	t.set_stylebox("focus", "Button", _style(button_hover, FPV_GREEN, 1, 12, 18, 12))
+	t.set_stylebox("disabled", "Button", _style(Color(0.03, 0.05, 0.04, 0.62), Color(0.22, 0.30, 0.25, 0.5), 1, 12, 18, 12))
+	t.set_color("font_color", "Button", FPV_TEXT)
+	t.set_color("font_hover_color", "Button", FPV_TEXT)
+	t.set_color("font_pressed_color", "Button", active_text)
+	t.set_color("font_focus_color", "Button", FPV_TEXT)
+	t.set_color("font_disabled_color", "Button", FPV_MUTED)
+	t.set_font_size("font_size", "Button", 22)
+
+	t.set_stylebox("panel", "PanelContainer", _style(panel_bg, border, 1, 16, 22, 18))
+	t.set_stylebox("panel", "Panel", _style(panel_bg, border, 1, 16, 22, 18))
+
+	t.set_stylebox("normal", "OptionButton", _style(button_bg, border, 1, 12, 16, 10))
+	t.set_stylebox("hover", "OptionButton", _style(button_hover, FPV_GREEN, 1, 12, 16, 10))
+	t.set_stylebox("pressed", "OptionButton", _style(active_bg, Color(0.75, 0.85, 0.65, 0.95), 1, 12, 16, 10))
+	t.set_stylebox("focus", "OptionButton", _style(button_hover, FPV_GREEN, 1, 12, 16, 10))
+	t.set_color("font_color", "OptionButton", FPV_TEXT)
+	t.set_color("font_hover_color", "OptionButton", FPV_TEXT)
+	t.set_color("font_pressed_color", "OptionButton", active_text)
+	t.set_font_size("font_size", "OptionButton", 20)
+
+	t.set_color("font_color", "Label", FPV_TEXT)
+	t.set_font_size("font_size", "Label", 22)
+	t.set_color("font_color", "RichTextLabel", FPV_TEXT)
+	t.set_font_size("font_size", "RichTextLabel", 22)
+
+	t.set_stylebox("slider", "HSlider", _style(Color(0.02, 0.04, 0.032, 0.92), border, 1, 4, 6, 8))
+	t.set_stylebox("grabber_area", "HSlider", _style(Color(0.38, 0.56, 0.43, 1.0), FPV_GREEN, 1, 4, 6, 8))
+	t.set_stylebox("grabber_area_highlight", "HSlider", _style(FPV_AMBER, FPV_AMBER, 1, 4, 6, 8))
+
+	t.set_stylebox("normal", "CheckButton", _style(button_bg, border, 1, 12, 16, 10))
+	t.set_stylebox("hover", "CheckButton", _style(button_hover, FPV_GREEN, 1, 12, 16, 10))
+	t.set_stylebox("pressed", "CheckButton", _style(Color(0.10, 0.22, 0.15, 1.0), FPV_GREEN, 1, 12, 16, 10))
+	t.set_stylebox("focus", "CheckButton", _style(button_hover, FPV_GREEN, 1, 12, 16, 10))
+	t.set_color("font_color", "CheckButton", FPV_TEXT)
+	t.set_color("font_hover_color", "CheckButton", FPV_TEXT)
+	t.set_color("font_pressed_color", "CheckButton", FPV_TEXT)
+	t.set_font_size("font_size", "CheckButton", 21)
+	t.set_color("font_color", "CheckBox", FPV_TEXT)
+	t.set_color("font_hover_color", "CheckBox", FPV_TEXT)
+	t.set_color("font_pressed_color", "CheckBox", FPV_TEXT)
+	t.set_font_size("font_size", "CheckBox", 21)
+	t.set_stylebox("normal", "CheckBox", _style(button_bg, border, 1, 10, 12, 8))
+	t.set_stylebox("hover", "CheckBox", _style(button_hover, FPV_GREEN, 1, 10, 12, 8))
+	t.set_stylebox("pressed", "CheckBox", _style(Color(0.10, 0.22, 0.15, 1.0), FPV_GREEN, 1, 10, 12, 8))
+	t.set_stylebox("focus", "CheckBox", _style(button_hover, FPV_GREEN, 1, 10, 12, 8))
+
+	t.set_stylebox("normal", "LineEdit", _style(Color(0.02, 0.05, 0.04, 0.96), border, 1, 10, 14, 10))
+	t.set_stylebox("focus", "LineEdit", _style(Color(0.04, 0.09, 0.07, 1.0), FPV_GREEN, 1, 10, 14, 10))
+	t.set_color("font_color", "LineEdit", FPV_TEXT)
+	t.set_color("font_placeholder_color", "LineEdit", FPV_MUTED)
+	t.set_color("caret_color", "LineEdit", FPV_GREEN)
+	t.set_font_size("font_size", "LineEdit", 21)
+
+	t.set_stylebox("panel", "PopupMenu", _style(panel_bg, border, 1, 12, 14, 10))
+	t.set_stylebox("hover", "PopupMenu", _style(Color(0.10, 0.22, 0.15, 1.0), FPV_GREEN, 1, 8, 10, 8))
+	t.set_color("font_color", "PopupMenu", FPV_TEXT)
+	t.set_color("font_hover_color", "PopupMenu", FPV_TEXT)
+	t.set_font_size("font_size", "PopupMenu", 20)
+
+	t.set_stylebox("panel", "TooltipPanel", _style(panel_bg, FPV_AMBER, 1, 8, 10, 6))
+	t.set_color("font_color", "TooltipLabel", FPV_TEXT)
+	t.set_font_size("font_size", "TooltipLabel", 17)
+
+	# 14 px thumb + 4 px breathing room: a visible, finger-draggable scrollbar.
+	t.set_stylebox("scroll", "VScrollBar", _style(Color(0.02, 0.04, 0.032, 0.55), Color(0, 0, 0, 0), 0, 7, 7, 0))
+	t.set_stylebox("grabber", "VScrollBar", _style(Color(0.36, 0.50, 0.42, 0.92), Color(0, 0, 0, 0), 0, 7, 7, 0))
+	t.set_stylebox("grabber_highlight", "VScrollBar", _style(FPV_GREEN, Color(0, 0, 0, 0), 0, 7, 7, 0))
+	t.set_stylebox("grabber_pressed", "VScrollBar", _style(FPV_AMBER, Color(0, 0, 0, 0), 0, 7, 7, 0))
+	t.set_stylebox("scroll", "HScrollBar", _style(Color(0.02, 0.04, 0.032, 0.55), Color(0, 0, 0, 0), 0, 7, 0, 7))
+	t.set_stylebox("grabber", "HScrollBar", _style(Color(0.36, 0.50, 0.42, 0.92), Color(0, 0, 0, 0), 0, 7, 0, 7))
+	t.set_stylebox("grabber_highlight", "HScrollBar", _style(FPV_GREEN, Color(0, 0, 0, 0), 0, 7, 0, 7))
+	t.set_stylebox("grabber_pressed", "HScrollBar", _style(FPV_AMBER, Color(0, 0, 0, 0), 0, 7, 0, 7))
+
+
 static func background(color: Color = BG, show_chrome: bool = true) -> Control:
+	if is_mobile_ui():
+		var holder := Control.new()
+		holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		full_rect(holder)
+		var bg := TextureRect.new()
+		var tex := load("res://Assets/Branding/mobile_menu_bg_blur.png") as Texture2D
+		if tex != null:
+			bg.texture = tex
+		bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		full_rect(bg)
+		holder.add_child(bg)
+		var scrim := ColorRect.new()
+		scrim.color = Color(0.012, 0.035, 0.026, 0.74)
+		scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		full_rect(scrim)
+		holder.add_child(scrim)
+		return holder
 	return _TacticalBackdrop.new(color, show_chrome)
 
 
@@ -747,7 +930,8 @@ static func title(text: String, size: int = 38) -> Label:
 	label.add_theme_color_override("font_color", FPV_TEXT)
 	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.92))
 	label.add_theme_constant_override("outline_size", 4)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if is_mobile_ui() \
+			else HORIZONTAL_ALIGNMENT_CENTER
 	return label
 
 
@@ -756,11 +940,29 @@ static func subtitle(text: String) -> Label:
 	label.text = translate_text(text)
 	label.add_theme_font_size_override("font_size", 15)
 	label.add_theme_color_override("font_color", MIL_GREEN_LIGHT)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if is_mobile_ui() \
+			else HORIZONTAL_ALIGNMENT_CENTER
 	return label
 
 
 static func section(text: String, tag: String = "СЕКТОР") -> Control:
+	if is_mobile_ui():
+		var mrow := HBoxContainer.new()
+		mrow.add_theme_constant_override("separation", 10)
+		var mlabel := Label.new()
+		mlabel.text = translate_text(text)
+		mlabel.add_theme_font_size_override("font_size", 15)
+		mlabel.add_theme_color_override("font_color", FPV_AMBER)
+		mrow.add_child(mlabel)
+		var mline := HSeparator.new()
+		mline.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var msb := StyleBoxFlat.new()
+		msb.bg_color = FPV_BORDER
+		msb.content_margin_top = 1
+		mline.add_theme_stylebox_override("separator", msb)
+		mrow.add_child(mline)
+		return mrow
+
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 
@@ -776,12 +978,20 @@ static func section(text: String, tag: String = "СЕКТОР") -> Control:
 	b_sb.content_margin_right = 7
 	b_sb.content_margin_top = 2
 	b_sb.content_margin_bottom = 2
+	if is_mobile_ui():
+		b_sb.bg_color = Color(0.36, 0.26, 0.10, 0.22)
+		b_sb.border_color = FPV_AMBER
+		b_sb.set_corner_radius_all(6)
+		b_sb.content_margin_left = 10
+		b_sb.content_margin_right = 10
+		b_sb.content_margin_top = 3
+		b_sb.content_margin_bottom = 3
 	badge_panel.add_theme_stylebox_override("panel", b_sb)
 
 	var badge := Label.new()
 	badge.text = translate_text(tag)
 	badge.add_theme_font_size_override("font_size", 12)
-	badge.add_theme_color_override("font_color", FPV_CYAN)
+	badge.add_theme_color_override("font_color", FPV_AMBER if is_mobile_ui() else FPV_CYAN)
 	badge_panel.add_child(badge)
 	row.add_child(badge_panel)
 
@@ -814,6 +1024,10 @@ static func button(text: String, min_height: float = 46.0,
 		align: int = HORIZONTAL_ALIGNMENT_CENTER) -> Button:
 	var b := Button.new()
 	b.text = translate_text(text)
+	if is_mobile_ui():
+		# Keep every phone button finger-sized even when an old screen asks
+		# for its desktop 38–46 px height.
+		min_height = maxf(min_height, 58.0)
 	b.custom_minimum_size = Vector2(0, min_height)
 	b.alignment = align
 	return b
@@ -821,7 +1035,7 @@ static func button(text: String, min_height: float = 46.0,
 
 static func option(items: Array, selected: int = 0) -> OptionButton:
 	var o := OptionButton.new()
-	o.custom_minimum_size = Vector2(240, 40)
+	o.custom_minimum_size = Vector2(240, 56 if is_mobile_ui() else 40)
 	for item in items:
 		o.add_item(translate_text(str(item)))
 	if selected >= 0 and selected < items.size():
@@ -954,6 +1168,20 @@ static func feel_button(text: String, min_height: float = 38.0, primary: bool = 
 	b.focus_mode = Control.FOCUS_ALL
 	b.mouse_filter = Control.MOUSE_FILTER_STOP
 	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	if is_mobile_ui():
+		var mobile_bg := Color(0.62, 0.74, 0.55, 1.0) if primary else Color(0.04, 0.08, 0.065, 0.90)
+		var mobile_hover := Color(0.70, 0.82, 0.62, 1.0) if primary else Color(0.08, 0.15, 0.11, 0.98)
+		var mobile_text := Color(0.06, 0.09, 0.07) if primary else FPV_TEXT
+		b.add_theme_stylebox_override("normal", feel_style(mobile_bg, FPV_GREEN if primary else FPV_BORDER, 2 if primary else 1, 12, 16, 10))
+		b.add_theme_stylebox_override("hover", feel_style(mobile_hover, FPV_GREEN, 2, 12, 16, 10))
+		b.add_theme_stylebox_override("pressed", feel_style(Color(0.10, 0.22, 0.15, 1.0), FPV_GREEN, 2, 12, 16, 10))
+		b.add_theme_stylebox_override("focus", feel_style(mobile_hover, FPV_GREEN, 2, 12, 16, 10))
+		b.add_theme_color_override("font_color", mobile_text)
+		b.add_theme_color_override("font_hover_color", mobile_text)
+		b.add_theme_color_override("font_pressed_color", FPV_TEXT)
+		if min_height < 58.0:
+			b.custom_minimum_size.y = 58.0
+		return b
 	var bg := BUTTON_ACTIVE if primary else BUTTON_BG
 	var border := ACCENT if primary else FPV_BORDER
 	b.add_theme_stylebox_override("normal", feel_style(bg, border, 2 if primary else 1, 1, 12, 6))

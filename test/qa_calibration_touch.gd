@@ -20,7 +20,14 @@ func _run() -> void:
 		return
 	_pad.call("set_menu_preview", true)
 
-	# Steps 0 and 1 auto-advance in 0.7 s each; this starts at throttle-down.
+	# Step 0 now needs real movement on all four axes; step 1 needs the
+	# self-centring axes released.  Demonstrate both before the main sequence.
+	_set_sticks(1.0, -1.0, -1.0, -1.0)
+	await get_tree().create_timer(0.7).timeout
+	_set_sticks(0.0, 0.0, 0.0, 0.0)
+	await get_tree().create_timer(1.1).timeout
+	print("[CALQA] after axis sweep/centre step=", int(_cal.get("calibration_step")))
+
 	var sequence := [
 		[0.0, 0.0, 0.0, 0.0, 0.8],   # 2 throttle down
 		[1.0, 0.0, 0.0, 0.0, 0.8],   # 3 throttle up

@@ -5187,7 +5187,8 @@ func _on_touch_mode_changed(_using_touch: bool) -> void:
 func _apply_stick_overlay() -> void:
 	var on := bool(GameSettings.hud_config.get("sticks", true))
 	if _touch_controls != null and bool(_touch_controls.get("enabled")) \
-			and bool(_touch_controls.get("touch_mode")):
+			and bool(_touch_controls.get("touch_mode")) \
+			and not bool(GameSettings.hud_config.get("mobile_stream_mode", false)):
 		on = false
 	if _stick_overlay != null:
 		_stick_overlay.visible = on
@@ -5977,6 +5978,9 @@ func _input(event: InputEvent) -> void:
 		GameSettings.save_hud_config()
 		_apply_osd()
 	if event.is_action_pressed("cycle_video_mode"):
+		var video_overlay := get_node_or_null("FPVOverlay")
+		if video_overlay != null and video_overlay.has_method("set_user_visible"):
+			video_overlay.call("set_user_visible", true)
 		var mode := Graphics.cycle_fpv_video_mode()
 		_set_flash("ВІДЕО: %s" % Graphics.fpv_video_mode_name(mode))
 	if event.is_action_pressed("toggle_weather"):

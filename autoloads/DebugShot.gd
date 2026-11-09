@@ -9,6 +9,18 @@ extends Node
 
 
 func _ready() -> void:
+	# QA-only: force a drone preset before the level applies its loadout.
+	var preset_test := OS.get_environment("DRONE_PRESET_TEST")
+	if not preset_test.is_empty():
+		var global := get_node_or_null("/root/Global")
+		if global != null:
+			global.set("drone_preset", int(preset_test))
+	# QA-only: render the UI 1:1 with the window so external PrintWindow
+	# captures show the whole menu instead of a DPI-cropped corner.
+	if OS.has_environment("QA_DISABLE_SCALING"):
+		var win := get_window()
+		win.content_scale_mode = Window.CONTENT_SCALE_MODE_DISABLED
+		win.content_scale_size = Vector2i(0, 0)
 	# QA-only physics-rate override: lets the benchmark compare 120 Hz with the
 	# interpolated 60 Hz flight model without editing project.godot.
 	var physics_hz := OS.get_environment("DRONE_PHYSICS_HZ")
@@ -75,6 +87,20 @@ func _ready() -> void:
 			var inv_node = inv_runner.new()
 			inv_node.name = "QaInversion"
 			get_tree().root.add_child.call_deferred(inv_node)
+		return
+	if OS.has_environment("UI_SHOT_QA"):
+		var ui_runner = load("res://test/qa_ui_shot.gd")
+		if ui_runner != null:
+			var ui_node = ui_runner.new()
+			ui_node.name = "QaUiShot"
+			get_tree().root.add_child.call_deferred(ui_node)
+		return
+	if OS.has_environment("CONTROLS_FIX_QA"):
+		var ctrl_runner = load("res://test/qa_controls_fix.gd")
+		if ctrl_runner != null:
+			var ctrl_node = ctrl_runner.new()
+			ctrl_node.name = "QaControlsFix"
+			get_tree().root.add_child.call_deferred(ctrl_node)
 		return
 	var path := OS.get_environment("SHOT_PATH")
 	if path.is_empty():
@@ -191,6 +217,17 @@ func _ready() -> void:
 					if mi.mesh != null:
 						print("[SHOTDBG] ", mi.name, " aabb=",
 								mi.global_transform * mi.get_aabb())
+	# QA-only: force an FPV downlink filter for before/after comparison shots.
+	var shot_video := OS.get_environment("SHOT_VIDEO_MODE")
+	if not shot_video.is_empty():
+		var gfx := get_node_or_null("/root/Graphics")
+		if gfx != null:
+			gfx.call("set_fpv_video_mode", int(shot_video))
+		var shot_scene := get_tree().current_scene
+		var shot_overlay := shot_scene.get_node_or_null("FPVOverlay") if shot_scene != null else null
+		if shot_overlay != null and shot_overlay.has_method("set_user_visible"):
+			shot_overlay.call("set_user_visible", true)
+		await get_tree().process_frame
 	# Let one full process+draw cycle run after the final camera switch.  Some
 	# follow-camera systems (FollowGrass) rebuild in _process; capturing in the
 	# same frame as the switch produced shots without the near-field grass.
