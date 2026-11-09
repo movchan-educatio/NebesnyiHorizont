@@ -2,6 +2,7 @@ extends Control
 
 const MAIN_MENU := "res://GUI/MainMenu.tscn"
 const RADIO_SCENE := preload("res://GUI/ControlsMenuRadioTransmitter.tscn")
+const VIRTUAL_DEVICE := -2
 
 ## Optional override set by ControlsScreen before opening the wizard so
 ## «Назад» returns to the caller instead of always jumping to the main menu.
@@ -93,7 +94,19 @@ var _axes_label: Label
 var _check_button: Button
 var _retry_button: Button
 var _back_step_button: Button
+var _source_button: Button = null
+var _protocol_label: Label = null
+var _mobile_values: Label = null
+var _mobile_pad: Control = null
 var _gimbal_widget: _DualGimbalPreview = null
+
+## ELRS WiFi / touch-stick bridge.  When no USB joypad exists, the wizard
+## reads the virtual AETR axes instead of Input.get_joy_axis().
+var _virtual := false
+var _virtual_source := ""
+## True after the pilot presses the source button, so a late ELRS connection
+## does not override their choice.
+var _source_explicit := false
 
 
 class _DualGimbalPreview extends Control:
@@ -143,13 +156,114 @@ func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	Controls.load_input_map()
 	Controls.refresh_stick_bindings()
-	_build_ui()
+	_virtual_source = MobileInput.default_source()
+	if MobileInput.is_mobile_screen():
+		_build_mobile_ui()
+	else:
+		_build_ui()
 	reset_calibration()
+	_update_virtual_preview()
 	MenuUI.localize_tree(self)
+
+
+func _exit_tree() -> void:
+	_update_virtual_preview(true)
+	MobileInput.clear_source_override()
 
 
 func _ui_text(uk: String, en: String) -> String:
 	return en if MenuUI.is_english() else uk
+
+
+func _is_virtual() -> bool:
+	return device == VIRTUAL_DEVICE
+
+
+func _axis_value(axis: int) -> float:
+	if _is_virtual():
+		return MobileInput.axis(axis)
+	return Input.get_joy_axis(device, axis)
+
+
+func _device_name() -> String:
+	if _is_virtual():
+		return MobileInput.source_name()
+	return Input.get_joy_name(device)
+
+
+func _update_source_button() -> void:
+	if _source_button == null:
+		return
+	_source_button.visible = _is_virtual()
+	_source_button.disabled = MobileInput.available_sources().size() < 2
+	_source_button.text = "ДЖЕРЕЛО: %s" % MobileInput.short_source_name(_virtual_source)
+
+
+func _cycle_source() -> void:
+	var sources := MobileInput.available_sources()
+	if sources.size() < 2:
+		return
+	var index := sources.find(_virtual_source)
+	_virtual_source = String(sources[(index + 1) % sources.size()])
+	_source_explicit = true
+	MobileInput.set_source(_virtual_source)
+	_update_virtual_preview()
+	reset_calibration()
+
+
+func _update_virtual_preview(hide: bool = false) -> void:
+	var pad := get_node_or_null("/root/TouchControls")
+	if pad == null or not pad.has_method("set_menu_preview"):
+		return
+	var show := not hide and _is_virtual() and _virtual_source == MobileInput.SOURCE_TOUCH
+	pad.call("set_menu_preview", show)
+	if _mobile_pad != null:
+		_mobile_pad.custom_minimum_size = Vector2(0, 300 if show else 12)
+	if _protocol_label != null and _is_virtual():
+		_protocol_label.text = _ui_text("ДЖЕРЕЛО: ", "SOURCE: ") \
+				+ MobileInput.short_source_name(_virtual_source)
+	_update_source_button()
+
+
+func _ensure_touch_preview() -> void:
+	if not _is_virtual() or _virtual_source != MobileInput.SOURCE_TOUCH:
+		return
+	var pad := get_node_or_null("/root/TouchControls")
+	if pad != null and pad.has_method("is_menu_preview") \
+			and not bool(pad.call("is_menu_preview")):
+		_update_virtual_preview()
+
+
+func _sync_virtual_source() -> void:
+	if not _is_virtual():
+		return
+	if not _source_explicit:
+		var auto := MobileInput.default_source()
+		if auto.is_empty():
+			_virtual = false
+			device = -1
+			_show_no_controller()
+			return
+		if auto != _virtual_source:
+			_virtual_source = auto
+			reset_calibration()
+			return
+	elif not MobileInput.available_sources().has(_virtual_source):
+		_source_explicit = false
+		MobileInput.clear_source_override()
+		_virtual_source = MobileInput.default_source()
+		reset_calibration()
+		return
+	var actual := MobileInput.source()
+	if actual.is_empty():
+		_virtual = false
+		device = -1
+		_show_no_controller()
+		return
+	if actual != _virtual_source:
+		_virtual_source = actual
+		_update_virtual_preview()
+	_update_source_button()
 
 
 func _build_ui() -> void:
@@ -186,8 +300,8 @@ func _build_ui() -> void:
 	var sys_lbl := MenuUI.body(_ui_text("КАЛІБРУВАННЯ ПЕРЕДАВАЧА · MODE 2", "CONTROLLER CALIBRATION · MODE 2"), 15, MenuUI.WARN_AMBER)
 	sys_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top_row.add_child(sys_lbl)
-	var mode_lbl := MenuUI.body(_ui_text("ПРОТОКОЛ: CRSF / EDGETX / USB-HID", "PROTOCOL: CRSF / EDGETX / USB HID"), 13, MenuUI.MIL_GREEN_LIGHT)
-	top_row.add_child(mode_lbl)
+	_protocol_label = MenuUI.body(_ui_text("ПРОТОКОЛ: CRSF / EDGETX / USB-HID", "PROTOCOL: CRSF / EDGETX / USB HID"), 13, MenuUI.MIL_GREEN_LIGHT)
+	top_row.add_child(_protocol_label)
 
 	var panel := PanelContainer.new()
 	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -284,6 +398,11 @@ func _build_ui() -> void:
 	_check_button.pressed.connect(reset_calibration)
 	buttons.add_child(_check_button)
 
+	_source_button = MenuUI.button("", 46)
+	_source_button.visible = false
+	_source_button.pressed.connect(_cycle_source)
+	buttons.add_child(_source_button)
+
 	var step_row := HBoxContainer.new()
 	step_row.add_theme_constant_override("separation", 12)
 	buttons.add_child(step_row)
@@ -302,6 +421,106 @@ func _build_ui() -> void:
 	back.pressed.connect(_go_back)
 	buttons.add_child(back)
 	back.grab_focus()
+
+
+## Compact iPhone layout: header, current step, live channel values and the
+## three action buttons.  The touch sticks are drawn by TouchControls in menu
+## preview mode; the ELRS source uses the physical Pocket sticks.
+func _build_mobile_ui() -> void:
+	add_child(MenuUI.background(MenuUI.BG))
+
+	var margin := MarginContainer.new()
+	MenuUI.full_rect(margin)
+	for side in ["left", "right"]:
+		margin.add_theme_constant_override("margin_%s" % side, 24)
+	margin.add_theme_constant_override("margin_top", 16)
+	margin.add_theme_constant_override("margin_bottom", 16)
+	add_child(margin)
+
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 14)
+	margin.add_child(root)
+
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 18)
+	root.add_child(header)
+
+	var title := MenuUI.title("КАЛІБРУВАННЯ", 64)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	header.add_child(title)
+
+	_source_button = MenuUI.button("ELRS", 92)
+	_source_button.custom_minimum_size = Vector2(420, 92)
+	_source_button.add_theme_font_size_override("font_size", 34)
+	_source_button.pressed.connect(_cycle_source)
+	header.add_child(_source_button)
+
+	_status = MenuUI.body("", 34, MenuUI.WARN_AMBER)
+	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	root.add_child(_status)
+
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(scroll)
+
+	var content := VBoxContainer.new()
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.add_theme_constant_override("separation", 14)
+	scroll.add_child(content)
+
+	var inst_card := PanelContainer.new()
+	inst_card.add_theme_stylebox_override("panel",
+			MenuUI._style(MenuUI.CARD, MenuUI.BORDER_HIGHLIGHT, 2, 3, 32, 26, 6))
+	content.add_child(inst_card)
+
+	_instruction = MenuUI.body("", 44, MenuUI.TEXT)
+	_instruction.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_instruction.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_instruction.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_instruction.custom_minimum_size = Vector2(0, 150)
+	inst_card.add_child(_instruction)
+
+	var values_card := PanelContainer.new()
+	values_card.add_theme_stylebox_override("panel",
+			MenuUI._style(Color("0c130b"), MenuUI.BORDER, 2, 3, 28, 20, 5))
+	content.add_child(values_card)
+
+	_mobile_values = MenuUI.body("", 40, MenuUI.MIL_GREEN_LIGHT)
+	_mobile_values.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	values_card.add_child(_mobile_values)
+
+	_device_label = MenuUI.body("", 28, MenuUI.MUTED)
+	_device_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	content.add_child(_device_label)
+
+	var footer := HBoxContainer.new()
+	footer.add_theme_constant_override("separation", 18)
+	root.add_child(footer)
+
+	_retry_button = MenuUI.button("СПОЧАТКУ", 100)
+	_retry_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_retry_button.add_theme_font_size_override("font_size", 36)
+	_retry_button.pressed.connect(reset_calibration)
+	footer.add_child(_retry_button)
+
+	_back_step_button = MenuUI.button("КРОК НАЗАД", 100)
+	_back_step_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_back_step_button.add_theme_font_size_override("font_size", 36)
+	_back_step_button.pressed.connect(_step_back)
+	footer.add_child(_back_step_button)
+
+	var back := MenuUI.button("НАЗАД", 100)
+	back.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	back.add_theme_font_size_override("font_size", 36)
+	back.pressed.connect(_go_back)
+	footer.add_child(back)
+
+	_mobile_pad = Control.new()
+	_mobile_pad.custom_minimum_size = Vector2(0, 300)
+	_mobile_pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_mobile_pad)
 
 
 func _build_radio_preview() -> Control:
@@ -361,7 +580,7 @@ func _read_calibration_channel(channel: String, captured_arr: Array, fallback_ax
 		invert_fallback: bool = false) -> float:
 	if not captured_arr.is_empty():
 		var ax := int(captured_arr[0])
-		var raw := Input.get_joy_axis(device, ax)
+		var raw := _axis_value(ax)
 		if captured_arr.size() >= 2 and captured_arr[1] is InputEventJoypadMotion:
 			var first := captured_arr[1] as InputEventJoypadMotion
 			if captured_arr.size() >= 3 and captured_arr[2] is InputEventJoypadMotion:
@@ -382,7 +601,7 @@ func _read_calibration_channel(channel: String, captured_arr: Array, fallback_ax
 	if not is_nan(bound_val):
 		return clampf(bound_val, -1.0, 1.0)
 
-	var raw_fallback := Input.get_joy_axis(device, fallback_axis)
+	var raw_fallback := _axis_value(fallback_axis)
 	return clampf(-raw_fallback if invert_fallback else raw_fallback, -1.0, 1.0)
 
 
@@ -390,7 +609,7 @@ func _update_radio() -> void:
 	if radio == null:
 		return
 	var pads := Input.get_connected_joypads()
-	if pads.is_empty():
+	if pads.is_empty() and not _is_virtual():
 		if radio.has_method("set_left_stick_position"):
 			radio.set_left_stick_position(0.0, 0.0)
 			radio.set_right_stick_position(0.0, 0.0)
@@ -422,12 +641,19 @@ func _update_radio() -> void:
 
 func _show_no_controller() -> void:
 	_no_controller = true
+	_virtual = false
+	device = -1
+	_update_virtual_preview(true)
+	_update_source_button()
 	_instruction.text = _ui_text(
-		"Пульт або геймпад не виявлено.\nПідключіть передавач (USB-HID / EdgeTX) і натисніть «ПЕРЕВІРИТИ ПУЛЬТ».\n(Керування з клавіатури W/A/S/D + стрілки працює автоматично.)",
-		"No controller or gamepad detected.\nConnect a transmitter (USB HID / EdgeTX), then select TEST CONTROLLER.\n(Keyboard controls W/A/S/D and arrow keys remain available.)")
+		"Пульт або геймпад не виявлено.\nПідключіть передавач (USB-HID / EdgeTX) або увімкни ELRS WiFi / сенсорне керування й натисни «ПЕРЕВІРИТИ».",
+		"No controller or gamepad detected.\nConnect a transmitter (USB HID / EdgeTX), or enable ELRS WiFi / touch input and press TEST.")
 	_status.text = _ui_text("ПІДКЛЮЧЕНИХ ПЕРЕДАВАЧІВ: 0", "CONNECTED CONTROLLERS: 0")
 	_device_label.text = _ui_text("СТАТУС USB-HID: ОЧІКУВАННЯ ПІДКЛЮЧЕННЯ", "USB HID STATUS: WAITING FOR CONNECTION")
-	_axes_label.text = _ui_text("Осі 0–7:  немає активного сигналу", "Axes 0–7: no active signal")
+	if _axes_label != null:
+		_axes_label.text = _ui_text("Осі 0–7:  немає активного сигналу", "Axes 0–7: no active signal")
+	if _mobile_values != null:
+		_mobile_values.text = "—"
 	if _check_button != null:
 		_check_button.visible = true
 	if _retry_button != null:
@@ -439,9 +665,28 @@ func _show_no_controller() -> void:
 func reset_calibration() -> void:
 	var pads := Input.get_connected_joypads()
 	if pads.is_empty():
-		_show_no_controller()
-		return
-	device = Controls.active_device if pads.has(Controls.active_device) else pads[0]
+		if not MobileInput.available():
+			_show_no_controller()
+			return
+		_virtual = true
+		device = VIRTUAL_DEVICE
+		if not _source_explicit:
+			_virtual_source = MobileInput.default_source()
+		elif not MobileInput.available_sources().has(_virtual_source):
+			_source_explicit = false
+			MobileInput.clear_source_override()
+			_virtual_source = MobileInput.default_source()
+		var actual := MobileInput.source()
+		if actual.is_empty():
+			_show_no_controller()
+			return
+		if _virtual_source.is_empty():
+			_virtual_source = actual
+		if _source_explicit:
+			MobileInput.set_source(_virtual_source)
+	else:
+		_virtual = false
+		device = Controls.active_device if pads.has(Controls.active_device) else pads[0]
 	_no_controller = false
 	calibration_finished = false
 	calibration_step = -1
@@ -457,6 +702,8 @@ func reset_calibration() -> void:
 		_retry_button.visible = true
 	if _back_step_button != null:
 		_back_step_button.visible = false
+	_update_virtual_preview()
+	_update_source_button()
 	go_to_next_step()
 
 
@@ -532,12 +779,24 @@ func _process(delta: float) -> void:
 	_update_radio()
 	var pads := Input.get_connected_joypads()
 	if pads.is_empty():
-		if not _no_controller:
-			_show_no_controller()
-		return
-	if _no_controller:
-		device = pads[0]
-		reset_calibration()
+		if not MobileInput.available():
+			if not _no_controller:
+				_show_no_controller()
+			return
+		if not _is_virtual():
+			reset_calibration()
+			if not _is_virtual():
+				return
+		_sync_virtual_source()
+		if not _is_virtual():
+			return
+		_ensure_touch_preview()
+	else:
+		if _is_virtual():
+			reset_calibration()
+		if _no_controller:
+			device = pads[0]
+			reset_calibration()
 	_update_device_readout()
 	if calibration_finished:
 		return
@@ -552,9 +811,21 @@ func _process(delta: float) -> void:
 func _poll_calibration_steps() -> void:
 	match calibration_step:
 		0:
-			if axes.size() >= 4:
+			if _is_virtual():
+				# The mobile bridge has a fixed AETR mapping, so there is
+				# nothing to discover: show all four axes and give the pilot
+				# a moment to see them move.
+				if axes.size() < 4:
+					axes = [0, 1, 2, 3]
+				if _step_elapsed >= 0.7:
+					go_to_next_step()
+			elif axes.size() >= 4:
 				go_to_next_step()
 		1:
+			if _is_virtual():
+				if _step_elapsed >= 0.7:
+					go_to_next_step()
+				return
 			var off_centre := 0
 			for axis in axes:
 				if absf(Input.get_joy_axis(device, axis)) > 0.3:
@@ -603,7 +874,7 @@ func _poll_first_extreme(target: Array, used: Array) -> void:
 	for axis in axes:
 		if _axis_used(axis, used):
 			continue
-		var value := Input.get_joy_axis(device, axis)
+		var value := _axis_value(axis)
 		if absf(value) > absf(best_value):
 			best_axis = axis
 			best_value = value
@@ -635,7 +906,7 @@ func _poll_opposite_extreme(target: Array) -> void:
 	var axis := int(target[0])
 	var first := target[1] as InputEventJoypadMotion
 	var first_sign := signf(first.axis_value)
-	var value := Input.get_joy_axis(device, axis)
+	var value := _axis_value(axis)
 	if signf(value) != first_sign and absf(value) > absf(_extreme_peak):
 		_extreme_peak = value
 		_extreme_peak_time = _step_elapsed
@@ -649,7 +920,7 @@ func _poll_center(target: Array, timeout: float, capture_center: bool = false) -
 	if target.is_empty():
 		return
 	var axis := int(target[0])
-	var value := Input.get_joy_axis(device, axis)
+	var value := _axis_value(axis)
 	if not _center_tracking:
 		_center_tracking = true
 		_center_start_value = value
@@ -721,20 +992,37 @@ func _make_motion(axis: int, value: float) -> InputEventJoypadMotion:
 
 
 func _update_device_readout() -> void:
-	_device_label.text = _ui_text("АКТИВНИЙ ПЕРЕДАВАЧ: %s  [ID: %d]", "ACTIVE CONTROLLER: %s  [ID: %d]") % [
-			Input.get_joy_name(device), device]
-	var low := PackedStringArray()
-	var high := PackedStringArray()
-	for axis in range(8):
-		var value := Input.get_joy_axis(device, axis)
-		var mark := "*" if axes.find(axis) >= 0 else " "
-		var cell := "CH%d%s:%+.2f" % [axis + 1, mark, value]
-		if axis < 4:
-			low.append(cell)
+	if _device_label != null:
+		if _is_virtual():
+			_device_label.text = _ui_text("ДЖЕРЕЛО: %s", "SOURCE: %s") % MobileInput.source_name()
 		else:
-			high.append(cell)
-	_axes_label.text = "%s\n%s" % [
-			"   ".join(low), "   ".join(high)]
+			_device_label.text = _ui_text("АКТИВНИЙ ПЕРЕДАВАЧ: %s  [ID: %d]",
+					"ACTIVE CONTROLLER: %s  [ID: %d]") % [Input.get_joy_name(device), device]
+	if _mobile_values != null:
+		var th := _read_calibration_channel("throttle", throttle, 2, false)
+		var yw := _read_calibration_channel("yaw", yaw, 3, false)
+		var pt := _read_calibration_channel("pitch", pitch, 1, false)
+		var rl := _read_calibration_channel("roll", roll, 0, false)
+		_mobile_values.text = _ui_text(
+				"ГАЗ %+.2f    РИСК %+.2f\nТАНГАЖ %+.2f    КРЕН %+.2f",
+				"THR %+.2f    YAW %+.2f\nPITCH %+.2f    ROLL %+.2f") % [th, yw, pt, rl]
+	if _axes_label != null:
+		var count := 4 if _is_virtual() else 8
+		var low := PackedStringArray()
+		var high := PackedStringArray()
+		for axis in range(count):
+			var value := _axis_value(axis)
+			var mark := "*" if axes.find(axis) >= 0 else " "
+			var cell := "CH%d%s:%+.2f" % [axis + 1, mark, value]
+			if axis < 4:
+				low.append(cell)
+			else:
+				high.append(cell)
+		if count <= 4:
+			_axes_label.text = "   ".join(low)
+		else:
+			_axes_label.text = "%s\n%s" % ["   ".join(low), "   ".join(high)]
+	_update_source_button()
 
 
 func _input(event: InputEvent) -> void:
@@ -810,36 +1098,62 @@ func _on_calibration_done() -> void:
 			return
 
 	calibration_finished = true
-	Controls.active_device = device
-	Controls.active_controller_guid = Input.get_joy_guid(device)
+	if _is_virtual():
+		if _virtual_source == MobileInput.SOURCE_ELRS:
+			for channel in channels:
+				var capture: Array = channels[channel]
+				var negative_end := (capture[1] as InputEventJoypadMotion).axis_value
+				var positive_end := (capture[2] as InputEventJoypadMotion).axis_value
+				var center := NAN
+				if capture.size() >= 4:
+					center = float(capture[3])
+				MobileInput.set_calibration(MobileInput.SOURCE_ELRS, channel,
+						negative_end, positive_end, center)
+			MobileInput.save_calibration()
+			_status.text = _ui_text("✓ КАЛІБРУВАННЯ ELRS ЗБЕРЕЖЕНО",
+					"✓ ELRS CALIBRATION SAVED")
+		else:
+			# Touch sticks are generated from a fixed radius; there is no ADC
+			# drift to trim, so the wizard is a direction/travel check.
+			_status.text = _ui_text("✓ СЕНСОРНІ СТІКИ ПЕРЕВІРЕНО",
+					"✓ TOUCH STICKS VERIFIED")
+		_instruction.text = _ui_text(
+				"ГОТОВО. Сенсорні стіки вже мають точний центр і повний хід; напрямки перевірено.",
+				"DONE. Touch sticks already have an exact centre and full travel; directions verified.") \
+				if _virtual_source == MobileInput.SOURCE_TOUCH else _ui_text(
+				"ГОТОВО. Калібрування ELRS збережено — воно застосується до польоту.",
+				"DONE. ELRS calibration saved and will be used in flight.")
+	else:
+		Controls.active_device = device
+		Controls.active_controller_guid = Input.get_joy_guid(device)
 
-	# Save the real endpoints (and the measured centre) of every channel.  The
-	# first captured end is the channel's logical negative direction, the
-	# second the positive one, matching the wizard texts.  apply_stick_calibrated
-	# also clears any stale manual inversion, so a fresh wizard run always leaves
-	# roll/pitch/yaw turning the way the labels say.
-	for channel in channels:
-		var capture: Array = channels[channel]
-		var negative_end := (capture[1] as InputEventJoypadMotion).axis_value
-		var positive_end := (capture[2] as InputEventJoypadMotion).axis_value
-		var center := NAN
-		if capture.size() >= 4:
-			center = float(capture[3])
-		Controls.apply_stick_calibrated(channel, int(capture[0]),
-				negative_end, positive_end, center)
+		# Save the real endpoints (and the measured centre) of every channel. The
+		# first captured end is the channel's logical negative direction, the
+		# second the positive one, matching the wizard texts.  apply_stick_calibrated
+		# also clears any stale manual inversion, so a fresh wizard run always leaves
+		# roll/pitch/yaw turning the way the labels say.
+		for channel in channels:
+			var capture: Array = channels[channel]
+			var negative_end := (capture[1] as InputEventJoypadMotion).axis_value
+			var positive_end := (capture[2] as InputEventJoypadMotion).axis_value
+			var center := NAN
+			if capture.size() >= 4:
+				center = float(capture[3])
+			Controls.apply_stick_calibrated(channel, int(capture[0]),
+					negative_end, positive_end, center)
 
-	for action in ["throttle_up", "throttle_down", "yaw_left", "yaw_right", "pitch_up", "pitch_down", "roll_left", "roll_right"]:
-		InputMap.action_set_deadzone(action, 0.02)
-	# A correct calibration gives an exact neutral, so a huge deadband that was
-	# set to mask centre drift is no longer needed.  Leaving it at e.g. 0.25
-	# would itself feel like a dead spot for the first quarter of stick travel.
-	if Controls.stick_deadzone > 0.10:
-		Controls.stick_deadzone = Controls.DEFAULT_STICK_DEADZONE
-	Controls.refresh_stick_bindings()
-	Controls.reset_stick_filters()
-	Controls.restore_keyboard_shortcuts()
-	Controls.make_joypad_events_global()
-	Controls.save_bindings()
+		for action in ["throttle_up", "throttle_down", "yaw_left", "yaw_right", "pitch_up", "pitch_down", "roll_left", "roll_right"]:
+			InputMap.action_set_deadzone(action, 0.02)
+		# A correct calibration gives an exact neutral, so a huge deadband that was
+		# set to mask centre drift is no longer needed.  Leaving it at e.g. 0.25
+		# would itself feel like a dead spot for the first quarter of stick travel.
+		if Controls.stick_deadzone > 0.10:
+			Controls.stick_deadzone = Controls.DEFAULT_STICK_DEADZONE
+		Controls.refresh_stick_bindings()
+		Controls.reset_stick_filters()
+		Controls.restore_keyboard_shortcuts()
+		Controls.make_joypad_events_global()
+		Controls.save_bindings()
 	await get_tree().create_timer(1.4).timeout
 	if is_inside_tree():
 		_go_back()

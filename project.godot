@@ -31,6 +31,7 @@ DroneCatalog="*res://autoloads/DroneCatalog.gd"
 DebugShot="*res://autoloads/DebugShot.gd"
 ElrsWifiInput="*res://autoloads/ElrsWifiInput.gd"
 TouchControls="*res://autoloads/TouchControls.gd"
+MobileInput="*res://autoloads/MobileInput.gd"
 
 [display]
 
@@ -229,7 +230,7 @@ quality/filters/anisotropic_filter_level=4
 quality/reflections/atlas_size=1024
 quality/filters/msaa=0
 anti_aliasing/quality/use_debanding=false
-scaling_3d/mode=1
+scaling_3d/mode=0
 scaling_3d/scale=0.8
 scaling_3d/fsr_sharpness=0.25
 anti_aliasing/quality/msaa_3d=0

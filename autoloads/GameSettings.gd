@@ -21,7 +21,17 @@ var hud_config := {"fps": 20, "crosshair": false, "horizon": true, "ladder": fal
 		# GameSettings.cfg files keep working (missing keys use these defaults).
 		"link_limit": false, "wind_sim": false, "reb_zones": false,
 		"realism_profile": REALISM_ARCADE,
-		"angle_mode": true, "acro_mode": true}
+		"angle_mode": true, "acro_mode": true,
+		# ELRS WiFi / mobile input.  These keys must live in the default
+		# dictionary, otherwise load_hud_config() would drop them when the
+		# saved file is read back (it only copies known keys).
+		"elrs_invert_roll": true,
+		"elrs_arm_channel": 4,
+		"elrs_mode_channel": 5,
+		"elrs_video_channel": 6,
+		"elrs_action_channels": {},
+		"touch_invert_roll": false,
+		"mobile_input_calibration": {}}
 
 
 func load_hud_config() -> void:
@@ -47,6 +57,12 @@ func load_hud_config() -> void:
 						if profile_text in [REALISM_ARCADE, REALISM_COMBAT, REALISM_CUSTOM]:
 							hud_config[key] = profile_text
 							has_profile = true
+					elif key in ["elrs_arm_channel", "elrs_mode_channel", "elrs_video_channel"] \
+							and (value is int or value is float):
+						hud_config[key] = clampi(int(value), 0, 15)
+					elif key in ["mobile_input_calibration", "elrs_action_channels"] \
+							and value is Dictionary:
+						hud_config[key] = value
 					elif value is bool:
 						hud_config[key] = value
 		hud_config["crosshair"] = false

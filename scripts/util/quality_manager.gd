@@ -156,6 +156,11 @@ static func scaling_mode() -> Viewport.Scaling3DMode:
 		return Viewport.SCALING_3D_MODE_BILINEAR
 	if env == "fsr":
 		return Viewport.SCALING_3D_MODE_FSR
+	# FSR is a Forward+ feature; on the Mobile renderer Godot logs a warning
+	# and ignores it.  Bilinear keeps the internal-resolution saving (the
+	# single most important mobile FPS lever) without the warning.
+	if RenderingServer.get_current_rendering_method() == "mobile":
+		return Viewport.SCALING_3D_MODE_BILINEAR
 	# Per-preset upscaler.  Bilinear is ~9% faster than FSR1 on the Intel UHD
 	# target; the low-end profile takes it because frame rate is the goal.
 	if String(params().get("scaling", "fsr")) == "bilinear":
@@ -255,6 +260,9 @@ static func apply_environment(env: Environment) -> void:
 		p["ssao"] = false
 		p["ssil"] = false
 		p["volumetric_fog"] = false
+		env.ssao_enabled = false
+		env.ssil_enabled = false
+		env.volumetric_fog_enabled = false
 	# Every preset now uses the same baked mountain panorama: the look is part
 	# of the art direction and the per-frame cost is a single cubemap sample.
 	var use_static_sky := true

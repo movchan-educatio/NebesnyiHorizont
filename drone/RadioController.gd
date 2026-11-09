@@ -236,6 +236,22 @@ func _physics_process(_delta: float) -> void:
 		target.flight_controller.input = input
 
 
+## The calibration wizard can store an ELRS/touch trim in MobileInput.  The
+## default is an empty table, so this is a no-op until the pilot calibrates.
+func _calibrated_stick(mobile: Node, source: String, channel: String, value: float) -> float:
+	if mobile == null:
+		return value
+	return float(mobile.call("calibrate", source, channel, value))
+
+
+func _calibrated_power(mobile: Node, source: String, value: float) -> float:
+	if mobile == null:
+		return value
+	var normalised := value * 2.0 - 1.0
+	normalised = float(mobile.call("calibrate", source, "throttle", normalised))
+	return clampf((normalised + 1.0) * 0.5, 0.0, 1.0)
+
+
 func read_input() -> void:
 	# Keyboard sticks: W/S throttle, A/D yaw, arrows pitch/roll.
 	var kb_yaw: float = (1.0 if Input.is_key_pressed(KEY_D) else 0.0) \
@@ -252,20 +268,22 @@ func read_input() -> void:
 	# otherwise a live WiFi ELRS stream overrides the physical gamepad.
 	var wifi := get_node_or_null("/root/ElrsWifiInput")
 	var touch := get_node_or_null("/root/TouchControls")
+	var mobile := get_node_or_null("/root/MobileInput")
 	var touch_active: bool = touch != null and bool(touch.get("enabled")) \
 			and bool(touch.get("touch_mode"))
 	var wifi_active: bool = wifi != null and bool(wifi.get("valid"))
+	var elrs_roll_sign := -1.0 if wifi != null and bool(wifi.get("invert_roll")) else 1.0
 	var pad_yaw := 0.0
 	var pad_roll := 0.0
 	var pad_pitch := 0.0
 	if touch_active:
-		pad_yaw = float(touch.get("yaw"))
-		pad_roll = float(touch.get("roll"))
-		pad_pitch = float(touch.get("pitch"))
+		pad_yaw = _calibrated_stick(mobile, "touch", "yaw", float(touch.get("yaw")))
+		pad_roll = _calibrated_stick(mobile, "touch", "roll", float(touch.get("roll")))
+		pad_pitch = _calibrated_stick(mobile, "touch", "pitch", float(touch.get("pitch")))
 	elif wifi_active:
-		pad_yaw = float(wifi.yaw())
-		pad_roll = float(wifi.roll())
-		pad_pitch = float(wifi.pitch())
+		pad_yaw = _calibrated_stick(mobile, "elrs", "yaw", float(wifi.yaw()))
+		pad_roll = _calibrated_stick(mobile, "elrs", "roll", float(wifi.roll())) * elrs_roll_sign
+		pad_pitch = _calibrated_stick(mobile, "elrs", "pitch", float(wifi.pitch()))
 	else:
 		pad_yaw = Controls.channel_value("yaw")
 		pad_roll = Controls.channel_value("roll")
@@ -298,9 +316,9 @@ func read_input() -> void:
 		_device = Controls.ensure_active_joypad()
 	var pad_power := -1.0
 	if touch_active:
-		pad_power = float(touch.get("throttle"))
+		pad_power = _calibrated_power(mobile, "touch", float(touch.get("throttle")))
 	elif wifi_active:
-		pad_power = float(wifi.throttle())
+		pad_power = _calibrated_power(mobile, "elrs", float(wifi.throttle()))
 	else:
 		pad_power = _radio_throttle()
 

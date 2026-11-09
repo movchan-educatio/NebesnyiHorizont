@@ -27,6 +27,34 @@ func _ready() -> void:
 	if OS.has_environment("DRONE_FPS_BENCH"):
 		_run_fps_bench()
 		return
+	if OS.has_environment("CALIBRATION_QA"):
+		var cal_runner = load("res://test/qa_calibration_touch.gd")
+		if cal_runner != null:
+			var cal_node = cal_runner.new()
+			cal_node.name = "QaCalibrationTouch"
+			get_tree().root.add_child.call_deferred(cal_node)
+		return
+	if OS.has_environment("MOBILE_PERSIST_QA"):
+		var persist_runner = load("res://test/qa_mobile_persist.gd")
+		if persist_runner != null:
+			var persist_node = persist_runner.new()
+			persist_node.name = "QaMobilePersist"
+			get_tree().root.add_child.call_deferred(persist_node)
+		return
+	if OS.has_environment("CALIBRATION_ELRS_QA"):
+		var elrs_runner = load("res://test/qa_calibration_elrs.gd")
+		if elrs_runner != null:
+			var elrs_node = elrs_runner.new()
+			elrs_node.name = "QaCalibrationElrs"
+			get_tree().root.add_child.call_deferred(elrs_node)
+		return
+	if OS.has_environment("ACTION_BIND_QA"):
+		var bind_runner = load("res://test/qa_action_bind.gd")
+		if bind_runner != null:
+			var bind_node = bind_runner.new()
+			bind_node.name = "QaActionBind"
+			get_tree().root.add_child.call_deferred(bind_node)
+		return
 	var path := OS.get_environment("SHOT_PATH")
 	if path.is_empty():
 		return

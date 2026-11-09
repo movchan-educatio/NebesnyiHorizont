@@ -5587,7 +5587,7 @@ func _process(delta: float) -> void:
 			if _touch_controls != null \
 					and bool(_touch_controls.get("enabled")) \
 					and bool(_touch_controls.get("touch_mode")):
-				_elrs_status_label.text = "TOUCH CONTROL"
+				_elrs_status_label.text = "СЕНСОРНЕ КЕРУВАННЯ"
 			else:
 				_elrs_status_label.text = ElrsWifiInput.status_text
 	_update_audio_mix(delta)
