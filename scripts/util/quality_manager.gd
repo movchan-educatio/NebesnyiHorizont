@@ -111,7 +111,11 @@ static func level_name_ua(lvl: int) -> String:
 
 
 static func params() -> Dictionary:
-	var p: Dictionary = PRESETS[level()]
+	# Return a mutable copy: const preset dictionaries are read-only in Godot
+	# 4.6, and apply_environment() adjusts ssao/ssil/fog for the Mobile
+	# renderer.  Mutating the const directly raised "Dictionary is in
+	# read-only state" on iOS.
+	var p: Dictionary = PRESETS[level()].duplicate(true)
 	# QA switches used by the FPS benchmark to isolate expensive passes.
 	if OS.has_environment("QA_NO_FOG"):
 		p = p.duplicate(true)

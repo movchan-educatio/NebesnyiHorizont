@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ios-unsigned
+  cancel-in-progress: true
+
 env:
   GODOT_VERSION: 4.6.1-stable
   IOS_PRESET: iOS
@@ -45,6 +49,7 @@ jobs:
           GODOT="$RUNNER_TEMP/godot/Godot.app/Contents/MacOS/Godot"
           chmod +x "$GODOT"
           xattr -dr com.apple.quarantine "$RUNNER_TEMP/godot/Godot.app" || true
+          rm -f "$RUNNER_TEMP/godot.zip"
           "$GODOT" --version
 
       - name: Download iOS export template
@@ -67,6 +72,9 @@ jobs:
             "$HOME/Library/Application Support/Godot/export_templates/4.6.1.stable/ios.zip"
           cp "$RUNNER_TEMP/templates/version.txt" \
             "$HOME/Library/Application Support/Godot/export_templates/4.6.1.stable/version.txt"
+          # Keep only the cached ios.zip; the 1.1 GB .tpz archive and its
+          # extraction are not needed after the template is installed.
+          rm -rf "$RUNNER_TEMP/templates.tpz" "$RUNNER_TEMP/tpl_extract"
           ls -lh "$HOME/Library/Application Support/Godot/export_templates/4.6.1.stable"
 
       - name: Import project
@@ -88,6 +96,11 @@ jobs:
         run: |
           xcodebuild -project "build/ios/${NAME}.xcodeproj" -list
 
+      - name: Disk space before archive
+        run: |
+          df -h /
+          du -sh build/ios .git .godot 2>/dev/null || true
+
       - name: Build unsigned archive
         run: |
           set -o pipefail
@@ -95,6 +108,7 @@ jobs:
             -project "build/ios/${NAME}.xcodeproj" \
             -scheme "${NAME}" \
             -archivePath "build/ios/App.xcarchive" \
+            -derivedDataPath "build/DerivedData" \
             -configuration Release \
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
@@ -103,6 +117,9 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
+          # The archive is self-contained; DerivedData is another multi-GB
+          # copy of the app and is not needed for packaging.
+          rm -rf build/DerivedData
 
       - name: Package IPA
         run: |
@@ -113,6 +130,7 @@ jobs:
           cp -R App.xcarchive/Products/Applications/*.app Payload/
           zip -qry "${NAME}-unsigned.ipa" Payload
           ls -lh "${NAME}-unsigned.ipa"
+          df -h /
 
       - name: Upload IPA to GitHub Release
         uses: softprops/action-gh-release@v2
