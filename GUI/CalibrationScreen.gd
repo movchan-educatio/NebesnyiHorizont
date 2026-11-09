@@ -156,7 +156,7 @@ func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	Controls.load_input_map()
 	Controls.refresh_stick_bindings()
-	_virtual_source = MobileInput.default_source()
+	_virtual_source = MobileInput.source()
 	if MobileInput.is_mobile_screen():
 		_build_mobile_ui()
 	else:
@@ -238,7 +238,7 @@ func _sync_virtual_source() -> void:
 	if not _is_virtual():
 		return
 	if not _source_explicit:
-		var auto := MobileInput.default_source()
+		var auto := MobileInput.source()
 		if auto.is_empty():
 			_virtual = false
 			device = -1
@@ -671,7 +671,7 @@ func reset_calibration() -> void:
 		_virtual = true
 		device = VIRTUAL_DEVICE
 		if not _source_explicit:
-			_virtual_source = MobileInput.default_source()
+			_virtual_source = MobileInput.source()
 		elif not MobileInput.available_sources().has(_virtual_source):
 			_source_explicit = false
 			MobileInput.clear_source_override()

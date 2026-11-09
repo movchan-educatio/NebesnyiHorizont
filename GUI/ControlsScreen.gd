@@ -100,6 +100,9 @@ var _source_explicit := false
 var _device_entries: Array = []
 var _mobile_note: Label = null
 var _mobile_bottom_pad: Control = null
+## Set while handing the selected ELRS/touch source to the calibration wizard;
+## _exit_tree() must not clear it before the new screen reads it.
+var _keep_source_override := false
 
 
 func _ready() -> void:
@@ -117,7 +120,8 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	_set_touch_preview(false)
-	MobileInput.clear_source_override()
+	if not _keep_source_override:
+		MobileInput.clear_source_override()
 
 
 func _is_virtual() -> bool:
@@ -1332,6 +1336,11 @@ func _go_back() -> void:
 
 
 func _go_calibration() -> void:
+	if _is_virtual():
+		MobileInput.set_source(_active_virtual)
+		_keep_source_override = true
+	else:
+		MobileInput.clear_source_override()
 	if embedded:
 		# The pause menu hosts us inside OptionsMenu.  Swap the sub-screen in
 		# place instead of changing the whole scene, otherwise calibrating
