@@ -17,6 +17,8 @@ run/main_scene="res://GUI/StartScreen.tscn"
 config/features=PackedStringArray("4.6")
 run/max_fps=120
 config/icon="res://icon.png"
+boot_splash/show_image=false
+boot_splash/bg_color=Color(0.02, 0.05, 0.04, 1)
 
 [audio]
 

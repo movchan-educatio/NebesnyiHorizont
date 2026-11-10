@@ -200,9 +200,9 @@ def wait_and_process():
     with open(summary_file, "w", encoding="utf-8") as f:
         f.write(f"=== NEBESNYI HORIZONT iOS BUILD #{run_num} ===\n\n")
         f.write(f"1. DIRECT S3 CLOUD DOWNLOAD LINK (Works directly in Safari on iPhone):\n{presigned}\n\n")
-        f.write(f"2. LOCAL WI-FI DOWNLOAD LINK (PC IP 192.168.0.100, port 8080):\n")
-        f.write(f"   http://192.168.0.100:8080/{clean_name}\n")
-        f.write(f"   http://192.168.0.100:8080/{fixed_name}\n\n")
+        f.write(f"2. LOCAL WI-FI DOWNLOAD LINK (PC IP 10.0.0.8, port 8080):\n")
+        f.write(f"   http://10.0.0.8:8080/{clean_name}\n")
+        f.write(f"   http://10.0.0.8:8080/{fixed_name}\n\n")
         f.write(f"3. LOCAL FILES ON DESKTOP:\n")
         f.write(f"   {clean_path}\n")
         f.write(f"   {fixed_path}\n")

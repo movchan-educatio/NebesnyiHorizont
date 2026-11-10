@@ -417,17 +417,33 @@ func _find_skeleton(node: Node) -> Skeleton3D:
 
 
 func _load_radio_model() -> Node3D:
-	var glb_path := "res://Assets/Drones/ua_norm/radiomaster_tx12_rig.glb"
-	if not FileAccess.file_exists(glb_path):
-		glb_path = "res://Assets/Drones/ua_norm/radiomaster_tx12.glb"
-	if FileAccess.file_exists(glb_path):
-		var bytes := FileAccess.get_file_as_bytes(glb_path)
-		if bytes.size() > 0:
-			var doc := GLTFDocument.new()
-			var state := GLTFState.new()
-			var err := doc.append_from_buffer(bytes, "", state)
-			if err == OK:
-				return doc.generate_scene(state) as Node3D
+	for glb_path in [
+		"res://Assets/Drones/ua_norm/radiomaster_tx12_rig.glb",
+		"res://Assets/Drones/ua_norm/radiomaster_tx12.glb",
+		"res://Assets/Drones/ua/radiomaster_tx12.glb"
+	]:
+		if ResourceLoader.exists(glb_path):
+			var packed = load(glb_path)
+			if packed is PackedScene:
+				var inst := (packed as PackedScene).instantiate() as Node3D
+				if inst != null:
+					return inst
+		var real_p := ProjectSettings.globalize_path(glb_path)
+		var check_path: String = ""
+		if FileAccess.file_exists(glb_path):
+			check_path = glb_path
+		elif FileAccess.file_exists(real_p):
+			check_path = real_p
+		if not check_path.is_empty():
+			var bytes := FileAccess.get_file_as_bytes(check_path)
+			if bytes.size() > 0:
+				var doc := GLTFDocument.new()
+				var state := GLTFState.new()
+				var err := doc.append_from_buffer(bytes, "", state)
+				if err == OK:
+					var inst := doc.generate_scene(state) as Node3D
+					if inst != null:
+						return inst
 	return null
 
 
@@ -1219,20 +1235,17 @@ func _build_controls() -> void:
 		_radio = r_model
 		_radio_skeleton = _find_skeleton(r_model)
 	else:
-		# Fallback to high-res 2D texture if 3D model fails
+		# Fallback to crisp 2D transmitter render if 3D viewport fails
 		var fb_tex: Texture2D = null
-		for p in ["res://Assets/Drones/ua/radiomaster_tx12_0.png", "res://Assets/Drones/ua_norm/radiomaster_tx12_rig_Image_0.png", "res://Assets/Drones/ua_norm/radiomaster_tx12_Image_0.png"]:
-			if ResourceLoader.exists(p):
-				fb_tex = load(p) as Texture2D
-				if fb_tex != null:
-					break
-			if FileAccess.file_exists(p):
-				var b_data := FileAccess.get_file_as_bytes(p)
-				if b_data.size() > 0:
-					var img := Image.new()
-					if img.load_png_from_buffer(b_data) == OK:
-						fb_tex = ImageTexture.create_from_image(img)
-						break
+		var p := "res://Assets/Branding/radiomaster_tx12_preview.png"
+		if ResourceLoader.exists(p):
+			fb_tex = load(p) as Texture2D
+		if fb_tex == null and FileAccess.file_exists(p):
+			var b_data := FileAccess.get_file_as_bytes(p)
+			if b_data.size() > 0:
+				var img := Image.new()
+				if img.load_png_from_buffer(b_data) == OK:
+					fb_tex = ImageTexture.create_from_image(img)
 		if fb_tex != null:
 			var fb_rect := TextureRect.new()
 			fb_rect.texture = fb_tex
