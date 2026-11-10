@@ -13,6 +13,10 @@ Godot_v*_console.exe
 *.zip
 *.mp4
 
+# Python
+__pycache__/
+*.pyc
+
 # Local backups / experiments
 _backup_*/
 *.blend1
