@@ -45,6 +45,27 @@ func _ready() -> void:
 		var err: Error = img.save_png(out_path)
 		print("[CAPTURE] Screen '", s, "' -> ", out_path, " (err=", err, ")")
 
+		# If main screen, also capture specific drone presets to verify pedestal fit!
+		if s == "main":
+			var test_presets := [8, 9, 14] # Falcon-X, Quad-5, Furia
+			for p_idx: int in test_presets:
+				Global.drone_preset = p_idx
+				if mobile_inst.has_method("_load_hero_model"):
+					mobile_inst.call("_load_hero_model", p_idx)
+				for f in range(20):
+					await get_tree().process_frame
+					if mobile_inst.has_method("_process"):
+						mobile_inst.call("_process", 1.0 / 60.0)
+				await RenderingServer.frame_post_draw
+				var d_img: Image = get_viewport().get_texture().get_image()
+				var d_out: String = OUT_DIR + "/shot_mobile_hero_preset_" + str(p_idx) + ".png"
+				d_img.save_png(d_out)
+				print("[CAPTURE] Hero Preset ", p_idx, " -> ", d_out)
+			# Reset back to default
+			Global.drone_preset = 0
+			if mobile_inst.has_method("_load_hero_model"):
+				mobile_inst.call("_load_hero_model", 0)
+
 		# If settings, also capture all 4 tabs!
 		if s == "settings":
 			var tabs: Array[String] = ["sim", "hud", "gfx", "sys"]

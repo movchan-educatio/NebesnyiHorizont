@@ -17,6 +17,7 @@ var btn_quit: Button
 
 var quad_settings: Control = preload("res://GUI/QuadSettingsMenu.tscn").instantiate()
 var options_menu: Control = preload("res://GUI/OptionsMenu.tscn").instantiate()
+var mobile_menu: Control = null
 
 var can_show := true
 var can_resume := true
@@ -169,6 +170,16 @@ func add_Sibling_Menus() -> void:
 	elif options_menu.has_signal("closed"):
 		var _discard = options_menu.connect("closed", Callable(self, "_on_sub_menu_closed"))
 
+	var mobile_scene = load("res://GUI/mobile/MobileMenu.tscn")
+	if mobile_scene is PackedScene:
+		mobile_menu = (mobile_scene as PackedScene).instantiate() as Control
+		mobile_menu.visible = false
+		mobile_menu.process_mode = Node.PROCESS_MODE_ALWAYS
+		sibling_parent.call_deferred("add_child", mobile_menu)
+		mobile_menu.visibility_changed.connect(_on_visibility_changed)
+		if mobile_menu.has_signal("closed"):
+			mobile_menu.connect("closed", Callable(self, "_on_sub_menu_closed"))
+
 
 func _set_flight_hud_suppressed(suppress: bool) -> void:
 	if suppress:
@@ -234,7 +245,7 @@ func _input(event: InputEvent) -> void:
 		if event.keycode == KEY_ESCAPE or event.physical_keycode == KEY_ESCAPE:
 			esc_key = true
 	if (esc_key or event.is_action_pressed("pause_menu") or event.is_action_pressed("ui_cancel")) and not event.is_echo():
-		if !visible and !quad_settings.visible and !options_menu.visible:
+		if !visible and !quad_settings.visible and !options_menu.visible and (mobile_menu == null or !mobile_menu.visible):
 			accept_event()
 			get_tree().paused = true
 			_set_drone_frozen(true)
@@ -290,13 +301,19 @@ func _set_drone_frozen(frozen: bool) -> void:
 func _on_quad_pressed() -> void:
 	show_menu(false)
 	_set_flight_hud_suppressed(true)
-	quad_settings.show_menu(true)
+	if MenuUI.is_mobile_ui() and mobile_menu != null:
+		mobile_menu.call("open_tab", "rates", true)
+	else:
+		quad_settings.show_menu(true)
 
 
 func _on_options_pressed() -> void:
 	show_menu(false)
 	_set_flight_hud_suppressed(true)
-	options_menu.visible = true
+	if MenuUI.is_mobile_ui() and mobile_menu != null:
+		mobile_menu.call("open_tab", "controls", true)
+	else:
+		options_menu.visible = true
 
 
 func _on_main_menu_pressed() -> void:
@@ -317,6 +334,10 @@ func _on_quit_pressed() -> void:
 
 
 func _on_sub_menu_closed() -> void:
-	options_menu.visible = false
-	quad_settings.visible = false
+	if options_menu != null:
+		options_menu.visible = false
+	if quad_settings != null:
+		quad_settings.visible = false
+	if mobile_menu != null:
+		mobile_menu.visible = false
 	show_menu(true)

@@ -310,16 +310,18 @@ func _update_switches() -> void:
 	# Handle ARM level switch specifically
 	var arm_idx := int(action_channels.get("arm", arm_channel))
 	if arm_idx >= 0 and arm_idx < channels.size():
-		var is_on := _raw(arm_idx) > CENTER
+		var raw_arm := _raw(arm_idx)
+		var is_on := _armed_level_state
+		if raw_arm > 18000.0:
+			is_on = true
+		elif raw_arm < 14000.0:
+			is_on = false
 		if not first and _armed_level_state != is_on:
 			_armed_level_state = is_on
 			emit_signal("arm_state_changed", is_on)
-			if is_on:
-				Input.action_press("arm")
-				Input.action_press("toggle_arm")
-			else:
-				Input.action_release("arm")
-				Input.action_release("toggle_arm")
+			_dispatch_action_event("arm", is_on)
+			_dispatch_action_event("toggle_arm", is_on)
+			if not is_on:
 				# Immediate safety disarm on active flight controller
 				_trigger_safety_disarm()
 		_armed_level_state = is_on
@@ -331,13 +333,23 @@ func _update_switches() -> void:
 		var idx := int(action_channels[action])
 		if idx < 0 or idx >= CHANNEL_COUNT:
 			continue
-		var on := _raw(idx) > CENTER
-		var prev_on: bool = bool(_switch_state.get(action, on))
+		var raw_val := _raw(idx)
+		var prev_on: bool = bool(_switch_state.get(action, false))
+		var on := prev_on
+		if raw_val > 18000.0:
+			on = true
+		elif raw_val < 14000.0:
+			on = false
 		if not first and prev_on != on:
 			_dispatch_action_event(String(action), on)
 		_switch_state[action] = on
 
 	_switch_ready = true
+
+
+func sync_switches() -> void:
+	_switch_ready = false
+	_switch_state.clear()
 
 
 func _dispatch_action_event(action: String, on: bool) -> void:

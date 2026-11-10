@@ -835,6 +835,8 @@ func update_hud_data(delta: float) -> void:
 	var right_stick := Vector2(input[2], -input[3])
 	var rpm := [mot[0].rpm, mot[1].rpm, mot[2].rpm, mot[3].rpm]
 	hud.update_data(delta, position, angles, velocity, left_stick, right_stick, rpm)
+	if hud.has_method("update_realtime_sticks"):
+		hud.update_realtime_sticks(left_stick, right_stick)
 
 
 func reset() -> void:

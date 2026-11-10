@@ -1,11 +1,14 @@
 extends Control
 
 
-@onready var frame := $Frame
-@onready var stick := $StickPosition
+@onready var frame: TextureRect = $Frame
+@onready var stick: TextureRect = $StickPosition
 
 
 func _ready() -> void:
+	if stick != null:
+		stick.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		stick.position = 0.5 * (size - stick.size)
 	# Name the two physical axis pairs so the pilot can see which stick is
 	# moving during a flight, not just a dot on an unlabelled frame.
 	var label := Label.new()
@@ -27,4 +30,9 @@ func _ready() -> void:
 
 
 func update_stick_input(input: Vector2) -> void:
-	stick.position = 0.5 * (size - stick.size) + 50 * input
+	if stick == null:
+		return
+	var center: Vector2 = size * 0.5
+	var half_stick: Vector2 = stick.size * 0.5
+	var travel: float = 48.0
+	stick.position = center - half_stick + Vector2(clampf(input.x, -1.0, 1.0) * travel, clampf(input.y, -1.0, 1.0) * travel)

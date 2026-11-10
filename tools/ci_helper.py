@@ -171,7 +171,7 @@ def wait_and_process():
 
     # Make sanitized copies
     desktop_dir = "C:/Users/USER_UA/Desktop"
-    fixed_name = f"NebesnyiHorizont-unsigned-v{run_num + 16}-fixed.ipa" # e.g. v22
+    fixed_name = f"NebesnyiHorizont-unsigned-v{run_num + 16}-fixed.ipa"
     clean_name = "NebesnyiHorizont.ipa"
     
     import shutil
@@ -182,9 +182,22 @@ def wait_and_process():
     print(f"Created sanitized file: {fixed_path}")
     print(f"Created clean file: {clean_path}")
 
-    # Get presigned URL
+    # Write a quick text summary on Desktop
+    summary_file = os.path.join(desktop_dir, "DOWNLOAD_LINKS.txt")
     presigned = get_presigned_download_url()
+    
+    with open(summary_file, "w", encoding="utf-8") as f:
+        f.write(f"=== NEBESNYI HORIZONT iOS BUILD #{run_num} ===\n\n")
+        f.write(f"1. DIRECT S3 CLOUD DOWNLOAD LINK (Works directly in Safari on iPhone):\n{presigned}\n\n")
+        f.write(f"2. LOCAL WI-FI DOWNLOAD LINK (PC IP 192.168.0.100, port 8080):\n")
+        f.write(f"   http://192.168.0.100:8080/{clean_name}\n")
+        f.write(f"   http://192.168.0.100:8080/{fixed_name}\n\n")
+        f.write(f"3. LOCAL FILES ON DESKTOP:\n")
+        f.write(f"   {clean_path}\n")
+        f.write(f"   {fixed_path}\n")
+
     print(f"\nDirect Presigned Download URL:\n{presigned}\n")
+    print(f"Saved links to {summary_file}")
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "releases":

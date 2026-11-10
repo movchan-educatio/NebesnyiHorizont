@@ -1101,8 +1101,8 @@ static func fit_preview_model(model: Node3D, target_size: float, bottom_y: float
 				var offset := rotation_basis * (Vector3(x, y, z) * factor)
 				min_projected_y = minf(min_projected_y, offset.y)
 	model.scale = Vector3.ONE * factor
-	model.position = -(rotation_basis * (local_center * factor))
-	model.position.y += bottom_y - min_projected_y
+	var rotated_center: Vector3 = rotation_basis * (local_center * factor)
+	model.position = Vector3(-rotated_center.x, bottom_y - min_projected_y, -rotated_center.z)
 	model.force_update_transform()
 	var result := AABB()
 	first = true

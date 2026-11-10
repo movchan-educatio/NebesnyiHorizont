@@ -103,6 +103,13 @@ func update_display() -> void:
 	rpm_table.update_rpm(hud_rpm[0], hud_rpm[1], hud_rpm[2], hud_rpm[3])
 
 
+func update_realtime_sticks(left: Vector2, right: Vector2) -> void:
+	if stick_left != null and stick_left.visible:
+		stick_left.update_stick_input(left)
+	if stick_right != null and stick_right.visible:
+		stick_right.update_stick_input(right)
+
+
 func update_data(dt: float, position: Vector3, angles: Vector3, velocity: Vector3,
 		left_stick: Vector2, right_stick: Vector2, rpm: Array) -> void:
 	hud_delta += dt

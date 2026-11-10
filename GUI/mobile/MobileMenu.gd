@@ -53,6 +53,9 @@ const COLOR_SWATCHES := [
 	{"name": "СІРИЙ", "col": Color("5e6b66")},
 ]
 
+signal closed
+
+var is_pause_mode := false
 var _bg_blur: TextureRect
 var _screen_scrim: ColorRect
 var _root: VBoxContainer
@@ -452,12 +455,26 @@ func _panel(bg: Color = Color(0.035, 0.075, 0.06, 0.88),
 	return p
 
 
+func _button_style(bg: Color, border: Color, border_width: int = 1, radius: int = 12) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.border_color = border
+	sb.set_border_width_all(border_width)
+	sb.set_corner_radius_all(radius)
+	sb.content_margin_left = _gap(16)
+	sb.content_margin_right = _gap(16)
+	sb.content_margin_top = _gap(4)
+	sb.content_margin_bottom = _gap(4)
+	return sb
+
+
 func _button(text: String, height: float, primary: bool = false) -> Button:
 	var b := Button.new()
 	b.text = text
+	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size = Vector2(0, _fs(height))
-	b.add_theme_font_size_override("font_size", _fs(24 if not primary else 30))
+	b.add_theme_font_size_override("font_size", _fs(22 if not primary else 28))
 	b.add_theme_color_override("font_color", Color(0.06, 0.09, 0.07) if primary else MenuUI.TEXT)
 	b.add_theme_color_override("font_hover_color", Color(0.06, 0.09, 0.07) if primary else MenuUI.TEXT)
 	b.add_theme_color_override("font_pressed_color", Color(0.06, 0.09, 0.07) if primary else MenuUI.TEXT)
@@ -465,20 +482,20 @@ func _button(text: String, height: float, primary: bool = false) -> Button:
 	var hover_bg := Color(0.82, 0.90, 0.72, 1.0) if primary else Color(0.08, 0.15, 0.11, 0.96)
 	var pressed_bg := Color(0.58, 0.70, 0.50, 1.0) if primary else Color(0.10, 0.22, 0.15, 1.0)
 	var border := Color(0.88, 0.76, 0.46, 0.9) if primary else Color(0.32, 0.48, 0.38, 0.6)
-	b.add_theme_stylebox_override("normal", _panel_style(normal_bg, border, 1, 12))
-	b.add_theme_stylebox_override("hover", _panel_style(hover_bg, border, 1, 12))
-	b.add_theme_stylebox_override("pressed", _panel_style(pressed_bg, border, 1, 12))
+	b.add_theme_stylebox_override("normal", _button_style(normal_bg, border, 1, 12))
+	b.add_theme_stylebox_override("hover", _button_style(hover_bg, border, 1, 12))
+	b.add_theme_stylebox_override("pressed", _button_style(pressed_bg, border, 1, 12))
 	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	return b
 
 
 func _nav_button(icon: String, text: String, primary: bool, callback: Callable) -> Button:
 	var compact := _vsize().y < 700.0
-	var height := (56.0 if not primary else 64.0) if compact else (74.0 if not primary else 84.0)
+	var height := (64.0 if not primary else 72.0) if compact else (84.0 if not primary else 94.0)
 	var b := _button("%s   %s" % [icon, text], height, primary)
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	b.add_theme_font_size_override("font_size", _fs(24 if not primary else 28))
-	b.add_theme_constant_override("h_separation", _gap(10))
+	b.add_theme_font_size_override("font_size", _fs(26 if not primary else 30))
+	b.add_theme_constant_override("h_separation", _gap(12))
 	b.pressed.connect(callback)
 	return b
 
@@ -659,7 +676,18 @@ func _show(name: String) -> void:
 
 
 func _on_back() -> void:
-	_show("main")
+	if is_pause_mode:
+		emit_signal("closed")
+		visible = false
+		is_pause_mode = false
+	else:
+		_show("main")
+
+
+func open_tab(tab_name: String, pause_mode: bool = false) -> void:
+	is_pause_mode = pause_mode
+	visible = true
+	_show(tab_name)
 
 
 func show_main() -> void:
@@ -717,11 +745,11 @@ func _build_main() -> void:
 	# Left Nav Rail
 	var left := VBoxContainer.new()
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left.size_flags_stretch_ratio = 0.32
-	left.add_theme_constant_override("separation", _gap(8))
+	left.size_flags_stretch_ratio = 0.42
+	left.add_theme_constant_override("separation", _gap(10))
 	h.add_child(left)
 
-	left.add_child(_label("ГОЛОВНЕ МЕНЮ", 15, MenuUI.FPV_AMBER))
+	left.add_child(_label("ГОЛОВНЕ МЕНЮ", 16, MenuUI.FPV_AMBER))
 	left.add_child(_spacer(_gap(4)))
 
 	left.add_child(_nav_button("▶", "ОДИНОЧНА ГРА", true, func(): _show("play")))
@@ -731,15 +759,16 @@ func _build_main() -> void:
 	left.add_child(_nav_button("⚙", "НАЛАШТУВАННЯ", false, func(): _show("settings")))
 
 	left.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
-	var quit_btn := _button("✕  ВИХІД", 44)
-	quit_btn.add_theme_font_size_override("font_size", _fs(16))
+	var quit_btn := _button("✕  ВИХІД З ГРИ", 58)
+	quit_btn.add_theme_font_size_override("font_size", _fs(20))
+	quit_btn.custom_minimum_size.y = _fs(58)
 	quit_btn.pressed.connect(func(): get_tree().quit())
 	left.add_child(quit_btn)
 
 	# Right 3D Rotating Drone Hero
 	var hero := _build_3d_hero()
 	hero.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hero.size_flags_stretch_ratio = 0.68
+	hero.size_flags_stretch_ratio = 0.58
 	h.add_child(hero)
 
 
@@ -812,18 +841,26 @@ func _build_3d_hero() -> Control:
 	bottom_selector.alignment = BoxContainer.ALIGNMENT_CENTER
 	v.add_child(bottom_selector)
 
-	var prev_btn := _button("◀  ПОПЕРЕДНІЙ", 48)
-	prev_btn.custom_minimum_size.x = _fs(160)
+	var prev_btn := _button("ПОПЕРЕДНІЙ", 50)
+	prev_btn.custom_minimum_size.x = _fs(165)
 	prev_btn.pressed.connect(_select_prev_drone)
 	bottom_selector.add_child(prev_btn)
 
-	var play_btn := _button("ПОЧАТИ ВИЛЬОТ  ▶", 54, true)
+	var play_text := "ПРОДОВЖИТИ ПОЛІТ  ▶" if is_pause_mode else "ПОЧАТИ ВИЛЬОТ  ▶"
+	var play_btn := _button(play_text, 54, true)
 	play_btn.custom_minimum_size.x = _fs(280)
-	play_btn.pressed.connect(func(): _show("play"))
+	play_btn.pressed.connect(func():
+		if is_pause_mode:
+			emit_signal("closed")
+			visible = false
+			is_pause_mode = false
+		else:
+			_show("play")
+	)
 	bottom_selector.add_child(play_btn)
 
-	var next_btn := _button("НАСТУПНИЙ  ▶", 48)
-	next_btn.custom_minimum_size.x = _fs(160)
+	var next_btn := _button("НАСТУПНИЙ", 50)
+	next_btn.custom_minimum_size.x = _fs(165)
 	next_btn.pressed.connect(_select_next_drone)
 	bottom_selector.add_child(next_btn)
 
@@ -875,25 +912,29 @@ func _setup_hero_3d_world() -> void:
 	# Illuminated turntable pedestal
 	var pedestal := MeshInstance3D.new()
 	var cyl := CylinderMesh.new()
-	cyl.top_radius = 0.55
-	cyl.bottom_radius = 0.60
-	cyl.height = 0.03
+	cyl.top_radius = 0.74
+	cyl.bottom_radius = 0.78
+	cyl.height = 0.02
+	cyl.radial_segments = 48
 	pedestal.mesh = cyl
-	pedestal.position = Vector3(0.0, -0.22, 0.0)
+	pedestal.position = Vector3(0.0, -0.215, 0.0)
 	var ped_mat := StandardMaterial3D.new()
-	ped_mat.albedo_color = Color(0.08, 0.12, 0.10)
-	ped_mat.roughness = 0.8
-	ped_mat.metallic = 0.4
+	ped_mat.albedo_color = Color(0.12, 0.17, 0.15)
+	ped_mat.roughness = 0.85
+	ped_mat.metallic = 0.3
 	pedestal.material_override = ped_mat
 	_hero_viewport.add_child(pedestal)
 
-	# Glowing tactical accent ring
+	# Glowing tactical accent ring (flush with surface to avoid cutting through drone arms/motors)
 	var ring := MeshInstance3D.new()
 	var torus := TorusMesh.new()
-	torus.inner_radius = 0.54
-	torus.outer_radius = 0.58
+	torus.inner_radius = 0.68
+	torus.outer_radius = 0.72
+	torus.rings = 48
+	torus.ring_segments = 24
 	ring.mesh = torus
-	ring.position = Vector3(0.0, -0.205, 0.0)
+	ring.scale = Vector3(1.0, 0.04, 1.0)
+	ring.position = Vector3(0.0, -0.2045, 0.0)
 	var ring_mat := StandardMaterial3D.new()
 	ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	ring_mat.albedo_color = MenuUI.ACCENT
@@ -917,7 +958,7 @@ func _load_hero_model(preset_idx: int) -> void:
 		child.queue_free()
 	var model: Node3D = DroneCatalog.attach_model(_hero_holder, preset_idx)
 	if model != null:
-		MenuUI.fit_preview_model(model, 1.25, -0.16)
+		MenuUI.fit_preview_model(model, 0.86, -0.205)
 	_fit_hero_camera()
 	_update_hero_drone_info(preset_idx)
 
@@ -937,9 +978,9 @@ func _fit_hero_camera() -> void:
 	var hfov := 2.0 * atan(tan(vfov * 0.5) * aspect)
 	var dist_w := half_w / maxf(tan(hfov * 0.5), 0.001)
 	var dist_h := half_h / maxf(tan(vfov * 0.5), 0.001)
-	var dist := maxf(maxf(dist_w, dist_h) * 1.85, 2.3)
-	var dir := Vector3(0.50, 0.42, 0.85).normalized()
-	var focus := center - Vector3(0.0, 0.02, 0.0)
+	var dist := clampf(maxf(dist_w, dist_h) * 1.50, 1.30, 2.5)
+	var dir := Vector3(0.48, 0.38, 0.85).normalized()
+	var focus := Vector3(center.x, -0.06, center.z)
 	_hero_camera.fov = fov
 	var cam_pos := focus + dir * dist
 	_hero_camera.look_at_from_position(cam_pos, focus, Vector3.UP)
@@ -1383,15 +1424,29 @@ func _process_controls_screen() -> void:
 			"throttle": b.value = elrs.throttle()
 			"yaw": b.value = elrs.yaw()
 
+	# Live Calibration recording in Step 1
+	if _calib_step == 1 and bool(elrs.get("valid")):
+		for stick_name in ["roll", "pitch", "throttle", "yaw"]:
+			var ch := int(elrs.get_stick_channel(stick_name))
+			if ch >= 0 and ch < elrs.channels.size():
+				var raw_val := float(elrs.channels[ch])
+				var norm := (raw_val - 16384.0) / 16384.0 if stick_name != "throttle" else (raw_val / 32767.0) * 2.0 - 1.0
+				_calib_mins[stick_name] = minf(_calib_mins.get(stick_name, norm), norm)
+				_calib_maxs[stick_name] = maxf(_calib_maxs.get(stick_name, norm), norm)
+
 
 func _on_calibrate_pressed() -> void:
 	var elrs := get_node_or_null("/root/ElrsWifiInput")
-	if elrs == null or not bool(elrs.get("valid")):
+	var mobile := get_node_or_null("/root/MobileInput")
+	var elrs_valid: bool = elrs != null and bool(elrs.get("valid"))
+	if not elrs_valid and not DisplayServer.is_touchscreen_available() and Input.get_connected_joypads().is_empty():
 		if _calib_hint != null:
-			_calib_hint.text = "Для калібрування потрібен зв'язок з ELRS пульта!"
+			_calib_hint.text = "Підключіть ELRS Wi-Fi, геймпад або увімкніть сенсорні стіки!"
 		return
 	if _calib_step == 0:
 		_calib_step = 1
+		_calib_mins.clear()
+		_calib_maxs.clear()
 		_calib_btn.text = "ДАЛІ: ВІДПУСТІТЬ СТІКИ  ▶"
 		if _calib_hint != null:
 			_calib_hint.text = "КРОК 1: Покрутіть обидва стіки до крайніх положень по колу!"
@@ -1401,11 +1456,20 @@ func _on_calibrate_pressed() -> void:
 		if _calib_hint != null:
 			_calib_hint.text = "КРОК 2: Відпустіть стіки по центру (газ у нуль) і натисніть Готово."
 	elif _calib_step == 2:
+		if elrs != null and elrs_valid and mobile != null:
+			for stick_name in ["roll", "pitch", "throttle", "yaw"]:
+				var ch := int(elrs.get_stick_channel(stick_name))
+				var raw_val := float(elrs.channels[ch]) if ch >= 0 and ch < elrs.channels.size() else 16384.0
+				var center := (raw_val - 16384.0) / 16384.0 if stick_name != "throttle" else -1.0
+				var lo: float = float(_calib_mins.get(stick_name, -1.0))
+				var hi: float = float(_calib_maxs.get(stick_name, 1.0))
+				mobile.call("set_calibration", "elrs", stick_name, lo, hi, center)
+			mobile.call("save_calibration")
+			elrs.save_settings()
 		_calib_step = 0
 		_calib_btn.text = "КАЛІБРУВАТИ СТІКИ  ▶"
 		if _calib_hint != null:
-			_calib_hint.text = "Калібрування збережено! Діапазони оновлено."
-		elrs.save_settings()
+			_calib_hint.text = "✓ Калібрування збережено! Діапазони та центри оновлено."
 
 
 # ---------------------------------------------------------------- RATES SCREEN
@@ -1779,18 +1843,33 @@ func _setup_hangar_3d_world() -> void:
 
 	var ring := MeshInstance3D.new()
 	var cyl := CylinderMesh.new()
-	cyl.top_radius = 0.55
-	cyl.bottom_radius = 0.55
-	cyl.height = 0.025
+	cyl.top_radius = 0.74
+	cyl.bottom_radius = 0.78
+	cyl.height = 0.02
 	cyl.radial_segments = 48
 	ring.mesh = cyl
-	ring.position = Vector3(0.0, -0.19, 0.0)
+	ring.position = Vector3(0.0, -0.1875, 0.0)
 	var ring_mat := StandardMaterial3D.new()
-	ring_mat.albedo_color = Color(0.08, 0.16, 0.12, 0.95)
-	ring_mat.roughness = 0.4
+	ring_mat.albedo_color = Color(0.12, 0.17, 0.15)
+	ring_mat.roughness = 0.85
 	ring_mat.metallic = 0.3
 	ring.material_override = ring_mat
 	_hangar_viewport.add_child(ring)
+
+	var h_ring := MeshInstance3D.new()
+	var h_torus := TorusMesh.new()
+	h_torus.inner_radius = 0.68
+	h_torus.outer_radius = 0.72
+	h_torus.rings = 48
+	h_torus.ring_segments = 24
+	h_ring.mesh = h_torus
+	h_ring.scale = Vector3(1.0, 0.04, 1.0)
+	h_ring.position = Vector3(0.0, -0.1770, 0.0)
+	var h_ring_mat := StandardMaterial3D.new()
+	h_ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	h_ring_mat.albedo_color = MenuUI.ACCENT
+	h_ring.material_override = h_ring_mat
+	_hangar_viewport.add_child(h_ring)
 
 	_hangar_camera = Camera3D.new()
 	_hangar_camera.fov = 38.0
@@ -1808,7 +1887,7 @@ func _load_hangar_model(preset_idx: int) -> void:
 		child.queue_free()
 	var model: Node3D = DroneCatalog.attach_model(_hangar_holder, preset_idx)
 	if model != null:
-		MenuUI.fit_preview_model(model, 1.35, -0.16)
+		MenuUI.fit_preview_model(model, 0.86, -0.1775)
 	_fit_hangar_camera()
 	_update_hangar_info(preset_idx)
 
@@ -1828,9 +1907,9 @@ func _fit_hangar_camera() -> void:
 	var hfov := 2.0 * atan(tan(vfov * 0.5) * aspect)
 	var dist_w := half_w / maxf(tan(hfov * 0.5), 0.001)
 	var dist_h := half_h / maxf(tan(vfov * 0.5), 0.001)
-	var dist := maxf(maxf(dist_w, dist_h) * 1.85, 2.3)
-	var dir := Vector3(0.50, 0.42, 0.85).normalized()
-	var focus := center - Vector3(0.0, 0.02, 0.0)
+	var dist := clampf(maxf(dist_w, dist_h) * 1.50, 1.30, 2.5)
+	var dir := Vector3(0.48, 0.38, 0.85).normalized()
+	var focus := Vector3(center.x, -0.06, center.z)
 	_hangar_camera.fov = fov
 	var cam_pos := focus + dir * dist
 	_hangar_camera.look_at_from_position(cam_pos, focus, Vector3.UP)
