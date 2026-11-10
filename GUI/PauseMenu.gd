@@ -167,6 +167,17 @@ func _apply_military_styling() -> void:
 	btn_quit.text = "  ВИЙТИ З СИМУЛЯТОРА"
 	btn_quit.icon = MenuIcons.icon_close(Color(0.95, 0.45, 0.45))
 	btn_quit.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	# SceneTree.quit() is a no-op on iOS (Apple manages app lifetime).  Hide the
+	# dead control instead of leaving a button that appears broken.
+	if OS.get_name() == "iOS" or OS.has_feature("ios") \
+			or OS.has_environment("SIMULATE_IOS"):
+		btn_quit.visible = false
+		var ios_hint := Label.new()
+		ios_hint.text = "iOS: закрий гру свайпом догори"
+		ios_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		ios_hint.add_theme_font_size_override("font_size", 15)
+		ios_hint.add_theme_color_override("font_color", MenuUI.MUTED)
+		vbox.add_child(ios_hint)
 
 	var primary := MenuUI.feel_style(Color(0.62, 0.74, 0.55, 1.0),
 			MenuUI.FPV_GREEN, 2, 12, 16, 8)

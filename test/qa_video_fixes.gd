@@ -115,6 +115,23 @@ func _run() -> void:
 	_check(panel.size.x >= 900.0, "mobile pause card is wide")
 	_check(resume.custom_minimum_size.y >= 80.0, "mobile pause rows are tall")
 	_check(pause.get("mobile_menu") != null, "pause can open the mobile sub-menus")
+	var desktop_quit: Button = pause.get("btn_quit")
+	_check(desktop_quit != null and desktop_quit.visible, "desktop keeps the quit button")
+	# iOS must not show a dead "quit" button (SceneTree.quit is a no-op there).
+	OS.set_environment("SIMULATE_IOS", "1")
+	var pause_ios = load("res://GUI/PauseMenu.tscn").instantiate()
+	add_child(pause_ios)
+	for i in range(3):
+		await get_tree().process_frame
+	var ios_quit: Button = pause_ios.get("btn_quit")
+	_check(ios_quit != null and not ios_quit.visible, "iOS hides the dead quit button")
+	var found_hint := false
+	for lbl in pause_ios.find_children("*", "Label", true, false):
+		if String((lbl as Label).text).contains("свайпом"):
+			found_hint = true
+	_check(found_hint, "iOS shows the swipe-to-close hint")
+	OS.unset_environment("SIMULATE_IOS")
+	pause_ios.queue_free()
 
 	# --- hero model size on first load ----------------------------------
 	var menu = load("res://GUI/mobile/MobileMenu.tscn").instantiate()

@@ -352,13 +352,33 @@ func _ready() -> void:
 	_show("main")
 	_update_status()
 	set_process(true)
+	call_deferred("_prefetch_roster")
+
+
+func _prefetch_roster() -> void:
+	# First warm the immediate neighbours, then the rest of the roster, all on
+	# the worker thread.  The menu stays interactive while this happens.
+	await get_tree().create_timer(0.25).timeout
+	if not is_inside_tree():
+		return
+	var n := DroneCatalog.count()
+	if n > 0:
+		var cur := posmod(Global.drone_preset, n)
+		DroneCatalog.prefetch_model(posmod(cur + 1, n))
+		DroneCatalog.prefetch_model(posmod(cur - 1, n))
+	await get_tree().create_timer(1.75).timeout
+	if is_inside_tree():
+		DroneCatalog.prefetch_all_models()
 
 
 func _process(delta: float) -> void:
 	_update_status()
+	# One background model load per frame, never on the main thread.
+	DroneCatalog.poll_model_prefetch()
 
-	# 3D Drone Hero Turntable: continuous idle rotation and propeller animation
-	if _hero_holder != null:
+	# 3D Drone Hero Turntable: continuous idle rotation and propeller animation.
+	# Skip it while another screen is open; the hero viewport is hidden then.
+	if _hero_holder != null and _current == "main":
 		if not _is_dragging_hero:
 			_hero_holder.rotation.y += delta * 0.45
 		for child in _hero_holder.get_children():
@@ -960,9 +980,21 @@ func _build_main() -> void:
 	q_text.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	quit_content.add_child(q_text)
 
-	left.add_child(quit_btn)
-	# Lift exit button comfortably from the bottom screen edge
-	left.add_child(_spacer(14))
+	# iOS forbids programmatic app termination: SceneTree.quit() is a no-op on
+	# iPhone/iPad.  Do not show a button that cannot work; tell the pilot how
+	# Apple expects the app to be closed instead.  Desktop keeps the button.
+	var is_ios := OS.get_name() == "iOS" or OS.has_feature("ios") \
+			or OS.has_environment("SIMULATE_IOS")
+	if is_ios:
+		quit_btn.visible = false
+		var close_hint := _label("iOS: закрий гру свайпом догори", 13, MenuUI.MUTED)
+		close_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		left.add_child(close_hint)
+		left.add_child(_spacer(14))
+	else:
+		left.add_child(quit_btn)
+		# Lift exit button comfortably from the bottom screen edge
+		left.add_child(_spacer(14))
 
 	# Right 3D Rotating Drone Hero
 	var hero := _build_3d_hero()
@@ -990,8 +1022,11 @@ func _build_3d_hero() -> Control:
 	_hero_viewport.own_world_3d = true
 	_hero_viewport.transparent_bg = true
 	_hero_viewport.msaa_3d = Viewport.MSAA_2X
-	_hero_viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA
-	_hero_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	# MSAA already handles the turntable edges; skip the extra full-screen
+	# FXAA pass on the phone GPU.
+	_hero_viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+	# Only render the turntable while its screen is actually visible.
+	_hero_viewport.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
 	_hero_viewport.size = Vector2i(1280, 720)
 	_hero_container.add_child(_hero_viewport)
 
@@ -1156,14 +1191,19 @@ func _load_hero_model(preset_idx: int) -> void:
 		return
 	_hero_load_token += 1
 	var token := _hero_load_token
-	for child in _hero_holder.get_children():
-		_hero_holder.remove_child(child)
-		child.queue_free()
-	var model: Node3D = DroneCatalog.attach_model(_hero_holder, preset_idx)
 	var p := DroneCatalog.preset(preset_idx)
 	var is_vtol: bool = str(p.get("name", "")).contains("VTOL") or str(p.get("tag", "")).contains("VTOL")
 	var target_sz: float = 0.46 if is_vtol else 0.52
 	_update_hero_drone_info(preset_idx)
+	# Load the scene on the worker thread first; keep the old drone visible
+	# while it happens so the UI never freezes on Next/Previous.
+	await DroneCatalog.wait_for_model(preset_idx)
+	if token != _hero_load_token:
+		return
+	for child in _hero_holder.get_children():
+		_hero_holder.remove_child(child)
+		child.queue_free()
+	var model: Node3D = DroneCatalog.attach_model(_hero_holder, preset_idx)
 	if model == null:
 		_fit_hero_camera()
 		return
@@ -1252,6 +1292,8 @@ func _select_next_drone() -> void:
 	Global.menu_settings["drone_preset"] = next_idx
 	Global.save_menu_settings()
 	DroneCatalog.apply(next_idx)
+	DroneCatalog.prefetch_model((next_idx + 1) % total)
+	DroneCatalog.prefetch_model((next_idx - 1 + total) % total)
 	_load_hero_model(next_idx)
 
 
@@ -1262,6 +1304,8 @@ func _select_prev_drone() -> void:
 	Global.menu_settings["drone_preset"] = prev_idx
 	Global.save_menu_settings()
 	DroneCatalog.apply(prev_idx)
+	DroneCatalog.prefetch_model((prev_idx + 1) % total)
+	DroneCatalog.prefetch_model((prev_idx - 1 + total) % total)
 	_load_hero_model(prev_idx)
 
 
@@ -1340,7 +1384,7 @@ func _build_controls() -> void:
 	radio_vp.own_world_3d = true
 	radio_vp.transparent_bg = true
 	radio_vp.handle_input_locally = false
-	radio_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	radio_vp.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
 	radio_holder.add_child(radio_vp)
 
 	var radio_scn = load("res://GUI/ControlsMenuRadioTransmitter.tscn")
@@ -2176,6 +2220,9 @@ func _build_drone() -> void:
 		var cur_i := i
 		btn.pressed.connect(func():
 			_hangar_preview_idx = cur_i
+			var total := DroneCatalog.count()
+			DroneCatalog.prefetch_model((cur_i + 1) % total)
+			DroneCatalog.prefetch_model((cur_i - 1 + total) % total)
 			_load_hangar_model(cur_i)
 			_update_hangar_list_styles()
 		)
@@ -2199,8 +2246,8 @@ func _build_drone() -> void:
 	_hangar_viewport.own_world_3d = true
 	_hangar_viewport.transparent_bg = true
 	_hangar_viewport.msaa_3d = Viewport.MSAA_2X
-	_hangar_viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA
-	_hangar_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	_hangar_viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+	_hangar_viewport.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
 	_hangar_viewport.size = Vector2i(1280, 720)
 	_hangar_container.add_child(_hangar_viewport)
 
@@ -2321,14 +2368,17 @@ func _load_hangar_model(preset_idx: int) -> void:
 		return
 	_hangar_load_token += 1
 	var token := _hangar_load_token
-	for child in _hangar_holder.get_children():
-		_hangar_holder.remove_child(child)
-		child.queue_free()
-	var model: Node3D = DroneCatalog.attach_model(_hangar_holder, preset_idx)
 	var p := DroneCatalog.preset(preset_idx)
 	var is_vtol: bool = str(p.get("name", "")).contains("VTOL") or str(p.get("tag", "")).contains("VTOL")
 	var target_sz: float = 0.46 if is_vtol else 0.52
 	_update_hangar_info(preset_idx)
+	await DroneCatalog.wait_for_model(preset_idx)
+	if token != _hangar_load_token:
+		return
+	for child in _hangar_holder.get_children():
+		_hangar_holder.remove_child(child)
+		child.queue_free()
+	var model: Node3D = DroneCatalog.attach_model(_hangar_holder, preset_idx)
 	if model == null:
 		_fit_hangar_camera()
 		return

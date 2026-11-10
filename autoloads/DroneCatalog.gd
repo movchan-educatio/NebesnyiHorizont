@@ -15,6 +15,16 @@ signal preset_changed(index: int)
 
 var custom_presets: Dictionary = {}
 
+## Switching drones used to spend 100-800 ms in ResourceLoader.load() on every
+## press because the PackedScene was only a temporary local reference and its
+## cache entry was dropped when the preview instance was freed.  Keep the
+## PackedScenes alive and prefetch them on a worker thread so a switch is an
+## instantiate() (about 2 ms) instead of a synchronous GLB/scene parse.
+var _model_scene_cache: Dictionary = {}
+var _model_prefetch_queue: Array[int] = []
+var _model_prefetch_active := ""
+var _model_prefetch_failed: Dictionary = {}
+
 
 const PRESETS := [
 	{
@@ -546,6 +556,113 @@ static func _measure_static_thrust(motors: Array) -> float:
 
 
 # ------------------------------------------------------------------ 3D model
+func _model_path(index: int) -> String:
+	var p := preset(index)
+	if bool(p.get("is_builder_custom", false)) or p.has("model_builder_config"):
+		return ""
+	return str(p.get("model", ""))
+
+
+func _scene_cached(path: String):
+	if path.is_empty():
+		return null
+	if _model_scene_cache.has(path):
+		return _model_scene_cache[path]
+	if not ResourceLoader.exists(path):
+		return null
+	var packed = load(path)
+	if packed is PackedScene:
+		_model_scene_cache[path] = packed
+		return packed
+	return null
+
+
+## Queue a model for background loading.  Called for the current/next/previous
+## preview and, after the menu settles, for the rest of the roster.
+func prefetch_model(index: int) -> void:
+	var path := _model_path(index)
+	if path.is_empty() or _model_scene_cache.has(path) \
+			or _model_prefetch_failed.has(path) or _model_prefetch_active == path \
+			or _model_prefetch_queue.has(index):
+		return
+	_model_prefetch_queue.append(index)
+
+
+func prioritize_model(index: int) -> void:
+	var path := _model_path(index)
+	if path.is_empty() or _model_scene_cache.has(path) \
+			or _model_prefetch_failed.has(path):
+		return
+	_model_prefetch_queue.erase(index)
+	_model_prefetch_queue.push_front(index)
+
+
+func is_model_ready(index: int) -> bool:
+	var path := _model_path(index)
+	return not path.is_empty() and _model_scene_cache.has(path)
+
+
+## Advances exactly one background load.  Safe to call from _process: it never
+## blocks the main thread.
+func poll_model_prefetch() -> void:
+	if _model_prefetch_active.is_empty():
+		while not _model_prefetch_queue.is_empty():
+			var index: int = _model_prefetch_queue.pop_front()
+			var path := _model_path(index)
+			if path.is_empty() or _model_scene_cache.has(path):
+				continue
+			var err := ResourceLoader.load_threaded_request(path)
+			if err == OK:
+				_model_prefetch_active = path
+				break
+			_model_prefetch_failed[path] = true
+		return
+	var status := ResourceLoader.load_threaded_get_status(_model_prefetch_active)
+	if status == ResourceLoader.THREAD_LOAD_LOADED:
+		var res = ResourceLoader.load_threaded_get(_model_prefetch_active)
+		if res is PackedScene:
+			_model_scene_cache[_model_prefetch_active] = res
+		else:
+			_model_prefetch_failed[_model_prefetch_active] = true
+		_model_prefetch_active = ""
+	elif status == ResourceLoader.THREAD_LOAD_FAILED \
+			or status == ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
+		_model_prefetch_failed[_model_prefetch_active] = true
+		_model_prefetch_active = ""
+
+
+## Await the worker-thread load without blocking the frame.  Returns false on
+## timeout/failure; the caller then falls back to the synchronous path.
+func wait_for_model(index: int, timeout_ms: int = 6000) -> bool:
+	var path := _model_path(index)
+	if path.is_empty():
+		return false
+	if _model_scene_cache.has(path):
+		return true
+	prioritize_model(index)
+	var deadline := Time.get_ticks_msec() + timeout_ms
+	while Time.get_ticks_msec() < deadline:
+		poll_model_prefetch()
+		if _model_scene_cache.has(path):
+			return true
+		if _model_prefetch_failed.has(path):
+			return false
+		await get_tree().process_frame
+	return _model_scene_cache.has(path)
+
+
+func prefetch_all_models() -> void:
+	for i in range(count()):
+		prefetch_model(i)
+
+
+func clear_model_cache() -> void:
+	_model_scene_cache.clear()
+	_model_prefetch_queue.clear()
+	_model_prefetch_active = ""
+	_model_prefetch_failed.clear()
+
+
 func attach_model(parent: Node3D, index: int) -> Node3D:
 	if parent == null or not is_instance_valid(parent):
 		return null
@@ -573,7 +690,7 @@ func attach_model(parent: Node3D, index: int) -> Node3D:
 		return null
 	var model: Node3D = null
 	if ResourceLoader.exists(path):
-		var packed = load(path)
+		var packed = _scene_cached(path)
 		if packed is PackedScene:
 			model = (packed as PackedScene).instantiate() as Node3D
 	if model == null:
