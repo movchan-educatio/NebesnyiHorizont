@@ -75,6 +75,10 @@
 
 ![Ангар v23](v23/hangar_1280.png)
 
+HUD-монітор стіків без підписів `THR / YAW` та `PITCH / ROLL`:
+
+![HUD стіки v23](v23/hud_sticks_1280.png)
+
 Порівняння паузи та дрона:
 
 ![Пауза до/після](v23/compare_pause.png)
@@ -90,6 +94,7 @@
 
 [VIDEOFIX] PASS iOS hides the dead quit button
 [VIDEOFIX] PASS iOS shows the swipe-to-close hint
+[VIDEOFIX] PASS flight stick monitor has no axis captions
 [VIDEOFIX] PASS hero drone renders at full size
 [VIDEOFIX] PASS hangar drone renders at full size after reload
 [VIDEOFIX] RESULT PASS failures=0
@@ -99,7 +104,12 @@
 
 ## 7. Збірка
 
-- Версія: **v23** (performance + iOS exit UX)
-- Очікуваний GitHub run: #21
+- Версія: **v23** (performance + iOS exit UX + clean HUD)
+- Коміти: `b9026f0` (performance) + `45f5cce` (HUD captions)
+- GitHub Actions: run **#22**, release `ios-build-22`
 - IPA: `NebesnyiHorizont-unsigned-v23-fixed.ipa`
-- Розмір / SHA-256 / посилання: заповнюються після збірки.
+- Розмір: **935 179 360 байт** (891.9 MB)
+- SHA-256: `a99452301bed18de2558eaaf085c139938efdd0bf72e82b8a9a41d2a828d5335`
+- Посилання: **http://192.168.0.100:8000/NebesnyiHorizont-unsigned-v23-fixed.ipa**
+- Сторінка: **http://192.168.0.100:8000/**
+- Підпис: AltStore / Sideloadly, безкоштовний Apple ID (7 днів).

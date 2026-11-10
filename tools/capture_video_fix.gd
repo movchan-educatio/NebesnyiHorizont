@@ -59,4 +59,28 @@ func _run() -> void:
 		pause.queue_free()
 		vp.queue_free()
 		await get_tree().process_frame
+
+		# Flight HUD stick monitor: prove the noisy captions are gone.
+		var hud_vp := _make_vp(int(spec[0]), int(spec[1]), int(spec[2]), int(spec[3]))
+		var bg := ColorRect.new()
+		bg.color = Color(0.30, 0.22, 0.15)
+		bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hud_vp.add_child(bg)
+		var left: Control = load("res://HUD/HUDStickInput.tscn").instantiate()
+		var right: Control = load("res://HUD/HUDStickInput.tscn").instantiate()
+		left.name = "StickMonitorLeft"
+		right.name = "StickMonitorRight"
+		hud_vp.add_child(left)
+		hud_vp.add_child(right)
+		left.position = Vector2(int(spec[2]) * 0.32, int(spec[3]) * 0.58)
+		right.position = Vector2(int(spec[2]) * 0.58, int(spec[3]) * 0.58)
+		left.scale = Vector2(1.8, 1.8)
+		right.scale = Vector2(1.8, 1.8)
+		left.call("update_stick_input", Vector2(0.35, 0.2))
+		right.call("update_stick_input", Vector2(-0.25, 0.15))
+		await get_tree().create_timer(0.2).timeout
+		await _save(hud_vp, "hud_sticks_" + str(spec[4]) + ".png")
+		hud_vp.queue_free()
+		await get_tree().process_frame
 	get_tree().quit()

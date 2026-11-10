@@ -132,6 +132,12 @@ func _run() -> void:
 	_check(found_hint, "iOS shows the swipe-to-close hint")
 	OS.unset_environment("SIMULATE_IOS")
 	pause_ios.queue_free()
+	var stick_monitor = load("res://HUD/HUDStickInput.tscn").instantiate()
+	add_child(stick_monitor)
+	await get_tree().process_frame
+	_check(stick_monitor.find_child("AxisLabel", true, false) == null,
+			"flight stick monitor has no axis captions")
+	stick_monitor.queue_free()
 
 	# --- hero model size on first load ----------------------------------
 	var menu = load("res://GUI/mobile/MobileMenu.tscn").instantiate()
