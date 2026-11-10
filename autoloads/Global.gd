@@ -57,12 +57,12 @@ var chain_briefing_pending: bool = false
 ## 20-minute time limit (in seconds) for each combat mission.
 const COMBAT_TIME_LIMIT := 1200.0
 ## Small set of menu-only preferences (start video sound, defaults, ...).
-var menu_settings := {"video_audio": false, "drone_preset": 7,
+var menu_settings := {"video_audio": false, "drone_preset": 0,
 		"selected_mode": 1, "selected_mission": 1, "selected_special": 0,
 		"selected_map": "village", "difficulty": 1}
 
 ## Currently selected drone preset (index into DroneCatalog.PRESETS).
-var drone_preset: int = 7
+var drone_preset: int = 0
 
 ## Target scene to return to from the calibration wizard (e.g. ControlsScreen).
 ## If empty, defaults to MainMenu.

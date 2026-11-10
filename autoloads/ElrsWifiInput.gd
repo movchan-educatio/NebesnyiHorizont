@@ -225,10 +225,13 @@ func roll() -> float:
 
 
 ## Direct normalised pitch (-1..+1)
+## Standard flight physics (RadioController, Controls.gd): stick forward/away = -1.0 (nose down).
 func pitch() -> float:
 	var ch := int(channel_map.get("pitch", 1))
 	var val := _axis(ch)
-	return -val if invert_pitch else val
+	# Stick pushed UP yields val > 0; convert to -1.0 forward pitch by default.
+	var standard := -val
+	return -standard if invert_pitch else standard
 
 
 ## Direct normalised throttle (0.0..1.0)
@@ -289,13 +292,15 @@ func capture_baseline() -> void:
 
 
 ## Returns channel index (0..15) that moved by more than threshold, or -1 if none.
-func detect_moved_channel(threshold: float = 3500.0) -> int:
+## Set aux_only to true when assigning AUX switches so stick noise (ch 0..3) is ignored.
+func detect_moved_channel(threshold: float = 3500.0, aux_only: bool = false) -> int:
 	if _baseline_channels.is_empty() or channels.size() < 4:
 		return -1
 	var best_ch := -1
 	var best_delta := 0.0
+	var start_idx := 4 if aux_only else 0
 	var count := mini(channels.size(), _baseline_channels.size())
-	for i in range(count):
+	for i in range(start_idx, count):
 		var d := absf(channels[i] - _baseline_channels[i])
 		if d > best_delta and d >= threshold:
 			best_delta = d
@@ -320,8 +325,9 @@ func _update_switches() -> void:
 			_armed_level_state = is_on
 			emit_signal("arm_state_changed", is_on)
 			_dispatch_action_event("arm", is_on)
-			_dispatch_action_event("toggle_arm", is_on)
-			if not is_on:
+			if is_on:
+				_trigger_arm()
+			else:
 				# Immediate safety disarm on active flight controller
 				_trigger_safety_disarm()
 		_armed_level_state = is_on
@@ -364,6 +370,17 @@ func _dispatch_action_event(action: String, on: bool) -> void:
 		Input.action_press(action)
 	else:
 		Input.action_release(action)
+
+
+func _trigger_arm() -> void:
+	var cur_scene := get_tree().current_scene
+	if cur_scene == null:
+		return
+	var drone := cur_scene.get_node_or_null("Drone")
+	if drone != null:
+		var fc = drone.get("flight_controller")
+		if fc != null and fc.has_method("request_arm"):
+			fc.request_arm()
 
 
 func _trigger_safety_disarm() -> void:

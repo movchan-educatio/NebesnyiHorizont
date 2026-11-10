@@ -5798,9 +5798,12 @@ func _diag_text() -> String:
 
 
 func _read_left_stick() -> Vector2:
-	# Uses the same calibrated channel values and the same final throttle that
-	# fly the drone, so the indicator always matches the actual control
-	# direction and full travel.
+	var drone := get_node_or_null("Drone")
+	if drone != null and drone.get("flight_controller") != null and drone.flight_controller.input.size() >= 4:
+		var thr: float = clampf(float(drone.flight_controller.input[0]), 0.0, 1.0) * 2.0 - 1.0
+		var yaw: float = clampf(float(drone.flight_controller.input[1]), -1.0, 1.0)
+		return Vector2(yaw, thr)
+	
 	var yaw := _stick_channel("yaw", "yaw_right", "yaw_left")
 	var thr := 0.0
 	if Input.is_key_pressed(KEY_W):
@@ -5808,29 +5811,28 @@ func _read_left_stick() -> Vector2:
 	elif Input.is_key_pressed(KEY_S):
 		thr = -1.0
 	else:
-		var drone := get_node_or_null("Drone")
-		if drone != null and drone.flight_controller != null:
-			# 0% power must sit at the very bottom of the box, exactly like the
-			# drone OSD; reading the radio channel alone would leave the marker
-			# centred when no transmitter is connected.
-			thr = clampf(float(drone.flight_controller.input[0]), 0.0, 1.0) * 2.0 - 1.0
-		else:
-			var radio := get_node_or_null("RadioController")
-			if radio != null and radio.has_method("_radio_throttle"):
-				var p: float = radio.call("_radio_throttle")
-				if p >= 0.0:
-					thr = p * 2.0 - 1.0
-				else:
-					thr = Input.get_action_strength("throttle_up") - Input.get_action_strength("throttle_down")
+		var radio := get_node_or_null("RadioController")
+		if radio != null and radio.has_method("_radio_throttle"):
+			var p: float = radio.call("_radio_throttle")
+			if p >= 0.0:
+				thr = p * 2.0 - 1.0
 			else:
 				thr = Input.get_action_strength("throttle_up") - Input.get_action_strength("throttle_down")
+		else:
+			thr = Input.get_action_strength("throttle_up") - Input.get_action_strength("throttle_down")
 	return Vector2(yaw, thr)
 
 
 func _read_right_stick() -> Vector2:
+	var drone := get_node_or_null("Drone")
+	if drone != null and drone.get("flight_controller") != null and drone.flight_controller.input.size() >= 4:
+		var roll: float = clampf(float(drone.flight_controller.input[2]), -1.0, 1.0)
+		# flight_controller.input[3] is pitch: -1.0 is forward/stick UP, +1.0 is backward/stick DOWN.
+		# StickOverlay expects y-up (+1.0 is stick UP), so we negate pitch:
+		var pitch: float = -clampf(float(drone.flight_controller.input[3]), -1.0, 1.0)
+		return Vector2(roll, pitch)
+
 	var roll := _stick_channel("roll", "roll_right", "roll_left")
-	# Same convention as the drone OSD: +pitch (stick back / nose up) draws the
-	# dot above the centre, so both levels show identical stick movement.
 	var pitch := _stick_channel("pitch", "pitch_up", "pitch_down")
 	return Vector2(roll, pitch)
 
@@ -5839,6 +5841,13 @@ func _read_right_stick() -> Vector2:
 ## the manual "invert channel" option), so it never flips when a channel is
 ## reversed for flight.  InputMap actions remain the keyboard fallback.
 func _stick_channel(channel: String, positive_action: String, negative_action: String) -> float:
+	var wifi := get_node_or_null("/root/ElrsWifiInput")
+	if wifi != null and bool(wifi.get("valid")):
+		match channel:
+			"yaw": return float(wifi.yaw())
+			"roll": return float(wifi.roll())
+			"pitch": return -float(wifi.pitch())
+			"throttle": return float(wifi.throttle()) * 2.0 - 1.0
 	var value := Controls.physical_channel_value(channel)
 	if is_nan(value):
 		value = Input.get_action_strength(positive_action) \

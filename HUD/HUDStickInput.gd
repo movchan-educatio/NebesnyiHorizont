@@ -24,12 +24,12 @@ func _ready() -> void:
 	label.add_theme_color_override("font_color", Color(0.82, 1.0, 0.86, 1.0))
 	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
 	label.add_theme_constant_override("outline_size", 3)
-	# Center the label dynamically across the stick container top with zero offset asymmetry
+	# Center the label directly across the top of the stick frame
 	label.anchors_preset = Control.PRESET_TOP_WIDE
-	label.offset_left = -30.0
-	label.offset_right = 30.0
-	label.offset_top = -28.0
-	label.offset_bottom = -6.0
+	label.offset_left = 0.0
+	label.offset_right = 0.0
+	label.offset_top = -24.0
+	label.offset_bottom = -2.0
 	label.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	label.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE

@@ -30,6 +30,12 @@ func _ready() -> void:
 	]
 
 	for s: String in screens:
+		if s == "main":
+			Global.drone_preset = 0
+			Global.menu_settings["drone_preset"] = 0
+			if mobile_inst.has_method("_load_hero_model"):
+				mobile_inst.call("_load_hero_model", 0)
+
 		if mobile_inst.has_method("_show"):
 			mobile_inst.call("_show", s)
 

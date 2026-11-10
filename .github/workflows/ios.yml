@@ -92,6 +92,33 @@ jobs:
             "build/ios/${NAME}.xcodeproj"
           ls -la build/ios
 
+      - name: Patch iOS Launch Screen (Remove Engine Splash)
+        run: |
+          python3 -c '
+          import glob, re, os
+          from PIL import Image
+
+          # 1. Clean storyboards: remove imageView nodes from launch screen storyboard
+          for sb in glob.glob("build/ios/**/*.storyboard", recursive=True):
+              with open(sb, "r", encoding="utf-8") as f:
+                  txt = f.read()
+              cleaned = re.sub(r"<imageView[\s\S]*?</imageView>", "", txt)
+              with open(sb, "w", encoding="utf-8") as f:
+                  f.write(cleaned)
+              print("Stripped imageView from", sb)
+
+          # 2. Neutralize any splash / launch images with pure dark pixels
+          for img_p in glob.glob("build/ios/**/*", recursive=True):
+              lower = os.path.basename(img_p).lower()
+              if ("splash" in lower or "launch" in lower) and lower.endswith(".png"):
+                  try:
+                      im = Image.new("RGBA", (16, 16), (5, 13, 10, 255))
+                      im.save(img_p)
+                      print("Neutralized splash image:", img_p)
+                  except Exception as e:
+                      print("Error neutralizing", img_p, e)
+          '
+
       - name: Show Xcode schemes
         run: |
           xcodebuild -project "build/ios/${NAME}.xcodeproj" -list
