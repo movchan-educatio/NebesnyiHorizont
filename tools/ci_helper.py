@@ -49,11 +49,25 @@ def get_run_status(run_id=None):
             for s in j.get("steps", []):
                 print(f"  Step: {s['name']}, status={s['status']}, conclusion={s['conclusion']}")
 
-def download_latest_ipa(out_dir="C:/Users/USER_UA/Desktop"):
+import re
+
+def get_sorted_releases():
     url = f"https://api.github.com/repos/{REPO}/releases"
     req = urllib.request.Request(url, headers=HEADERS)
     with urllib.request.urlopen(req) as resp:
         releases = json.loads(resp.read().decode("utf-8"))
+    
+    def sort_key(r):
+        tag = r.get("tag_name", "")
+        m = re.search(r"ios-build-(\d+)", tag)
+        if m:
+            return int(m.group(1))
+        return 0
+    
+    return sorted(releases, key=sort_key, reverse=True)
+
+def download_latest_ipa(out_dir="C:/Users/USER_UA/Desktop"):
+    releases = get_sorted_releases()
     
     if not releases:
         print("No releases found.")
@@ -100,10 +114,7 @@ def print_step_timings(run_id):
             print(f"{s['name']}: {s.get('status')} ({s.get('conclusion')}) | {s.get('started_at')} -> {s.get('completed_at')}")
 
 def get_presigned_download_url():
-    url = f"https://api.github.com/repos/{REPO}/releases"
-    req = urllib.request.Request(url, headers=HEADERS)
-    with urllib.request.urlopen(req) as resp:
-        releases = json.loads(resp.read().decode("utf-8"))
+    releases = get_sorted_releases()
     if not releases:
         return None
     latest_rel = releases[0]

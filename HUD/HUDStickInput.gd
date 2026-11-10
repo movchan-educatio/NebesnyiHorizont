@@ -19,12 +19,19 @@ func _ready() -> void:
 	else:
 		label.text = "ГАЗ / РИСК" if left_pair else "ТАНГАЖ / КРЕН"
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 18)
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 16)
 	label.add_theme_color_override("font_color", Color(0.82, 1.0, 0.86, 1.0))
 	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
 	label.add_theme_constant_override("outline_size", 3)
-	label.position = Vector2(-24, -30)
-	label.size = Vector2(208, 22)
+	# Center the label dynamically across the stick container top with zero offset asymmetry
+	label.anchors_preset = Control.PRESET_TOP_WIDE
+	label.offset_left = -30.0
+	label.offset_right = 30.0
+	label.offset_top = -28.0
+	label.offset_bottom = -6.0
+	label.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	label.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(label)
 

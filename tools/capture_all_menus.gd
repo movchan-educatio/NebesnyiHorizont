@@ -47,7 +47,7 @@ func _ready() -> void:
 
 		# If main screen, also capture specific drone presets to verify pedestal fit!
 		if s == "main":
-			var test_presets := [8, 9, 14] # Falcon-X, Quad-5, Furia
+			var test_presets := [3, 8, 9, 14] # 3: VTOL «ПІСЮН», Falcon-X, Quad-5, Furia
 			for p_idx: int in test_presets:
 				Global.drone_preset = p_idx
 				if mobile_inst.has_method("_load_hero_model"):
@@ -65,6 +65,19 @@ func _ready() -> void:
 			Global.drone_preset = 0
 			if mobile_inst.has_method("_load_hero_model"):
 				mobile_inst.call("_load_hero_model", 0)
+
+		# If drone screen, also capture VTOL (preset 3) in hangar!
+		if s == "drone":
+			if mobile_inst.has_method("_select_hangar_drone"):
+				mobile_inst.call("_select_hangar_drone", 3)
+			for f in range(25):
+				await get_tree().process_frame
+				if mobile_inst.has_method("_process"):
+					mobile_inst.call("_process", 1.0 / 60.0)
+			await RenderingServer.frame_post_draw
+			var vtol_h_img: Image = get_viewport().get_texture().get_image()
+			vtol_h_img.save_png(OUT_DIR + "/shot_mobile_drone_vtol.png")
+			print("[CAPTURE] Hangar VTOL -> ", OUT_DIR + "/shot_mobile_drone_vtol.png")
 
 		# If settings, also capture all 4 tabs!
 		if s == "settings":
@@ -84,6 +97,21 @@ func _ready() -> void:
 	mobile_inst.queue_free()
 	await get_tree().process_frame
 	await get_tree().process_frame
+
+	var pause_scene = load("res://GUI/PauseMenu.tscn")
+	if pause_scene != null:
+		var pause_inst = pause_scene.instantiate()
+		add_child(pause_inst)
+		if pause_inst.has_method("show_menu"):
+			pause_inst.call("show_menu", true)
+		for f in range(20):
+			await get_tree().process_frame
+		await RenderingServer.frame_post_draw
+		var img_pause: Image = get_viewport().get_texture().get_image()
+		var out_pause: String = OUT_DIR + "/shot_pause_menu.png"
+		img_pause.save_png(out_pause)
+		print("[CAPTURE] Pause Menu -> ", out_pause)
+		pause_inst.queue_free()
 
 	DisplayServer.window_set_size(Vector2i(1920, 1080))
 	get_viewport().size = Vector2i(1920, 1080)
