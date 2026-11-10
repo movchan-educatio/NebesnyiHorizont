@@ -68,7 +68,21 @@
 - Заголовок: **38**, шапка: **20**.
 - Розміри враховують safe-area; на 1080 одиницях висоти меню повністю вміщується.
 
-### 2.6. Повернення з місії
+### 2.6. Як саме працює призначення кнопок пульта
+
+Призначення зроблено не «на око», а через явну таблицю `action_channels` у `ElrsWifiInput`:
+
+- У списку дій є **тільки CH5–CH16** (AUX-перемикачі). CH1–CH4 — це стіки, тому їх більше не можна випадково призначити на дію.
+- Пункт `ВИМК.` має окремий службовий id (99), який перетворюється на `-1`. Раніше Godot трактував `-1` як «автоматичний id 0», через що вимкнути дію було неможливо.
+- Якщо призначити дію на канал, який уже займає ARM, ARM автоматично переїжджає на перший вільний AUX-канал (наприклад, CH5 → CH6). Якщо призначити ARM на зайнятий канал, попередня дія знімається.
+- Після кожної зміни всі рядки оновлюються, тому в екрані не залишається «старий» канал.
+- `АВТО` ігнорує стіки (`aux_only = true`) і ловить саме зміну AUX-каналу.
+- Зчитування каналів має гістерезис (14000/18000) і реагує лише на **зміну рівня**, а не на кожен пакет. Тому один перемикач не «строчить» дію багато разів.
+- Старі профілі при завантаженні проходять перевірку: прибираються дії на CH1–CH4, дублікати каналів і розбіжність `arm`/`toggle_arm`.
+
+Це саме те, що перевіряє `ACTION_BIND_QA` (deploy → CH8, ARM → CH10, конфлікт CH5 → ARM переїхав на CH6) і новий `VIDEOFIX` (прив'язка через випадаючий список на CH7 та реальне вимкнення дії).
+
+### 2.7. Повернення з місії
 
 Екран результатів `BigLevel._on_menu_pressed()` на телефоні вів на старий desktop `MainMenu`. Тепер на мобільній версії він веде на `MobileMenu`, а PC — як і раніше, на `MainMenu`.
 
@@ -110,6 +124,10 @@
 [VIDEOFIX] PASS pause_menu is not on an AUX channel
 [VIDEOFIX] PASS mode_turtle is not on an AUX channel
 [VIDEOFIX] PASS flight-mode cycling is not on an AUX channel
+[VIDEOFIX] PASS arm stays on CH5
+[VIDEOFIX] PASS actions cannot bind to a stick channel
+[VIDEOFIX] PASS mode action binds to an AUX channel
+[VIDEOFIX] PASS disabled mode action stays disabled after save
 [VIDEOFIX] PASS ARM button arms the drone
 [VIDEOFIX] PASS ARM button keeps the flight mode
 [VIDEOFIX] PASS second ARM press disarms
@@ -118,7 +136,13 @@
 [VIDEOFIX] PASS touch on the left stick does not pause
 [VIDEOFIX] PASS mobile pause card is wide
 [VIDEOFIX] PASS mobile pause rows are tall
+[VIDEOFIX] PASS pause can open the mobile sub-menus
+[VIDEOFIX] PASS action dropdown lists only AUX channels CH5-CH16
+[VIDEOFIX] PASS disabled row uses a safe sentinel id
+[VIDEOFIX] PASS dropdown bind reaches CH7
+[VIDEOFIX] PASS dropdown disable row really unbinds
 [VIDEOFIX] PASS hero drone renders at full size
+[VIDEOFIX] PASS hero camera stays close to the drone
 [VIDEOFIX] PASS hangar drone renders at full size after reload
 [VIDEOFIX] RESULT PASS failures=0
 ```
@@ -135,6 +159,10 @@
 [STICKQA] roll plain=0.8 inverted=-0.8
 [STICKQA] PASS
 
+[INVQA] elrs sign +=0.343 -=-0.343
+[INVQA] on elrs=true touch=true saved=true/true
+[INVQA] PASS
+
 [BINDQA] deploy_payload -> CH8
 [BINDQA] dispatch pressed=true released=true
 [BINDQA] setup arm -> CH10
@@ -146,6 +174,7 @@
 
 ## 5. Збірка
 
+- Коміт: `2c1b171` (гілка `main`, запушено)
 - IPA: `NebesnyiHorizont-unsigned-v22-fixed.ipa`
 - Розмір: _(заповнюється після збірки)_
 - SHA-256: _(заповнюється після збірки)_

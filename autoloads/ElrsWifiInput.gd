@@ -417,12 +417,19 @@ func _trigger_safety_disarm() -> void:
 func set_action_channel(action: String, channel: int) -> void:
 	if action.is_empty():
 		return
+	# CH1-CH4 are stick axes, not AUX switches.  Never bind an action there.
+	if channel >= 0 and channel < 4:
+		return
 	if channel < 0 or channel >= CHANNEL_COUNT:
 		action_channels[action] = -1
 		if action == "arm" or action == "toggle_arm":
 			action_channels["arm"] = -1
 			action_channels["toggle_arm"] = -1
 			arm_channel = -1
+		elif action == "cycle_flight_modes":
+			mode_channel = -1
+		elif action == "cycle_video_mode":
+			video_channel = -1
 	else:
 		if action == "arm" or action == "toggle_arm":
 			# Binding ARM takes the switch over: no second action may fire on
@@ -521,11 +528,58 @@ func _load_settings() -> void:
 		cfg["elrs_action_defaults_version"] = AUX_DEFAULTS_VERSION
 		migrated = true
 
-	arm_channel = int(action_channels.get("arm", 4))
-	mode_channel = int(action_channels.get("cycle_flight_modes", -1))
-	video_channel = int(action_channels.get("cycle_video_mode", -1))
+	if _sanitize_action_channels():
+		migrated = true
 	if migrated:
 		save_settings()
+
+
+## Keeps the persisted action table safe even when it came from an older build
+## or a hand-edited config: ARM and toggle_arm are one switch, no action may sit
+## on a stick channel (CH1-CH4), and two actions may not share an AUX channel.
+## Returns true when anything had to be changed.
+func _sanitize_action_channels() -> bool:
+	var changed := false
+	var arm_ch := int(action_channels.get("arm", -1))
+	if arm_ch < 0:
+		arm_ch = int(action_channels.get("toggle_arm", -1))
+	if arm_ch >= 0 and arm_ch < 4:
+		arm_ch = -1
+		changed = true
+	if int(action_channels.get("arm", -99)) != arm_ch \
+			or int(action_channels.get("toggle_arm", -99)) != arm_ch:
+		changed = true
+	action_channels["arm"] = arm_ch
+	action_channels["toggle_arm"] = arm_ch
+	arm_channel = arm_ch
+
+	# CH1-CH4 are the sticks.  Binding an action there makes it fire while the
+	# pilot is only moving a stick, which is exactly the reported "menu opens
+	# by itself" failure mode.
+	for action in action_channels.keys():
+		if action == "arm" or action == "toggle_arm":
+			continue
+		var ch := int(action_channels[action])
+		if ch >= 0 and ch < 4:
+			action_channels[action] = -1
+			changed = true
+
+	var used := {}
+	for action in action_channels.keys():
+		if action == "arm" or action == "toggle_arm":
+			continue
+		var ch := int(action_channels[action])
+		if ch < 0:
+			continue
+		if ch == arm_ch or used.has(ch):
+			action_channels[action] = -1
+			changed = true
+		else:
+			used[ch] = action
+
+	mode_channel = int(action_channels.get("cycle_flight_modes", -1))
+	video_channel = int(action_channels.get("cycle_video_mode", -1))
+	return changed
 
 
 func save_settings() -> void:
@@ -535,10 +589,11 @@ func save_settings() -> void:
 	if arm_channel >= -1 and arm_channel < CHANNEL_COUNT:
 		action_channels["arm"] = arm_channel
 		action_channels["toggle_arm"] = arm_channel
-	if mode_channel >= -1 and mode_channel < CHANNEL_COUNT:
-		action_channels["cycle_flight_modes"] = mode_channel
-	if video_channel >= -1 and video_channel < CHANNEL_COUNT:
-		action_channels["cycle_video_mode"] = video_channel
+	# mode_channel/video_channel are legacy mirrors.  The action table is the
+	# authority: deriving them here prevents a stale mirror from re-enabling
+	# an action that was just displaced by a conflict.
+	mode_channel = int(action_channels.get("cycle_flight_modes", -1))
+	video_channel = int(action_channels.get("cycle_video_mode", -1))
 	var cfg: Dictionary = GameSettings.hud_config
 	cfg["elrs_invert_roll"] = invert_roll
 	cfg["elrs_invert_pitch"] = invert_pitch

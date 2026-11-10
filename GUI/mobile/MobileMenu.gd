@@ -13,6 +13,9 @@ const ROUNDED_SHADER: Shader = preload("res://GUI/mobile/rounded_rect.gdshader")
 const DronePropellerSystem = preload("res://scripts/util/DronePropellerSystem.gd")
 const GlbMaterialUtilsScript = preload("res://scripts/util/glb_material_utils.gd")
 const MenuIcons = preload("res://GUI/ui/MenuIcons.gd")
+## OptionButton id for the disabled action row.  Godot's -1 means "auto id",
+## so a dedicated sentinel is required to represent "no channel".
+const ACTION_DISABLED_ID := 99
 
 static func _safe_texture(path: String) -> Texture2D:
 	if ResourceLoader.exists(path):
@@ -1495,9 +1498,14 @@ func _build_switch_row(action_name: String, label_txt: String, default_ch: int, 
 	var opt := OptionButton.new()
 	opt.custom_minimum_size = Vector2(_fs(150), _fs(44))
 	_style_option_button(opt)
-	opt.add_item("ВИМК. (-)", -1)
-	for i in range(16):
-		var tag := " (AUX%d)" % [i - 3] if i >= 4 else ""
+	# Godot treats an explicit id of -1 as "assign automatically" (0), so use
+	# a separate sentinel for the disabled row.  Otherwise "ВИМК." would pass
+	# channel 0 and the guard below would refuse to disable the action.
+	opt.add_item("ВИМК. (-)", ACTION_DISABLED_ID)
+	# Only CH5-CH16 are AUX switches.  CH1-CH4 are the sticks: putting an
+	# action there makes it fire while the pilot is only flying.
+	for i in range(4, 16):
+		var tag := " (AUX%d)" % [i - 3]
 		opt.add_item("CH %d%s" % [i + 1, tag], i)
 	var cur_ch: int = int(elrs.get_action_channel(action_name)) if elrs != null else default_ch
 	if cur_ch >= 0 and cur_ch < 16:
@@ -1510,7 +1518,12 @@ func _build_switch_row(action_name: String, label_txt: String, default_ch: int, 
 	opt.item_selected.connect(func(idx: int):
 		if elrs != null:
 			var target_ch: int = opt.get_item_id(idx)
+			if target_ch == ACTION_DISABLED_ID:
+				target_ch = -1
 			elrs.set_action_channel(action_name, target_ch)
+			# A bind can move ARM to another free AUX channel; update every
+			# row so the screen never shows a stale switch.
+			_refresh_action_options()
 	)
 	_action_options[action_name] = opt
 	row.add_child(opt)
@@ -1538,6 +1551,23 @@ func _build_switch_row(action_name: String, label_txt: String, default_ch: int, 
 		_switch_status_labels[action_name] = st_lbl
 
 	return row
+
+
+func _refresh_action_options() -> void:
+	var elrs := get_node_or_null("/root/ElrsWifiInput")
+	if elrs == null:
+		return
+	for action in _action_options.keys():
+		var opt: OptionButton = _action_options[action]
+		if opt == null:
+			continue
+		var ch := int(elrs.get_action_channel(action))
+		var selected_idx := 0
+		for item_idx in range(opt.item_count):
+			if opt.get_item_id(item_idx) == ch:
+				selected_idx = item_idx
+				break
+		opt.selected = selected_idx
 
 
 func _update_invert_style(btn: Button, is_inv: bool) -> void:
@@ -1575,12 +1605,7 @@ func _process_controls_screen() -> void:
 					_channel_options[_auto_target].selected = moved_ch
 			else:
 				elrs.set_action_channel(_auto_target, moved_ch)
-				if _action_options.has(_auto_target):
-					var opt: OptionButton = _action_options[_auto_target]
-					for item_idx in range(opt.item_count):
-						if opt.get_item_id(item_idx) == moved_ch:
-							opt.selected = item_idx
-							break
+				_refresh_action_options()
 			if _auto_detect_buttons.has(_auto_target):
 				var b: Button = _auto_detect_buttons[_auto_target]
 				b.text = "АВТО"

@@ -45,6 +45,15 @@ func _run() -> void:
 		_check(int(actions.get("cycle_flight_modes", 99)) == -1,
 				"flight-mode cycling is not on an AUX channel")
 		_check(int(actions.get("arm", -1)) == 4, "arm stays on CH5")
+		elrs.call("set_action_channel", "deploy_payload", 0)
+		_check(int(elrs.call("get_action_channel", "deploy_payload")) != 0,
+				"actions cannot bind to a stick channel")
+		elrs.call("set_action_channel", "cycle_flight_modes", 8)
+		_check(int(elrs.call("get_action_channel", "cycle_flight_modes")) == 8,
+				"mode action binds to an AUX channel")
+		elrs.call("set_action_channel", "cycle_flight_modes", -1)
+		_check(int(elrs.call("get_action_channel", "cycle_flight_modes")) == -1,
+				"disabled mode action stays disabled after save")
 
 	# --- minimal level with a real drone --------------------------------
 	var level := Node3D.new()
@@ -112,6 +121,36 @@ func _run() -> void:
 	add_child(menu)
 	for i in range(30):
 		await get_tree().process_frame
+	var action_options: Dictionary = menu.get("_action_options")
+	var aux_only := not action_options.is_empty()
+	for key in action_options.keys():
+		var opt: OptionButton = action_options[key]
+		for item_idx in range(opt.item_count):
+			var item_id := opt.get_item_id(item_idx)
+			if item_id >= 0 and item_id < 4:
+				aux_only = false
+	_check(aux_only, "action dropdown lists only AUX channels CH5-CH16")
+	if action_options.has("arm"):
+		var arm_opt: OptionButton = action_options["arm"]
+		_check(arm_opt.get_item_id(0) == 99, "disabled row uses a safe sentinel id")
+	if action_options.has("deploy_payload"):
+		var deploy_opt: OptionButton = action_options["deploy_payload"]
+		var ch7_idx := 0
+		var off_idx := 0
+		for item_idx in range(deploy_opt.item_count):
+			if deploy_opt.get_item_id(item_idx) == 6:
+				ch7_idx = item_idx
+			elif deploy_opt.get_item_id(item_idx) == 99:
+				off_idx = item_idx
+		deploy_opt.select(ch7_idx)
+		deploy_opt.item_selected.emit(ch7_idx)
+		_check(int(elrs.call("get_action_channel", "deploy_payload")) == 6,
+				"dropdown bind reaches CH7")
+		deploy_opt.select(off_idx)
+		deploy_opt.item_selected.emit(off_idx)
+		_check(int(elrs.call("get_action_channel", "deploy_payload")) == -1,
+				"dropdown disable row really unbinds")
+
 	var holder: Node3D = menu.get("_hero_holder")
 	var hero_box := _bounds(holder) if holder != null else AABB()
 	var hero_max := maxf(hero_box.size.x, maxf(hero_box.size.y, hero_box.size.z))
