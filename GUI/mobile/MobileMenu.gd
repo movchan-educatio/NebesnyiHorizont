@@ -397,15 +397,16 @@ func _find_skeleton(node: Node) -> Skeleton3D:
 
 
 func _load_radio_model() -> Node3D:
-	if ResourceLoader.exists("res://GUI/RadioTransmitter.tscn"):
-		var scn: Resource = load("res://GUI/RadioTransmitter.tscn")
-		if scn is PackedScene:
-			return (scn as PackedScene).instantiate() as Node3D
-	var doc := GLTFDocument.new()
-	var state := GLTFState.new()
-	var err := doc.append_from_file("res://Assets/Drones/ua_norm/radiomaster_tx12_rig.glb", state)
-	if err == OK:
-		return doc.generate_scene(state) as Node3D
+	var glb_path := "res://Assets/Drones/ua_norm/radiomaster_tx12_rig.glb"
+	if not FileAccess.file_exists(glb_path):
+		glb_path = "res://Assets/Drones/ua_norm/radiomaster_tx12.glb"
+	if FileAccess.file_exists(glb_path):
+		var doc := GLTFDocument.new()
+		var state := GLTFState.new()
+		var real_p := ProjectSettings.globalize_path(glb_path)
+		var err := doc.append_from_file(real_p, state)
+		if err == OK:
+			return doc.generate_scene(state) as Node3D
 	return null
 
 
@@ -749,7 +750,7 @@ func _build_main() -> void:
 	left.add_theme_constant_override("separation", _gap(10))
 	h.add_child(left)
 
-	left.add_child(_label("ГОЛОВНЕ МЕНЮ", 16, MenuUI.FPV_AMBER))
+	left.add_child(_label("ГОЛОВНЕ МЕНЮ // ТЕРМІНАЛ", 15, MenuUI.FPV_AMBER))
 	left.add_child(_spacer(_gap(4)))
 
 	left.add_child(_nav_button("▶", "ОДИНОЧНА ГРА", true, func(): _show("play")))
@@ -758,10 +759,50 @@ func _build_main() -> void:
 	left.add_child(_nav_button("▣", "АНГАР ДРОНІВ", false, func(): _show("drone")))
 	left.add_child(_nav_button("⚙", "НАЛАШТУВАННЯ", false, func(): _show("settings")))
 
+	left.add_child(_spacer(_gap(6)))
+
+	# Tactical Changelog Card for this version
+	var chg_card := _panel(Color(0.02, 0.048, 0.038, 0.90), Color(0.28, 0.44, 0.34, 0.65), 1, 10)
+	chg_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var chg_m := MarginContainer.new()
+	chg_m.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	chg_m.add_theme_constant_override("margin_left", _fs(12))
+	chg_m.add_theme_constant_override("margin_right", _fs(12))
+	chg_m.add_theme_constant_override("margin_top", _fs(8))
+	chg_m.add_theme_constant_override("margin_bottom", _fs(8))
+	chg_card.add_child(chg_m)
+
+	var chg_v := VBoxContainer.new()
+	chg_v.add_theme_constant_override("separation", _gap(3))
+	chg_m.add_child(chg_v)
+
+	var chg_hdr := HBoxContainer.new()
+	chg_hdr.add_child(_label("ОНОВЛЕННЯ // СПИСОК ЗМІН", 12, MenuUI.FPV_AMBER))
+	chg_hdr.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
+	chg_hdr.add_child(_label("v1.4.0 (BUILD 23)", 11, MenuUI.FPV_GREEN))
+	chg_v.add_child(chg_hdr)
+
+	var changes := [
+		"• Повний військовий інтерфейс Feel FPV та темна тема",
+		"• 3D ангар та огляд 13 бортів на платформі",
+		"• Підтримка пультів RadioMaster TX12 та ELRS Wi-Fi",
+		"• Калібрування стіків, налаштування AUX та рейт",
+		"• Оптимізація 60/120 FPS для iPhone та сенсорний ввід"
+	]
+	for c_txt in changes:
+		var cl := Label.new()
+		cl.text = c_txt
+		cl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		cl.add_theme_font_size_override("font_size", _fs(10))
+		cl.add_theme_color_override("font_color", Color(0.78, 0.88, 0.82))
+		chg_v.add_child(cl)
+
+	left.add_child(chg_card)
 	left.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
-	var quit_btn := _button("✕  ВИХІД З ГРИ", 58)
-	quit_btn.add_theme_font_size_override("font_size", _fs(20))
-	quit_btn.custom_minimum_size.y = _fs(58)
+
+	var quit_btn := _button("✕  ВИХІД З ГРИ", 54)
+	quit_btn.add_theme_font_size_override("font_size", _fs(18))
+	quit_btn.custom_minimum_size.y = _fs(54)
 	quit_btn.pressed.connect(func(): get_tree().quit())
 	left.add_child(quit_btn)
 
@@ -1524,30 +1565,85 @@ func _build_rates() -> void:
 	right_v.add_theme_constant_override("separation", _gap(10))
 	right_card.add_child(right_v)
 
+	var axis_controls := {}
 	for axis in RATE_AXES:
 		var ax_box := VBoxContainer.new()
 		ax_box.add_theme_constant_override("separation", _gap(2))
 		right_v.add_child(ax_box)
 
-		var cur_rate: float = float(_rate_profiles[_rate_tab].get("rate_" + str(axis["key"]), 667))
-		var rate_lbl := _label("%s RATE: %d deg/s" % [str(axis["name"]), int(cur_rate)], 13, axis["col"] as Color)
+		var a_key: String = str(axis["key"])
+		var a_name: String = str(axis["name"])
+		var cur_rate: float = float(_rate_profiles[_rate_tab].get("rate_" + a_key, 667))
+		var rate_lbl := _label("%s RATE: %d deg/s" % [a_name, int(cur_rate)], 13, axis["col"] as Color)
 		ax_box.add_child(rate_lbl)
 		var rate_slider := _slider(cur_rate, 200, 1000, 10, func(val: float):
-			rate_lbl.text = "%s RATE: %d deg/s" % [str(axis["name"]), int(val)]
-			_rate_profiles[_rate_tab]["rate_" + str(axis["key"])] = val
+			rate_lbl.text = "%s RATE: %d deg/s" % [a_name, int(val)]
+			_rate_profiles[_rate_tab]["rate_" + a_key] = val
 			_rate_curve.set_profile(_rate_profiles[_rate_tab])
 		)
 		ax_box.add_child(rate_slider)
 
-		var cur_expo: float = float(_rate_profiles[_rate_tab].get("expo_" + str(axis["key"]), 0.2))
-		var expo_lbl := _label("%s EXPO: %.2f" % [str(axis["name"]), cur_expo], 12, MenuUI.MUTED)
+		var cur_expo: float = float(_rate_profiles[_rate_tab].get("expo_" + a_key, 0.2))
+		var expo_lbl := _label("%s EXPO: %.2f" % [a_name, cur_expo], 12, MenuUI.MUTED)
 		ax_box.add_child(expo_lbl)
 		var expo_slider := _slider(cur_expo, 0.0, 0.8, 0.05, func(val: float):
-			expo_lbl.text = "%s EXPO: %.2f" % [str(axis["name"]), val]
-			_rate_profiles[_rate_tab]["expo_" + str(axis["key"])] = val
+			expo_lbl.text = "%s EXPO: %.2f" % [a_name, val]
+			_rate_profiles[_rate_tab]["expo_" + a_key] = val
 			_rate_curve.set_profile(_rate_profiles[_rate_tab])
 		)
 		ax_box.add_child(expo_slider)
+		axis_controls[a_key] = {
+			"rate_lbl": rate_lbl, "rate_slider": rate_slider,
+			"expo_lbl": expo_lbl, "expo_slider": expo_slider,
+			"name": a_name
+		}
+
+	right_v.add_child(_spacer(_gap(8)))
+	right_v.add_child(_label("ГОТОВІ ПРЕСЕТИ РЕЙТІВ", 13, MenuUI.FPV_AMBER))
+
+	var preset_row := HBoxContainer.new()
+	preset_row.add_theme_constant_override("separation", _gap(6))
+	right_v.add_child(preset_row)
+
+	var presets: Array[Dictionary] = [
+		{"name": "🎓 ТРЕНУВАННЯ", "rate": 450.0, "expo": 0.30},
+		{"name": "⚡ ФРІСТАЙЛ", "rate": 667.0, "expo": 0.20},
+		{"name": "🏁 ГОНКИ", "rate": 850.0, "expo": 0.15},
+		{"name": "🎬 КІНОДРОН", "rate": 350.0, "expo": 0.40},
+	]
+	for p_info in presets:
+		var p_btn := _button(str(p_info["name"]), 38)
+		p_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var r_val: float = float(p_info["rate"])
+		var e_val: float = float(p_info["expo"])
+		p_btn.pressed.connect(func():
+			for a_key in axis_controls:
+				_rate_profiles[_rate_tab]["rate_" + a_key] = r_val
+				_rate_profiles[_rate_tab]["expo_" + a_key] = e_val
+				var ctrl: Dictionary = axis_controls[a_key]
+				var r_lbl: Label = ctrl["rate_lbl"]
+				var r_s: Slider = ctrl["rate_slider"]
+				var e_lbl: Label = ctrl["expo_lbl"]
+				var e_s: Slider = ctrl["expo_slider"]
+				r_lbl.text = "%s RATE: %d deg/s" % [ctrl["name"], int(r_val)]
+				r_s.value = r_val
+				e_lbl.text = "%s EXPO: %.2f" % [ctrl["name"], e_val]
+				e_s.value = e_val
+			_rate_curve.set_profile(_rate_profiles[_rate_tab])
+		)
+		preset_row.add_child(p_btn)
+
+	right_v.add_child(_spacer(_gap(4)))
+	var save_rates_btn := _button("✓  ЗБЕРЕГТИ РЕЙТИ ДЛЯ ПОЛЬОТУ", 44, true)
+	save_rates_btn.pressed.connect(func():
+		var gs := get_node_or_null("/root/GameSettings")
+		if gs != null:
+			var hud: Dictionary = gs.get("hud_config")
+			hud["mobile_rate_profiles"] = _rate_profiles.duplicate(true)
+			gs.save_config()
+		save_rates_btn.text = "✓  ЗБЕРЕЖЕНО!"
+	)
+	right_v.add_child(save_rates_btn)
 
 
 # ---------------------------------------------------------------- SORTIE SETUP (PLAY)
