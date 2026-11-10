@@ -1627,7 +1627,7 @@ func _build_drone() -> void:
 
 	# --- Left Column: 13 Drones Scrollable List ---
 	var list_card := _panel(Color(0.025, 0.065, 0.05, 0.92), Color(0.38, 0.54, 0.42, 0.55), 1, 14)
-	list_card.custom_minimum_size.x = _fs(310)
+	list_card.custom_minimum_size.x = _fs(340)
 	cols.add_child(list_card)
 
 	var scroll := ScrollContainer.new()
@@ -1642,21 +1642,37 @@ func _build_drone() -> void:
 	_hangar_preview_idx = Global.drone_preset
 
 	for i in range(DroneCatalog.count()):
-		var p := DroneCatalog.preset(i)
 		var btn := Button.new()
-		btn.custom_minimum_size = Vector2(0, _fs(52))
+		btn.custom_minimum_size = Vector2(0, _fs(58))
 		btn.focus_mode = Control.FOCUS_NONE
-		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		var is_cur := (i == Global.drone_preset)
-		var mark := " ✓" if is_cur else ""
-		btn.text = "  %d. %s%s\n      %s" % [i + 1, str(p.get("name")), mark, str(p.get("tag"))]
-		btn.add_theme_font_size_override("font_size", _fs(14))
-		var bg_col := Color(0.12, 0.24, 0.17, 0.95) if i == _hangar_preview_idx else Color(0.04, 0.08, 0.06, 0.75)
-		var b_col := Color(0.72, 0.88, 0.75, 0.9) if i == _hangar_preview_idx else Color(0.24, 0.36, 0.28, 0.5)
-		btn.add_theme_stylebox_override("normal", _panel_style(bg_col, b_col, 1, 8))
-		btn.add_theme_stylebox_override("hover", _panel_style(Color(0.16, 0.30, 0.22, 1.0), b_col, 1, 8))
-		btn.add_theme_stylebox_override("pressed", _panel_style(Color(0.10, 0.20, 0.15, 1.0), b_col, 1, 8))
 		btn.set_meta("drone_idx", i)
+
+		var m := MarginContainer.new()
+		m.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		m.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		m.add_theme_constant_override("margin_left", _fs(12))
+		m.add_theme_constant_override("margin_right", _fs(10))
+		m.add_theme_constant_override("margin_top", _fs(6))
+		m.add_theme_constant_override("margin_bottom", _fs(6))
+		btn.add_child(m)
+
+		var bv := VBoxContainer.new()
+		bv.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bv.add_theme_constant_override("separation", _gap(2))
+		m.add_child(bv)
+
+		var title_lbl := Label.new()
+		title_lbl.name = "TitleLabel"
+		title_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		title_lbl.add_theme_font_size_override("font_size", _fs(15))
+		bv.add_child(title_lbl)
+
+		var tag_lbl := Label.new()
+		tag_lbl.name = "TagLabel"
+		tag_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tag_lbl.add_theme_font_size_override("font_size", _fs(11))
+		bv.add_child(tag_lbl)
+
 		var cur_i := i
 		btn.pressed.connect(func():
 			_hangar_preview_idx = cur_i
@@ -1664,6 +1680,8 @@ func _build_drone() -> void:
 			_update_hangar_list_styles()
 		)
 		_hangar_list_container.add_child(btn)
+
+	_update_hangar_list_styles()
 
 	# --- Right Column: 3D Turntable Showroom ---
 	var showroom_card := _panel(Color(0.025, 0.065, 0.05, 0.92), Color(0.38, 0.54, 0.42, 0.55), 1, 16)
@@ -1848,11 +1866,46 @@ func _update_hangar_list_styles() -> void:
 			var is_sel := (idx == _hangar_preview_idx)
 			var is_cur := (idx == Global.drone_preset)
 			var p := DroneCatalog.preset(idx)
-			var mark := " ✓" if is_cur else ""
-			c.text = "  %d. %s%s\n      %s" % [idx + 1, str(p.get("name")), mark, str(p.get("tag"))]
-			var bg_col := Color(0.12, 0.24, 0.17, 0.95) if is_sel else Color(0.04, 0.08, 0.06, 0.75)
-			var b_col := Color(0.72, 0.88, 0.75, 0.9) if is_sel else Color(0.24, 0.36, 0.28, 0.5)
-			c.add_theme_stylebox_override("normal", _panel_style(bg_col, b_col, 1, 8))
+			var mark := "  [ ОБРАНО ✓ ]" if is_cur else ""
+
+			var title_lbl := c.find_child("TitleLabel", true, false) as Label
+			var tag_lbl := c.find_child("TagLabel", true, false) as Label
+
+			if title_lbl != null:
+				title_lbl.text = "%d. %s%s" % [idx + 1, str(p.get("name")), mark]
+				if is_sel:
+					title_lbl.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+				elif is_cur:
+					title_lbl.add_theme_color_override("font_color", Color(0.95, 0.90, 0.55))
+				else:
+					title_lbl.add_theme_color_override("font_color", Color(0.90, 0.94, 0.92))
+
+			if tag_lbl != null:
+				tag_lbl.text = str(p.get("tag")).to_upper()
+				if is_sel:
+					tag_lbl.add_theme_color_override("font_color", Color(0.55, 0.92, 0.68))
+				elif is_cur:
+					tag_lbl.add_theme_color_override("font_color", Color(0.90, 0.78, 0.45))
+				else:
+					tag_lbl.add_theme_color_override("font_color", Color(0.65, 0.78, 0.70))
+
+			var bg_col: Color
+			var b_col: Color
+			var b_w: int = 1
+			if is_sel:
+				bg_col = Color(0.12, 0.25, 0.18, 0.98)
+				b_col = Color(0.48, 0.85, 0.60, 0.95)
+				b_w = 2
+			elif is_cur:
+				bg_col = Color(0.06, 0.12, 0.08, 0.90)
+				b_col = Color(0.88, 0.76, 0.46, 0.75)
+			else:
+				bg_col = Color(0.035, 0.075, 0.055, 0.85)
+				b_col = Color(0.24, 0.38, 0.30, 0.60)
+
+			c.add_theme_stylebox_override("normal", _panel_style(bg_col, b_col, b_w, 8))
+			c.add_theme_stylebox_override("hover", _panel_style(bg_col.lightened(0.08), b_col.lightened(0.1), b_w, 8))
+			c.add_theme_stylebox_override("pressed", _panel_style(bg_col.darkened(0.1), b_col, b_w, 8))
 
 
 func _on_hangar_choose_pressed() -> void:
