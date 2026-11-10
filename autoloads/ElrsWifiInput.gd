@@ -1,6 +1,6 @@
 extends Node
 
-## ExpressLRS WiFi Joystick input ("Velocidrone Mobile" protocol) & Feel FPV controller mapping.
+## ExpressLRS WiFi Joystick input ("Velocidrone Mobile" protocol) & tactical FPV controller mapping.
 ##
 ## The ELRS TX module (3.4+) exposes a Wi-Fi access point / joins the local
 ## network. This node discovers its UDP beacon on port 11000, activates the
@@ -106,9 +106,6 @@ func _start() -> void:
 		return
 	_udp.set_broadcast_enabled(true)
 	status_text = "ELRS: ПОШУК"
-	# Common AP IPs for Radiomaster / ExpressLRS backpack modules
-	_try_activate("10.0.0.1")
-	_try_activate("192.168.4.1")
 
 
 func _process(_delta: float) -> void:
@@ -119,8 +116,16 @@ func _process(_delta: float) -> void:
 		status_text = "ELRS: НЕМАЄ ДАНИХ"
 		emit_signal("status_changed", status_text)
 		channels.fill(CENTER)
-	if not valid and now - _last_activate_ms >= int(ACTIVATE_INTERVAL * 1000.0):
-		_try_activate(module_ip if not module_ip.is_empty() else "10.0.0.1")
+	# Only retry activation when an ELRS transmitter module has actually been discovered
+	# to prevent continuous socket timeouts / micro-stutters on standard home Wi-Fi
+	if not valid and not module_ip.is_empty() and now - _last_activate_ms >= int(ACTIVATE_INTERVAL * 1000.0):
+		_try_activate(module_ip)
+
+
+func scan_now() -> void:
+	if not valid:
+		_try_activate("10.0.0.1")
+		_try_activate("192.168.4.1")
 
 
 func _poll_udp() -> void:
@@ -368,7 +373,15 @@ func _dispatch_action_event(action: String, on: bool) -> void:
 	Input.parse_input_event(event)
 	if on:
 		Input.action_press(action)
+		# For non-level switch actions, pulse release so next edge triggers cleanly
+		if action != "arm":
+			call_deferred("_release_action", action)
 	else:
+		Input.action_release(action)
+
+
+func _release_action(action: String) -> void:
+	if InputMap.has_action(action):
 		Input.action_release(action)
 
 
@@ -380,7 +393,7 @@ func _trigger_arm() -> void:
 	if drone != null:
 		var fc = drone.get("flight_controller")
 		if fc != null and fc.has_method("request_arm"):
-			fc.request_arm()
+			fc.request_arm(true)
 
 
 func _trigger_safety_disarm() -> void:

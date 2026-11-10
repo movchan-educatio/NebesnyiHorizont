@@ -180,18 +180,33 @@ def wait_and_process():
         print("Failed to download IPA.")
         sys.exit(1)
 
-    # Make sanitized copies
+    # Make hardlinked copies (0 additional disk space)
     desktop_dir = "C:/Users/USER_UA/Desktop"
     fixed_name = f"NebesnyiHorizont-unsigned-v{run_num + 16}-fixed.ipa"
     clean_name = "NebesnyiHorizont.ipa"
     
-    import shutil
     fixed_path = os.path.join(desktop_dir, fixed_name)
     clean_path = os.path.join(desktop_dir, clean_name)
-    shutil.copy2(downloaded_path, fixed_path)
-    shutil.copy2(downloaded_path, clean_path)
-    print(f"Created sanitized file: {fixed_path}")
-    print(f"Created clean file: {clean_path}")
+    
+    try:
+        if os.path.exists(fixed_path):
+            os.remove(fixed_path)
+        os.link(downloaded_path, fixed_path)
+        print(f"Hardlinked sanitized file: {fixed_path}")
+    except Exception as e:
+        import shutil
+        shutil.copy2(downloaded_path, fixed_path)
+        print(f"Copied sanitized file: {fixed_path} ({e})")
+
+    try:
+        if os.path.exists(clean_path):
+            os.remove(clean_path)
+        os.link(downloaded_path, clean_path)
+        print(f"Hardlinked clean file: {clean_path}")
+    except Exception as e:
+        import shutil
+        shutil.copy2(downloaded_path, clean_path)
+        print(f"Copied clean file: {clean_path} ({e})")
 
     # Write a quick text summary on Desktop
     summary_file = os.path.join(desktop_dir, "DOWNLOAD_LINKS.txt")
@@ -200,9 +215,10 @@ def wait_and_process():
     with open(summary_file, "w", encoding="utf-8") as f:
         f.write(f"=== NEBESNYI HORIZONT iOS BUILD #{run_num} ===\n\n")
         f.write(f"1. DIRECT S3 CLOUD DOWNLOAD LINK (Works directly in Safari on iPhone):\n{presigned}\n\n")
-        f.write(f"2. LOCAL WI-FI DOWNLOAD LINK (PC IP 10.0.0.8, port 8080):\n")
-        f.write(f"   http://10.0.0.8:8080/{clean_name}\n")
-        f.write(f"   http://10.0.0.8:8080/{fixed_name}\n\n")
+        f.write(f"2. LOCAL WI-FI DOWNLOAD LINK (PC IP 192.168.0.100, port 8080):\n")
+        f.write(f"   http://192.168.0.100:8080/{clean_name}\n")
+        f.write(f"   http://192.168.0.100:8080/{fixed_name}\n")
+        f.write(f"   http://192.168.0.100:8080/\n\n")
         f.write(f"3. LOCAL FILES ON DESKTOP:\n")
         f.write(f"   {clean_path}\n")
         f.write(f"   {fixed_path}\n")

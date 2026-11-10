@@ -84,7 +84,7 @@ func _ready() -> void:
 	_mode_button.add_theme_color_override("font_color", Color(0.9, 0.96, 1.0))
 	_mode_button.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 	_mode_button.add_theme_constant_override("outline_size", 3)
-	_mode_button.pressed.connect(_on_mode_pressed)
+	_mode_button.button_down.connect(_on_mode_pressed)
 	_root.add_child(_mode_button)
 
 	_arm_button = Button.new()
@@ -92,11 +92,11 @@ func _ready() -> void:
 	_arm_button.text = "АРМ"
 	_arm_button.focus_mode = Control.FOCUS_NONE
 	_arm_button.mouse_filter = Control.MOUSE_FILTER_STOP
-	_arm_button.add_theme_font_size_override("font_size", 24)
+	_arm_button.add_theme_font_size_override("font_size", 28)
 	_arm_button.add_theme_color_override("font_color", Color(1.0, 0.94, 0.88))
 	_arm_button.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 	_arm_button.add_theme_constant_override("outline_size", 4)
-	_arm_button.pressed.connect(_on_arm_pressed)
+	_arm_button.button_down.connect(_on_arm_pressed)
 	_root.add_child(_arm_button)
 
 	_pause_button = _make_top_button("МЕНЮ", _on_pause_pressed)
@@ -109,11 +109,11 @@ func _ready() -> void:
 	_drop_button.text = "СКИД"
 	_drop_button.focus_mode = Control.FOCUS_NONE
 	_drop_button.mouse_filter = Control.MOUSE_FILTER_STOP
-	_drop_button.add_theme_font_size_override("font_size", 22)
+	_drop_button.add_theme_font_size_override("font_size", 24)
 	_drop_button.add_theme_color_override("font_color", Color(1.0, 0.95, 0.86))
 	_drop_button.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 	_drop_button.add_theme_constant_override("outline_size", 4)
-	_drop_button.pressed.connect(_on_action_pressed.bind("deploy_payload"))
+	_drop_button.button_down.connect(_on_action_pressed.bind("deploy_payload"))
 	_drop_button.visible = false
 	_root.add_child(_drop_button)
 
@@ -234,11 +234,11 @@ func _make_top_button(text: String, cb: Callable) -> Button:
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
 	b.mouse_filter = Control.MOUSE_FILTER_STOP
-	b.add_theme_font_size_override("font_size", 20)
+	b.add_theme_font_size_override("font_size", 22)
 	b.add_theme_color_override("font_color", Color(0.90, 0.96, 1.0))
 	b.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	b.add_theme_constant_override("outline_size", 3)
-	b.pressed.connect(cb)
+	b.button_down.connect(cb)
 	_root.add_child(b)
 	return b
 
@@ -275,23 +275,23 @@ func _layout() -> void:
 				bottom - _radius)
 		_right_center = Vector2(minf(vs.x * 0.72,
 				vs.x - _radius - notch.z - 12.0), bottom - _radius)
-	var bar_w := 150.0 + 10.0 + 190.0 + 10.0 + 250.0
+	var bar_w := 160.0 + 12.0 + 210.0 + 12.0 + 270.0
 	var bar_x := (vs.x - bar_w) * 0.5
-	_pause_button.position = Vector2(bar_x, 96.0 + notch.y)
-	_pause_button.size = Vector2(150.0, 62.0)
-	_flight_button.position = Vector2(bar_x + 160.0, 96.0 + notch.y)
-	_flight_button.size = Vector2(190.0, 62.0)
-	_flight_button.add_theme_font_size_override("font_size", 17)
-	_mode_button.position = Vector2(bar_x + 360.0, 96.0 + notch.y)
-	_mode_button.size = Vector2(250.0, 62.0)
+	_pause_button.position = Vector2(bar_x, 90.0 + notch.y)
+	_pause_button.size = Vector2(160.0, 68.0)
+	_flight_button.position = Vector2(bar_x + 172.0, 90.0 + notch.y)
+	_flight_button.size = Vector2(210.0, 68.0)
+	_flight_button.add_theme_font_size_override("font_size", 19)
+	_mode_button.position = Vector2(bar_x + 394.0, 90.0 + notch.y)
+	_mode_button.size = Vector2(270.0, 68.0)
 	var row2: Array[Button] = [_reset_button, _video_button]
-	var row2_w := 2.0 * 150.0 + 10.0
+	var row2_w := 2.0 * 160.0 + 16.0
 	var row2_x := (vs.x - row2_w) * 0.5
 	for i in range(row2.size()):
-		row2[i].position = Vector2(row2_x + i * 160.0, 170.0 + notch.y)
-		row2[i].size = Vector2(150.0, 54.0)
-	_arm_button.position = Vector2(vs.x * 0.5 - 95.0, vs.y - 160.0 - notch.w)
-	_arm_button.size = Vector2(190.0, 70.0)
+		row2[i].position = Vector2(row2_x + i * 176.0, 168.0 + notch.y)
+		row2[i].size = Vector2(160.0, 60.0)
+	_arm_button.position = Vector2(vs.x * 0.5 - 110.0, vs.y - 170.0 - notch.w)
+	_arm_button.size = Vector2(220.0, 78.0)
 	var drop_size := clampf(_radius * 0.60, 78.0, 106.0)
 	_drop_button.position = Vector2(_left_center.x + _radius + 24.0,
 			_left_center.y - drop_size * 0.5)
@@ -382,7 +382,18 @@ func _on_mode_pressed() -> void:
 
 
 func _on_arm_pressed() -> void:
-	# Same synthetic action path as the keyboard/gamepad arm switch.
+	# Direct instant trigger to active drone flight controller with zero delay
+	var scene := get_tree().current_scene
+	if scene != null:
+		var drone := scene.get_node_or_null("Drone")
+		if drone != null:
+			var fc = drone.get("flight_controller")
+			if fc != null:
+				if fc.state_armed:
+					fc.request_disarm()
+				else:
+					fc.request_arm(true)
+	# Also dispatch synthetic action path so all listeners and HUD update
 	_dispatch_action("toggle_arm")
 
 
@@ -460,10 +471,14 @@ func _dispatch_action(action: String) -> void:
 	event.pressed = true
 	event.strength = 1.0
 	Input.parse_input_event(event)
-	# Also pulse the polling state so handlers using is_action_just_pressed()
-	# see a clean edge; release after a short tap.
+	# Also pulse the polling state so handlers using is_action_just_pressed() see a clean edge
 	Input.action_press(action)
-	get_tree().create_timer(0.12).timeout.connect(Input.action_release.bind(action))
+	call_deferred("_release_action", action)
+
+
+func _release_action(action: String) -> void:
+	if InputMap.has_action(action):
+		Input.action_release(action)
 
 
 func _build_setup_panel() -> void:

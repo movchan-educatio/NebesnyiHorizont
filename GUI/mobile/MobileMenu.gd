@@ -1,9 +1,9 @@
-## Mobile tactical menu — a phone-first shell with 3D rotating drone hero and Feel FPV style controls.
+## Mobile tactical menu — a phone-first shell with 3D rotating drone hero and tactical FPV controls.
 ##
 ## Features:
 ##   - Interactive 3D drone turntable with slow continuous rotation and finger swipe
 ##   - Next / Previous drone selector buttons with live name, class and TWR specs
-##   - Feel FPV style radio controller screen: 2D stick monitor, AETR/TAER mapping,
+##   - Tactical radio controller screen: 2D live stick monitor, AETR/TAER mapping,
 ##     per-axis inversion, level-switched ARM, AUX switches, and quick auto-detect
 ##   - Safe area handling for iPhone 14 (Notch / Dynamic Island & Home indicator)
 ##   - Self-contained navigation (pause menu and flight returns cleanly to this menu)
@@ -88,11 +88,12 @@ var _map_cards: Dictionary = {}
 var _mission_buttons: Dictionary = {}
 var _play_caption: Label
 
-# --- Feel FPV Controller Setup & 3D RadioMaster TX12 ---
+# --- Tactical Controller Setup & RadioMaster TX12 ---
 var _radio: Node3D = null
 var _radio_skeleton: Skeleton3D = null
 var _radio_viewport: SubViewport = null
 var _radio_camera: Camera3D = null
+var _tx_view: RadioTransmitterView = null
 var _stick_preview: StickPreview
 var _source_status: Label
 var _channel_options: Dictionary = {}
@@ -175,7 +176,83 @@ class ToggleSwitch extends Button:
 		draw_circle(Vector2(knob_x, r), r * 0.76, Color(0.96, 0.99, 0.94, 1.0))
 
 
-## 2D Stick Monitor (Feel FPV style: twin circles with crosshairs and live stick positions)
+## Live Animated RadioMaster TX12 Visual Terminal
+class RadioTransmitterView extends Control:
+	var _tex_rect: TextureRect
+	var _overlay: Control
+	var left := Vector2.ZERO   # Mode 2 Left: X = Yaw (-1..1), Y = Throttle (0..1)
+	var right := Vector2.ZERO  # Mode 2 Right: X = Roll (-1..1), Y = Pitch (-1..1)
+
+	func _init(tex: Texture2D) -> void:
+		mouse_filter = Control.MOUSE_FILTER_PASS
+		_tex_rect = TextureRect.new()
+		_tex_rect.texture = tex
+		_tex_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		_tex_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		_tex_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_tex_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(_tex_rect)
+
+		_overlay = Control.new()
+		_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_overlay.draw.connect(_on_overlay_draw)
+		add_child(_overlay)
+
+	func set_sticks(l: Vector2, r: Vector2) -> void:
+		left = l
+		right = r
+		if _overlay != null:
+			_overlay.queue_redraw()
+
+	func _on_overlay_draw() -> void:
+		var w := size.x
+		var h := size.y
+		if w < 40.0 or h < 40.0:
+			return
+		# Calculate aspect-ratio centered bounding box of the 512x512 image
+		var scale_val: float = minf(w / 512.0, h / 512.0)
+		var img_sz: Vector2 = Vector2(512.0, 512.0) * scale_val
+		var img_pos: Vector2 = (size - img_sz) * 0.5
+
+		# Gimbal centers on 512x512 texture:
+		# Left: (180.4, 240.0), Right: (323.5, 241.0)
+		var left_center: Vector2 = img_pos + Vector2(180.4, 240.0) * scale_val
+		var right_center: Vector2 = img_pos + Vector2(323.5, 241.0) * scale_val
+
+		var gimbal_r: float = 42.0 * scale_val
+		var max_travel: float = 24.0 * scale_val
+		var knob_r: float = 10.0 * scale_val
+
+		# Mode 2 Left stick: Throttle vertical (0 down, 1 up), Yaw horizontal (-1 left, +1 right)
+		var thr_norm: float = clampf(left.y, 0.0, 1.0) * 2.0 - 1.0
+		var left_offset := Vector2(clampf(left.x, -1.0, 1.0), -thr_norm) * max_travel
+		_draw_gimbal_stick(left_center, gimbal_r, left_offset, knob_r, true)
+
+		# Mode 2 Right stick: Pitch vertical (-1 up, +1 down), Roll horizontal (-1 left, +1 right)
+		var right_offset := Vector2(clampf(right.x, -1.0, 1.0), clampf(right.y, -1.0, 1.0)) * max_travel
+		_draw_gimbal_stick(right_center, gimbal_r, right_offset, knob_r, false)
+
+	func _draw_gimbal_stick(g_center: Vector2, g_radius: float, offset: Vector2, knob_radius: float, is_left: bool) -> void:
+		# Gimbal perimeter ring with subtle tactical glow
+		_overlay.draw_arc(g_center, g_radius, 0.0, TAU, 36, Color(0.35, 0.65, 0.45, 0.45), 1.5, true)
+		_overlay.draw_line(g_center - Vector2(g_radius * 0.8, 0), g_center + Vector2(g_radius * 0.8, 0), Color(0.4, 0.7, 0.5, 0.25), 1.0)
+		_overlay.draw_line(g_center - Vector2(0, g_radius * 0.8), g_center + Vector2(0, g_radius * 0.8), Color(0.4, 0.7, 0.5, 0.25), 1.0)
+
+		var knob_pos := g_center + offset
+		# Stick shaft (from gimbal base to stick head)
+		_overlay.draw_line(g_center, knob_pos, Color(0.12, 0.16, 0.14, 0.95), knob_radius * 0.7)
+		_overlay.draw_line(g_center, knob_pos, Color(0.60, 0.72, 0.65, 0.8), knob_radius * 0.35)
+
+		# Tactical Stick Head (knurled anodized aluminum with glowing tip)
+		_overlay.draw_circle(knob_pos, knob_radius * 1.35, Color(0.0, 0.0, 0.0, 0.55))
+		_overlay.draw_circle(knob_pos, knob_radius, Color(0.20, 0.26, 0.22, 1.0))
+		_overlay.draw_circle(knob_pos, knob_radius * 0.75, Color(0.40, 0.92, 0.60, 0.95))
+		_overlay.draw_circle(knob_pos, knob_radius * 0.35, Color(0.95, 1.0, 0.95, 1.0))
+		_overlay.draw_arc(knob_pos, knob_radius, 0.0, TAU, 24, MenuUI.ACCENT, 1.5, true)
+
+
+## 2D Stick Monitor (Tactical FPV HUD: twin circles with crosshairs and live stick positions)
 class StickPreview extends Control:
 	var left := Vector2.ZERO   # Mode 2 Left: X = Yaw (-1..1), Y = Throttle (0..1)
 	var right := Vector2.ZERO  # Mode 2 Right: X = Roll (-1..1), Y = Pitch (-1..1)
@@ -388,6 +465,8 @@ func _process(delta: float) -> void:
 
 		if _stick_preview != null:
 			_stick_preview.set_values(Vector2(yaw, thr), Vector2(rol, pit))
+		if _tx_view != null:
+			_tx_view.set_sticks(Vector2(yaw, thr), Vector2(rol, pit))
 
 		if _radio_skeleton != null:
 			_set_radio_stick_bone("LeftStickVertical", Vector3.RIGHT, deg_to_rad(27.0 * thr))
@@ -456,18 +535,18 @@ func _vsize() -> Vector2:
 
 
 func _fs(px: float) -> int:
-	var scale := clampf(_vsize().y / 900.0, 0.78, 1.25)
-	return maxi(12, int(round(px * scale)))
+	var scale := clampf(_vsize().y / 760.0, 1.15, 1.55)
+	return maxi(16, int(round(px * scale)))
 
 
 func _gap(px: float) -> int:
-	var scale := clampf(_vsize().y / 1000.0, 0.70, 1.20)
-	return maxi(2, int(round(px * scale)))
+	var scale := clampf(_vsize().y / 850.0, 0.85, 1.35)
+	return maxi(3, int(round(px * scale)))
 
 
 func _ui_sz(px: float) -> int:
-	var scale := clampf(_vsize().y / 1000.0, 0.70, 1.15)
-	return maxi(22, int(round(px * scale)))
+	var scale := clampf(_vsize().y / 760.0, 1.15, 1.50)
+	return maxi(40, int(round(px * scale)))
 
 
 func _label(text: String, size: float, color: Color = MenuUI.TEXT) -> Label:
@@ -516,14 +595,15 @@ func _button_style(bg: Color, border: Color, border_width: int = 1, radius: int 
 	return sb
 
 
-func _button(text: String, height: float, primary: bool = false) -> Button:
+func _button(text: String, height: float = 48.0, primary: bool = false) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	b.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
 	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(0, _ui_sz(height))
-	b.add_theme_font_size_override("font_size", _fs(18 if not primary else 22))
+	var min_h: int = maxi(_ui_sz(height), _fs(46.0))
+	b.custom_minimum_size = Vector2(0, min_h)
+	b.add_theme_font_size_override("font_size", _fs(19 if not primary else 23))
 	b.add_theme_color_override("font_color", Color(0.06, 0.09, 0.07) if primary else MenuUI.TEXT)
 	b.add_theme_color_override("font_hover_color", Color(0.06, 0.09, 0.07) if primary else MenuUI.TEXT)
 	b.add_theme_color_override("font_pressed_color", Color(0.06, 0.09, 0.07) if primary else MenuUI.TEXT)
@@ -539,16 +619,15 @@ func _button(text: String, height: float, primary: bool = false) -> Button:
 
 
 func _nav_button(icon_tex: Texture2D, text: String, primary: bool, callback: Callable) -> Button:
-	var compact := _vsize().y < 780.0
-	var height := (50.0 if not primary else 58.0) if compact else (58.0 if not primary else 66.0)
+	var height: float = 62.0 if not primary else 70.0
 	var b := _button("  " + text, height, primary)
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	if icon_tex != null:
 		b.icon = icon_tex
 		b.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.expand_icon = true
-	b.add_theme_font_size_override("font_size", _fs(19 if not primary else 22))
-	b.add_theme_constant_override("h_separation", _gap(12))
+	b.add_theme_font_size_override("font_size", _fs(21 if not primary else 24))
+	b.add_theme_constant_override("h_separation", _gap(14))
 	b.pressed.connect(callback)
 	return b
 
@@ -668,11 +747,12 @@ func _build_root() -> void:
 	top.add_theme_constant_override("separation", _gap(12))
 	_root.add_child(top)
 
-	_back_btn = _button("НАЗАД", 44)
+	_back_btn = _button(" НАЗАД", 52)
 	_back_btn.icon = MenuIcons.icon_back(MenuUI.TEXT)
 	_back_btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	_back_btn.add_theme_constant_override("h_separation", _gap(8))
-	_back_btn.custom_minimum_size = Vector2(_fs(140), _fs(44))
+	_back_btn.add_theme_constant_override("h_separation", _gap(10))
+	_back_btn.add_theme_font_size_override("font_size", _fs(20))
+	_back_btn.custom_minimum_size = Vector2(_ui_sz(170), _ui_sz(52))
 	_back_btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_back_btn.pressed.connect(_on_back)
 	_back_btn.visible = false
@@ -850,18 +930,18 @@ func _build_main() -> void:
 		var cl := Label.new()
 		cl.text = c_txt
 		cl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		cl.add_theme_font_size_override("font_size", _fs(12))
+		cl.add_theme_font_size_override("font_size", _fs(14))
 		cl.add_theme_color_override("font_color", Color(0.85, 0.94, 0.88))
 		chg_v.add_child(cl)
 
 	left.add_child(chg_card)
 	left.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
 
-	var quit_btn := _button("  ВИХІД З ГРИ", 42)
+	var quit_btn := _button("  ВИХІД З ГРИ", 54)
 	quit_btn.icon = MenuIcons.icon_close(Color(0.95, 0.45, 0.45))
 	quit_btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	quit_btn.add_theme_font_size_override("font_size", _fs(15))
-	quit_btn.custom_minimum_size = Vector2(_ui_sz(190), _ui_sz(42))
+	quit_btn.add_theme_font_size_override("font_size", _fs(21))
+	quit_btn.custom_minimum_size = Vector2(_ui_sz(320), _ui_sz(54))
 	quit_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	quit_btn.pressed.connect(func(): get_tree().quit())
 	left.add_child(quit_btn)
@@ -1014,9 +1094,9 @@ func _setup_hero_3d_world() -> void:
 	# Illuminated turntable pedestal
 	var pedestal := MeshInstance3D.new()
 	var cyl := CylinderMesh.new()
-	cyl.top_radius = 0.74
-	cyl.bottom_radius = 0.78
-	cyl.height = 0.02
+	cyl.top_radius = 0.44
+	cyl.bottom_radius = 0.48
+	cyl.height = 0.018
 	cyl.radial_segments = 48
 	pedestal.mesh = cyl
 	pedestal.position = Vector3(0.0, -0.215, 0.0)
@@ -1030,8 +1110,8 @@ func _setup_hero_3d_world() -> void:
 	# Glowing tactical accent ring (flush with surface to avoid cutting through drone arms/motors)
 	var ring := MeshInstance3D.new()
 	var torus := TorusMesh.new()
-	torus.inner_radius = 0.68
-	torus.outer_radius = 0.72
+	torus.inner_radius = 0.38
+	torus.outer_radius = 0.42
 	torus.rings = 48
 	torus.ring_segments = 24
 	ring.mesh = torus
@@ -1044,7 +1124,7 @@ func _setup_hero_3d_world() -> void:
 	_hero_viewport.add_child(ring)
 
 	_hero_camera = Camera3D.new()
-	_hero_camera.fov = 38.0
+	_hero_camera.fov = 30.0
 	_hero_camera.current = true
 	_hero_viewport.add_child(_hero_camera)
 
@@ -1063,7 +1143,7 @@ func _load_hero_model(preset_idx: int) -> void:
 	if model != null:
 		var p := DroneCatalog.preset(preset_idx)
 		var is_vtol: bool = str(p.get("name", "")).contains("VTOL") or str(p.get("tag", "")).contains("VTOL")
-		var target_sz: float = 0.65 if is_vtol else 1.05
+		var target_sz: float = 0.62 if is_vtol else 0.85
 		MenuUI.fit_preview_model(model, target_sz, -0.205)
 	_fit_hero_camera()
 	_update_hero_drone_info(preset_idx)
@@ -1075,10 +1155,10 @@ func _fit_hero_camera() -> void:
 	var box := _combined_bounds(_hero_holder)
 	var center := box.get_center() if box.size.length() > 0.01 else Vector3.ZERO
 	var max_dim := maxf(box.size.x, maxf(box.size.y, box.size.z))
-	var focus := Vector3(center.x, center.y + 0.02, center.z)
-	_hero_camera.fov = 34.0
-	var dist := clampf(max_dim * 1.65 + 0.35, 1.25, 2.35)
-	var dir := Vector3(0.50, 0.40, 0.77).normalized()
+	var focus := Vector3(center.x, center.y + 0.025, center.z)
+	_hero_camera.fov = 30.0
+	var dist := clampf(max_dim * 1.15 + 0.16, 0.95, 1.65)
+	var dir := Vector3(0.48, 0.28, 0.76).normalized()
 	var cam_pos := focus + dir * dist
 	_hero_camera.look_at_from_position(cam_pos, focus, Vector3.UP)
 
@@ -1154,7 +1234,7 @@ func _on_hero_gui_input(event: InputEvent) -> void:
 			_hero_holder.rotation.y += sd.relative.x * 0.012
 
 
-# ---------------------------------------------------------------- FEEL FPV CONTROLLER SCREEN
+# ---------------------------------------------------------------- TACTICAL CONTROLLER SCREEN
 func _build_controls() -> void:
 	var screen := _make_screen("controls")
 	var v := VBoxContainer.new()
@@ -1203,12 +1283,9 @@ func _build_controls() -> void:
 
 	var radio_tex: Texture2D = _safe_texture("res://Assets/Branding/radiomaster_tx12_preview.png")
 	if radio_tex != null:
-		var radio_rect := TextureRect.new()
-		radio_rect.texture = radio_tex
-		radio_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		radio_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		radio_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		radio_panel.add_child(radio_rect)
+		_tx_view = RadioTransmitterView.new(radio_tex)
+		_tx_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		radio_panel.add_child(_tx_view)
 
 	# 2D Live Stick Monitor Readout
 	_stick_preview = StickPreview.new()
@@ -1290,15 +1367,15 @@ func _build_controls() -> void:
 func _build_stick_row(stick_name: String, label_txt: String, default_ch: int) -> Control:
 	var elrs := get_node_or_null("/root/ElrsWifiInput")
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", _gap(8))
-	row.custom_minimum_size.y = _fs(40)
+	row.add_theme_constant_override("separation", _gap(10))
+	row.custom_minimum_size.y = _fs(48)
 
-	var lbl := _label(label_txt, 14, MenuUI.TEXT)
-	lbl.custom_minimum_size.x = _fs(150)
+	var lbl := _label(label_txt, 16, MenuUI.TEXT)
+	lbl.custom_minimum_size.x = _fs(180)
 	row.add_child(lbl)
 
 	var opt := OptionButton.new()
-	opt.custom_minimum_size = Vector2(_fs(90), _fs(34))
+	opt.custom_minimum_size = Vector2(_fs(110), _fs(44))
 	_style_option_button(opt)
 	for i in range(16):
 		opt.add_item("CH %d" % [i + 1], i)
@@ -1311,14 +1388,14 @@ func _build_stick_row(stick_name: String, label_txt: String, default_ch: int) ->
 	_channel_options[stick_name] = opt
 	row.add_child(opt)
 
-	var auto_b := _button("АВТО", 34)
-	auto_b.custom_minimum_size.x = _fs(64)
+	var auto_b := _button("АВТО", 44)
+	auto_b.custom_minimum_size.x = _fs(80)
 	auto_b.pressed.connect(_start_auto_detect.bind(stick_name, auto_b))
 	_auto_detect_buttons[stick_name] = auto_b
 	row.add_child(auto_b)
 
-	var inv_b := _button("ІНВЕРТ", 34)
-	inv_b.custom_minimum_size.x = _fs(74)
+	var inv_b := _button("ІНВЕРТ", 44)
+	inv_b.custom_minimum_size.x = _fs(92)
 	var is_inv: bool = bool(elrs.is_stick_inverted(stick_name)) if elrs != null else false
 	_update_invert_style(inv_b, is_inv)
 	inv_b.pressed.connect(func():
@@ -1332,7 +1409,7 @@ func _build_stick_row(stick_name: String, label_txt: String, default_ch: int) ->
 
 	var bar := ProgressBar.new()
 	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	bar.custom_minimum_size.y = _fs(16)
+	bar.custom_minimum_size.y = _fs(20)
 	bar.min_value = -1.0 if stick_name != "throttle" else 0.0
 	bar.max_value = 1.0
 	bar.value = 0.0
@@ -1347,16 +1424,16 @@ func _build_stick_row(stick_name: String, label_txt: String, default_ch: int) ->
 func _build_switch_row(action_name: String, label_txt: String, default_ch: int, is_arm: bool) -> Control:
 	var elrs := get_node_or_null("/root/ElrsWifiInput")
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", _gap(8))
-	row.custom_minimum_size.y = _fs(40)
+	row.add_theme_constant_override("separation", _gap(10))
+	row.custom_minimum_size.y = _fs(48)
 
-	var lbl := _label(label_txt, 13, MenuUI.TEXT)
-	lbl.custom_minimum_size.x = _fs(210)
+	var lbl := _label(label_txt, 15, MenuUI.TEXT)
+	lbl.custom_minimum_size.x = _fs(240)
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(lbl)
 
 	var opt := OptionButton.new()
-	opt.custom_minimum_size = Vector2(_fs(124), _fs(34))
+	opt.custom_minimum_size = Vector2(_fs(150), _fs(44))
 	_style_option_button(opt)
 	opt.add_item("ВИМК. (-)", -1)
 	for i in range(16):
@@ -1378,8 +1455,8 @@ func _build_switch_row(action_name: String, label_txt: String, default_ch: int, 
 	_action_options[action_name] = opt
 	row.add_child(opt)
 
-	var auto_b := _button("АВТО", 34)
-	auto_b.custom_minimum_size.x = _fs(64)
+	var auto_b := _button("АВТО", 44)
+	auto_b.custom_minimum_size.x = _fs(80)
 	auto_b.pressed.connect(_start_auto_detect.bind(action_name, auto_b))
 	_auto_detect_buttons[action_name] = auto_b
 	row.add_child(auto_b)
@@ -1750,9 +1827,8 @@ func _build_play() -> void:
 		card.mouse_filter = Control.MOUSE_FILTER_STOP
 		var card_id := str(mp["id"])
 		card.gui_input.connect(func(ev: InputEvent):
-			if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
-				_selected_map = card_id
-				_update_map_cards(maps_row)
+			if (ev is InputEventScreenTouch and ev.pressed) or (ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT):
+				_select_map(card_id, maps_row)
 		)
 		maps_row.add_child(card)
 
@@ -1767,22 +1843,26 @@ func _build_play() -> void:
 			img_rect.texture = map_tex
 			img_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 			img_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-			img_rect.custom_minimum_size.y = _fs(120)
+			img_rect.custom_minimum_size.y = _fs(128)
 			img_rect.size_flags_vertical = Control.SIZE_EXPAND_FILL
+			img_rect.mouse_filter = Control.MOUSE_FILTER_PASS
+			img_rect.gui_input.connect(func(ev: InputEvent):
+				if (ev is InputEventScreenTouch and ev.pressed) or (ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT):
+					_select_map(card_id, maps_row)
+			)
 			card_v.add_child(img_rect)
 
-		var name_lbl := _label(str(mp["name"]), 22, MenuUI.TEXT)
+		var name_lbl := _label(str(mp["name"]), 24, MenuUI.TEXT)
 		card_v.add_child(name_lbl)
-		var tag_lbl := _label(str(mp["tag"]), 11, MenuUI.FPV_AMBER)
+		var tag_lbl := _label(str(mp["tag"]), 13, MenuUI.FPV_AMBER)
 		card_v.add_child(tag_lbl)
-		var diff_lbl := _label("СКЛАДНІСТЬ: " + str(mp.get("diff", "СЕРЕДНЯ")), 11, MenuUI.MUTED)
+		var diff_lbl := _label("СКЛАДНІСТЬ: " + str(mp.get("diff", "СЕРЕДНЯ")), 12, MenuUI.MUTED)
 		card_v.add_child(diff_lbl)
 
 		var is_sel := (str(mp["id"]) == _selected_map)
-		var sel_btn := _button("ОБРАНО ✓" if is_sel else "ОБРАТИ", 38, is_sel)
-		sel_btn.pressed.connect(func():
-			_selected_map = card_id
-			_update_map_cards(maps_row)
+		var sel_btn := _button("ОБРАНО ✓" if is_sel else "ОБРАТИ", 46, is_sel)
+		sel_btn.button_down.connect(func():
+			_select_map(card_id, maps_row)
 		)
 		sel_btn.set_meta("map_id", card_id)
 		card_v.add_child(sel_btn)
@@ -1793,22 +1873,30 @@ func _build_play() -> void:
 	bottom_center.add_theme_constant_override("separation", _gap(6))
 	v.add_child(bottom_center)
 
-	_play_caption = _label("", 16, MenuUI.MUTED)
+	_play_caption = _label("", 18, MenuUI.MUTED)
 	_play_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	bottom_center.add_child(_play_caption)
 	_update_play_caption()
 
-	var start_mission_btn := _button("ПОЧАТИ ВИЛЬОТ", 56, true)
-	start_mission_btn.custom_minimum_size = Vector2(_fs(380), _fs(56))
+	var start_mission_btn := _button("ПОЧАТИ ВИЛЬОТ", 62, true)
+	start_mission_btn.custom_minimum_size = Vector2(_fs(420), _fs(62))
 	start_mission_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	start_mission_btn.pressed.connect(_launch)
 	bottom_center.add_child(start_mission_btn)
 
 
+func _select_map(card_id: String, row: HBoxContainer) -> void:
+	_selected_map = card_id
+	Global.menu_settings["selected_map"] = _selected_map
+	Global.save_menu_settings()
+	if row != null:
+		_update_map_cards(row)
+
+
 func _apply_button_primary_style(btn: Button, primary: bool) -> void:
 	if btn == null:
 		return
-	var h: float = btn.custom_minimum_size.y if btn.custom_minimum_size.y > 0 else 40.0
+	var h: float = btn.custom_minimum_size.y if btn.custom_minimum_size.y > 0 else 46.0
 	var r := int(minf(h * 0.42, 16.0))
 	var s := StyleBoxFlat.new()
 	s.set_corner_radius_all(r)
@@ -1861,7 +1949,8 @@ func _update_map_cards(row: HBoxContainer) -> void:
 		var style: StyleBoxFlat = c.get_theme_stylebox("panel") as StyleBoxFlat
 		if style != null:
 			style.border_color = MenuUI.ACCENT if is_sel else Color(0.38, 0.54, 0.42, 0.55)
-			style.set_border_width_all(2 if is_sel else 1)
+			style.set_border_width_all(3 if is_sel else 1)
+			style.bg_color = Color(0.045, 0.10, 0.075, 0.96) if is_sel else Color(0.025, 0.065, 0.05, 0.92)
 		for b in c.find_children("*", "Button"):
 			if b.has_meta("map_id"):
 				b.text = "ОБРАНО ✓" if is_sel else "ОБРАТИ"
@@ -1886,6 +1975,23 @@ func _launch() -> void:
 		"wetlands": "res://sceneries/WetlandsLevel.tscn",
 	}
 	var path: String = scenes.get(_selected_map, "res://sceneries/VillageLevel.tscn")
+
+	# Stop menu ambient / music
+	Audio.stop_menu_music(0.5)
+
+	# Tactical Mission Loading Screen (as in PC version)
+	var overlay: Dictionary = LoadingScreen.build(_selected_mode, _selected_mission,
+			_selected_map, Global.get_difficulty_name(), true)
+	var loading_layer: CanvasLayer = overlay.get("layer") as CanvasLayer
+	var loading_bar: ProgressBar = overlay.get("bar") as ProgressBar
+	if loading_layer != null:
+		get_tree().root.add_child(loading_layer)
+	if loading_bar != null:
+		loading_bar.value = 12.0
+		var tween := create_tween()
+		tween.tween_property(loading_bar, "value", 92.0, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		await tween.finished
+	await get_tree().process_frame
 	get_tree().change_scene_to_file(path)
 
 
@@ -2066,9 +2172,9 @@ func _setup_hangar_3d_world() -> void:
 
 	var ring := MeshInstance3D.new()
 	var cyl := CylinderMesh.new()
-	cyl.top_radius = 0.74
-	cyl.bottom_radius = 0.78
-	cyl.height = 0.02
+	cyl.top_radius = 0.44
+	cyl.bottom_radius = 0.48
+	cyl.height = 0.018
 	cyl.radial_segments = 48
 	ring.mesh = cyl
 	ring.position = Vector3(0.0, -0.1875, 0.0)
@@ -2081,8 +2187,8 @@ func _setup_hangar_3d_world() -> void:
 
 	var h_ring := MeshInstance3D.new()
 	var h_torus := TorusMesh.new()
-	h_torus.inner_radius = 0.68
-	h_torus.outer_radius = 0.72
+	h_torus.inner_radius = 0.38
+	h_torus.outer_radius = 0.42
 	h_torus.rings = 48
 	h_torus.ring_segments = 24
 	h_ring.mesh = h_torus
@@ -2095,7 +2201,7 @@ func _setup_hangar_3d_world() -> void:
 	_hangar_viewport.add_child(h_ring)
 
 	_hangar_camera = Camera3D.new()
-	_hangar_camera.fov = 38.0
+	_hangar_camera.fov = 30.0
 	_hangar_camera.current = true
 	_hangar_viewport.add_child(_hangar_camera)
 
@@ -2113,7 +2219,7 @@ func _load_hangar_model(preset_idx: int) -> void:
 	if model != null:
 		var p := DroneCatalog.preset(preset_idx)
 		var is_vtol: bool = str(p.get("name", "")).contains("VTOL") or str(p.get("tag", "")).contains("VTOL")
-		var target_sz: float = 0.65 if is_vtol else 1.05
+		var target_sz: float = 0.62 if is_vtol else 0.85
 		MenuUI.fit_preview_model(model, target_sz, -0.1775)
 	_fit_hangar_camera()
 	_update_hangar_info(preset_idx)
@@ -2125,10 +2231,10 @@ func _fit_hangar_camera() -> void:
 	var box := _combined_bounds(_hangar_holder)
 	var center := box.get_center() if box.size.length() > 0.01 else Vector3.ZERO
 	var max_dim := maxf(box.size.x, maxf(box.size.y, box.size.z))
-	var focus := Vector3(center.x, center.y + 0.02, center.z)
-	_hangar_camera.fov = 34.0
-	var dist := clampf(max_dim * 1.65 + 0.35, 1.25, 2.35)
-	var dir := Vector3(0.50, 0.40, 0.77).normalized()
+	var focus := Vector3(center.x, center.y + 0.025, center.z)
+	_hangar_camera.fov = 30.0
+	var dist := clampf(max_dim * 1.15 + 0.16, 0.95, 1.65)
+	var dir := Vector3(0.48, 0.28, 0.76).normalized()
 	var cam_pos := focus + dir * dist
 	_hangar_camera.look_at_from_position(cam_pos, focus, Vector3.UP)
 
