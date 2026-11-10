@@ -95,7 +95,7 @@ var _radio: Node = null
 var _radio_skeleton: Skeleton3D = null
 var _radio_viewport: SubViewport = null
 var _radio_camera: Camera3D = null
-var _stick_preview: StickPreview
+var _stick_readout: Label = null
 var _source_status: Label
 var _channel_options: Dictionary = {}
 var _invert_buttons: Dictionary = {}
@@ -395,8 +395,12 @@ func _process(delta: float) -> void:
 			rol = float(touch.get("roll"))
 
 		var thr_disp: float = clampf(thr, 0.0, 1.0)
-		if _stick_preview != null:
-			_stick_preview.set_values(Vector2(yaw, thr_disp), Vector2(rol, pit))
+		if _stick_readout != null:
+			var thr_pct := int(round(thr_disp * 100.0))
+			var yaw_pct := int(round(yaw * 100.0))
+			var pit_pct := int(round(-pit * 100.0))
+			var rol_pct := int(round(rol * 100.0))
+			_stick_readout.text = "ГАЗ: %d%%  •  РИСКАННЯ: %+d%%  •  ТАНГАЖ: %+d%%  •  КРЕН: %+d%%" % [thr_pct, yaw_pct, pit_pct, rol_pct]
 
 		# RadioMaster TX12 3D stick deflections:
 		# In Mode 2, Throttle ranges 0.0 (idle/bottom) to 1.0 (full/top).
@@ -1281,9 +1285,9 @@ func _build_controls() -> void:
 
 	left_v.add_child(_label("ПУЛЬТ RADIOMASTER TX12 (MODE 2)", 15, MenuUI.FPV_AMBER))
 
-	# RadioMaster TX12 3D Realtime Animated Transmitter
+	# RadioMaster TX12 3D Realtime Animated Transmitter (Prominent & Centered)
 	var radio_panel := _panel(Color(0.02, 0.05, 0.04, 0.85), Color(0.38, 0.54, 0.42, 0.55), 1, 10)
-	radio_panel.custom_minimum_size = Vector2(0, _fs(210))
+	radio_panel.custom_minimum_size = Vector2(0, _fs(340))
 	radio_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	left_v.add_child(radio_panel)
 
@@ -1293,7 +1297,7 @@ func _build_controls() -> void:
 	radio_panel.add_child(radio_holder)
 
 	var radio_vp := SubViewport.new()
-	radio_vp.size = Vector2i(540, 540)
+	radio_vp.size = Vector2i(600, 480)
 	radio_vp.own_world_3d = true
 	radio_vp.transparent_bg = true
 	radio_vp.handle_input_locally = false
@@ -1306,12 +1310,13 @@ func _build_controls() -> void:
 		radio_vp.add_child(_radio)
 		_radio.set("accept_input", false)
 
-	# 2D Live Stick Monitor Readout
-	_stick_preview = StickPreview.new()
-	_stick_preview.custom_minimum_size = Vector2(0, _fs(110))
-	left_v.add_child(_stick_preview)
+	# Clean tactical stick telemetry readout (ZERO 2D circular overlays!)
+	_stick_readout = _label("ГАЗ: 0%  •  РИСКАННЯ: +0%  •  ТАНГАЖ: +0%  •  КРЕН: +0%", 14, MenuUI.FPV_CYAN)
+	_stick_readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	left_v.add_child(_stick_readout)
 
 	_calib_hint = _label("Стіки мають досягати 100% у кутах та повертатися в 0%", 12, MenuUI.MUTED)
+	_calib_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_calib_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	left_v.add_child(_calib_hint)
 

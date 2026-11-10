@@ -37,6 +37,8 @@ func _ensure_skeleton() -> void:
 		skeleton = _find_skeleton(existing)
 		if skeleton != null:
 			return
+		existing.name = "RadioTransmitter_old"
+		existing.queue_free()
 	var path := "res://Assets/Drones/ua_norm/radiomaster_tx12_rig.glb"
 	if ResourceLoader.exists(path):
 		var res = load(path)
