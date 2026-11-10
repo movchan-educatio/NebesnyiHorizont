@@ -80,6 +80,10 @@ class _MenuIcon extends Control:
 			"power":
 				draw_arc(c, 8.5, -PI * 0.35, PI * 1.35, 24, col, 1.9)
 				draw_line(c + Vector2(0, -11), c + Vector2(0, 2), col, 1.9)
+			"phone":
+				draw_rect(Rect2(c - Vector2(6, 10), Vector2(12, 20)), col, false, 1.6)
+				draw_line(c + Vector2(-2, 6), c + Vector2(2, 6), col, 1.5)
+				draw_line(c + Vector2(-2, -7), c + Vector2(2, -7), col, 1.5)
 			_:
 				draw_set_transform(c, PI * 0.25, Vector2.ONE)
 				draw_rect(Rect2(Vector2(-8, -8), Vector2(16, 16)), col, false, 1.6)
@@ -87,6 +91,8 @@ class _MenuIcon extends Control:
 
 
 func _ready() -> void:
+	if OS.has_environment("UI_SHOT_QA"):
+		return
 	# Headless/QA runs expect the level, not the menu: jump straight there.
 	if _is_qa_session():
 		if OS.get_environment("DRONE_PLAY_MODE").is_empty():
@@ -97,7 +103,7 @@ func _ready() -> void:
 		return
 	# Phones boot straight into the finger-sized tactical menu.  The desktop
 	# keeps the cinematic video home screen.
-	if OS.has_feature("mobile"):
+	if MenuUI.is_mobile_ui() or OS.has_feature("ios") or OS.get_name() == "iOS":
 		_initialize_settings()
 		get_tree().change_scene_to_file.call_deferred(MOBILE_MENU)
 		return
@@ -251,6 +257,12 @@ func _build_home_overlay() -> void:
 		"НАЛАШТУВАННЯ", "SETTINGS",
 		"ГРАФІКА · КЕРУВАННЯ", "GRAPHICS · CONTROLS",
 		"gear", false, _open_options))
+	_nav_entries.append(_make_nav_entry(
+		"МОБІЛЬНИЙ РЕЖИМ", "MOBILE UI",
+		"IPHONE 14 ІНТЕРФЕЙС", "IPHONE 14 UI",
+		"phone", false, func():
+			get_tree().change_scene_to_file.call_deferred(MOBILE_MENU)
+	))
 	_nav_entries.append(_make_nav_entry(
 		"ВИХІД", "QUIT",
 		"ЗАВЕРШИТИ ГРУ", "QUIT THE GAME",

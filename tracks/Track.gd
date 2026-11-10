@@ -236,73 +236,144 @@ func reset_track() -> void:
 	activate_next_checkpoint()
 
 
+var _countdown_layer: CanvasLayer = null
+
+
 func setup_countdown() -> void:
 	countdown_timer = Timer.new()
 	add_child(countdown_timer)
 	countdown_timer.one_shot = true
 	var _discard = countdown_timer.connect("timeout", Callable(self, "_on_countdown_timer_timeout"))
-	
+
+	_countdown_layer = CanvasLayer.new()
+	_countdown_layer.layer = 120
+	add_child(_countdown_layer)
+
 	countdown_label = Label.new()
-	add_child(countdown_label)
-	countdown_label.theme = load("res://GUI/ThemeCountdown.tres")
 	countdown_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	countdown_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	countdown_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
+	countdown_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	countdown_label.add_theme_font_size_override("font_size", 96)
+	countdown_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.2, 1.0))
+	countdown_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
+	countdown_label.add_theme_constant_override("outline_size", 18)
 	countdown_label.visible = false
+	_countdown_layer.add_child(countdown_label)
 
 
 func setup_end_label() -> void:
 	end_label = Label.new()
-	add_child(end_label)
-	end_label.theme = load("res://GUI/ThemeCountdown.tres")
 	end_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	end_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	end_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
+	end_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	end_label.add_theme_font_size_override("font_size", 72)
+	end_label.add_theme_color_override("font_color", Color(0.3, 0.95, 0.4, 1.0))
+	end_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
+	end_label.add_theme_constant_override("outline_size", 16)
 	end_label.visible = false
+	if _countdown_layer != null:
+		_countdown_layer.add_child(end_label)
+	else:
+		add_child(end_label)
 
 
 func setup_timer_label() -> void:
 	timer_label = Label.new()
-	add_child(timer_label)
 	timer_label.theme = load("res://GUI/ThemeTimer.tres")
 	timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	timer_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	timer_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT, Control.PRESET_MODE_MINSIZE)
+	timer_label.offset_left = 36.0
+	timer_label.offset_top = 36.0
 	timer_label.visible = false
+	if _countdown_layer != null:
+		_countdown_layer.add_child(timer_label)
+	else:
+		add_child(timer_label)
 
 
 func start_countdown() -> void:
 	self.race_state = Global.RaceState.START
-	countdown_step = 0
+	countdown_step = 1
 	timer_label.visible = true
+
+	# Keep drone locked on launchpad until GO to completely avoid false starts
+	var drone := _get_active_drone()
+	if drone != null:
+		drone.freeze = true
+
 	update_countdown(countdown_step)
 	update_timer_label()
 	for ghost in ghosts:
 		ghost.start_replay()
 
 
-func update_countdown(step: int = 0) -> void:
-	if step != countdown_step:
-		countdown_step = step
+func _get_active_drone() -> Drone:
+	var cur := get_tree().current_scene
+	if cur != null:
+		return cur.get_node_or_null("Drone") as Drone
+	return null
+
+
+func _play_beep(high: bool) -> void:
+	var freq: float = 1600.0 if high else 800.0
+	var dur: float = 0.20 if high else 0.12
+	var rate := 22050
+	var total_samples := int(rate * dur)
+	var pcm := PackedByteArray()
+	pcm.resize(total_samples)
+	for i in range(total_samples):
+		var t := float(i) / float(rate)
+		var s := sin(t * freq * TAU)
+		var env := 1.0 - (float(i) / float(total_samples))
+		var byte_val := int(clampf(s * env * 120.0 + 128.0, 0.0, 255.0))
+		pcm[i] = byte_val
+	var wav := AudioStreamWAV.new()
+	wav.format = AudioStreamWAV.FORMAT_8_BITS
+	wav.mix_rate = rate
+	wav.data = pcm
+	var p := AudioStreamPlayer.new()
+	p.stream = wav
+	p.bus = "Master"
+	add_child(p)
+	p.play()
+	p.finished.connect(p.queue_free)
+
+
+func update_countdown(step: int = 1) -> void:
+	countdown_step = step
+	if countdown_label == null:
+		return
 	if step <= 0:
-		countdown_timer.start(2)
-		if step == -1:
-			countdown_label.visible = true
-			countdown_label.text = "False Start!"
-	elif step <= 4:
-		countdown_timer.start(1)
+		countdown_timer.start(1.8)
 		countdown_label.visible = true
-		if step <= 3:
-			countdown_label.text = "%d" % [3 - step + 1]
-		elif step == 4:
-			countdown_label.text = "GO!"
-			start_race()
-	countdown_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
+		countdown_label.text = "ФАЛЬСТАРТ!"
+		countdown_label.add_theme_color_override("font_color", Color(0.95, 0.25, 0.2, 1.0))
+	elif step <= 3:
+		countdown_timer.start(1.0)
+		countdown_label.visible = true
+		countdown_label.text = "%d" % [4 - step]
+		countdown_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.2, 1.0))
+		_play_beep(false)
+	elif step == 4:
+		countdown_timer.start(0.9)
+		countdown_label.visible = true
+		countdown_label.text = "СТАРТ!"
+		countdown_label.add_theme_color_override("font_color", Color(0.3, 0.95, 0.4, 1.0))
+		_play_beep(true)
+		var drone := _get_active_drone()
+		if drone != null:
+			drone.freeze = false
+		start_race()
+	else:
+		countdown_label.visible = false
+		stop_countdown()
 
 
 func stop_countdown() -> void:
 	countdown_timer.stop()
-	countdown_label.visible = false
+	if countdown_label != null:
+		countdown_label.visible = false
 
 
 func update_timer_label() -> void:

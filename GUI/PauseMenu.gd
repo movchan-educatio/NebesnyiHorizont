@@ -307,7 +307,8 @@ func _on_main_menu_pressed() -> void:
 	if get_signal_connection_list("menu").size() > 0:
 		emit_signal("menu")
 	else:
-		get_tree().change_scene_to_file(MAIN_MENU)
+		var target_menu := "res://GUI/mobile/MobileMenu.tscn" if MenuUI.is_mobile_ui() else MAIN_MENU
+		get_tree().change_scene_to_file(target_menu)
 
 
 func _on_quit_pressed() -> void:

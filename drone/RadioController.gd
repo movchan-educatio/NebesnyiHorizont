@@ -284,9 +284,9 @@ func read_input() -> void:
 		pad_roll = _calibrated_stick(mobile, "touch", "roll", float(touch.get("roll")))
 		pad_pitch = _calibrated_stick(mobile, "touch", "pitch", float(touch.get("pitch")))
 	elif wifi_active:
-		pad_yaw = _calibrated_stick(mobile, "elrs", "yaw", float(wifi.yaw()))
-		pad_roll = _calibrated_stick(mobile, "elrs", "roll", float(wifi.roll())) * elrs_roll_sign
-		pad_pitch = _calibrated_stick(mobile, "elrs", "pitch", float(wifi.pitch()))
+		pad_yaw = Controls.apply_stick_filter("yaw", _calibrated_stick(mobile, "elrs", "yaw", float(wifi.yaw())))
+		pad_roll = Controls.apply_stick_filter("roll", _calibrated_stick(mobile, "elrs", "roll", float(wifi.roll())))
+		pad_pitch = Controls.apply_stick_filter("pitch", _calibrated_stick(mobile, "elrs", "pitch", float(wifi.pitch())))
 	else:
 		pad_yaw = Controls.channel_value("yaw")
 		pad_roll = Controls.channel_value("roll")

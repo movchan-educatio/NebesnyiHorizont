@@ -138,24 +138,16 @@ func _elrs_axis(index: int) -> float:
 	var wifi := elrs()
 	if wifi == null or not bool(wifi.get("valid")):
 		return 0.0
-	var channels: PackedFloat32Array = wifi.get("channels")
-	if channels.size() < 4:
-		return 0.0
-	var value := 0.0
 	match index:
 		0:
-			value = _normalize_center(channels[0])
-			value = calibrate(SOURCE_ELRS, "roll", value)
-			if bool(wifi.get("invert_roll")):
-				value = -value
+			return calibrate(SOURCE_ELRS, "roll", float(wifi.roll()))
 		1:
-			value = calibrate(SOURCE_ELRS, "pitch", _normalize_center(channels[1]))
+			return calibrate(SOURCE_ELRS, "pitch", float(wifi.pitch()))
 		2:
-			value = calibrate(SOURCE_ELRS, "throttle",
-					clampf(channels[2] / 32767.0, 0.0, 1.0) * 2.0 - 1.0)
+			return calibrate(SOURCE_ELRS, "throttle", float(wifi.throttle()) * 2.0 - 1.0)
 		3:
-			value = calibrate(SOURCE_ELRS, "yaw", _normalize_center(channels[3]))
-	return clampf(value, -1.0, 1.0)
+			return calibrate(SOURCE_ELRS, "yaw", float(wifi.yaw()))
+	return 0.0
 
 
 func _touch_axis(index: int) -> float:

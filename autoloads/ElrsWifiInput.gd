@@ -1,12 +1,12 @@
 extends Node
 
-## ExpressLRS WiFi Joystick input ("Velocidrone Mobile" protocol).
+## ExpressLRS WiFi Joystick input ("Velocidrone Mobile" protocol) & Feel FPV controller mapping.
 ##
 ## The ELRS TX module (3.4+) exposes a Wi-Fi access point / joins the local
-## network.  This node discovers its UDP beacon on port 11000, activates the
+## network. This node discovers its UDP beacon on port 11000, activates the
 ## stream with an HTTP POST to /udpcontrol, and parses the 15-bit channel
-## frames.  It is the iOS-friendly replacement for Apple-blocked USB/BT RC
-## controllers and works on Windows/Android too.
+## frames. It is the iOS-friendly replacement for Apple-blocked USB/BT RC
+## controllers and works on Windows/Android/macOS too.
 ##
 ## Protocol:
 ##   beacon:  UDP 11000, payload "ELRS" (or "VELOCIDRONE" for TBS)
@@ -17,11 +17,12 @@ extends Node
 ##   stop:    POST action=joystick_end (so the module can be rediscovered)
 
 signal status_changed(text: String)
+signal arm_state_changed(armed: bool)
 
 const UDP_PORT := 11000
 const CHANNEL_COUNT := 16
 const NO_DATA := 62058
-const ACTIVATE_INTERVAL := 5.0
+const ACTIVATE_INTERVAL := 4.0
 const STALE_MS := 3000
 const CENTER := 16384.0
 
@@ -30,16 +31,45 @@ var valid := false
 var module_ip := ""
 var status_text := "ELRS: ВИМК."
 var channels := PackedFloat32Array()
-## ELRS setup (also editable from the on-screen SETUP panel).
-## Arm/modes/video are 0-based channel indices: 4 = CH5, 5 = CH6, 6 = CH7.
-var invert_roll := true
+
+## Configurable channel mapping for the 4 primary flight axes (0-based: 0 = CH1, 1 = CH2, etc.)
+## Default order: AETR (Roll = 0, Pitch = 1, Throttle = 2, Yaw = 3)
+var channel_map: Dictionary = {
+	"roll": 0,
+	"pitch": 1,
+	"throttle": 2,
+	"yaw": 3,
+}
+
+## Independent inversion flags for each stick
+var invert_roll := false
+var invert_pitch := false
+var invert_yaw := false
+var invert_throttle := false
+
+## Legacy channel properties (for backwards compatibility)
 var arm_channel := 4
 var mode_channel := 5
 var video_channel := 6
-## Any InputMap action -> 0-based ELRS channel.  The old Controls screen uses
-## this to bind drop, payload, respawn, flight modes and every other action to
-## a Pocket switch, not just arm/modes/video.
-var action_channels: Dictionary = {}
+
+## Action bindings: Action name -> 0-based channel index (4 = CH5, 5 = CH6, etc., -1 = Disabled)
+var action_channels: Dictionary = {
+	"arm": 4,
+	"toggle_arm": 4,
+	"deploy_payload": 5,
+	"activate_payload": 6,
+	"cycle_flight_modes": 7,
+	"mode_turtle": 8,
+	"mode_angle": 9,
+	"mode_horizon": 10,
+	"cycle_video_mode": 11,
+	"respawn": 12,
+	"toggle_weather": 13,
+	"pause_menu": 14,
+	"altitude_hold": 15,
+	"toggle_osd": -1,
+	"toggle_fpv_effects": -1,
+}
 
 var _udp := PacketPeerUDP.new()
 var _http: HTTPRequest = null
@@ -49,45 +79,45 @@ var _last_frame_ms := 0
 var _last_activate_ms := 0
 var _switch_state := {}
 var _switch_ready := false
+var _baseline_channels := PackedFloat32Array()
+var _armed_level_state := false
 
 
 func _ready() -> void:
-	# Keep polling while the setup panel pauses the tree: the live CH1-16
-	# readout is how the pilot discovers which switch is which.
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	enabled = OS.get_name() == "iOS" or OS.has_environment("ELRS_WIFI")
+	# Enabled by default on iOS, or if ELRS_WIFI is set, or if touch controls / mobile UI is active
+	enabled = OS.get_name() == "iOS" or OS.has_environment("ELRS_WIFI") or MenuUI.is_mobile_ui() or DisplayServer.is_touchscreen_available()
 	channels.resize(CHANNEL_COUNT)
 	channels.fill(CENTER)
 	_load_settings()
 	_http = HTTPRequest.new()
-	_http.timeout = 4.0
+	_http.timeout = 3.5
 	add_child(_http)
 	_http.request_completed.connect(_on_http_completed)
-	set_process(enabled)
-	if enabled:
-		_start()
+	set_process(true)
+	_start()
 
 
 func _start() -> void:
 	var err := _udp.bind(UDP_PORT, "0.0.0.0")
 	if err != OK:
-		status_text = "ELRS: UDP %d зайнятий" % err
+		status_text = "ELRS: UDP %d" % err
 		push_warning("[ELRS] UDP port 11000 bind failed: %d" % err)
 		return
 	_udp.set_broadcast_enabled(true)
 	status_text = "ELRS: ПОШУК"
-	# If the phone is on the module's own AP, 10.0.0.1 is always the module.
+	# Common AP IPs for Radiomaster / ExpressLRS backpack modules
 	_try_activate("10.0.0.1")
+	_try_activate("192.168.4.1")
 
 
 func _process(_delta: float) -> void:
-	if not enabled:
-		return
 	_poll_udp()
 	var now := Time.get_ticks_msec()
 	if valid and now - _last_frame_ms > STALE_MS:
 		valid = false
 		status_text = "ELRS: НЕМАЄ ДАНИХ"
+		emit_signal("status_changed", status_text)
 		channels.fill(CENTER)
 	if not valid and now - _last_activate_ms >= int(ACTIVATE_INTERVAL * 1000.0):
 		_try_activate(module_ip if not module_ip.is_empty() else "10.0.0.1")
@@ -104,6 +134,7 @@ func _poll_udp() -> void:
 		if text.find("ELRS") >= 0 or text.find("VELOCIDRONE") >= 0:
 			module_ip = ip
 			status_text = "ELRS: ЗНАЙДЕНО " + ip
+			emit_signal("status_changed", status_text)
 			_try_activate(ip)
 
 
@@ -121,10 +152,13 @@ func _parse_channels(packet: PackedByteArray, ip: String) -> void:
 			return
 		fresh[i] = float(value)
 	channels = fresh
+	var was_valid := valid
 	valid = true
 	module_ip = ip
 	_last_frame_ms = Time.get_ticks_msec()
 	status_text = "ELRS: ПОТІК"
+	if not was_valid:
+		emit_signal("status_changed", status_text)
 	_update_switches()
 
 
@@ -141,23 +175,24 @@ func _try_activate(ip: String) -> void:
 	if err != OK:
 		_http_busy = false
 		status_text = "ELRS: HTTP %d" % err
+		emit_signal("status_changed", status_text)
 
 
 func _on_http_completed(result: int, response_code: int, _headers: PackedStringArray,
 		_body: PackedByteArray) -> void:
 	_http_busy = false
-	if result == HTTPRequest.RESULT_SUCCESS and response_code >= 200 \
-			and response_code < 300:
+	if result == HTTPRequest.RESULT_SUCCESS and response_code >= 200 and response_code < 300:
 		module_ip = _pending_ip
 		status_text = "ELRS: ПІДКЛЮЧЕНО " + module_ip
+		emit_signal("status_changed", status_text)
 	else:
-		status_text = "ELRS: НЕМАЄ МОДУЛЯ"
+		if not valid:
+			status_text = "ELRS: ОЧІКУВАННЯ"
+			emit_signal("status_changed", status_text)
 
 
 func _send_release() -> void:
-	if module_ip.is_empty():
-		return
-	if not is_inside_tree() or _http == null or not _http.is_inside_tree():
+	if module_ip.is_empty() or not is_inside_tree() or _http == null:
 		return
 	if _http_busy:
 		return
@@ -167,187 +202,145 @@ func _send_release() -> void:
 			HTTPClient.METHOD_POST, "action=joystick_end")
 
 
-# --------------------------------------------------------------- channels
+# --------------------------------------------------------------- Channel Readings
 func _raw(index: int) -> float:
 	if index < 0 or index >= channels.size():
 		return CENTER
 	return channels[index]
 
 
+## Returns normalised -1.0..+1.0 with a small deadband around stick centre.
 func _axis(index: int) -> float:
 	var value := (_raw(index) - CENTER) / CENTER
-	if absf(value) < 0.03:
+	if absf(value) < 0.025:
 		return 0.0
 	return clampf(value, -1.0, 1.0)
 
 
+## Direct normalised roll (-1..+1)
 func roll() -> float:
-	return _axis(0)
+	var ch := int(channel_map.get("roll", 0))
+	var val := _axis(ch)
+	return -val if invert_roll else val
 
 
+## Direct normalised pitch (-1..+1)
 func pitch() -> float:
-	return _axis(1)
+	var ch := int(channel_map.get("pitch", 1))
+	var val := _axis(ch)
+	return -val if invert_pitch else val
 
 
+## Direct normalised throttle (0.0..1.0)
 func throttle() -> float:
-	if not valid or channels.size() < 3:
+	if not valid or channels.size() < 4:
 		return -1.0
-	return clampf(_raw(2) / 32767.0, 0.0, 1.0)
+	var ch := int(channel_map.get("throttle", 2))
+	var raw_val := _raw(ch)
+	var val := clampf(raw_val / 32767.0, 0.0, 1.0)
+	if invert_throttle:
+		val = 1.0 - val
+	# Bottom deadband so resting at bottom reads exact 0.0% and never fails THROTTLE_HIGH
+	if val < 0.035:
+		return 0.0
+	return (val - 0.035) / (1.0 - 0.035)
 
 
+## Direct normalised yaw (-1..+1)
 func yaw() -> float:
-	return _axis(3)
+	var ch := int(channel_map.get("yaw", 3))
+	var val := _axis(ch)
+	return -val if invert_yaw else val
 
 
-func _load_settings() -> void:
-	var cfg: Dictionary = GameSettings.hud_config
-	invert_roll = bool(cfg.get("elrs_invert_roll", true))
-	var legacy_arm := clampi(int(cfg.get("elrs_arm_channel", 4)), 0, CHANNEL_COUNT - 1)
-	var legacy_mode := clampi(int(cfg.get("elrs_mode_channel", 5)), 0, CHANNEL_COUNT - 1)
-	var legacy_video := clampi(int(cfg.get("elrs_video_channel", 6)), 0, CHANNEL_COUNT - 1)
-	action_channels.clear()
-	var stored = cfg.get("elrs_action_channels", {})
-	if stored is Dictionary:
-		for key in (stored as Dictionary).keys():
-			var action := String(key)
-			var channel := int((stored as Dictionary)[key])
-			if action.is_empty():
-				continue
-			if channel >= 0 and channel < CHANNEL_COUNT:
-				action_channels[action] = channel
-	# Old settings files only had the three core channels.
-	if not action_channels.has("toggle_arm"):
-		action_channels["toggle_arm"] = legacy_arm
-	if not action_channels.has("cycle_flight_modes"):
-		action_channels["cycle_flight_modes"] = legacy_mode
-	if not action_channels.has("cycle_video_mode"):
-		action_channels["cycle_video_mode"] = legacy_video
-	_ensure_core_actions()
-	_sync_legacy_channels()
-
-
-## Core actions must always exist and must never share a channel.  If the
-## pilot assigns «скид» to CH5, ARM moves to the next free channel instead of
-## silently stealing the same switch.
-func _ensure_core_actions() -> void:
-	for core in ["toggle_arm", "cycle_flight_modes", "cycle_video_mode"]:
-		var channel := int(action_channels.get(core, -1))
-		var conflict := channel < 0 or channel >= CHANNEL_COUNT
-		if not conflict:
-			for other in action_channels.keys():
-				if String(other) != core and int(action_channels[other]) == channel:
-					conflict = true
-					break
-		if conflict:
-			action_channels[core] = _first_free_channel()
-
-
-func _first_free_channel() -> int:
-	var used := {}
-	for action in action_channels.keys():
-		used[int(action_channels[action])] = true
-	for index in range(4, CHANNEL_COUNT):
-		if not used.has(index):
-			return index
-	for index in range(0, 4):
-		if not used.has(index):
-			return index
-	return 4
-
-
-func _sync_legacy_channels() -> void:
-	arm_channel = int(action_channels.get("toggle_arm", 4))
-	mode_channel = int(action_channels.get("cycle_flight_modes", 5))
-	video_channel = int(action_channels.get("cycle_video_mode", 6))
-
-
-func save_settings() -> void:
-	# The SETUP panel edits the three legacy properties directly, so they are
-	# the authoritative source for the core actions here.  A custom action that
-	# occupied the same channel is removed; two core actions on one channel are
-	# resolved by _ensure_core_actions().
-	var requested := {
-		"toggle_arm": arm_channel,
-		"cycle_flight_modes": mode_channel,
-		"cycle_video_mode": video_channel,
-	}
-	for core in requested.keys():
-		var channel := int(requested[core])
-		for other in action_channels.keys():
-			if String(other) != core and not requested.has(String(other)) \
-					and int(action_channels[other]) == channel:
-				action_channels.erase(other)
-		action_channels[core] = channel
-	_ensure_core_actions()
-	_sync_legacy_channels()
-	var cfg: Dictionary = GameSettings.hud_config
-	cfg["elrs_invert_roll"] = invert_roll
-	cfg["elrs_arm_channel"] = arm_channel
-	cfg["elrs_mode_channel"] = mode_channel
-	cfg["elrs_video_channel"] = video_channel
-	cfg["elrs_action_channels"] = action_channels.duplicate(true)
-	GameSettings.save_hud_config()
-	# Re-baseline the switch edges so changing a channel assignment cannot
-	# trigger an immediate arm/mode change on the next frame.
-	_switch_ready = false
-	_switch_state.clear()
-
-
-## Assign any InputMap action to an ELRS channel (0-based).  Used by the old
-## Controls screen so drop, payload, respawn and the rest are bindable on a
-## phone.  Pass -1 to clear a non-core action.
-func set_action_channel(action: String, channel: int) -> void:
-	if action.is_empty():
+# --------------------------------------------------------------- Stick Configuration
+func set_stick_channel(stick_name: String, ch_index: int) -> void:
+	if not channel_map.has(stick_name):
 		return
-	if channel < 0 or channel >= CHANNEL_COUNT:
-		if action in ["toggle_arm", "cycle_flight_modes", "cycle_video_mode"]:
-			# The SETUP panel always shows a channel for these three; keep a
-			# valid default instead of leaving a dead entry there.
-			channel = {"toggle_arm": 4, "cycle_flight_modes": 5,
-					"cycle_video_mode": 6}[action]
-		else:
-			action_channels.erase(action)
-			_ensure_core_actions()
-			_sync_legacy_channels()
-			save_settings()
-			return
-	for other in action_channels.keys():
-		if String(other) != action and int(action_channels[other]) == channel:
-			action_channels.erase(other)
-	action_channels[action] = channel
-	_ensure_core_actions()
-	_sync_legacy_channels()
+	channel_map[stick_name] = clampi(ch_index, 0, CHANNEL_COUNT - 1)
 	save_settings()
 
 
-func get_action_channel(action: String) -> int:
-	return int(action_channels.get(action, -1))
+func get_stick_channel(stick_name: String) -> int:
+	return int(channel_map.get(stick_name, 0))
 
 
-func _channel_action(index: int) -> String:
-	for action in action_channels.keys():
-		if int(action_channels[action]) == index:
-			return String(action)
-	return ""
+func set_stick_invert(stick_name: String, inverted: bool) -> void:
+	match stick_name:
+		"roll": invert_roll = inverted
+		"pitch": invert_pitch = inverted
+		"yaw": invert_yaw = inverted
+		"throttle": invert_throttle = inverted
+	save_settings()
 
 
+func is_stick_inverted(stick_name: String) -> bool:
+	match stick_name:
+		"roll": return invert_roll
+		"pitch": return invert_pitch
+		"yaw": return invert_yaw
+		"throttle": return invert_throttle
+	return false
+
+
+# --------------------------------------------------------------- Auto-Detect Helper
+func capture_baseline() -> void:
+	_baseline_channels = channels.duplicate()
+
+
+## Returns channel index (0..15) that moved by more than threshold, or -1 if none.
+func detect_moved_channel(threshold: float = 3500.0) -> int:
+	if _baseline_channels.is_empty() or channels.size() < 4:
+		return -1
+	var best_ch := -1
+	var best_delta := 0.0
+	var count := mini(channels.size(), _baseline_channels.size())
+	for i in range(count):
+		var d := absf(channels[i] - _baseline_channels[i])
+		if d > best_delta and d >= threshold:
+			best_delta = d
+			best_ch = i
+	return best_ch
+
+
+# --------------------------------------------------------------- Switch Handling & Arming
 func _update_switches() -> void:
 	var first := not _switch_ready
-	var indices := {}
+
+	# Handle ARM level switch specifically
+	var arm_idx := int(action_channels.get("arm", arm_channel))
+	if arm_idx >= 0 and arm_idx < channels.size():
+		var is_on := _raw(arm_idx) > CENTER
+		if not first and _armed_level_state != is_on:
+			_armed_level_state = is_on
+			emit_signal("arm_state_changed", is_on)
+			if is_on:
+				Input.action_press("arm")
+				Input.action_press("toggle_arm")
+			else:
+				Input.action_release("arm")
+				Input.action_release("toggle_arm")
+				# Immediate safety disarm on active flight controller
+				_trigger_safety_disarm()
+		_armed_level_state = is_on
+
+	# Handle all registered actions
 	for action in action_channels.keys():
-		var index := int(action_channels[action])
-		if index >= 0 and index < CHANNEL_COUNT:
-			indices[index] = true
-	for index in indices.keys():
-		var on := _raw(int(index)) > CENTER
-		if not first and bool(_switch_state.get(index, on)) != on:
-			_dispatch_switch(int(index), on)
-		_switch_state[index] = on
+		if action == "arm" or action == "toggle_arm":
+			continue
+		var idx := int(action_channels[action])
+		if idx < 0 or idx >= CHANNEL_COUNT:
+			continue
+		var on := _raw(idx) > CENTER
+		var prev_on: bool = bool(_switch_state.get(action, on))
+		if not first and prev_on != on:
+			_dispatch_action_event(String(action), on)
+		_switch_state[action] = on
+
 	_switch_ready = true
 
 
-func _dispatch_switch(index: int, on: bool) -> void:
-	var action := _channel_action(index)
+func _dispatch_action_event(action: String, on: bool) -> void:
 	if action.is_empty() or not InputMap.has_action(action):
 		return
 	var event := InputEventAction.new()
@@ -359,6 +352,102 @@ func _dispatch_switch(index: int, on: bool) -> void:
 		Input.action_press(action)
 	else:
 		Input.action_release(action)
+
+
+func _trigger_safety_disarm() -> void:
+	var cur_scene := get_tree().current_scene
+	if cur_scene == null:
+		return
+	var drone := cur_scene.get_node_or_null("Drone")
+	if drone != null:
+		var fc = drone.get("flight_controller")
+		if fc != null and fc.has_method("request_disarm"):
+			fc.request_disarm()
+
+
+func set_action_channel(action: String, channel: int) -> void:
+	if action.is_empty():
+		return
+	if channel < 0 or channel >= CHANNEL_COUNT:
+		action_channels[action] = -1
+		if action == "arm" or action == "toggle_arm":
+			action_channels["arm"] = -1
+			action_channels["toggle_arm"] = -1
+			arm_channel = -1
+	else:
+		action_channels[action] = channel
+		if action == "arm" or action == "toggle_arm":
+			action_channels["arm"] = channel
+			action_channels["toggle_arm"] = channel
+			arm_channel = channel
+		elif action == "cycle_flight_modes":
+			mode_channel = channel
+		elif action == "cycle_video_mode":
+			video_channel = channel
+	save_settings()
+
+
+func get_action_channel(action: String) -> int:
+	return int(action_channels.get(action, -1))
+
+
+# --------------------------------------------------------------- Settings Persistence
+func _load_settings() -> void:
+	var cfg: Dictionary = GameSettings.hud_config
+	invert_roll = bool(cfg.get("elrs_invert_roll", false))
+	invert_pitch = bool(cfg.get("elrs_invert_pitch", false))
+	invert_yaw = bool(cfg.get("elrs_invert_yaw", false))
+	invert_throttle = bool(cfg.get("elrs_invert_throttle", false))
+
+	if cfg.has("elrs_channel_map") and cfg["elrs_channel_map"] is Dictionary:
+		channel_map = (cfg["elrs_channel_map"] as Dictionary).duplicate()
+	else:
+		channel_map = {"roll": 0, "pitch": 1, "throttle": 2, "yaw": 3}
+
+	action_channels = {
+		"arm": 4,
+		"toggle_arm": 4,
+		"deploy_payload": 5,
+		"activate_payload": 6,
+		"cycle_flight_modes": 7,
+		"mode_turtle": 8,
+		"mode_angle": 9,
+		"mode_horizon": 10,
+		"cycle_video_mode": 11,
+		"respawn": 12,
+		"toggle_weather": 13,
+		"pause_menu": 14,
+		"altitude_hold": 15,
+		"toggle_osd": -1,
+		"toggle_fpv_effects": -1,
+	}
+	var stored = cfg.get("elrs_action_channels", {})
+	if stored is Dictionary:
+		for k in (stored as Dictionary).keys():
+			var act := String(k)
+			var ch := int((stored as Dictionary)[k])
+			if ch >= -1 and ch < CHANNEL_COUNT:
+				action_channels[act] = ch
+
+	arm_channel = int(action_channels.get("arm", 4))
+	mode_channel = int(action_channels.get("cycle_flight_modes", 7))
+	video_channel = int(action_channels.get("cycle_video_mode", 11))
+
+
+func save_settings() -> void:
+	var cfg: Dictionary = GameSettings.hud_config
+	cfg["elrs_invert_roll"] = invert_roll
+	cfg["elrs_invert_pitch"] = invert_pitch
+	cfg["elrs_invert_yaw"] = invert_yaw
+	cfg["elrs_invert_throttle"] = invert_throttle
+	cfg["elrs_channel_map"] = channel_map.duplicate()
+	cfg["elrs_arm_channel"] = arm_channel
+	cfg["elrs_mode_channel"] = mode_channel
+	cfg["elrs_video_channel"] = video_channel
+	cfg["elrs_action_channels"] = action_channels.duplicate(true)
+	GameSettings.save_hud_config()
+	_switch_ready = false
+	_switch_state.clear()
 
 
 func _exit_tree() -> void:

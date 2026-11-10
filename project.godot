@@ -14,9 +14,14 @@ config/name="РќРµР±РµСЃРЅРёР№ РіРѕСЂРёР·РѕРЅС‚
 config/description="РќРµР±РµСЃРЅРёР№ РіРѕСЂРёР·РѕРЅС‚ вЂ” Р±РѕР№РѕРІРёР№ FPV-СЃРёРјСѓР»СЏС‚РѕСЂ"
 config/version="1.15.0-v15"
 run/main_scene="res://GUI/StartScreen.tscn"
-run/max_fps=120
 config/features=PackedStringArray("4.6")
+run/max_fps=120
 config/icon="res://icon.png"
+
+[audio]
+
+driver/output_latency=50
+driver/max_voices=64
 
 [autoload]
 
@@ -42,8 +47,8 @@ window/size/window_height_override=900
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 window/handheld/orientation=4
-window/size/fullscreen=false
 window/vsync/vsync_mode=0
+window/size/fullscreen=false
 
 [input]
 
@@ -205,19 +210,25 @@ limits/debugger/max_queued_messages=500
 
 [physics]
 
-3d/default_gravity=9.81
 common/physics_ticks_per_second=120
-common/physics_interpolation=true
 common/max_physics_steps_per_frame=16
+3d/default_gravity=9.81
+common/physics_interpolation=true
 
 [rendering]
 
-environment/defaults/default_environment="res://default_env.tres"
 renderer/rendering_method="forward_plus"
 renderer/rendering_method.mobile="mobile"
-threads/thread_model=2
-occlusion_culling/use_occlusion_culling=true
 textures/vram_compression/import_etc2_astc=true
+environment/ssao/quality=1
+environment/ssil/quality=1
+scaling_3d/scale=0.8
+scaling_3d/fsr_sharpness=0.25
+environment/volumetric_fog/volume_depth=48
+environment/defaults/default_clear_color=Color(0.06, 0.08, 0.1, 1)
+occlusion_culling/use_occlusion_culling=true
+environment/defaults/default_environment="res://default_env.tres"
+threads/thread_model=2
 quality/directional_shadow/size=2048
 lights_and_shadows/shadow_atlas/size=2048
 quality/shadow_atlas/cubemap_size=1024
@@ -229,21 +240,3 @@ quality/shadows/filter_mode=1
 quality/filters/anisotropic_filter_level=4
 quality/reflections/atlas_size=1024
 quality/filters/msaa=0
-anti_aliasing/quality/use_debanding=false
-scaling_3d/mode=0
-scaling_3d/scale=0.8
-scaling_3d/fsr_sharpness=0.25
-anti_aliasing/quality/msaa_3d=0
-lights_and_shadows/directional_shadow/size=4096
-lights_and_shadows/directional_shadow/soft_shadow_filter_quality=2
-environment/ssao/quality=1
-environment/ssil/quality=1
-environment/volumetric_fog/volume_size=64
-environment/volumetric_fog/volume_depth=48
-environment/defaults/default_clear_color=Color(0.06, 0.08, 0.1, 1)
-
-[audio]
-
-driver/max_voices=64
-driver/output_latency=50
-

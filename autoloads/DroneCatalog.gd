@@ -569,12 +569,22 @@ func attach_model(parent: Node3D, index: int) -> Node3D:
 			return custom_model
 
 	var path := str(p.get("model", ""))
-	if path.is_empty() or not ResourceLoader.exists(path):
+	if path.is_empty():
 		return null
-	var packed := load(path) as PackedScene
-	if packed == null:
-		return null
-	var model := packed.instantiate() as Node3D
+	var model: Node3D = null
+	if ResourceLoader.exists(path):
+		var packed = load(path)
+		if packed is PackedScene:
+			model = (packed as PackedScene).instantiate() as Node3D
+	if model == null:
+		var real_p := ProjectSettings.globalize_path(path)
+		if FileAccess.file_exists(path) or FileAccess.file_exists(real_p):
+			var doc := GLTFDocument.new()
+			var state := GLTFState.new()
+			if doc.append_from_file(real_p, state) == OK:
+				var scene_node := doc.generate_scene(state)
+				if scene_node is Node3D:
+					model = scene_node as Node3D
 	if model == null:
 		return null
 	model.name = "DroneModel"

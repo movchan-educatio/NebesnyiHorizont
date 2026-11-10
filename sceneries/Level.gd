@@ -239,7 +239,8 @@ func _on_return_to_menu() -> void:
 	get_tree().paused = false
 	if DisplayServer.get_name() != "headless":
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
-	get_tree().change_scene_to_file("res://GUI/MainMenu.tscn")
+	var target_menu := "res://GUI/mobile/MobileMenu.tscn" if MenuUI.is_mobile_ui() else "res://GUI/MainMenu.tscn"
+	get_tree().change_scene_to_file(target_menu)
 
 
 func _on_game_mode_changed(mode: int) -> void:

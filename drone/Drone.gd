@@ -301,12 +301,13 @@ func _physics_process(delta: float) -> void:
 	var cast_vector := (linear_velocity) * drone_transform.basis
 	if cast_vector.length_squared() > 1:
 		cast_vector = cast_vector.normalized()
-	ray.target_position = cast_vector
-	ray.force_raycast_update()
-	if ray.is_colliding():
-		var collider := ray.get_collider()
-		if collider is Area3D and collider.has_method("_on_drone_raycast_hit"):
-			collider.call("_on_drone_raycast_hit", self)
+	if is_instance_valid(ray):
+		ray.target_position = cast_vector
+		ray.force_raycast_update()
+		if ray.is_colliding():
+			var collider := ray.get_collider()
+			if collider is Area3D and collider.has_method("_on_drone_raycast_hit"):
+				collider.call("_on_drone_raycast_hit", self)
 	
 	if b_debug and debug_geom:
 		var drag: Vector3 = get_drag(linear_velocity, angular_velocity, drone_basis)[0]
@@ -821,13 +822,17 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 
 
 func update_hud_data(delta: float) -> void:
+	if flight_controller == null or hud == null:
+		return
+	var mot: Array = flight_controller.motors
+	var input: Array = flight_controller.input
+	if mot.size() < 4 or input.size() < 4:
+		return
 	var angles: Vector3 = flight_controller.angles
 	var velocity: Vector3 = flight_controller.lin_vel
 	var position: Vector3 = flight_controller.pos
-	var input: Array = flight_controller.input
 	var left_stick := Vector2(input[1], -2 * (input[0] - 0.5))
 	var right_stick := Vector2(input[2], -input[3])
-	var mot: Array = flight_controller.motors
 	var rpm := [mot[0].rpm, mot[1].rpm, mot[2].rpm, mot[3].rpm]
 	hud.update_data(delta, position, angles, velocity, left_stick, right_stick, rpm)
 
