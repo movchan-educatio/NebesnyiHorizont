@@ -18,11 +18,45 @@ const STICK_BONES := {
 
 var mode: int = Mode.MODE_2
 
-@onready var skeleton := _find_skeleton($RadioTransmitter)
+var skeleton: Skeleton3D = null
 var accept_input := true
 
 var tween: Tween = null
 var tween_loop := 0
+
+
+func _ready() -> void:
+	_ensure_skeleton()
+
+
+func _ensure_skeleton() -> void:
+	if skeleton != null and is_instance_valid(skeleton):
+		return
+	var existing = get_node_or_null("RadioTransmitter")
+	if existing != null:
+		skeleton = _find_skeleton(existing)
+		if skeleton != null:
+			return
+	var path := "res://Assets/Drones/ua_norm/radiomaster_tx12_rig.glb"
+	if ResourceLoader.exists(path):
+		var res = load(path)
+		if res is PackedScene:
+			var node: Node = res.instantiate()
+			node.name = "RadioTransmitter"
+			add_child(node)
+			skeleton = _find_skeleton(node)
+			if skeleton != null:
+				return
+	var bytes := FileAccess.get_file_as_bytes(path)
+	if not bytes.is_empty():
+		var doc := GLTFDocument.new()
+		var state := GLTFState.new()
+		if doc.append_from_buffer(bytes, "", state) == OK:
+			var node := doc.generate_scene(state)
+			if node != null:
+				node.name = "RadioTransmitter"
+				add_child(node)
+				skeleton = _find_skeleton(node)
 
 
 func _find_skeleton(node: Node) -> Skeleton3D:
@@ -36,6 +70,8 @@ func _find_skeleton(node: Node) -> Skeleton3D:
 
 
 func _set_stick_pose(stick: int, axis: Vector3, angle: float) -> void:
+	if skeleton == null or not is_instance_valid(skeleton):
+		_ensure_skeleton()
 	if skeleton == null:
 		return
 	var bone := skeleton.find_bone(str(STICK_BONES.get(stick, "")))

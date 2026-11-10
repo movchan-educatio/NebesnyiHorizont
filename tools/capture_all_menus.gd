@@ -51,6 +51,27 @@ func _ready() -> void:
 		var err: Error = img.save_png(out_path)
 		print("[CAPTURE] Screen '", s, "' -> ", out_path, " (err=", err, ")")
 
+		# If play screen, also test switching map to "industrial" and "steppe" to prove selection works!
+		if s == "play":
+			mobile_inst.call("_select_map", "industrial")
+			for f in range(15):
+				await get_tree().process_frame
+			await RenderingServer.frame_post_draw
+			var img_ind: Image = get_viewport().get_texture().get_image()
+			img_ind.save_png(OUT_DIR + "/shot_mobile_play_industrial.png")
+			print("[CAPTURE] Map switched to Industrial -> shot_mobile_play_industrial.png")
+
+			mobile_inst.call("_select_map", "steppe")
+			for f in range(15):
+				await get_tree().process_frame
+			await RenderingServer.frame_post_draw
+			var img_stp: Image = get_viewport().get_texture().get_image()
+			img_stp.save_png(OUT_DIR + "/shot_mobile_play_steppe.png")
+			print("[CAPTURE] Map switched to Steppe -> shot_mobile_play_steppe.png")
+
+			# Reset back to village
+			mobile_inst.call("_select_map", "village")
+
 		# If main screen, also capture specific drone presets to verify pedestal fit!
 		if s == "main":
 			var test_presets := [3, 8, 9, 14] # 3: VTOL «ПІСЮН», Falcon-X, Quad-5, Furia

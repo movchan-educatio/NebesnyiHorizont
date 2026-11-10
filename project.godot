@@ -12,7 +12,7 @@ config_version=5
 
 config/name="РќРµР±РµСЃРЅРёР№ РіРѕСЂРёР·РѕРЅС‚"
 config/description="РќРµР±РµСЃРЅРёР№ РіРѕСЂРёР·РѕРЅС‚ вЂ” Р±РѕР№РѕРІРёР№ FPV-СЃРёРјСѓР»СЏС‚РѕСЂ"
-config/version="1.16.0-v16"
+config/version="1.17.0-v17"
 run/main_scene="res://GUI/StartScreen.tscn"
 config/features=PackedStringArray("4.6")
 run/max_fps=120
