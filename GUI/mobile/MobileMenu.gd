@@ -180,7 +180,7 @@ class StickPreview extends Control:
 	var right := Vector2.ZERO  # Mode 2 Right: X = Roll (-1..1), Y = Pitch (-1..1)
 
 	func _init() -> void:
-		custom_minimum_size = Vector2(0, 190)
+		custom_minimum_size = Vector2(0, 250)
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	func set_values(l: Vector2, r: Vector2) -> void:
@@ -193,11 +193,12 @@ class StickPreview extends Control:
 		var h := size.y
 		if w < 20 or h < 30:
 			return
-		var radius := minf(w * 0.22, h * 0.38)
-		var cy := h * 0.44
+		var radius := minf(w * 0.2, h * 0.30)
+		var cy := h * 0.40
 		var lc := Vector2(w * 0.28, cy)
 		var rc := Vector2(w * 0.72, cy)
 		_draw_stick(lc, radius, left, "ГАЗ / РИСКАННЯ", true)
+		# (підписи тепер мають широку область і не обрізаються)
 		_draw_stick(rc, radius, right, "ТАНГАЖ / КРЕН", false)
 
 	func _draw_stick(c: Vector2, r: float, value: Vector2, title: String, is_left: bool) -> void:
@@ -222,18 +223,27 @@ class StickPreview extends Control:
 		draw_arc(kp, r * 0.20, 0.0, TAU, 24, Color(0.8, 1.0, 0.8, 0.9), 1.5, true)
 
 		var font := ThemeDB.fallback_font
-		draw_string(font, c + Vector2(-r, -r - 10), title,
-				HORIZONTAL_ALIGNMENT_CENTER, r * 2.0, 12,
+		var tw := maxf(r * 3.4, 200.0)
+		var fs_title := int(clampf(r * 0.2, 12.0, 18.0))
+		var fs_sub := int(clampf(r * 0.17, 11.0, 15.0))
+		draw_string(font, c + Vector2(-tw * 0.5, -r - 10), title,
+				HORIZONTAL_ALIGNMENT_CENTER, tw, fs_title,
 				Color(0.85, 0.92, 0.85, 0.95))
 
-		var sub_txt := ""
+		var line1 := ""
+		var line2 := ""
 		if is_left:
-			sub_txt = "ГАЗ: %d%%  РИСК: %+d%%" % [int(round(value.y * 100.0)), int(round(value.x * 100.0))]
+			var thr_pct := int(round(clampf(value.y, 0.0, 1.0) * 100.0))
+			line1 = "ГАЗ: %d%%" % thr_pct
+			line2 = "РИСКАННЯ: %+d%%" % int(round(value.x * 100.0))
 		else:
-			sub_txt = "ТАНГ: %+d%%  КРЕН: %+d%%" % [int(round(value.y * 100.0)), int(round(value.x * 100.0))]
-		draw_string(font, c + Vector2(-r, r + 18), sub_txt,
-				HORIZONTAL_ALIGNMENT_CENTER, r * 2.0, 11,
-				Color(0.70, 0.85, 0.72, 0.9))
+			line1 = "ТАНГАЖ: %+d%%" % int(round(value.y * 100.0))
+			line2 = "КРЕН: %+d%%" % int(round(value.x * 100.0))
+		var sub_col := Color(0.70, 0.85, 0.72, 0.95)
+		draw_string(font, c + Vector2(-tw * 0.5, r + 8 + fs_sub), line1,
+				HORIZONTAL_ALIGNMENT_CENTER, tw, fs_sub, sub_col)
+		draw_string(font, c + Vector2(-tw * 0.5, r + 10 + fs_sub * 2), line2,
+				HORIZONTAL_ALIGNMENT_CENTER, tw, fs_sub, sub_col)
 
 
 ## Visual Rate Curve representation
@@ -1429,7 +1439,7 @@ func _process_controls_screen() -> void:
 	if _arm_status_label != null:
 		var arm_ch := int(elrs.get_action_channel("arm"))
 		if arm_ch >= 0 and arm_ch < elrs.channels.size():
-			var is_armed: bool = float(elrs.channels[arm_ch]) > 16384.0
+			var is_armed: bool = _switch_level(float(elrs.channels[arm_ch]), _arm_status_label.text.begins_with("АРМОВАНО"))
 			if is_armed:
 				_arm_status_label.text = "АРМОВАНО ✓"
 				_arm_status_label.add_theme_color_override("font_color", MenuUI.FPV_GREEN)
@@ -1445,7 +1455,7 @@ func _process_controls_screen() -> void:
 		var ch: int = int(elrs.get_action_channel(act))
 		var lbl: Label = _switch_status_labels[act]
 		if ch >= 0 and ch < elrs.channels.size():
-			var is_on: bool = float(elrs.channels[ch]) > 16384.0
+			var is_on: bool = _switch_level(float(elrs.channels[ch]), lbl.text == "ON")
 			if is_on:
 				lbl.text = "ON"
 				lbl.add_theme_color_override("font_color", MenuUI.FPV_GREEN)
@@ -1465,24 +1475,46 @@ func _process_controls_screen() -> void:
 			"throttle": b.value = elrs.throttle()
 			"yaw": b.value = elrs.yaw()
 
-	# Live Calibration recording in Step 1
+	# Live Calibration recording in Step 1.  Samples are taken in the SAME space the
+	# flight code calibrates (after inversion/deadband), otherwise inverted axes
+	# would be calibrated backwards.
 	if _calib_step == 1 and bool(elrs.get("valid")):
 		for stick_name in ["roll", "pitch", "throttle", "yaw"]:
-			var ch := int(elrs.get_stick_channel(stick_name))
-			if ch >= 0 and ch < elrs.channels.size():
-				var raw_val := float(elrs.channels[ch])
-				var norm := (raw_val - 16384.0) / 16384.0 if stick_name != "throttle" else (raw_val / 32767.0) * 2.0 - 1.0
-				_calib_mins[stick_name] = minf(_calib_mins.get(stick_name, norm), norm)
-				_calib_maxs[stick_name] = maxf(_calib_maxs.get(stick_name, norm), norm)
+			var norm := _calib_sample(elrs, stick_name)
+			_calib_mins[stick_name] = minf(float(_calib_mins.get(stick_name, norm)), norm)
+			_calib_maxs[stick_name] = maxf(float(_calib_maxs.get(stick_name, norm)), norm)
+
+
+func _switch_level(raw: float, prev_on: bool) -> bool:
+	# Same hysteresis as ElrsWifiInput so the menu badge matches real behaviour.
+	if raw > 18000.0:
+		return true
+	if raw < 14000.0:
+		return false
+	return prev_on
+
+
+func _calib_sample(elrs: Node, stick_name: String) -> float:
+	match stick_name:
+		"roll": return float(elrs.roll())
+		"pitch": return float(elrs.pitch())
+		"yaw": return float(elrs.yaw())
+		"throttle": return float(elrs.throttle()) * 2.0 - 1.0
+	return 0.0
 
 
 func _on_calibrate_pressed() -> void:
 	var elrs := get_node_or_null("/root/ElrsWifiInput")
 	var mobile := get_node_or_null("/root/MobileInput")
 	var elrs_valid: bool = elrs != null and bool(elrs.get("valid"))
-	if not elrs_valid and not DisplayServer.is_touchscreen_available() and Input.get_connected_joypads().is_empty():
+	if not elrs_valid:
+		_calib_step = 0
+		_calib_btn.text = "КАЛІБРУВАТИ СТІКИ  ▶"
 		if _calib_hint != null:
-			_calib_hint.text = "Підключіть ELRS Wi-Fi, геймпад або увімкніть сенсорні стіки!"
+			if DisplayServer.is_touchscreen_available():
+				_calib_hint.text = "Сенсорні стіки мають фіксований діапазон і не потребують калібрування. Для пульта підключіть ELRS Wi-Fi."
+			else:
+				_calib_hint.text = "Підключіть ELRS Wi-Fi, щоб відкалібрувати стіки пульта!"
 		return
 	if _calib_step == 0:
 		_calib_step = 1
@@ -1497,20 +1529,30 @@ func _on_calibrate_pressed() -> void:
 		if _calib_hint != null:
 			_calib_hint.text = "КРОК 2: Відпустіть стіки по центру (газ у нуль) і натисніть Готово."
 	elif _calib_step == 2:
-		if elrs != null and elrs_valid and mobile != null:
+		var saved := 0
+		var failed: Array[String] = []
+		if mobile != null:
 			for stick_name in ["roll", "pitch", "throttle", "yaw"]:
-				var ch := int(elrs.get_stick_channel(stick_name))
-				var raw_val := float(elrs.channels[ch]) if ch >= 0 and ch < elrs.channels.size() else 16384.0
-				var center := (raw_val - 16384.0) / 16384.0 if stick_name != "throttle" else -1.0
+				var center := _calib_sample(elrs, stick_name)
 				var lo: float = float(_calib_mins.get(stick_name, -1.0))
 				var hi: float = float(_calib_maxs.get(stick_name, 1.0))
+				if absf(hi - lo) < 0.25:
+					failed.append(stick_name)
+					continue
 				mobile.call("set_calibration", "elrs", stick_name, lo, hi, center)
-			mobile.call("save_calibration")
-			elrs.save_settings()
+				saved += 1
+			if saved > 0:
+				mobile.call("save_calibration")
+				elrs.save_settings()
 		_calib_step = 0
 		_calib_btn.text = "КАЛІБРУВАТИ СТІКИ  ▶"
 		if _calib_hint != null:
-			_calib_hint.text = "✓ Калібрування збережено! Діапазони та центри оновлено."
+			if failed.is_empty() and saved > 0:
+				_calib_hint.text = "✓ Калібрування збережено! Діапазони та центри оновлено."
+			elif saved > 0:
+				_calib_hint.text = "Збережено частково. Не рухались: %s. Повторіть калібрування." % ", ".join(failed)
+			else:
+				_calib_hint.text = "✗ Стіки не рухались — калібрування не збережено. Повторіть і прокрутіть їх до упору."
 
 
 # ---------------------------------------------------------------- RATES SCREEN

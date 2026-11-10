@@ -98,8 +98,8 @@ func update_display() -> void:
 	speed_scale.update_speed(hud_velocity.length(), hud_delta)
 	altitude_scale.update_altitude(hud_position.y, hud_delta)
 	heading_scale.update_heading(hud_angles.y, hud_delta)
-	stick_left.update_stick_input(hud_left_stick)
-	stick_right.update_stick_input(hud_right_stick)
+	# Stick crosshairs are driven every frame by update_realtime_sticks(); updating
+	# them here with the throttled/averaged values made them jitter.
 	rpm_table.update_rpm(hud_rpm[0], hud_rpm[1], hud_rpm[2], hud_rpm[3])
 
 
