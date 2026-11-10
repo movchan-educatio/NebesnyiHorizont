@@ -9,31 +9,9 @@ func _ready() -> void:
 	if stick != null:
 		stick.set_anchors_preset(Control.PRESET_TOP_LEFT)
 		stick.position = 0.5 * (size - stick.size)
-	# Name the two physical axis pairs so the pilot can see which stick is
-	# moving during a flight, not just a dot on an unlabelled frame.
-	var label := Label.new()
-	label.name = "AxisLabel"
-	var left_pair := name.to_lower().contains("left")
-	if MenuUI.is_english():
-		label.text = "THR / YAW" if left_pair else "PITCH / ROLL"
-	else:
-		label.text = "ГАЗ / РИСК" if left_pair else "ТАНГАЖ / КРЕН"
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 16)
-	label.add_theme_color_override("font_color", Color(0.82, 1.0, 0.86, 1.0))
-	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
-	label.add_theme_constant_override("outline_size", 3)
-	# Center the label directly across the top of the stick frame
-	label.anchors_preset = Control.PRESET_TOP_WIDE
-	label.offset_left = 0.0
-	label.offset_right = 0.0
-	label.offset_top = -24.0
-	label.offset_bottom = -2.0
-	label.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	label.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(label)
+	# Clean flight HUD: the small axis-pair captions above the stick frames were
+	# visual noise on the phone.  The frames and their dots already show which
+	# stick is moving, so no caption nodes are created.
 
 
 func update_stick_input(input: Vector2) -> void:
