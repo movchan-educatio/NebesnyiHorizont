@@ -84,26 +84,35 @@ func _apply_military_styling() -> void:
 	center.add_child(panel)
 
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	var mobile_ui := MenuUI.is_mobile_ui()
 	var pause_vp := get_viewport_rect().size
-	var pause_safe := MenuUI.mobile_safe_margin(pause_vp) if MenuUI.is_mobile_ui() else 20.0
+	var pause_safe := MenuUI.mobile_safe_margin(pause_vp) if mobile_ui else 20.0
+	# On a phone the old 640-unit card was only ~27% of the 1280-wide capture
+	# and the 54-unit rows were hard to hit.  An 1180-unit card with 84-unit
+	# rows doubles the text size while still fitting 1080 units of canvas
+	# height with the safe areas.
 	panel.custom_minimum_size = Vector2(
-			minf(640.0 if MenuUI.is_mobile_ui() else 540.0,
+			minf(1180.0 if mobile_ui else 540.0,
 					pause_vp.x - pause_safe * 2.0), 0)
 	panel.add_theme_stylebox_override("panel", MenuUI._style(
-			MenuUI.FPV_BG_CARD if MenuUI.is_mobile_ui() else MenuUI.PANEL,
+			MenuUI.FPV_BG_CARD if mobile_ui else MenuUI.PANEL,
 			MenuUI.BORDER_HIGHLIGHT, 2,
-			16 if MenuUI.is_mobile_ui() else 4, 32, 28, 6))
+			22 if mobile_ui else 4, 40 if mobile_ui else 32,
+			38 if mobile_ui else 28, 6))
 	vbox.mouse_filter = Control.MOUSE_FILTER_PASS
-	vbox.add_theme_constant_override("separation", 12)
+	vbox.add_theme_constant_override("separation", 16 if mobile_ui else 12)
 
 	var header := MenuUI.section("БОЙОВИЙ FPV СИМУЛЯТОР // ПАУЗА", "ESC")
 	vbox.add_child(header)
 	vbox.move_child(header, 0)
+	if mobile_ui:
+		for lbl in header.find_children("*", "Label", true, false):
+			(lbl as Label).add_theme_font_size_override("font_size", 20)
 
 	var title_lbl := vbox.get_node_or_null("Title") as Label
 	if title_lbl != null:
 		title_lbl.text = "РЕЖИМ ПАУЗИ"
-		title_lbl.add_theme_font_size_override("font_size", 24)
+		title_lbl.add_theme_font_size_override("font_size", 38 if mobile_ui else 24)
 		title_lbl.add_theme_color_override("font_color", MenuUI.FPV_AMBER)
 		title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
@@ -124,7 +133,7 @@ func _apply_military_styling() -> void:
 			vbox.move_child(el, order_idx)
 			order_idx += 1
 
-	var pause_btn_height := 54.0 if MenuUI.is_mobile_ui() else 46.0
+	var pause_btn_height := 84.0 if mobile_ui else 46.0
 	var btn_list := [btn_resume, btn_controls, btn_quad, btn_options, btn_main_menu, btn_quit]
 
 	for b in btn_list:
@@ -133,7 +142,7 @@ func _apply_military_styling() -> void:
 			b.alignment = HORIZONTAL_ALIGNMENT_CENTER
 			b.mouse_filter = Control.MOUSE_FILTER_STOP
 			b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-			b.add_theme_font_size_override("font_size", 18 if MenuUI.is_mobile_ui() else 16)
+			b.add_theme_font_size_override("font_size", 26 if mobile_ui else 16)
 
 	btn_resume.text = "  ПРОДОВЖИТИ ПОЛІТ"
 	btn_resume.icon = MenuIcons.icon_play(Color(0.06, 0.09, 0.07))

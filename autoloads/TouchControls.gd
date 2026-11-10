@@ -382,18 +382,23 @@ func _on_mode_pressed() -> void:
 
 
 func _on_arm_pressed() -> void:
-	# Direct instant trigger to active drone flight controller with zero delay
+	# Drive the flight controller directly and ONLY once.  Dispatching
+	# toggle_arm as well made Level._input see a second edge in the same
+	# frame and immediately disarm (or switch modes through an AUX switch),
+	# so the ARM button appeared dead on the phone.
 	var scene := get_tree().current_scene
-	if scene != null:
-		var drone := scene.get_node_or_null("Drone")
-		if drone != null:
-			var fc = drone.get("flight_controller")
-			if fc != null:
-				if fc.state_armed:
-					fc.request_disarm()
-				else:
-					fc.request_arm(true)
-	# Also dispatch synthetic action path so all listeners and HUD update
+	var drone := scene.get_node_or_null("Drone") if scene != null else null
+	var fc = drone.get("flight_controller") if drone != null else null
+	if fc != null:
+		if bool(fc.get("state_armed")):
+			fc.request_disarm()
+			_show_toast("ДИСАРМ")
+		else:
+			var armed := bool(fc.call("request_arm", true))
+			_show_toast("АРМ" if armed else "АРМ НЕ ДОЗВОЛЕНО")
+		return
+	# Menu / calibration preview has no flight controller: keep the synthetic
+	# action path for any listener that still wants the edge.
 	_dispatch_action("toggle_arm")
 
 

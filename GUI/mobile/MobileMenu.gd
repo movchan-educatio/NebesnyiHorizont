@@ -130,6 +130,11 @@ var _hangar_select_btn: Button = null
 var _hangar_preview_idx: int = 0
 var _hangar_list_container: VBoxContainer = null
 var _is_dragging_hangar: bool = false
+# Guards the deferred one/two-frame fit.  The imported GLB prop nodes settle
+# their transforms after being added; fitting the same frame can read an
+# origin-space AABB and shrink the whole drone to a speck.
+var _hero_load_token := 0
+var _hangar_load_token := 0
 
 # --- Settings Tabs & PC Parity ---
 var _settings_panels: Dictionary = {}
@@ -1146,17 +1151,30 @@ func _setup_hero_3d_world() -> void:
 func _load_hero_model(preset_idx: int) -> void:
 	if _hero_holder == null:
 		return
+	_hero_load_token += 1
+	var token := _hero_load_token
 	for child in _hero_holder.get_children():
 		_hero_holder.remove_child(child)
 		child.queue_free()
 	var model: Node3D = DroneCatalog.attach_model(_hero_holder, preset_idx)
-	if model != null:
-		var p := DroneCatalog.preset(preset_idx)
-		var is_vtol: bool = str(p.get("name", "")).contains("VTOL") or str(p.get("tag", "")).contains("VTOL")
-		var target_sz: float = 0.46 if is_vtol else 0.52
-		MenuUI.fit_preview_model(model, target_sz, -0.205)
-	_fit_hero_camera()
+	var p := DroneCatalog.preset(preset_idx)
+	var is_vtol: bool = str(p.get("name", "")).contains("VTOL") or str(p.get("tag", "")).contains("VTOL")
+	var target_sz: float = 0.46 if is_vtol else 0.52
 	_update_hero_drone_info(preset_idx)
+	if model == null:
+		_fit_hero_camera()
+		return
+	# Let the imported prop/motor children enter the tree and update their
+	# global transforms before measuring the bounds.  Measuring on the same
+	# frame occasionally produced an origin-space AABB and a tiny drone.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if token != _hero_load_token or not is_instance_valid(model) \
+			or model.get_parent() != _hero_holder:
+		return
+	MenuUI.fit_preview_model(model, target_sz, -0.205)
+	_ensure_preview_scale(_hero_holder, model, target_sz, -0.205)
+	_fit_hero_camera()
 
 
 func _fit_hero_camera() -> void:
@@ -1191,6 +1209,24 @@ func _combined_bounds(node: Node3D) -> AABB:
 			if c is Node3D:
 				stack.append(c)
 	return result
+
+
+## Safety net for the first GLB load: if the measured preview is far below the
+## intended podium size (the old "tiny drone" bug), scale it up and put its
+## skids back on the pedestal instead of leaving a speck under the camera.
+func _ensure_preview_scale(holder: Node3D, model: Node3D, target: float,
+		bottom: float) -> void:
+	if holder == null or model == null or target <= 0.0:
+		return
+	var box := _combined_bounds(holder)
+	var max_dim := maxf(box.size.x, maxf(box.size.y, box.size.z))
+	if max_dim <= 0.0001 or max_dim >= target * 0.65:
+		return
+	model.scale *= target / max_dim
+	model.force_update_transform()
+	var fitted := _combined_bounds(holder)
+	model.position.y += bottom - fitted.position.y
+	model.force_update_transform()
 
 
 func _update_hero_drone_info(preset_idx: int) -> void:
@@ -2258,17 +2294,29 @@ func _setup_hangar_3d_world() -> void:
 func _load_hangar_model(preset_idx: int) -> void:
 	if _hangar_holder == null:
 		return
+	_hangar_load_token += 1
+	var token := _hangar_load_token
 	for child in _hangar_holder.get_children():
 		_hangar_holder.remove_child(child)
 		child.queue_free()
 	var model: Node3D = DroneCatalog.attach_model(_hangar_holder, preset_idx)
-	if model != null:
-		var p := DroneCatalog.preset(preset_idx)
-		var is_vtol: bool = str(p.get("name", "")).contains("VTOL") or str(p.get("tag", "")).contains("VTOL")
-		var target_sz: float = 0.46 if is_vtol else 0.52
-		MenuUI.fit_preview_model(model, target_sz, -0.1775)
-	_fit_hangar_camera()
+	var p := DroneCatalog.preset(preset_idx)
+	var is_vtol: bool = str(p.get("name", "")).contains("VTOL") or str(p.get("tag", "")).contains("VTOL")
+	var target_sz: float = 0.46 if is_vtol else 0.52
 	_update_hangar_info(preset_idx)
+	if model == null:
+		_fit_hangar_camera()
+		return
+	# Same two-frame settle as the hero podium.  Without it the first drone
+	# opened in the hangar could be a speck until Next/Previous reloaded it.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if token != _hangar_load_token or not is_instance_valid(model) \
+			or model.get_parent() != _hangar_holder:
+		return
+	MenuUI.fit_preview_model(model, target_sz, -0.1775)
+	_ensure_preview_scale(_hangar_holder, model, target_sz, -0.1775)
+	_fit_hangar_camera()
 
 
 func _fit_hangar_camera() -> void:

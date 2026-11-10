@@ -318,10 +318,16 @@ func request_arm(force: bool = false) -> bool:
 		return false
 	if flight_mode == FlightMode.AUTO:
 		select_flight_mode(FlightMode.RATE)
-	if Input.is_action_pressed("mode_turtle"):
-		change_flight_mode(FlightMode.TURTLE)
-	elif Input.is_action_pressed("mode_launch"):
-		change_flight_mode(FlightMode.LAUNCH)
+	# Mobile only: arming must not change the flight mode.  The old code
+	# switched to TURTLE/LAUNCH whenever either action happened to be held (for
+	# example a radio AUX switch or a synthetic touch event), so pressing ARM
+	# appeared to flip the mode and the drone fell over in TURTLE.  The desktop
+	# build keeps its existing arm-in-turtle/launch behaviour.
+	if not MenuUI.is_mobile_ui():
+		if Input.is_action_pressed("mode_turtle"):
+			change_flight_mode(FlightMode.TURTLE)
+		elif Input.is_action_pressed("mode_launch"):
+			change_flight_mode(FlightMode.LAUNCH)
 	set_armed(true)
 	for controller in pid_controllers:
 		controller.set_disabled(false)

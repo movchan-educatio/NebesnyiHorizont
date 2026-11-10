@@ -26,6 +26,26 @@ const ACTIVATE_INTERVAL := 4.0
 const STALE_MS := 3000
 const CENTER := 16384.0
 
+## v2 moved every optional AUX action off the channel map.  The old defaults
+## put pause, turtle, weather and respawn on CH13-CH16, which meant a normal
+## EdgeTX/ELRS model (16 channels, switches above CH8) could pause the game or
+## flip the flight mode while the pilot was only moving the sticks.
+const AUX_DEFAULTS_VERSION := 2
+const OLD_DEFAULT_ACTION_CHANNELS := {
+	"arm": 4, "toggle_arm": 4, "deploy_payload": 5, "activate_payload": 6,
+	"cycle_flight_modes": 7, "mode_turtle": 8, "mode_angle": 9,
+	"mode_horizon": 10, "cycle_video_mode": 11, "respawn": 12,
+	"toggle_weather": 13, "pause_menu": 14, "altitude_hold": 15,
+	"toggle_osd": -1, "toggle_fpv_effects": -1,
+}
+const SAFE_DEFAULT_ACTION_CHANNELS := {
+	"arm": 4, "toggle_arm": 4, "deploy_payload": -1, "activate_payload": -1,
+	"cycle_flight_modes": -1, "mode_turtle": -1, "mode_angle": -1,
+	"mode_horizon": -1, "cycle_video_mode": -1, "respawn": -1,
+	"toggle_weather": -1, "pause_menu": -1, "altitude_hold": -1,
+	"toggle_osd": -1, "toggle_fpv_effects": -1,
+}
+
 var enabled := false
 var valid := false
 var module_ip := ""
@@ -53,23 +73,10 @@ var mode_channel := 5
 var video_channel := 6
 
 ## Action bindings: Action name -> 0-based channel index (4 = CH5, 5 = CH6, etc., -1 = Disabled)
-var action_channels: Dictionary = {
-	"arm": 4,
-	"toggle_arm": 4,
-	"deploy_payload": 5,
-	"activate_payload": 6,
-	"cycle_flight_modes": 7,
-	"mode_turtle": 8,
-	"mode_angle": 9,
-	"mode_horizon": 10,
-	"cycle_video_mode": 11,
-	"respawn": 12,
-	"toggle_weather": 13,
-	"pause_menu": 14,
-	"altitude_hold": 15,
-	"toggle_osd": -1,
-	"toggle_fpv_effects": -1,
-}
+## Only ARM is mapped out of the box.  Optional actions are bound explicitly
+## from the mobile controller-setup screen; a stray switch must never pause the
+## mission or change the flight mode on its own.
+var action_channels: Dictionary = OLD_DEFAULT_ACTION_CHANNELS.duplicate()
 
 var _udp := PacketPeerUDP.new()
 var _http: HTTPRequest = null
@@ -417,16 +424,53 @@ func set_action_channel(action: String, channel: int) -> void:
 			action_channels["toggle_arm"] = -1
 			arm_channel = -1
 	else:
-		action_channels[action] = channel
 		if action == "arm" or action == "toggle_arm":
+			# Binding ARM takes the switch over: no second action may fire on
+			# the same AUX channel.
+			for other in action_channels.keys():
+				if other != "arm" and other != "toggle_arm" \
+						and int(action_channels[other]) == channel:
+					action_channels[other] = -1
 			action_channels["arm"] = channel
 			action_channels["toggle_arm"] = channel
 			arm_channel = channel
-		elif action == "cycle_flight_modes":
+		else:
+			# A normal action taking a switch releases whatever used to be
+			# there.  If that switch was ARM, move ARM to the first free AUX
+			# channel instead of silently leaving two actions on one switch.
+			var arm_was_here := int(action_channels.get("arm", -1)) == channel
+			for other in action_channels.keys():
+				if other == "arm" or other == "toggle_arm":
+					continue
+				if other != action and int(action_channels[other]) == channel:
+					action_channels[other] = -1
+			action_channels[action] = channel
+			if arm_was_here:
+				var free := _first_free_aux()
+				action_channels["arm"] = free
+				action_channels["toggle_arm"] = free
+				arm_channel = free
+		if action == "cycle_flight_modes":
 			mode_channel = channel
 		elif action == "cycle_video_mode":
 			video_channel = channel
 	save_settings()
+
+
+## First AUX index (CH6+) not used by a non-ARM action, or -1 when all are
+## occupied.  Keeps ARM on a real switch when another action claims CH5.
+func _first_free_aux() -> int:
+	for ch in range(5, CHANNEL_COUNT):
+		var used := false
+		for other in action_channels.keys():
+			if other == "arm" or other == "toggle_arm":
+				continue
+			if int(action_channels[other]) == ch:
+				used = true
+				break
+		if not used:
+			return ch
+	return -1
 
 
 func get_action_channel(action: String) -> int:
@@ -434,6 +478,11 @@ func get_action_channel(action: String) -> int:
 
 
 # --------------------------------------------------------------- Settings Persistence
+func _is_mobile_profile() -> bool:
+	return OS.has_feature("mobile") or OS.get_name() == "iOS" \
+			or MenuUI.is_mobile_ui() or DisplayServer.is_touchscreen_available()
+
+
 func _load_settings() -> void:
 	var cfg: Dictionary = GameSettings.hud_config
 	invert_roll = bool(cfg.get("elrs_invert_roll", false))
@@ -446,23 +495,8 @@ func _load_settings() -> void:
 	else:
 		channel_map = {"roll": 0, "pitch": 1, "throttle": 2, "yaw": 3}
 
-	action_channels = {
-		"arm": 4,
-		"toggle_arm": 4,
-		"deploy_payload": 5,
-		"activate_payload": 6,
-		"cycle_flight_modes": 7,
-		"mode_turtle": 8,
-		"mode_angle": 9,
-		"mode_horizon": 10,
-		"cycle_video_mode": 11,
-		"respawn": 12,
-		"toggle_weather": 13,
-		"pause_menu": 14,
-		"altitude_hold": 15,
-		"toggle_osd": -1,
-		"toggle_fpv_effects": -1,
-	}
+	action_channels = (SAFE_DEFAULT_ACTION_CHANNELS if _is_mobile_profile()
+			else OLD_DEFAULT_ACTION_CHANNELS).duplicate()
 	var stored = cfg.get("elrs_action_channels", {})
 	if stored is Dictionary:
 		for k in (stored as Dictionary).keys():
@@ -471,12 +505,40 @@ func _load_settings() -> void:
 			if ch >= -1 and ch < CHANNEL_COUNT:
 				action_channels[act] = ch
 
+	# Migrate profiles written by the old build.  The previous release saved
+	# every optional action onto CH6-CH16.  Only reset values that still match
+	# those old auto-generated defaults; a genuinely custom binding is kept.
+	var defaults_version := int(cfg.get("elrs_action_defaults_version", 1))
+	var migrated := false
+	if _is_mobile_profile() and defaults_version < AUX_DEFAULTS_VERSION:
+		for act in action_channels.keys():
+			var old_default := int(OLD_DEFAULT_ACTION_CHANNELS.get(act, -2))
+			if old_default >= 0 and int(action_channels[act]) == old_default:
+				action_channels[act] = int(SAFE_DEFAULT_ACTION_CHANNELS.get(act, -1))
+		# Pause on an AUX switch is never a sensible default: a 16-channel
+		# ELRS model would pause the game when that switch moved.
+		action_channels["pause_menu"] = -1
+		cfg["elrs_action_defaults_version"] = AUX_DEFAULTS_VERSION
+		migrated = true
+
 	arm_channel = int(action_channels.get("arm", 4))
-	mode_channel = int(action_channels.get("cycle_flight_modes", 7))
-	video_channel = int(action_channels.get("cycle_video_mode", 11))
+	mode_channel = int(action_channels.get("cycle_flight_modes", -1))
+	video_channel = int(action_channels.get("cycle_video_mode", -1))
+	if migrated:
+		save_settings()
 
 
 func save_settings() -> void:
+	# The legacy in-flight setup panel writes arm_channel/mode_channel
+	# directly, so fold those properties back into the generic table before
+	# persisting; otherwise the new binding is silently ignored on reload.
+	if arm_channel >= -1 and arm_channel < CHANNEL_COUNT:
+		action_channels["arm"] = arm_channel
+		action_channels["toggle_arm"] = arm_channel
+	if mode_channel >= -1 and mode_channel < CHANNEL_COUNT:
+		action_channels["cycle_flight_modes"] = mode_channel
+	if video_channel >= -1 and video_channel < CHANNEL_COUNT:
+		action_channels["cycle_video_mode"] = video_channel
 	var cfg: Dictionary = GameSettings.hud_config
 	cfg["elrs_invert_roll"] = invert_roll
 	cfg["elrs_invert_pitch"] = invert_pitch

@@ -26,6 +26,7 @@ const QualityManagerScript = preload("res://scripts/util/quality_manager.gd")
 const FlightSchool = preload("res://scripts/util/flight_school.gd")
 const LocScript = preload("res://scripts/util/localization_manager.gd")
 const MAIN_MENU := "res://GUI/MainMenu.tscn"
+const MOBILE_MENU := "res://GUI/mobile/MobileMenu.tscn"
 
 var _map_root: Node3D = null
 var _triggers: Node3D = null
@@ -2345,7 +2346,11 @@ func _show_loading_card(mission_id: int) -> void:
 
 func _on_menu_pressed() -> void:
 	get_tree().paused = false
-	get_tree().change_scene_to_file(MAIN_MENU)
+	# Phones must return to the finger-sized tactical menu, never the desktop
+	# video home screen.  This is the results-screen / mission-menu path; the
+	# pause overlay has its own mobile-aware exit.
+	var target := MOBILE_MENU if MenuUI.is_mobile_ui() else MAIN_MENU
+	get_tree().change_scene_to_file(target)
 
 
 # ------------------------------------------------------------------ triggers
