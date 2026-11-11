@@ -55,5 +55,10 @@
 ## 5. Збірка
 
 - Версія: **v24** (persistence fix)
+- Коміт: `7ca0f8f`
+- GitHub Actions: run **#24**, release `ios-build-24`
 - IPA: `NebesnyiHorizont-unsigned-v24-fixed.ipa`
-- Розмір / SHA-256 / посилання: заповнюються після збірки.
+- Розмір: **935 182 133 байт** (891.9 MB)
+- SHA-256: `19edef62079dfbb71c0a764c49b3dbbec8cde996a8f1ebda23d1c264e4ace9cc`
+- Посилання: **http://192.168.0.100:8000/NebesnyiHorizont-unsigned-v24-fixed.ipa**
+- Сторінка: **http://192.168.0.100:8000/**
