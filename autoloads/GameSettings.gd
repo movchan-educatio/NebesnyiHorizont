@@ -13,6 +13,15 @@ const REALISM_CUSTOM := "custom"
 
 var game_settings_path := "%s/GameSettings.cfg" % Global.config_dir
 
+
+func _ready() -> void:
+	# Load the player's HUD/ELRS/mobile settings before ElrsWifiInput and
+	# MobileInput initialise.  The mobile build boots directly into MobileMenu,
+	# so it never went through StartScreen/MainMenu, which were the only paths
+	# that called this.  Without it every launch started from defaults and the
+	# saved calibration/action map looked like it had not been saved.
+	load_hud_config()
+
 var hud_config := {"fps": 20, "crosshair": false, "horizon": true, "ladder": false,
 		"speed": true, "altitude": true, "heading": true, "sticks": true, "rpm": false,
 		"osd": true, "fpv_rig": false, "weather": 0, "sim_thrust": true,
@@ -26,12 +35,21 @@ var hud_config := {"fps": 20, "crosshair": false, "horizon": true, "ladder": fal
 		# dictionary, otherwise load_hud_config() would drop them when the
 		# saved file is read back (it only copies known keys).
 		"elrs_invert_roll": true,
+		"elrs_invert_pitch": false,
+		"elrs_invert_yaw": false,
+		"elrs_invert_throttle": false,
 		"elrs_arm_channel": 4,
 		"elrs_mode_channel": 5,
 		"elrs_video_channel": 6,
 		"elrs_action_channels": {},
+		"elrs_channel_map": {"roll": 0, "pitch": 1, "throttle": 2, "yaw": 3},
+		# 1 keeps the old-profile AUX migration armed; after it runs the value
+		# 2 is written back and future launches skip the migration.
+		"elrs_action_defaults_version": 1,
 		"touch_invert_roll": false,
 		"mobile_input_calibration": {},
+		"osd_palette": 0,
+		"status": true,
 		"mobile_pilot_name": "ПІЛОТ",
 		"mobile_render_scale": 80,
 		"mobile_stream_mode": false,
@@ -70,9 +88,14 @@ func load_hud_config() -> void:
 							and (value is int or value is float):
 						hud_config[key] = clampi(int(value), 0, 15)
 					elif key in ["mobile_input_calibration", "elrs_action_channels",
-							"mobile_rate_profiles", "mobile_drone_parts"] \
-							and value is Dictionary:
+							"elrs_channel_map", "mobile_rate_profiles",
+							"mobile_drone_parts"] and value is Dictionary:
 						hud_config[key] = value
+					elif key == "osd_palette" and (value is int or value is float):
+						hud_config[key] = clampi(int(value), 0, 4)
+					elif key == "elrs_action_defaults_version" \
+							and (value is int or value is float):
+						hud_config[key] = maxi(int(value), 1)
 					elif key in ["mobile_pilot_name", "mobile_distance_units",
 							"mobile_drone_tint"] and value is String:
 						hud_config[key] = value

@@ -125,6 +125,7 @@ func _initialize_settings() -> void:
 	# the settings must load unconditionally.  The old guard meant Graphics.cfg
 	# (fullscreen, quality, FPV effects) and Audio.cfg were never applied on a
 	# normal launch.
+	GameSettings.load_hud_config()
 	Graphics.load_graphics_settings()
 	Audio.load_audio_settings()
 	Controls.load_input_map(true)

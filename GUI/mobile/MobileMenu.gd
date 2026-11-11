@@ -326,6 +326,11 @@ func _ready() -> void:
 		DisplayServer.screen_set_orientation(DisplayServer.SCREEN_SENSOR_LANDSCAPE)
 	if Global.startup:
 		Global.initialize()
+	# Safety net for direct MobileMenu launches: load the persisted HUD/ELRS/
+	# calibration file before any row is built.  On a normal iOS boot
+	# GameSettings._ready() has already done this, but the menu must not depend
+	# on the autoload order.
+	GameSettings.load_hud_config()
 	Graphics.load_graphics_settings()
 	Audio.load_audio_settings()
 	Controls.load_input_map(true)
