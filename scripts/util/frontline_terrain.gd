@@ -1771,30 +1771,119 @@ static func _is_clear_beacon_site(map_name: String, x: float, z: float) -> bool:
 ## registered in _poi_positions so later scatter passes keep their berth.
 static func _build_mobile_hero_landmarks(root: Node3D, map_name: String) -> void:
 	var specs := {
-		"steppe": ["wind_turbine", Vector2(-180.0, 260.0)],
-		"village": ["grain_elevator", Vector2(-180.0, 220.0)],
-		"industrial": ["flare_stack", Vector2(330.0, -120.0)],
-		"wetlands": ["lighthouse", Vector2(320.0, 140.0)],
+		"steppe": [
+			["wind_turbine", Vector2(-180.0, 260.0)],
+			["fuel_depot", Vector2(240.0, -240.0)],
+		],
+		"village": [
+			["grain_elevator", Vector2(-180.0, 220.0)],
+			["church", Vector2(-340.0, 80.0)],
+		],
+		"industrial": [
+			["flare_stack", Vector2(330.0, -120.0)],
+			["pipe_rack", Vector2(-260.0, 260.0)],
+		],
+		"wetlands": [
+			["lighthouse", Vector2(320.0, 140.0)],
+			["boathouse", Vector2(-240.0, 220.0)],
+		],
 	}
-	var spec: Array = specs.get(map_name, [])
-	if spec.size() < 2:
-		return
-	var site := _resolve_mobile_beacon_site(map_name, spec[1])
-	if site.x < -900.0:
-		print("[MobileHero] ", map_name, " rejected ", spec[1])
-		return
-	match String(spec[0]):
-		"wind_turbine":
-			_add_mobile_wind_turbine(root, map_name, site)
-		"grain_elevator":
-			_add_mobile_grain_elevator(root, map_name, site)
-		"flare_stack":
-			_add_mobile_flare_stack(root, map_name, site)
-		"lighthouse":
-			_add_mobile_lighthouse(root, map_name, site)
-	_poi_positions.append(site)
-	reserve_area(site, 30.0)
-	print("[MobileHero] ", map_name, " ", spec[0], " at ", site)
+	var list: Array = specs.get(map_name, [])
+	for entry in list:
+		var site := _resolve_mobile_beacon_site(map_name, entry[1])
+		if site.x < -900.0:
+			print("[MobileHero] ", map_name, " rejected ", entry[1])
+			continue
+		match String(entry[0]):
+			"wind_turbine":
+				_add_mobile_wind_turbine(root, map_name, site)
+			"fuel_depot":
+				_add_mobile_fuel_depot(root, map_name, site)
+			"grain_elevator":
+				_add_mobile_grain_elevator(root, map_name, site)
+			"church":
+				_add_mobile_church(root, map_name, site)
+			"flare_stack":
+				_add_mobile_flare_stack(root, map_name, site)
+			"pipe_rack":
+				_add_mobile_pipe_rack(root, map_name, site)
+			"lighthouse":
+				_add_mobile_lighthouse(root, map_name, site)
+			"boathouse":
+				_add_mobile_boathouse(root, map_name, site)
+		_poi_positions.append(site)
+		reserve_area(site, 30.0)
+		print("[MobileHero] ", map_name, " ", entry[0], " at ", site)
+
+
+static func _add_mobile_fuel_depot(root: Node3D, map_name: String, p: Vector2) -> void:
+	var gy := _height(map_name, p.x, p.y)
+	var node := Node3D.new()
+	node.name = "MobileHero2_FuelDepot"
+	node.position = Vector3(p.x, gy, p.y)
+	root.add_child(node)
+	var concrete := _pbr("hall_concrete", Color(0.54, 0.53, 0.50), 0.24)
+	var tank := _pbr("hall_rust", Color(0.66, 0.50, 0.38), 0.28)
+	var pipe := _pbr("steel", Color(0.60, 0.62, 0.60), 0.3)
+	_add_box(node, Vector3(0.0, 0.16, 0.0), Vector3(12.0, 0.32, 9.0), concrete)
+	for sx in [-1.0, 1.0]:
+		for sz in [-1.0, 1.0]:
+			_add_cylinder(node, Vector3(sx * 4.0, 3.8, sz * 2.8), 1.7, 7.2, tank)
+	_add_cylinder(node, Vector3(0.0, 1.6, 0.0), 0.35, 10.0, pipe, PI * 0.5, false)
+	_add_box(node, Vector3(4.4, 2.0, 0.0), Vector3(0.9, 0.5, 6.0), pipe, 0.0, false)
+	_keep_poi_detail(node, 1200.0)
+
+
+static func _add_mobile_church(root: Node3D, map_name: String, p: Vector2) -> void:
+	var gy := _height(map_name, p.x, p.y)
+	var node := Node3D.new()
+	node.name = "MobileHero2_Church"
+	node.position = Vector3(p.x, gy, p.y)
+	root.add_child(node)
+	var white := _pbr("hall_concrete", Color(0.86, 0.86, 0.82), 0.2)
+	var roof := _pbr("hall_rust", Color(0.62, 0.30, 0.22), 0.3)
+	var stone := _pbr("hall_concrete", Color(0.70, 0.68, 0.62), 0.26)
+	_add_box(node, Vector3(0.0, 4.0, 0.0), Vector3(8.0, 7.6, 5.6), white)
+	_add_prism(node, Vector3(0.0, 8.2, 0.0), Vector3(9.4, 3.6, 7.0), roof)
+	_add_box(node, Vector3(0.0, 10.4, -3.0), Vector3(3.0, 4.2, 2.6), white)
+	_add_prism(node, Vector3(0.0, 13.0, -3.0), Vector3(4.4, 2.4, 4.0), roof)
+	_add_box(node, Vector3(0.0, 12.2, -4.6), Vector3(0.16, 2.6, 0.16), stone, 0.0, false)
+	_add_box(node, Vector3(0.0, 11.6, -4.6), Vector3(1.2, 0.16, 0.16), stone, 0.0, false)
+	_keep_poi_detail(node, 1200.0)
+
+
+static func _add_mobile_pipe_rack(root: Node3D, map_name: String, p: Vector2) -> void:
+	var gy := _height(map_name, p.x, p.y)
+	var node := Node3D.new()
+	node.name = "MobileHero2_PipeRack"
+	node.position = Vector3(p.x, gy, p.y)
+	root.add_child(node)
+	var steel := _pbr("hall_metal", Color(0.62, 0.64, 0.62), 0.24)
+	var rust := _pbr("hall_rust", Color(0.60, 0.44, 0.32), 0.3)
+	_add_box(node, Vector3(0.0, 0.12, 0.0), Vector3(20.0, 0.24, 6.0), steel)
+	for i in range(5):
+		for side in [-1.0, 1.0]:
+			_add_box(node, Vector3(-8.0 + float(i) * 4.0, 4.2, side * 2.6),
+					Vector3(0.34, 8.2, 0.34), steel)
+	_add_cylinder(node, Vector3(0.0, 8.4, 0.0), 0.5, 20.6, rust, PI * 0.5)
+	_add_cylinder(node, Vector3(0.0, 5.2, 0.0), 0.34, 20.6, rust, PI * 0.5)
+	_keep_poi_detail(node, 1200.0)
+
+
+static func _add_mobile_boathouse(root: Node3D, map_name: String, p: Vector2) -> void:
+	var gy := _height(map_name, p.x, p.y)
+	var node := Node3D.new()
+	node.name = "MobileHero2_Boathouse"
+	node.position = Vector3(p.x, gy, p.y)
+	root.add_child(node)
+	var wood := _pbr("wood", Color(0.62, 0.50, 0.36), 0.3)
+	var roof := _pbr("hall_rust", Color(0.40, 0.44, 0.38), 0.32)
+	for i in range(4):
+		_add_box(node, Vector3(-3.3 + float(i) * 2.2, 0.9, 0.0),
+				Vector3(0.4, 1.8, 5.2), wood)
+	_add_box(node, Vector3(0.0, 2.0, 0.0), Vector3(8.0, 0.24, 5.4), wood)
+	_add_prism(node, Vector3(0.0, 3.0, 0.0), Vector3(9.0, 2.2, 6.2), roof)
+	_keep_poi_detail(node, 1200.0)
 
 
 static func _add_mobile_wind_turbine(root: Node3D, map_name: String, p: Vector2) -> void:

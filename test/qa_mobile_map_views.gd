@@ -49,13 +49,13 @@ func _run() -> void:
 		push_warning("[MOBILE_MAP_VIEWS] only %d navigation beacons on %s" % [beacons.size(), map_name])
 	else:
 		print("[MOBILE_MAP_VIEWS] ", map_name, " navigation beacons=", beacons.size())
-	var heroes := terrain.find_children("MobileHero_*", "Node3D", true, false) \
+	var heroes := terrain.find_children("MobileHero*", "Node3D", true, false) \
 			if terrain != null else []
-	if heroes.size() != 1:
+	if heroes.size() < 2:
 		_failures += 1
 		push_warning("[MOBILE_MAP_VIEWS] %d mobile hero landmarks on %s" % [heroes.size(), map_name])
 	else:
-		print("[MOBILE_MAP_VIEWS] ", map_name, " hero=", heroes[0].name)
+		print("[MOBILE_MAP_VIEWS] ", map_name, " heroes=", heroes.size())
 	var drone := level.get_node_or_null("Drone") as RigidBody3D
 	var fpv := level.get_node_or_null("Drone/FPVCamera") as Camera3D
 	if drone == null or fpv == null:
