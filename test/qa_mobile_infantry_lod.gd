@@ -66,4 +66,23 @@ func _run() -> void:
 			and bool(soldier.get("_model").visible)
 			and not bool(soldier.get("_lod_proxy").visible),
 			"near LOD restores rig and animation after far culling")
+	var breath_before := float(rig.get("_breath_phase"))
+	rig.call("_process", 1.0 / 30.0)
+	_check(not is_equal_approx(float(rig.get("_breath_phase")), breath_before),
+			"idle breathing procedural animation advances")
+	rig.set_crouch(true)
+	_check(float(rig.get("_crouch_target")) == 1.0, "crouch pose can be activated")
+	rig.set_aim_pitch(0.35)
+	rig.set_look_yaw(-0.2)
+	_check(is_equal_approx(float(rig.get("_aim_pitch")), 0.35)
+			and is_equal_approx(float(rig.get("_look_yaw")), -0.2),
+			"aim and scan poses accept target angles")
+	rig.kick()
+	_check(float(rig.get("_kick")) == 1.0, "fire recoil animation can be triggered")
+	rig.start_reload(1.75)
+	_check(rig.is_reloading(), "reload animation can be triggered")
+	rig.hit_react(true)
+	_check(float(rig.get("_hit_flinch")) == 1.0, "hit reaction animation can be triggered")
+	rig.play_death(0)
+	_check(bool(rig.get("_dead")), "death pose can be triggered")
 	get_tree().quit(0)

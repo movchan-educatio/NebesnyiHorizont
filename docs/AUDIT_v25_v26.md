@@ -44,7 +44,7 @@
 - `qa_persist2_write` exit 0; `qa_persist2_read`: **PASS**, exit 0.
 - `audit_mobile_assets.py`: всі 4 mobile/original pairs PASS; bounds збережені, максимум delta 0.000778 м.
 - `qa_mobile_soldier_asset`: **PASS** — runtime detailed rig loaded, one merged body mesh, skeleton present.
-- `qa_mobile_infantry_lod`: **PASS** — 30/15/0 Hz, run blend, impostor atlas, far hide, near restore.
+- `qa_mobile_infantry_lod`: **19 PASS assertions** — idle, walk/run, crouch, aim/scan, recoil, reload, hit, death; 30/15/0 Hz; impostor atlas; far hide and near restore.
 - `qa_video_fixes` with additional smoothing assertion: **PASS, failures=0**.
 - Visual preview: `docs/ios/v26_mobile_infantry_lod.png`; atlas: `Assets/combat/soldier_impostor_atlas.png`.
 - На завершенні headless `qa_video_fixes` є dummy-renderer RID allocation warnings. QA все одно exit 0; це не доводить leak у графічному білді.
