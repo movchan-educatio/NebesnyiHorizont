@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://w6qw2k7bpbk6"]
+
+[ext_resource type="Script" path="res://test/qa_v26_rifleman_merged.gd" id="1_w6qw2"]
+
+[node name="TestRiflemanMerged" type="Node"]
+script = ExtResource("1_w6qw2")
