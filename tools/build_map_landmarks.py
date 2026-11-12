@@ -15,6 +15,7 @@ Origins are at the base centre (Z-up in Blender, glTF converts to Y-up).
 import bpy
 import math
 import os
+import random
 
 ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                     "Assets", "handcrafted", "landmarks")
@@ -36,6 +37,8 @@ ORANGE = (0.55, 0.22, 0.05)
 BLUE = (0.12, 0.22, 0.36)
 RED = (0.45, 0.12, 0.08)
 GREEN = (0.18, 0.30, 0.18)
+SOOT = (0.07, 0.065, 0.06)
+RUST_DARK = (0.30, 0.14, 0.06)
 
 
 def reset():
@@ -114,12 +117,13 @@ def cone(name, radius, height, loc, rgb, rot=(0.0, 0.0, 0.0), verts=14, collect=
     return ob
 
 
-def gable_slab(name, width, height, depth, center_x, base_z, rgb, sign, collect):
+def gable_slab(name, width, height, depth, center_x, center_y, base_z, rgb, sign,
+               collect):
     run = max(width * 0.5, 0.2)
     slope = math.atan2(height, run)
     half = math.sqrt(run * run + height * height) * 0.5
     bpy.ops.mesh.primitive_cube_add(size=1, location=(
-        center_x, 0.0, base_z + height * 0.5),
+        center_x, center_y, base_z + height * 0.5),
         rotation=(0.0, sign * slope, 0.0))
     ob = bpy.context.object
     ob.name = name + ("_L" if sign < 0 else "_R")
@@ -129,15 +133,66 @@ def gable_slab(name, width, height, depth, center_x, base_z, rgb, sign, collect)
     collect.append(ob)
 
 
-def gable(name, width, depth, height, loc, rgb, collect, ridge_gap=0.0):
-    """Gable roof with a real open ridge slot of ridge_gap metres."""
+def gable(name, width, depth, height, loc, rgb, collect, ridge_gap=0.0,
+          damaged=False):
+    """Gable roof split into three bays with a real ridge slot; `damaged`
+    leaves one bay of the right slope missing for a battle-damaged hole."""
     run = (width - ridge_gap) * 0.5
     if run < width * 0.12:
         run = width * 0.12
+    segs = 3
+    seg_d = depth / float(segs)
     for sign in (-1.0, 1.0):
-        center_x = loc[0] + sign * (ridge_gap * 0.5 + run * 0.5)
-        gable_slab(name, run * 2.0, height, depth, center_x, loc[2], rgb, sign,
-                   collect)
+        for i in range(segs):
+            if damaged and sign > 0.0 and i == 1:
+                continue
+            center_x = loc[0] + sign * (ridge_gap * 0.5 + run * 0.5)
+            center_y = loc[1] - depth * 0.5 + seg_d * (i + 0.5)
+            gable_slab(name, run * 2.0, height, seg_d * 1.01, center_x,
+                       center_y, loc[2], rgb, sign, collect)
+
+
+def prism_xz(name, width, height, depth, loc, rgb, collect):
+    """Triangular gable-end wall (prism) in the XZ plane, extruded along Y."""
+    hw = width * 0.5
+    hd = depth * 0.5
+    verts = [
+        (-hw, -hd, 0.0), (hw, -hd, 0.0), (0.0, -hd, height),
+        (-hw, hd, 0.0), (hw, hd, 0.0), (0.0, hd, height),
+    ]
+    faces = [(0, 1, 2), (3, 5, 4), (0, 2, 5, 3), (1, 4, 5, 2), (0, 3, 4, 1)]
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    ob = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(ob)
+    ob.location = loc
+    colourise(ob, rgb)
+    collect.append(ob)
+    return ob
+
+
+def soot_and_rust(parts, wall_y, xs, z_top, face_sign=1.0):
+    """Dark soot patches and rust streaks on a wall (thin boxes, no collision)."""
+    for x in xs:
+        box("soot", (2.2, 0.05, 2.4), (x, wall_y + face_sign * 0.02,
+            z_top - 1.1), SOOT, collect=parts)
+        box("rust", (0.22, 0.06, 1.8), (x + 0.8, wall_y + face_sign * 0.02,
+            z_top - 2.1), RUST_DARK, collect=parts)
+
+
+def rubble_pile(parts, x, y, z, count=8, seed=0):
+    rng = random.Random(seed)
+    for i in range(count):
+        w = rng.uniform(0.4, 1.5)
+        d = rng.uniform(0.4, 1.2)
+        h = rng.uniform(0.2, 0.7)
+        box("rubble", (w, d, h),
+            (x + rng.uniform(-2.2, 2.2), y + rng.uniform(-2.2, 2.2),
+             z + h * 0.5),
+            CONCRETE_DARK if i % 3 else RUST_DARK,
+            (rng.uniform(-0.35, 0.35), rng.uniform(-0.35, 0.35), 0.0),
+            collect=parts)
 
 
 def wall_with_door(name, length, height, thick, y, door_w, door_h, z0, rgb,
@@ -313,8 +368,17 @@ def l_warehouse():
             collect=parts)
     box("door_hazard_h", (9.0, 0.5, 0.45), (0, -8.8, 6.2), ORANGE, collect=parts)
     # Roof with an open ridge slot for vertical dives.
-    gable("roof", 20.6, 42.6, 3.2, (0, 0, 7.0), RUST, parts, ridge_gap=2.4)
-    gable("roof_col", 20.6, 42.6, 3.2, (0, 0, 7.0), RUST, col, ridge_gap=2.4)
+    gable("roof", 20.6, 42.6, 3.2, (0, 0, 7.0), RUST, parts, ridge_gap=1.6, damaged=True)
+    gable("roof_col", 20.6, 42.6, 3.2, (0, 0, 7.0), RUST, col, ridge_gap=1.6, damaged=True)
+    for sy in (-1.0, 1.0):
+        prism_xz("gable_end", 20.6, 3.2, 0.35, (0.0, sy * 8.98, 7.0),
+                 CONCRETE, parts)
+        prism_xz("gable_end_col", 20.6, 3.2, 0.35, (0.0, sy * 8.98, 7.0),
+                 CONCRETE, col)
+    soot_and_rust(parts, -8.98, [-14.0, -4.0, 6.0], 7.0, -1.0)
+    soot_and_rust(parts, 8.98, [-10.0, 2.0, 12.0], 7.0, 1.0)
+    rubble_pile(parts, 0.0, -10.0, 0.0, 10, 11)
+    rubble_pile(parts, 18.0, -8.0, 0.0, 6, 12)
     for i in range(6):
         box("truss", (0.25, 17.0, 0.25), (-17.0 + i * 6.8, 0, 8.2), METAL, collect=parts)
     for i in range(4):
@@ -358,6 +422,13 @@ def l_grain_elevator():
     box("shed_front_r_col", (3.5, 0.3, 5.0), (-11.75, -10.0, 2.5), CONCRETE, collect=col)
     gable("shed_roof", 8.6, 12.6, 1.8, (-14.0, -6.0, 5.0), RUST, parts)
     gable("shed_roof_col", 8.6, 12.6, 1.8, (-14.0, -6.0, 5.0), RUST, col)
+    for sy in (-1.0, 1.0):
+        prism_xz("shed_gable", 8.6, 1.8, 0.3, (-14.0, -6.0 + sy * 6.3, 5.0),
+                 CONCRETE, parts)
+        prism_xz("shed_gable_col", 8.6, 1.8, 0.3, (-14.0, -6.0 + sy * 6.3, 5.0),
+                 CONCRETE, col)
+    soot_and_rust(parts, -7.55, [10.0, 13.0], 20.0, -1.0)
+    rubble_pile(parts, -14.0, -12.0, 0.0, 8, 41)
     box("ladder", (0.5, 0.5, 20.0), (16.8, -3.0, 10.0), METAL, collect=parts)
     join_and_export("grain_elevator", parts, col)
 
@@ -425,8 +496,16 @@ def l_factory_plant():
     for sx in (-1.0, 1.0):
         wall_y_windows("hall_end", 14.0, 9.0, 0.4, sx * 14.0, 0.0, 2.4, 2.0, 4.8,
                        2, CONCRETE, parts, col)
-    gable("roof", 15.2, 28.8, 3.4, (0, 0, 9.0), METAL, parts, ridge_gap=2.2)
-    gable("roof_col", 15.2, 28.8, 3.4, (0, 0, 9.0), METAL, col, ridge_gap=2.2)
+    gable("roof", 15.2, 28.8, 3.4, (0, 0, 9.0), METAL, parts, ridge_gap=1.4, damaged=True)
+    gable("roof_col", 15.2, 28.8, 3.4, (0, 0, 9.0), METAL, col, ridge_gap=1.4, damaged=True)
+    for sy in (-1.0, 1.0):
+        prism_xz("gable_end", 15.2, 3.4, 0.4, (0.0, sy * 7.1, 9.0),
+                 CONCRETE, parts)
+        prism_xz("gable_end_col", 15.2, 3.4, 0.4, (0.0, sy * 7.1, 9.0),
+                 CONCRETE, col)
+    soot_and_rust(parts, -7.2, [-9.0, 0.0, 9.0], 9.0, -1.0)
+    soot_and_rust(parts, 7.2, [-7.0, 5.0], 9.0, 1.0)
+    rubble_pile(parts, 0.0, -8.0, 0.0, 10, 21)
     for i in range(6):
         box("win", (2.4, 0.16, 1.8), (-11.0 + i * 4.4, -7.1, 6.6), GLASS, collect=parts)
     # Door bays on both long walls make the hall fly-through.
@@ -479,8 +558,15 @@ def l_farm_complex():
         else:
             wall_y_windows("barn_side_win", 11.0, 6.0, 0.3, sx * 11.0, 0.0,
                            2.0, 1.4, 3.4, 2, WOOD, parts, col)
-    gable("barn_roof", 12.4, 22.8, 4.0, (0, 0, 6.0), RUST, parts, ridge_gap=1.8)
-    gable("barn_roof_col", 12.4, 22.8, 4.0, (0, 0, 6.0), RUST, col, ridge_gap=1.8)
+    gable("barn_roof", 12.4, 22.8, 4.0, (0, 0, 6.0), RUST, parts, ridge_gap=1.2, damaged=True)
+    gable("barn_roof_col", 12.4, 22.8, 4.0, (0, 0, 6.0), RUST, col, ridge_gap=1.2, damaged=True)
+    for sy in (-1.0, 1.0):
+        prism_xz("barn_gable", 12.4, 4.0, 0.3, (0.0, sy * 5.55, 6.0),
+                 WOOD, parts)
+        prism_xz("barn_gable_col", 12.4, 4.0, 0.3, (0.0, sy * 5.55, 6.0),
+                 WOOD, col)
+    soot_and_rust(parts, -5.6, [-6.0, 4.0], 6.0, -1.0)
+    rubble_pile(parts, -2.0, -7.0, 0.0, 8, 31)
     box("barn_door_l", (2.2, 0.16, 4.4), (-1.3, -5.7, 2.2), WOOD_LIGHT, collect=parts)
     box("door_x", (2.4, 0.1, 0.12), (-1.3, -5.8, 2.4), WOOD, (0, 0, 0.7), collect=parts)
     for i in range(3):
@@ -542,6 +628,11 @@ def l_fuel_depot():
     box("pump_house", (7.0, 5.0, 3.2), (18.0, -7.0, 1.6), CONCRETE, collect=parts)
     box("pump_house_col", (7.0, 5.0, 3.2), (18.0, -7.0, 1.6), CONCRETE, collect=col)
     gable("pump_roof", 5.6, 7.6, 1.2, (18.0, -7.0, 3.2), RUST, parts)
+    for sy in (-1.0, 1.0):
+        prism_xz("pump_gable", 5.6, 1.2, 0.3, (18.0, -7.0 + sy * 3.8, 3.2),
+                 CONCRETE, parts)
+    soot_and_rust(parts, -9.55, [16.0, 20.0], 3.2, -1.0)
+    rubble_pile(parts, 16.0, -10.0, 0.0, 6, 51)
     box("pump_win", (1.2, 0.14, 0.8), (18.0, -9.55, 2.0), GLASS, collect=parts)
     for i in range(4):
         box("pipe", (0.45, 0.45, 14.0), (-8.0 + i * 2.0, 9.0, 0.9), METAL,
