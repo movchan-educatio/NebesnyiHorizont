@@ -104,7 +104,8 @@ func _ready() -> void:
 	level.set("_battery", 19.8)
 	await get_tree().create_timer(0.4).timeout
 	var telemetry2: Label = level.get("_telem_right")
-	if telemetry2 == null or not telemetry2.text.contains("LOW VOLTAGE!"):
+	if telemetry2 == null or not (telemetry2.text.contains("LOW VOLTAGE!")
+			or telemetry2.text.contains("НИЗЬКА НАПРУГА")):
 		printerr("[FEEDBACK] FAIL low-voltage tag missing: ",
 				telemetry2.text if telemetry2 != null else "null")
 		ok = false
