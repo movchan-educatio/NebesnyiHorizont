@@ -1167,7 +1167,10 @@ func _physics_process(delta: float) -> void:
 	_update_halt(delta)
 	var holding := _halt_left > 0.0
 	var hovering := _engaging and kind == Kind.HELI
-	if not holding and not hovering and not _retreating:
+	var tank_hold := _engaging and kind == Kind.TANK \
+			and (OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI"))
+	if not holding and not hovering and not tank_hold and not _retreating:
 		_move_along_route(delta)
 	else:
 		_step = 0.0
@@ -1193,6 +1196,19 @@ func _move_along_route(delta: float) -> void:
 			return
 
 	var desired_yaw := atan2(-flat.x, -flat.z)
+	var effective_speed_boost := 1.0
+	# Mobile Shahed intercept: steer straight at an armed drone instead of
+	# following the patrol loop when the target is close.
+	if kind == Kind.SHAHED and _drone != null and is_instance_valid(_drone) \
+			and (OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")):
+		var fc = _drone.get("flight_controller")
+		if fc != null and bool(fc.state_armed):
+			var to_drone := _drone.global_position - global_position
+			to_drone.y = 0.0
+			if to_drone.length() < 140.0 and to_drone.length_squared() > 0.01:
+				desired_yaw = atan2(-to_drone.x, -to_drone.z)
+				effective_speed_boost = 1.3
 	if meander_amplitude > 0.0 and not _engaging and kind != Kind.HELI and kind != Kind.SHAHED:
 		_weave_phase += delta * (0.75 if kind == Kind.TANK else 1.25)
 		desired_yaw += sin(_weave_phase) * meander_amplitude
@@ -1204,7 +1220,7 @@ func _move_along_route(delta: float) -> void:
 	_steer_angle = clampf(yaw_diff * 0.65, -0.46, 0.46)
 
 	# Distinct speed modulation by unit type:
-	var effective_speed := move_speed * _damage_speed_mult
+	var effective_speed := move_speed * _damage_speed_mult * effective_speed_boost
 	if kind == Kind.TRUCK and _drone != null and is_instance_valid(_drone):
 		# Reconnaissance/supply Tigr accelerates when an armed drone approaches!
 		var d_dist := global_position.distance_to(_drone.global_position)
@@ -1490,8 +1506,9 @@ func _combat_engage(delta: float) -> void:
 	# the drone close in; the helicopter orbits the target with lateral strafes.
 	if OS.get_name() == "iOS" or OS.has_feature("mobile") \
 			or OS.has_environment("MOBILE_UI"):
-		if kind == Kind.SAM or kind == Kind.BMP:
-			var keep := fire_range * 0.35
+		if kind == Kind.SAM or kind == Kind.BMP or kind == Kind.APC:
+			var keep_ratio := 0.35 if kind == Kind.SAM or kind == Kind.BMP else 0.45
+			var keep := fire_range * keep_ratio
 			if dist < keep:
 				var away := global_position - _drone.global_position
 				away.y = 0.0

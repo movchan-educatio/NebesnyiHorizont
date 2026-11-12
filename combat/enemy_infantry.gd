@@ -96,6 +96,9 @@ var _scan_phase := 0.0
 var _strafe_dir := 1.0
 var _strafe_timer := 0.0
 var _tactical_knee := false
+var _flank_timer := 0.0
+var _flank_dir := 1.0
+var _alert_forwarded := false
 
 
 func _ready() -> void:
@@ -476,6 +479,8 @@ func _physics_process(delta: float) -> void:
 		_reload_timer = maxf(0.0, _reload_timer - delta)
 	if _suppress_timer > 0.0:
 		_suppress_timer = maxf(0.0, _suppress_timer - delta)
+	else:
+		_alert_forwarded = false
 	_los_timer -= delta
 	if _los_timer <= 0.0:
 		_los_timer = 0.12
@@ -506,6 +511,21 @@ func _physics_process(delta: float) -> void:
 
 	if _burst_left > 0:
 		_set_locomotion(delta, 0.0)
+		if _mobile_visual_lod_enabled():
+			# Mobile flanking: while a burst is being walked onto the drone,
+			# the shooter sidesteps along a random flank direction so squads
+			# spread out instead of bunching on one firing line.
+			_flank_timer -= delta
+			if _flank_timer <= 0.0:
+				_flank_timer = randf_range(0.9, 1.8)
+				_flank_dir = _strafe_dir if randf() < 0.6 else -_strafe_dir
+			var side := global_transform.basis.x * _flank_dir
+			side.y = 0.0
+			var step := 1.4 * delta
+			if _can_step(side, step):
+				global_position += side * step
+				_snap_to_ground()
+				_set_locomotion(delta, 0.9)
 		_shot_cd -= delta
 		if _shot_cd <= 0.0:
 			_fire()
@@ -1002,6 +1022,12 @@ func _react_to_alert(source_pos: Vector3) -> void:
 		_panic_dir = away.normalized().rotated(Vector3.UP, randf_range(-0.5, 0.5))
 		_panic_state = 1
 		_panic_timer = randf_range(1.0, 2.0)
+	# One-hop squad suppression: a soldier who ducks can pass the alarm to a
+	# nearby mate, so a hit ripples through a tight squad without cascading
+	# across the whole map.
+	if not _alert_forwarded and randf() < 0.45:
+		_alert_forwarded = true
+		_alert_group(source_pos)
 
 
 func _flash() -> void:

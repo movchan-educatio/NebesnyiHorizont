@@ -104,5 +104,59 @@ func _run() -> void:
 	var truck_speed := float(truck.get("_step")) / 0.5
 	_check(truck_speed >= 14.5, "truck flees faster on mobile (%.1f m/s)" % truck_speed)
 
+	var apc := Vehicle.new()
+	apc.kind = Vehicle.Kind.APC
+	add_child(apc)
+	_neutralize_self_colliders(apc)
+	apc.hostile = true
+	apc.fire_range = 110.0
+	apc.move_speed = 9.0
+	apc._drone = drone
+	apc.global_position = Vector3(0, 0, 0)
+	drone.global_position = Vector3(0, 0, 40)
+	apc.call("_combat_engage", 0.1)
+	_check(bool(apc.get("_retreating")), "APC retreats under 45% of its fire range")
+
+	var tank := Vehicle.new()
+	tank.kind = Vehicle.Kind.TANK
+	add_child(tank)
+	_neutralize_self_colliders(tank)
+	tank.hostile = true
+	tank.fire_range = 125.0
+	tank.move_speed = 6.0
+	tank.meander_amplitude = 0.0
+	tank.halt_interval = 0.0
+	tank._drone = drone
+	tank._waypoints = PackedVector3Array([Vector3(0, 0, -100)])
+	tank.global_position = Vector3(0, 0, 0)
+	drone.global_position = Vector3(0, 0, 60)
+	tank.call("_combat_engage", 0.1)
+	var tank_z_before := tank.global_position.z
+	tank.call("_physics_process", 0.1)
+	_check(bool(tank.get("_engaging")) and absf(tank.global_position.z - tank_z_before) < 0.01,
+			"tank holds position while engaging on mobile")
+
+	var shahed := Vehicle.new()
+	shahed.kind = Vehicle.Kind.SHAHED
+	add_child(shahed)
+	shahed.hostile = true
+	shahed.move_speed = 14.0
+	shahed._damage_speed_mult = 1.0
+	shahed.meander_amplitude = 0.0
+	shahed._drone = drone
+	shahed._waypoints = PackedVector3Array([Vector3(0, 0, -200)])
+	shahed.global_position = Vector3(0, 0, 0)
+	drone.global_position = Vector3(0, 0, 80)
+	shahed.call("_move_along_route", 0.5)
+	shahed.call("_move_along_route", 0.5)
+	shahed.call("_move_along_route", 0.5)
+	var to_drone := drone.global_position - shahed.global_position
+	to_drone.y = 0.0
+	var forward := -shahed.global_transform.basis.z
+	forward.y = 0.0
+	var angle_deg := rad_to_deg(absf(angle_difference(atan2(-forward.x, -forward.z),
+			atan2(-to_drone.x, -to_drone.z))))
+	_check(angle_deg < 20.0, "Shahed steers at the armed drone on mobile (%.1f deg)" % angle_deg)
+
 	print("[MOBILE_VEHICLE] failures=", _failures)
 	get_tree().quit(0 if _failures == 0 else 1)
