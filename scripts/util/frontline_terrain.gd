@@ -4331,7 +4331,9 @@ static func _add_war_wear(root: Node3D, map_name: String) -> void:
 		if not (node is Node3D):
 			continue
 		var aabb := _wear_aabb(node as Node3D)
-		if aabb.size.y < 6.0 or maxf(aabb.size.x, aabb.size.z) < 8.0:
+		# Only the big halls/landmarks: dressing every shed and post (68 nodes)
+		# blew up the load on the device and its draw budget for no visual gain.
+		if aabb.size.y < 12.0 or maxf(aabb.size.x, aabb.size.z) < 10.0:
 			continue
 		if aabb.size.y > 70.0 or maxf(aabb.size.x, aabb.size.z) > 150.0:
 			continue  # not a building

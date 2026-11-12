@@ -47,6 +47,7 @@ var hud_config := {"fps": 20, "crosshair": false, "horizon": true, "ladder": fal
 		# 2 is written back and future launches skip the migration.
 		"elrs_action_defaults_version": 1,
 		"touch_invert_roll": false,
+		"touch_invert_pitch": true,
 		"mobile_input_calibration": {},
 		"osd_palette": 0,
 		"status": true,

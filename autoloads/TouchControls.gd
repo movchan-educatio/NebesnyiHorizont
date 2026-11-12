@@ -46,8 +46,14 @@ var _mode_option: OptionButton = null
 var _video_option: OptionButton = null
 var _invert_elrs_check: CheckBox = null
 var _invert_touch_check: CheckBox = null
+var _invert_touch_pitch_check: CheckBox = null
 ## Touch roll inversion (the ELRS radio has its own invert flag).
 var invert_roll := false
+## Touch pitch inversion: casual pilots expect stick-up = nose-up, which is
+## the opposite of the raw FPV (stick-up = nose-down) convention.
+var invert_pitch := true
+var _throttle_grab_y := 0.0
+var _throttle_grab_value := 0.0
 var _left_center := Vector2.ZERO
 var _right_center := Vector2.ZERO
 var _radius := 100.0
@@ -220,6 +226,7 @@ func set_enabled(value: bool) -> void:
 		var gs := get_node_or_null("/root/GameSettings")
 		if gs != null:
 			invert_roll = bool(gs.hud_config.get("touch_invert_roll", false))
+		invert_pitch = bool(gs.hud_config.get("touch_invert_pitch", true))
 		_reset_sticks()
 		_update_mode_button()
 	else:
@@ -633,6 +640,12 @@ func _build_setup_panel() -> void:
 	_invert_touch_check.add_theme_color_override("font_color", Color(0.92, 0.97, 1.0))
 	_invert_touch_check.toggled.connect(_on_invert_touch_toggled)
 	invert_box.add_child(_invert_touch_check)
+	_invert_touch_pitch_check = CheckBox.new()
+	_invert_touch_pitch_check.text = "Інверсія тангажу (сенсор)"
+	_invert_touch_pitch_check.add_theme_font_size_override("font_size", 15)
+	_invert_touch_pitch_check.add_theme_color_override("font_color", Color(0.92, 0.97, 1.0))
+	_invert_touch_pitch_check.toggled.connect(_on_invert_touch_pitch_toggled)
+	invert_box.add_child(_invert_touch_pitch_check)
 
 	var close := Button.new()
 	close.text = "ЗАКРИТИ"
@@ -704,6 +717,14 @@ func _on_invert_elrs_toggled(on: bool) -> void:
 	elrs.call("save_settings")
 
 
+func _on_invert_touch_pitch_toggled(on: bool) -> void:
+	invert_pitch = on
+	var gs := get_node_or_null("/root/GameSettings")
+	if gs != null:
+		gs.hud_config["touch_invert_pitch"] = on
+		gs.save_hud_config()
+
+
 func _on_invert_touch_toggled(on: bool) -> void:
 	invert_roll = on
 	var gs := get_node_or_null("/root/GameSettings")
@@ -746,6 +767,8 @@ func _refresh_setup() -> void:
 			_invert_elrs_check.set_pressed_no_signal(bool(elrs.get("invert_roll")))
 	if _invert_touch_check != null:
 		_invert_touch_check.set_pressed_no_signal(invert_roll)
+	if _invert_touch_pitch_check != null:
+		_invert_touch_pitch_check.set_pressed_no_signal(invert_pitch)
 	_update_setup_channels()
 
 
@@ -809,6 +832,8 @@ func _handle_touch(index: int, pos: Vector2, pressed: bool) -> bool:
 		return true
 	if _left_index == NO_TOUCH and pos.distance_to(_left_center) <= _radius * 1.35:
 		_left_index = index
+		_throttle_grab_y = pos.y
+		_throttle_grab_value = throttle
 		_update_stick(true, pos)
 		return true
 	if _right_index == NO_TOUCH and pos.distance_to(_right_center) <= _radius * 1.35:
@@ -833,8 +858,12 @@ func _update_stick(left: bool, pos: Vector2) -> void:
 	var center := _left_center if left else _right_center
 	var offset := (pos - center).limit_length(_radius)
 	if left:
-		_left_knob = offset
-		throttle = clampf(0.5 - offset.y / (2.0 * _radius), 0.0, 1.0)
+		# Relative throttle: dragging up from the grab point raises it, so the
+		# value starts at the current throttle instead of snapping to wherever
+		# the finger first lands (the old absolute mapping jumped 0% -> 50%).
+		throttle = clampf(_throttle_grab_value
+				+ (_throttle_grab_y - pos.y) / _radius, 0.0, 1.0)
+		_left_knob = Vector2(0.0, (0.5 - throttle) * 2.0 * _radius)
 		var x := offset.x / _radius
 		yaw = 0.0 if absf(x) < deadzone else clampf(x, -1.0, 1.0)
 	else:
@@ -846,6 +875,8 @@ func _update_stick(left: bool, pos: Vector2) -> void:
 			r = -r
 		roll = r
 		pitch = 0.0 if absf(y) < deadzone else clampf(y, -1.0, 1.0)
+		if invert_pitch:
+			pitch = -pitch
 	_drawer.queue_redraw()
 
 
