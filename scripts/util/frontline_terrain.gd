@@ -288,6 +288,10 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 		var pack = load("res://scripts/util/mobile_prop_pack.gd")
 		if pack != null:
 			pack.build(root, map_name)
+	# Battle smoke: burning-wreck plumes are part of the map, not a post-drone
+	# pass, so they must be added here (the old _add_smoke_plumes call lived in
+	# the dead build() function and never ran).
+	_add_smoke_plumes(root, map_name, base_y)
 
 	print("[FrontlineTerrain] built ", map_name, " (", OUTER_SIZE, " m clipmap)")
 
@@ -1598,8 +1602,10 @@ static func _add_mobile_ground_patches(root: Node3D, map_name: String) -> void:
 
 
 static func _add_wall_decals(root: Node3D, map_name: String) -> void:
-	var rust := load("res://Assets/handcrafted/textures/decal_rust.png") as Texture2D
-	var crack := load("res://Assets/handcrafted/textures/decal_crack.png") as Texture2D
+	# Procedural smooth gradients, not the low-res decal bitmaps: the PNGs read
+	# as blocky pixels once stretched over a wide facade.
+	var rust := _rust_streak_tex()
+	var crack := _crack_streak_tex()
 	if rust == null:
 		return
 	var spots: Array = []
@@ -4315,7 +4321,9 @@ static func _trim_small_shadow_casters(root: Node3D) -> void:
 ## building so the frontline reads as fought-over, not pristine.  Visual only
 ## (no collision); cheap unshaded/opaque quads and small boxes.
 static func _add_war_wear(root: Node3D, map_name: String) -> void:
-	var rust_tex := load("res://Assets/handcrafted/textures/decal_rust.png") as Texture2D
+	# Procedural smooth rust streak, not the low-res bitmap: the authored
+	# decal_rust.png reads as blocky pixels when stretched over a wide wall.
+	var rust_tex := _rust_streak_tex()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(map_name) + 7717
 	var worn := 0
@@ -4350,25 +4358,74 @@ static func _wear_building(node: Node3D, aabb: AABB, rust_tex: Texture2D,
 	var base := aabb.position.y
 	var hw := aabb.size.x * 0.5
 	var hd := aabb.size.z * 0.5
+	# Damage scales with the building so it reads from the air on the big halls
+	# without overwhelming the small sheds.
+	var wear := clampf(aabb.size.y / 12.0, 0.85, 1.8)
 	_add_wear_char(node, Vector3(hw * 0.55, base + 0.05, hd * 0.55),
-			rng.randf_range(9.0, 14.0))
+			rng.randf_range(13.0, 20.0) * wear)
 	for sx in [-1.0, 1.0]:
-		_add_wear_rubble(node, Vector3(sx * (hw + 2.0), base, hd * 0.6), rng)
+		_add_wear_rubble(node, Vector3(sx * (hw + 2.0), base, hd * 0.6), rng, wear)
 	# Shell damage on the front face: two dark impact holes with rubble beneath.
 	var hole_tex := _shell_hole_tex()
-	for i in range(2):
+	for i in range(3):
 		var hx := rng.randf_range(-hw * 0.4, hw * 0.4)
-		_add_shell_hole(node, Vector3(hx, base + rng.randf_range(2.5, 6.0),
-				hd + 0.04), rng.randf_range(2.0, 3.4), hole_tex)
-		_add_wear_rubble(node, Vector3(hx, base, hd + 1.4), rng)
+		_add_shell_hole(node, Vector3(hx, base + rng.randf_range(3.0, 7.0) * wear,
+				hd + 0.04), rng.randf_range(4.0, 7.0) * wear, hole_tex)
+		_add_wear_rubble(node, Vector3(hx, base, hd + 1.6), rng, wear)
 	if rust_tex != null:
-		_add_wear_rust(node, Vector3(0.0, base + 1.5, hd + 0.04),
-				Vector2(minf(aabb.size.x * 0.5, 15.0), 4.0), 0.0, rust_tex)
-		_add_wear_rust(node, Vector3(0.0, base + 1.7, -hd - 0.04),
-				Vector2(minf(aabb.size.x * 0.5, 15.0), 4.0), PI, rust_tex)
+		_add_wear_rust(node, Vector3(0.0, base + 2.0, hd + 0.04),
+				Vector2(minf(aabb.size.x * 0.5, 20.0), 6.0 * wear), 0.0, rust_tex)
+		_add_wear_rust(node, Vector3(0.0, base + 2.2, -hd - 0.04),
+				Vector2(minf(aabb.size.x * 0.5, 20.0), 6.0 * wear), PI, rust_tex)
 
 
 static var _shell_hole_tex_cache: Texture2D = null
+
+
+static var _rust_streak_tex_cache: Texture2D = null
+
+
+static var _crack_streak_tex_cache: Texture2D = null
+
+
+static func _crack_streak_tex() -> Texture2D:
+	if _crack_streak_tex_cache == null:
+		var grad := Gradient.new()
+		grad.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+		grad.colors = PackedColorArray([
+			Color(0.05, 0.05, 0.05, 0.0),
+			Color(0.10, 0.10, 0.10, 0.7),
+			Color(0.06, 0.06, 0.06, 0.0),
+		])
+		var tex := GradientTexture2D.new()
+		tex.gradient = grad
+		tex.width = 64
+		tex.height = 64
+		tex.fill = GradientTexture2D.FILL_LINEAR
+		tex.fill_from = Vector2(0.5, 0.0)
+		tex.fill_to = Vector2(0.5, 1.0)
+		_crack_streak_tex_cache = tex
+	return _crack_streak_tex_cache
+
+
+static func _rust_streak_tex() -> Texture2D:
+	if _rust_streak_tex_cache == null:
+		var grad := Gradient.new()
+		grad.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
+		grad.colors = PackedColorArray([
+			Color(0.34, 0.18, 0.08, 0.0),
+			Color(0.40, 0.22, 0.10, 0.55),
+			Color(0.30, 0.16, 0.07, 0.0),
+		])
+		var tex := GradientTexture2D.new()
+		tex.gradient = grad
+		tex.width = 64
+		tex.height = 64
+		tex.fill = GradientTexture2D.FILL_LINEAR
+		tex.fill_from = Vector2(0.5, 0.0)
+		tex.fill_to = Vector2(0.5, 1.0)
+		_rust_streak_tex_cache = tex
+	return _rust_streak_tex_cache
 
 
 static func _shell_hole_tex() -> Texture2D:
@@ -4427,11 +4484,11 @@ static func _add_wear_char(node: Node3D, pos: Vector3, size: float) -> void:
 
 
 static func _add_wear_rubble(node: Node3D, pos: Vector3,
-		rng: RandomNumberGenerator) -> void:
-	for i in range(8):
-		var w := rng.randf_range(0.4, 1.4)
-		var d := rng.randf_range(0.4, 1.2)
-		var h := rng.randf_range(0.2, 0.7)
+		rng: RandomNumberGenerator, wear: float = 1.0) -> void:
+	for i in range(10):
+		var w := rng.randf_range(0.5, 1.8) * wear
+		var d := rng.randf_range(0.5, 1.5) * wear
+		var h := rng.randf_range(0.25, 0.9) * wear
 		var mi := MeshInstance3D.new()
 		var bm := BoxMesh.new()
 		bm.size = Vector3(w, h, d)
@@ -4442,8 +4499,8 @@ static func _add_wear_rubble(node: Node3D, pos: Vector3,
 		mat.roughness = 0.9
 		mi.material_override = mat
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		mi.position = pos + Vector3(rng.randf_range(-2.2, 2.2), h * 0.5,
-				rng.randf_range(-2.2, 2.2))
+		mi.position = pos + Vector3(rng.randf_range(-2.8, 2.8) * wear, h * 0.5,
+				rng.randf_range(-2.8, 2.8) * wear)
 		mi.rotation = Vector3(rng.randf_range(-0.4, 0.4),
 				rng.randf_range(0.0, TAU), 0.0)
 		node.add_child(mi)
@@ -7627,43 +7684,66 @@ static func _material_key(mat: Material, include_color := true) -> String:
 
 
 static func _add_smoke_plumes(root: Node3D, map_name: String, _base_y: float) -> void:
-	# Cheap, readable smoke: three stacked soft billboards per plume.  The
-	# radial alpha texture is what makes them read as smoke instead of the
-	# hard-edged transparent rectangles the old material produced.
+	# Cheap, readable smoke: three stacked soft billboards per plume plus an
+	# additive fire glow at the base.  The radial alpha texture is what makes
+	# them read as smoke instead of hard-edged rectangles.
 	var smoke_mat := StandardMaterial3D.new()
-	smoke_mat.albedo_color = Color(0.34, 0.32, 0.30, 0.42)
+	smoke_mat.albedo_color = Color(0.20, 0.19, 0.18, 0.62)
 	smoke_mat.albedo_texture = _soft_smoke_texture()
 	smoke_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	smoke_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	smoke_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	smoke_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	smoke_mat.disable_receive_shadows = true
+	var fire_mat := StandardMaterial3D.new()
+	fire_mat.albedo_color = Color(1.0, 0.5, 0.16, 0.8)
+	fire_mat.albedo_texture = _soft_smoke_texture()
+	fire_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	fire_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	fire_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	fire_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	fire_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	fire_mat.disable_receive_shadows = true
 	var quad := QuadMesh.new()
-	quad.size = Vector2(14.0, 22.0)
+	quad.size = Vector2(16.0, 26.0)
+	var fire_quad := QuadMesh.new()
+	fire_quad.size = Vector2(8.0, 6.0)
 	var spots: Array = []
 	match map_name:
 		"village":
-			spots = [Vector2(20, -70), Vector2(-210, 90), Vector2(120, -110)]
+			spots = [Vector2(20, -70), Vector2(-210, 90), Vector2(120, -110),
+					Vector2(150, 20), Vector2(230, 90)]
 		"industrial":
-			spots = [Vector2(-120, -40), Vector2(-170, -75), Vector2(60, -80)]
+			spots = [Vector2(-120, -40), Vector2(-170, -75), Vector2(60, -80),
+					Vector2(90, 30), Vector2(-60, 20)]
 		"wetlands":
-			spots = [Vector2(-120, -40), Vector2(180, -140)]
+			spots = [Vector2(-120, -40), Vector2(180, -140), Vector2(40, 10),
+					Vector2(140, 90)]
 		_:
-			spots = [Vector2(-170, -110), Vector2(95, -100), Vector2(205, -55)]
+			spots = [Vector2(-170, -110), Vector2(95, -100), Vector2(205, -55),
+					Vector2(150, 80), Vector2(240, 140)]
 	for p in spots:
 		var y := _height(map_name, p.x, p.y)
 		var plume := SmokePlume.new()
-		plume.position = Vector3(p.x, y + 10.0, p.y)
+		plume.position = Vector3(p.x, y + 8.0, p.y)
 		plume.setup(float(p.x) * 0.11 + float(p.y) * 0.07)
 		root.add_child(plume)
 		for i in range(3):
 			var mi := MeshInstance3D.new()
 			mi.mesh = quad
 			mi.material_override = smoke_mat
-			mi.position = Vector3(float(i) * 3.0, float(i) * 14.0, 0.0)
+			mi.position = Vector3(float(i) * 3.0, float(i) * 16.0, 0.0)
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			plume.add_child(mi)
-			plume.register_quad(mi, float(i) * 14.0)
+			plume.register_quad(mi, float(i) * 16.0)
+		# Flickering fire glow at the base.
+		var fire := MeshInstance3D.new()
+		fire.mesh = fire_quad
+		fire.material_override = fire_mat
+		fire.position = Vector3(0.0, 1.2, 0.0)
+		fire.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		plume.add_child(fire)
+		plume.register_quad(fire, 0.6)
 
 
 static func _soft_smoke_texture() -> GradientTexture2D:

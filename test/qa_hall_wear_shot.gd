@@ -30,7 +30,20 @@ func _run() -> void:
 	drone.freeze = true
 	var hall := level.find_child("HeroHall_steppe", true, false) as Node3D
 	if hall != null:
-		var c := hall.global_position + Vector3.UP * 6.0
+		# Close-up of the front wall so the shell holes, rust and rubble are
+		# actually visible, then one wider shot for context.
+		var c := hall.global_position + Vector3.UP * 4.0
+		var front := hall.to_global(Vector3(0.0, 5.0, 40.0))
+		drone.global_position = front
+		drone.look_at(hall.to_global(Vector3(0.0, 6.0, 0.0)), Vector3.UP)
+		drone.linear_velocity = Vector3.ZERO
+		drone.angular_velocity = Vector3.ZERO
+		await get_tree().process_frame
+		await get_tree().process_frame
+		await RenderingServer.frame_post_draw
+		var img := get_viewport().get_texture().get_image()
+		var err := img.save_png(output.path_join("hall_steppe_close.png"))
+		print("[HALL_SHOT] close err=", err)
 		drone.global_position = c + Vector3(60.0, 26.0, 60.0)
 		drone.look_at(c, Vector3.UP)
 		drone.linear_velocity = Vector3.ZERO
@@ -38,9 +51,9 @@ func _run() -> void:
 		await get_tree().process_frame
 		await get_tree().process_frame
 		await RenderingServer.frame_post_draw
-		var img := get_viewport().get_texture().get_image()
-		var err := img.save_png(output.path_join("hall_steppe.png"))
-		print("[HALL_SHOT] hall=", hall != null, " err=", err)
+		var img2 := get_viewport().get_texture().get_image()
+		var err2 := img2.save_png(output.path_join("hall_steppe_wide.png"))
+		print("[HALL_SHOT] wide err=", err2)
 	else:
 		print("[HALL_SHOT] HeroHall not found")
 	get_tree().quit(0)
