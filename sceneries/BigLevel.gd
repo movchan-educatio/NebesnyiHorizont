@@ -224,14 +224,7 @@ func _ready() -> void:
 		QuadSettings.custom_rates = false
 		DroneCatalog.apply(0)
 
-	GameSettings.hud_config["crosshair"] = true
-	GameSettings.hud_config["status"] = false
-	GameSettings.hud_config["horizon"] = false
-	GameSettings.hud_config["speed"] = false
-	GameSettings.hud_config["altitude"] = false
-	GameSettings.hud_config["heading"] = false
-	GameSettings.hud_config["sticks"] = true
-	GameSettings.hud_config["osd"] = true
+	_apply_flight_hud_defaults()
 
 	_map_root = get_node_or_null("MapRoot") as Node3D
 	_triggers = get_node_or_null("Triggers") as Node3D
@@ -5424,7 +5417,10 @@ func _close_chain_briefing() -> void:
 		_chain_brief.visible = false
 	get_tree().paused = false
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
-	_set_flash("SPACE — УВІМКНУТИ ДВИГУНИ · ПІСЛЯ АРМУ ПОЧНЕТЬСЯ МІСІЯ")
+	if _is_mobile_runtime():
+		_set_flash("АРМ — УВІМКНУТИ ДВИГУНИ · ПІСЛЯ АРМУ ПОЧНЕТЬСЯ МІСІЯ")
+	else:
+		_set_flash("SPACE — УВІМКНУТИ ДВИГУНИ · ПІСЛЯ АРМУ ПОЧНЕТЬСЯ МІСІЯ")
 
 
 func _set_flash(text: String) -> void:
@@ -5458,6 +5454,14 @@ func _format_countdown(seconds_left: float) -> String:
 	return "%02d:%02d" % [minutes, seconds]
 
 
+func _idle_start_hint() -> String:
+	if Global.play_mode == Global.PlayMode.CHAOS:
+		return "« БІЙ УЖЕ ЙДЕ »"
+	if _is_mobile_runtime():
+		return "« ГОТОВИЙ ДО СТАРТУ — НАТИСНІТЬ АРМ »"
+	return "« ГОТОВИЙ ДО СТАРТУ — SPACE ДЛЯ ЗАПУСКУ »"
+
+
 func _update_nav_marker() -> void:
 	if _nav_marker == null:
 		return
@@ -5466,9 +5470,7 @@ func _update_nav_marker() -> void:
 		_nav_marker.text = ""
 		return
 	if not _mission_started:
-		var idle_text := "« ГОТОВИЙ ДО СТАРТУ — SPACE ДЛЯ ЗАПУСКУ »"
-		if Global.play_mode == Global.PlayMode.CHAOS:
-			idle_text = "« БІЙ УЖЕ ЙДЕ »"
+		var idle_text := _idle_start_hint()
 		if _nav_marker.text != idle_text:
 			_nav_marker.text = idle_text
 			_nav_marker.add_theme_color_override("font_color", Color(0.92, 0.69, 0.21, 0.95))
@@ -6492,6 +6494,21 @@ func _refresh_model_visibility() -> void:
 			(pivot as Node3D).visible = third_person or bool(
 				preset_now.get("fpv_show_airframe", false)) \
 				or (mobile_side_props and front_pivot)
+
+
+## The mobile HUD is customized and persisted by the player. Loading a level
+## must not silently overwrite those preferences. Keep legacy non-mobile defaults.
+func _apply_flight_hud_defaults() -> void:
+	if _is_mobile_runtime():
+		return
+	GameSettings.hud_config["crosshair"] = true
+	GameSettings.hud_config["status"] = false
+	GameSettings.hud_config["horizon"] = false
+	GameSettings.hud_config["speed"] = false
+	GameSettings.hud_config["altitude"] = false
+	GameSettings.hud_config["heading"] = false
+	GameSettings.hud_config["sticks"] = true
+	GameSettings.hud_config["osd"] = true
 
 
 func _is_mobile_runtime() -> bool:

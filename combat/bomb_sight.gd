@@ -128,7 +128,7 @@ func _draw() -> void:
 	var wind_speed := wind.length()
 	var wind_dir := _compass_arrow(wind)
 	var left_lines := [
-		"BABA YAGA · %s" % ("BOMB SIGHT" if bomb_view else "CCIP"),
+		"%s · %s" % [_airframe_label(), "BOMB SIGHT" if bomb_view else "CCIP"],
 		"ALT  %4.0f m    GS  %3.0f km/h" % [alt, gs],
 		"WIND %3.1f m/s %s    TOF %3.1f s" % [wind_speed, wind_dir, tof],
 		"DRIFT  %4.1f m    AMMO %d" % [drift.length(), _ammo()],
@@ -145,14 +145,12 @@ func _draw() -> void:
 				msg, HORIZONTAL_ALIGNMENT_LEFT, -1, 24,
 				Color(0.45, 1.0, 0.48, 1.0))
 	if not bomb_view:
-		var hint := "T — тепловізор" if not MenuUI.is_english() \
-				else "T — thermal"
+		var hint := _control_hint(false)
 		draw_string(_font, Vector2(22, view.y - 24), hint,
 				HORIZONTAL_ALIGNMENT_LEFT, -1, 14,
 				Color(0.7, 0.84, 0.72, 0.8))
 	else:
-		var hint2 := "G — скид   T — тепловізор" if not MenuUI.is_english() \
-				else "G — release   T — thermal"
+		var hint2 := _control_hint(true)
 		draw_string(_font, Vector2(view.x * 0.5 - 170, view.y - 22), hint2,
 				HORIZONTAL_ALIGNMENT_LEFT, -1, 14,
 				Color(0.7, 0.84, 0.72, 0.8))
@@ -160,6 +158,27 @@ func _draw() -> void:
 		draw_string(_font, Vector2(view.x - 132, 30), "THERMAL · WHITE HOT",
 				HORIZONTAL_ALIGNMENT_LEFT, -1, 15,
 				Color(1.0, 0.82, 0.48, 0.95))
+
+
+func _airframe_label() -> String:
+	if OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI"):
+		var preset: Dictionary = DroneCatalog.preset(Global.drone_preset)
+		var name_key := "name_en" if MenuUI.is_english() else "name"
+		return String(preset.get(name_key, preset.get("name", "ДРОН")))
+	return "BABA YAGA"
+
+
+func _control_hint(in_bomb_view: bool) -> String:
+	if OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI"):
+		if MenuUI.is_english():
+			return "DROP — release   VIDEO — image" if in_bomb_view else "VIDEO — image mode"
+		return "СКИД — боєприпас   ВІДЕО — зображення" if in_bomb_view \
+				else "ВІДЕО — режим зображення"
+	if in_bomb_view:
+		return "G — release   T — thermal" if MenuUI.is_english() else "G — скид   T — тепловізор"
+	return "T — thermal" if MenuUI.is_english() else "T — тепловізор"
 
 
 func _ammo() -> int:

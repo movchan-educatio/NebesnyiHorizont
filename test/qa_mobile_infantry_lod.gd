@@ -2,6 +2,7 @@ extends Node3D
 
 ## Mobile-only regression test for infantry model/procedural-animation LOD.
 const TEST_NAME := "MOBILE_INFANTRY_LOD"
+var _failures := 0
 
 
 func _ready() -> void:
@@ -11,6 +12,8 @@ func _ready() -> void:
 
 func _check(ok: bool, label: String) -> void:
 	print("[", TEST_NAME, "] ", "PASS " if ok else "FAIL ", label)
+	if not ok:
+		_failures += 1
 
 
 func _run() -> void:
@@ -33,6 +36,17 @@ func _run() -> void:
 	var rig := soldier.get("_detailed_rig") as DetailedSoldierRig
 	_check(float(rig.get("_mobile_animation_hz")) == 30.0,
 			"near LOD updates procedural animation at 30 Hz")
+	# Imported GLB bones carry numeric suffixes; use the rig's resolved index.
+	var thigh := int(rig.get("_b_thigh_l"))
+	_check(thigh >= 0, "left thigh bone available for pose rate test")
+	if thigh >= 0:
+		var original_pose := rig.skeleton.get_bone_pose_rotation(thigh)
+		rig.set_walk(PI * 0.5, 1.0)
+		_check(rig.skeleton.get_bone_pose_rotation(thigh).is_equal_approx(original_pose),
+				"set_walk does not bypass the mobile pose rate limit")
+		rig.call("_process", 1.0 / 30.0)
+		_check(not rig.skeleton.get_bone_pose_rotation(thigh).is_equal_approx(original_pose),
+				"walk pose updates on the next scheduled mobile tick")
 	rig.set_walk(0.0, 0.45)
 	_check(float(rig.get("_run_blend")) == 0.0, "procedural walk cycle uses its walk stride")
 	rig.set_walk(0.0, 1.35)
@@ -66,6 +80,18 @@ func _run() -> void:
 			and bool(soldier.get("_model").visible)
 			and not bool(soldier.get("_lod_proxy").visible),
 			"near LOD restores rig and animation after far culling")
+	# No Drone is present in this test scene; visual LOD must still follow the
+	# camera instead of freezing behind the AI's no-drone early return.
+	camera.global_position = Vector3(0, 1.5, 300)
+	soldier.call("_physics_process", 0.3)
+	_check(float(rig.get("_mobile_animation_hz")) == 0.0
+			and not bool(soldier.get("_model").visible),
+			"camera-based far LOD updates even without a Drone")
+	camera.global_position = Vector3(0, 1.5, 50)
+	soldier.call("_physics_process", 0.3)
+	_check(float(rig.get("_mobile_animation_hz")) == 30.0
+			and bool(soldier.get("_model").visible),
+			"camera-based near LOD recovers without a Drone")
 	var breath_before := float(rig.get("_breath_phase"))
 	rig.call("_process", 1.0 / 30.0)
 	_check(not is_equal_approx(float(rig.get("_breath_phase")), breath_before),
@@ -85,4 +111,5 @@ func _run() -> void:
 	_check(float(rig.get("_hit_flinch")) == 1.0, "hit reaction animation can be triggered")
 	rig.play_death(0)
 	_check(bool(rig.get("_dead")), "death pose can be triggered")
-	get_tree().quit(0)
+	print("[", TEST_NAME, "] failures=", _failures)
+	get_tree().quit(0 if _failures == 0 else 1)

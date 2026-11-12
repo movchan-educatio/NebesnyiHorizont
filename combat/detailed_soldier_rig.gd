@@ -212,7 +212,10 @@ func set_walk(phase: float, stride: float) -> void:
 		_run_blend = clampf((_walk_stride - 0.78) / 0.57, 0.0, 1.0)
 	else:
 		_run_blend = 0.0
-	_update_pose(0.0)
+	# Mobile LOD applies the latest walk parameters on its next pose tick. Calling
+	# this from every physics frame would otherwise bypass the 30/15 Hz cap.
+	if _mobile_animation_hz < 0.0:
+		_update_pose(0.0)
 
 
 func set_crouch(crouching: bool) -> void:

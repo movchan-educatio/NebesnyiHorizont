@@ -21,10 +21,16 @@ static func setup_world_environment(env: Environment) -> void:
 		env.sky = Sky.new()
 	
 	var hdr_path := "res://Assets/sky_cloudy_1k.hdr"
+	var mobile_sky := OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")
 	if ResourceLoader.exists(hdr_path):
 		var pano_mat := PanoramaSkyMaterial.new()
 		pano_mat.panorama = load(hdr_path)
 		env.sky.sky_material = pano_mat
+		# The 1k panorama is not perfectly seamless. On phones, turn its seam
+		# behind the usual starting heading instead of showing it down the nose.
+		if mobile_sky and not OS.has_environment("QA_NO_MOBILE_SKY_ROTATION"):
+			env.sky_rotation.y = PI
 	elif not (env.sky.sky_material is ProceduralSkyMaterial):
 		var sky_mat := ProceduralSkyMaterial.new()
 		sky_mat.sky_top_color = Color(0.20, 0.42, 0.74, 1.0)

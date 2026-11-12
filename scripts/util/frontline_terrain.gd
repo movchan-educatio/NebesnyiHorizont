@@ -1635,6 +1635,10 @@ static func _ground_material(map_name: String) -> ShaderMaterial:
 		},
 	}
 	var conf: Dictionary = cfg.get(map_name, cfg["steppe"])
+	if (OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")) \
+			and not OS.has_environment("QA_NO_MOBILE_PALETTE"):
+		conf = _mobile_ground_palette(map_name, conf)
 	for key in conf:
 		if uniforms.has(key):
 			mat.set_shader_parameter(key, conf[key])
@@ -1651,6 +1655,28 @@ static func _ground_material(map_name: String) -> ShaderMaterial:
 	else:
 		mat.set_shader_parameter("wet_falloff", 4.0)
 	return mat
+
+
+## Mobile-only colour grading of existing terrain textures. No new texture or
+## shader samples are introduced; each map keeps its authored surface layers.
+static func _mobile_ground_palette(map_name: String, source: Dictionary) -> Dictionary:
+	var conf := source.duplicate(true)
+	match map_name:
+		"steppe":
+			conf["grass_tint"] = Color(0.78, 0.76, 0.51)
+			conf["macro_contrast"] = 0.34
+		"village":
+			conf["grass_tint"] = Color(0.67, 0.80, 0.45)
+			conf["macro_contrast"] = 0.34
+		"industrial":
+			conf["grass_tint"] = Color(0.58, 0.65, 0.44)
+			conf["dirt_tint"] = Color(0.70, 0.64, 0.56)
+			conf["macro_contrast"] = 0.32
+		"wetlands":
+			conf["grass_tint"] = Color(0.49, 0.68, 0.44)
+			conf["mud_tint"] = Color(0.49, 0.56, 0.45)
+			conf["macro_contrast"] = 0.38
+	return conf
 
 
 static func _mat(color: Color, rough: float = 0.9, metal: float = 0.0) -> StandardMaterial3D:
@@ -3831,6 +3857,13 @@ static func _build_hall_sites(root: Node3D, map_name: String) -> void:
 		"wetlands":
 			hall_len = 104.0
 			hall_hw = 24.0
+	# Small mobile-only facade signs make otherwise similar hall silhouettes
+	# navigable from FPV without moving collision, spawn, or authored geometry.
+	if (OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")) \
+			and not OS.has_environment("QA_NO_MOBILE_HALL_SIGNS"):
+		_add_mobile_hall_wayfinding(hall, map_name, hall_hw,
+				float(site.get("roof_height", 18.0)))
 	var deck := MeshInstance3D.new()
 	deck.name = "HallFloor_" + map_name
 	var deck_mesh := PlaneMesh.new()
@@ -4427,6 +4460,51 @@ static func _add_hall_props(root: Node3D, hall: Node3D, site: Dictionary,
 		var pos := hall.to_global(Vector3(local.x, 0.70, local.y))
 		ASSETS.spawn_prop(root, name, pos, float(entry[2]) + hall.rotation.y,
 				float(entry[3]))
+
+
+## A single contextual sign on the existing hall, rather than a new obstacle.
+## It is attached to the facade and uses one background quad and one text draw.
+static func _add_mobile_hall_wayfinding(hall: Node3D, map_name: String,
+		half_width: float, roof_height: float) -> void:
+	if hall == null or hall.get_node_or_null("MobileHallWayfinding") != null:
+		return
+	var names := {
+		"steppe": "АГРОСКЛАД",
+		"village": "СІЛЬСЬКИЙ СКЛАД",
+		"industrial": "ЦЕХ 01",
+		"wetlands": "ПРИЧАЛ",
+	}
+	if not names.has(map_name):
+		return
+	var sign := Node3D.new()
+	sign.name = "MobileHallWayfinding"
+	sign.position = Vector3(0.0, clampf(roof_height * 0.62, 7.0, 12.0),
+			half_width + 3.1)
+	hall.add_child(sign)
+	var panel := MeshInstance3D.new()
+	panel.name = "SignPanel"
+	var quad := QuadMesh.new()
+	quad.size = Vector2(18.0, 2.8)
+	panel.mesh = quad
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(0.12, 0.16, 0.13)
+	material.roughness = 1.0
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	panel.material_override = material
+	panel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	panel.visibility_range_end = 300.0
+	sign.add_child(panel)
+	var label := Label3D.new()
+	label.name = "SignText"
+	label.text = String(names[map_name])
+	label.font_size = 100
+	label.pixel_size = 0.014
+	label.modulate = Color(0.87, 0.85, 0.72)
+	label.outline_size = 3
+	label.position.z = 0.025
+	label.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	label.visibility_range_end = 300.0
+	sign.add_child(label)
 
 
 static func _apply_hall_materials(node: Node, theme: String = "industrial") -> void:

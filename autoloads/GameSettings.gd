@@ -106,7 +106,11 @@ func load_hud_config() -> void:
 						hud_config[key] = value
 					elif value is bool:
 						hud_config[key] = value
-		hud_config["crosshair"] = false
+		# Preserve an explicitly saved mobile HUD preference across app launches.
+		# The legacy non-mobile path retains its previous default/reset behavior.
+		if not (OS.get_name() == "iOS" or OS.has_feature("mobile") \
+				or OS.has_environment("MOBILE_UI")):
+			hud_config["crosshair"] = false
 		# Migration for settings files written before the realism profile
 		# existed.  REB used to be bundled into "link_limit", so keep that
 		# behaviour for an existing player, then infer the closest preset.

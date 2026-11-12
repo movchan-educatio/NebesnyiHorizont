@@ -25,6 +25,9 @@ const NO_DATA := 62058
 const ACTIVATE_INTERVAL := 4.0
 const STALE_MS := 3000
 const CENTER := 16384.0
+const MOBILE_FORMAT_UNKNOWN := 0
+const MOBILE_FORMAT_15BIT := 1
+const MOBILE_FORMAT_CRSF := 2
 
 ## v2 moved every optional AUX action off the channel map.  The old defaults
 ## put pause, turtle, weather and respawn on CH13-CH16, which meant a normal
@@ -88,6 +91,10 @@ var _switch_state := {}
 var _switch_ready := false
 var _baseline_channels := PackedFloat32Array()
 var _armed_level_state := false
+## Input packet range is detected once per connection from the complete primary
+## channel frame, not from an individual throttle value. Gameplay always reads
+## canonical 15-bit channels so axes, calibration and AUX share one scale.
+var _mobile_channel_format := MOBILE_FORMAT_UNKNOWN
 
 
 func _ready() -> void:
@@ -120,6 +127,10 @@ func _process(_delta: float) -> void:
 	var now := Time.get_ticks_msec()
 	if valid and now - _last_frame_ms > STALE_MS:
 		valid = false
+		if OS.get_name() == "iOS" or OS.has_feature("mobile") \
+				or OS.has_environment("MOBILE_UI"):
+			_mobile_channel_format = MOBILE_FORMAT_UNKNOWN
+			sync_switches()
 		status_text = "ELRS: НЕМАЄ ДАНИХ"
 		emit_signal("status_changed", status_text)
 		channels.fill(CENTER)
@@ -163,8 +174,22 @@ func _parse_channels(packet: PackedByteArray, ip: String) -> void:
 		if value == NO_DATA:
 			return
 		fresh[i] = float(value)
-	channels = fresh
 	var was_valid := valid
+	if OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI"):
+		if not was_valid:
+			_mobile_channel_format = MOBILE_FORMAT_UNKNOWN
+		fresh = _canonical_mobile_frame(fresh)
+		if _mobile_channel_format == MOBILE_FORMAT_UNKNOWN:
+			# An ambiguous frame must not be interpreted as full negative stick
+			# input or as an armed switch. Wait for identifiable centered axes.
+			module_ip = ip
+			var waiting := "ELRS: ВИРІВНЯЙТЕ СТІКИ"
+			if status_text != waiting:
+				status_text = waiting
+				emit_signal("status_changed", status_text)
+			return
+	channels = fresh
 	valid = true
 	module_ip = ip
 	_last_frame_ms = Time.get_ticks_msec()
@@ -172,6 +197,45 @@ func _parse_channels(packet: PackedByteArray, ip: String) -> void:
 	if not was_valid:
 		emit_signal("status_changed", status_text)
 	_update_switches()
+
+
+## The documented ELRS WiFi protocol uses 15-bit samples. Some native CRSF
+## sources use 172..1811 instead. Their numeric domains overlap, so a lone
+## throttle sample cannot identify the format. Select CRSF only if the entire
+## primary frame fits and at least two axes are near its centre; otherwise keep
+## 15-bit readings until the frame supplies evidence. Reset on disconnect.
+func _canonical_mobile_frame(raw: PackedFloat32Array) -> PackedFloat32Array:
+	if raw.size() < 4:
+		return raw
+	var primary: Array[int] = []
+	for key in ["roll", "pitch", "throttle", "yaw"]:
+		var index := int(channel_map.get(key, -1))
+		if index < 0 or index >= raw.size() or primary.has(index):
+			return raw
+		primary.append(index)
+	var native_range := true
+	var above_native := false
+	var centred_axes := 0
+	for index in primary:
+		var value := float(raw[index])
+		native_range = native_range and value >= 172.0 and value <= 1811.0
+		above_native = above_native or value > 2048.0
+		if value >= 792.0 and value <= 1192.0:
+			centred_axes += 1
+	if _mobile_channel_format == MOBILE_FORMAT_UNKNOWN:
+		if above_native:
+			_mobile_channel_format = MOBILE_FORMAT_15BIT
+		elif native_range and centred_axes >= 2:
+			_mobile_channel_format = MOBILE_FORMAT_CRSF
+	elif _mobile_channel_format == MOBILE_FORMAT_CRSF and above_native:
+		# An initially ambiguous low 15-bit frame can become unambiguous later.
+		_mobile_channel_format = MOBILE_FORMAT_15BIT
+	if _mobile_channel_format != MOBILE_FORMAT_CRSF:
+		return raw
+	var converted := raw.duplicate()
+	for i in range(converted.size()):
+		converted[i] = clampf((raw[i] - 172.0) / 1639.0, 0.0, 1.0) * 32767.0
+	return converted
 
 
 func _try_activate(ip: String) -> void:
@@ -252,15 +316,9 @@ func throttle() -> float:
 		return -1.0
 	var ch := int(channel_map.get("throttle", 2))
 	var raw_val := _raw(ch)
-	# ExpressLRS WiFi has been seen with both the app-normalised 0..32767
-	# range and native CRSF 172..1811 range.  Detect the latter before scaling:
-	# dividing 1811 by 32767 compresses the whole throttle into the bottom 5.5%,
-	# which feels like an abrupt 0-to-mid-stick jump during takeoff.
-	var is_mobile := OS.get_name() == "iOS" or OS.has_feature("mobile") \
-			or OS.has_environment("MOBILE_UI")
-	var val := clampf((raw_val - 172.0) / (1811.0 - 172.0), 0.0, 1.0) \
-			if is_mobile and raw_val <= 2048.0 \
-			else clampf(raw_val / 32767.0, 0.0, 1.0)
+	# Mobile native CRSF frames are canonicalized during packet parsing; never
+	# select a range from this single value, whose domains overlap.
+	var val := clampf(raw_val / 32767.0, 0.0, 1.0)
 	if invert_throttle:
 		val = 1.0 - val
 	# Bottom deadband so resting at bottom reads exact 0.0% and never fails THROTTLE_HIGH

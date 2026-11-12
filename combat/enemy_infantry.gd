@@ -449,6 +449,10 @@ func _mobile_visual_lod_enabled() -> bool:
 func _physics_process(delta: float) -> void:
 	if is_destroyed or _disabled:
 		return
+	# Visual LOD follows the camera independently of AI distance throttling or
+	# the presence of a drone. Use every frame's delta for its 0.25 s timer.
+	if _mobile_visual_lod_enabled():
+		_update_lod(delta)
 	if _drone == null or not is_instance_valid(_drone):
 		_drone = get_tree().current_scene.get_node_or_null("Drone") as Drone
 	if _drone == null:
@@ -463,7 +467,6 @@ func _physics_process(delta: float) -> void:
 		if _ai_tick % step != 0:
 			return
 
-	_update_lod(delta)
 	_apply_recoil(delta)
 	if _reload_timer > 0.0:
 		_reload_timer = maxf(0.0, _reload_timer - delta)

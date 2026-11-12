@@ -67,10 +67,13 @@ func _notification(what: int) -> void:
 			or OS.has_feature("mobile") or OS.has_environment("MOBILE_UI")):
 		return
 	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
-		_application_suspended = true
-		_resume_bus_mutes.clear()
-		for i in range(AudioServer.bus_count):
-			_resume_bus_mutes.append(AudioServer.is_bus_mute(i))
+		# iOS may send focus-out and pause for the same interruption. Preserve
+		# the original user mute state rather than recording an OS mute twice.
+		if not _application_suspended:
+			_application_suspended = true
+			_resume_bus_mutes.clear()
+			for i in range(AudioServer.bus_count):
+				_resume_bus_mutes.append(AudioServer.is_bus_mute(i))
 	elif _application_suspended and (what == NOTIFICATION_APPLICATION_RESUMED \
 			or what == NOTIFICATION_APPLICATION_FOCUS_IN):
 		_application_suspended = false

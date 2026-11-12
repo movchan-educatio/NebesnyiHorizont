@@ -74,15 +74,18 @@ func _run() -> void:
 		# throttle. Values must rise smoothly rather than jump 0 -> 50%.
 		var saved_channels: PackedFloat32Array = elrs.get("channels")
 		var saved_valid := bool(elrs.get("valid"))
+		var saved_throttle_invert := bool(elrs.get("invert_throttle"))
+		var saved_mobile_format := int(elrs.get("_mobile_channel_format"))
 		var linear_channels := PackedFloat32Array()
 		linear_channels.resize(16)
-		linear_channels.fill(16384.0)
+		linear_channels.fill(992.0)
 		elrs.set("valid", true)
 		elrs.set("invert_throttle", false)
+		elrs.set("_mobile_channel_format", 0) # unknown before first frame
 		var throttle_samples: Array[float] = []
 		for raw in [172.0, 582.0, 992.0, 1401.0, 1811.0]:
 			linear_channels[2] = raw
-			elrs.set("channels", linear_channels)
+			elrs.set("channels", elrs.call("_canonical_mobile_frame", linear_channels))
 			throttle_samples.append(float(elrs.call("throttle")))
 		var throttle_linear := true
 		for i in range(1, throttle_samples.size()):
@@ -92,6 +95,8 @@ func _run() -> void:
 				"left ELRS stick CRSF mid-range is normalized smoothly")
 		elrs.set("channels", saved_channels)
 		elrs.set("valid", saved_valid)
+		elrs.set("invert_throttle", saved_throttle_invert)
+		elrs.set("_mobile_channel_format", saved_mobile_format)
 		elrs.call("set_action_channel", "deploy_payload", 0)
 		_check(int(elrs.call("get_action_channel", "deploy_payload")) != 0,
 				"actions cannot bind to a stick channel")
@@ -261,6 +266,8 @@ func _run() -> void:
 		AudioServer.set_bus_mute(0, false)
 		audio.call("_notification", Node.NOTIFICATION_APPLICATION_PAUSED)
 		AudioServer.set_bus_mute(0, true)
+		# Both focus and pause can occur during a single iOS interruption.
+		audio.call("_notification", Node.NOTIFICATION_APPLICATION_FOCUS_OUT)
 		audio.call("_notification", Node.NOTIFICATION_APPLICATION_RESUMED)
 		await get_tree().process_frame
 		_check(not AudioServer.is_bus_mute(0), "audio output resumes after app interruption")

@@ -6,13 +6,15 @@
 
 | Requirement | Result | Evidence |
 |---|---|---|
-| Touch/ELRS deadzone and smoothing | Implemented through the shared `Controls.apply_stick_filter` path; touch and ELRS yaw/roll/pitch use it. CRSF native throttle 172–1811 is normalized. | `qa_video_fixes` mobile run: PASS, including new smoothing-slider check. |
-| iOS audio resume | App pause/resume notifications restore bus mute state and reapply volume settings; intentional mute is preserved. | `qa_video_fixes`: resume and intentional-mute checks PASS (notification simulation, not a physical call/Siri test). |
+| Touch/ELRS deadzone and smoothing | Implemented through the shared `Controls.apply_stick_filter` path; touch and ELRS yaw/roll/pitch use it. Native CRSF packets are normalized from the complete channel frame to a single 15-bit scale, removing the 2048/2049 throttle jump and aligning AUX switches. | `qa_video_fixes` 48 PASS checks; `qa_mobile_elrs_protocol` 13 PASS checks. Physical transmitter validation still required. |
+| iOS audio resume | App pause/resume notifications restore bus mute state and reapply volume settings; intentional mute is preserved, including repeated focus-out/pause notifications in one interruption. | `qa_video_fixes`: resume and intentional-mute checks PASS (notification simulation, not a physical call/Siri test). |
+| Touch/mobile UI | Launch prompts refer to ARM instead of SPACE; the bomb sight uses mobile DROP/VIDEO hints and the selected airframe name; saved HUD preferences are no longer overwritten on level start. | `qa_mobile_hud_preferences`: 7 PASS checks; `qa_mobile_map_cards`: headless card-resource PASS and non-headless menu screenshot captured. |
+| Existing map presentation | Steppe, Village, Industrial and Wetlands now have distinct mobile ground grading, contextual hall signs, a corrected panorama seam, and real FPV screenshots on the map cards instead of empty top-down previews. | `qa_mobile_map_identity`: 20 PASS checks; four map views generated with zero script/parse errors; before/after images in `docs/ios/mobile_audit_2026/`. Deeper route/density art pass remains open. |
 | Fixed-wing FPV and integrated payload | Mobile presets 13/14/15 show airframe and route the BЧ button to `activate_payload`; Leleka/Furia pusher props animate. | `qa_video_fixes`: all mobile payload, airframe, prop-animation checks PASS. |
 | Mobile GLB optimization | Leleka 118→25 mesh objects / 119→26 primitives; Furia 68→24 / 69→25; Chaklun 49→13 / 49→13; Apache 46→26. | `tools/audit_mobile_assets.py`: all four pairs PASS; bounds delta ≤0.000778 m. |
 | Vehicle LOD | Full model under 180 m, simple proxy 180–480 m, hidden beyond 480 m. | `qa_mobile_apache`: PASS for mobile mesh selection, proxy, and far hide. |
 | Infantry mesh | The actual runtime asset is `soldier_detailed_merged.glb`: one skinned body mesh/primitive. The separate `rifleman_merged.glb` is not used by combat runtime; the old 58× draw-call claim was incorrect. | `qa_mobile_soldier_asset`: PASS, runtime detailed rig, merged body mesh, skeleton. |
-| Infantry animations and LOD | Eight procedural actions are present (idle, walk, run, aim, fire/recoil, reload, hit, death; crouch is an extra pose). Mobile pose update rate is 30 Hz near, 15 Hz mid, 0 Hz while far/hidden. These are procedural skeletal actions, not separate AnimationPlayer clips. | `qa_mobile_infantry_lod`: 19 PASS checks, covering all actions, 30/15/0 Hz, far cull and near restore. |
+| Infantry animations and LOD | Eight procedural actions are present (idle, walk, run, aim, fire/recoil, reload, hit, death; crouch is an extra pose). Mobile pose update rate is 30 Hz near, 15 Hz mid, 0 Hz while far/hidden. These are procedural skeletal actions, not separate AnimationPlayer clips. | `qa_mobile_infantry_lod`: 24 PASS checks, covering all actions, pose-rate gating, camera-based far cull and near restore. |
 | Far infantry impostor | Four transparent views of the runtime soldier are baked into a 2×2 atlas. Mobile LOD uses a camera-facing Sprite3D and selects front/right/back/left frame. | Runtime QA PASS; preview: `docs/ios/v26_mobile_infantry_lod.png`; atlas: `Assets/combat/soldier_impostor_atlas.png`. |
 | iOS quit button | Hidden in the mobile menu; swipe-to-close hint shown. | `qa_video_fixes`: PASS. |
 | Persistence | Mobile/control settings survive the two-process save/load test. | `qa_persist2_write` exit 0; `qa_persist2_read` PASS. |
@@ -32,13 +34,24 @@
 
 ## Remaining device-level validation
 
-Automated mobile-path QA passes, but this session did not run on a physical iPhone/iPad. Native iOS interruption behavior and on-device frame time/thermal limits still need device confirmation before making release-performance claims.
+Automated mobile-path QA passes, but the owner's physical-iPhone test via AltStore is still the active device validation. Native iOS interruption behavior and on-device frame time/thermal limits must be recorded from that test before making release-performance claims.
 
 ## Screenshots
 
 ![Mobile detailed soldier and four-view impostor comparison](ios/v26_mobile_infantry_lod.png)
 
 ![Four-view impostor source atlas](../Assets/combat/soldier_impostor_atlas.png)
+
+![Mobile map selection with real FPV map cards](ios/v26_mobile_map_cards.png)
+
+### Existing-map iteration
+
+- `Assets/Branding/mobile_map_steppe.png`
+- `Assets/Branding/mobile_map_village.png`
+- `Assets/Branding/mobile_map_industrial.png`
+- `Assets/Branding/mobile_map_wetlands.png`
+- `docs/ios/mobile_audit_2026/before/` and `after/` — four before/after map views.
+- Detailed map audit and remaining art work: `docs/ios/MOBILE_MAP_AUDIT_WIP.md`.
 
 ## Rebuild the impostor atlas
 
