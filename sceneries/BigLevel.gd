@@ -2048,8 +2048,11 @@ func _setup_mission_phases() -> void:
 		_:
 			# Naval strike: no recon pass, go straight to the attack run.
 			_mission_phase = 1
-			_extract_point = Vector3(300.0, 0.0, -145.0)
-			_extract_point.y = _find_ground_y(_extract_point.x, _extract_point.z) + 1.6
+			# Extraction must be open water clear of the coast strip, the quay,
+			# the hydro plant and the warship, otherwise the USV cannot finish.
+			_extract_point = Vector3(320.0, 0.0, 80.0)
+			var sea := _sea_y if _sea_y > 0.1 else _naval_sea_level()
+			_extract_point.y = sea + 0.6
 			_set_flash("ФАЗА 1/2 · УДАР: ВИЙДІТЬ НА РУБІЖ АТАКИ")
 			return
 	recon_base += _mission_offset
