@@ -134,6 +134,18 @@ func _run() -> void:
 	_check(absf(float(touch.get("yaw"))) > 0.04,
 			"touch stick response follows deadzone slider")
 	Controls.set("stick_deadzone", saved_deadzone)
+	var saved_smoothing := float(Controls.get("stick_smoothing"))
+	Controls.set("stick_smoothing", 0.0)
+	Controls.call("reset_stick_filters")
+	# Use a small input: deliberate fast flicks intentionally bypass most filtering.
+	var raw_response := float(Controls.call("apply_stick_filter", "roll", 0.1, 1.0 / 60.0))
+	Controls.set("stick_smoothing", 0.45)
+	Controls.call("reset_stick_filters")
+	var smooth_response := float(Controls.call("apply_stick_filter", "roll", 0.1, 1.0 / 60.0))
+	_check(smooth_response > 0.0 and smooth_response < raw_response,
+			"shared mobile stick filter honors the smoothing slider")
+	Controls.set("stick_smoothing", saved_smoothing)
+	Controls.call("reset_stick_filters")
 	touch.call("_reset_sticks")
 
 	touch.call("_on_arm_pressed")

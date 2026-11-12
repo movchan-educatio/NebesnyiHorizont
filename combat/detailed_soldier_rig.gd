@@ -42,6 +42,7 @@ var _look_yaw_smooth := 0.0
 var _kick := 0.0
 var _walk_phase := 0.0
 var _walk_stride := 0.0
+var _run_blend := 0.0
 var _breath_phase := 0.0
 var _crouch_target := 0.0
 var _crouch := 0.0
@@ -52,6 +53,8 @@ var _hit_dir := 1.0
 var _dead := false
 var _death_variant := 0
 var _death_progress := 0.0
+var _mobile_animation_hz := -1.0
+var _mobile_animation_accumulator := 0.0
 var _base_model_pos := Vector3.ZERO
 var _base_model_rot := Vector3.ZERO
 var _rifle_rest := Vector3.ZERO
@@ -204,6 +207,11 @@ func _build_team_patch(team_id: int) -> void:
 func set_walk(phase: float, stride: float) -> void:
 	_walk_phase = phase
 	_walk_stride = clampf(stride, 0.0, 1.5)
+	if OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI"):
+		_run_blend = clampf((_walk_stride - 0.78) / 0.57, 0.0, 1.0)
+	else:
+		_run_blend = 0.0
 	_update_pose(0.0)
 
 
@@ -250,20 +258,39 @@ func play_death(variant: int = -1) -> void:
 	_reload_time = 0.0
 
 
+## Mobile-only procedural animation LOD. A rate of 0 suspends pose updates while
+## the owner is hidden; -1 restores normal per-frame processing (desktop path).
+func set_mobile_animation_lod(distance: float) -> void:
+	var next_hz := 30.0 if distance < 95.0 else (15.0 if distance < 260.0 else 0.0)
+	if not is_equal_approx(next_hz, _mobile_animation_hz):
+		_mobile_animation_hz = next_hz
+		_mobile_animation_accumulator = 0.0
+
+
 func _process(delta: float) -> void:
 	if not _ready_ok:
 		return
-	_breath_phase += delta * (2.2 + _walk_stride * 2.4)
-	_aim_smooth = lerpf(_aim_smooth, _aim_pitch, 1.0 - exp(-delta / 0.09))
-	_look_yaw_smooth = lerpf(_look_yaw_smooth, _look_yaw, 1.0 - exp(-delta / 0.12))
-	_crouch = move_toward(_crouch, _crouch_target, delta * 3.8)
-	_kick = move_toward(_kick, 0.0, delta * 5.0)
-	_hit_flinch = move_toward(_hit_flinch, 0.0, delta * 4.2)
+	if _mobile_animation_hz == 0.0:
+		return
+	var pose_delta := delta
+	if _mobile_animation_hz > 0.0:
+		_mobile_animation_accumulator += delta
+		var interval := 1.0 / _mobile_animation_hz
+		if _mobile_animation_accumulator < interval:
+			return
+		pose_delta = _mobile_animation_accumulator
+		_mobile_animation_accumulator = 0.0
+	_breath_phase += pose_delta * (2.2 + _walk_stride * 2.4)
+	_aim_smooth = lerpf(_aim_smooth, _aim_pitch, 1.0 - exp(-pose_delta / 0.09))
+	_look_yaw_smooth = lerpf(_look_yaw_smooth, _look_yaw, 1.0 - exp(-pose_delta / 0.12))
+	_crouch = move_toward(_crouch, _crouch_target, pose_delta * 3.8)
+	_kick = move_toward(_kick, 0.0, pose_delta * 5.0)
+	_hit_flinch = move_toward(_hit_flinch, 0.0, pose_delta * 4.2)
 	if _reload_time > 0.0:
-		_reload_time = maxf(0.0, _reload_time - delta)
+		_reload_time = maxf(0.0, _reload_time - pose_delta)
 	if _dead:
-		_death_progress = move_toward(_death_progress, 1.0, delta * 2.1)
-	_update_pose(delta)
+		_death_progress = move_toward(_death_progress, 1.0, pose_delta * 2.1)
+	_update_pose(pose_delta)
 
 
 func _update_pose(_delta: float) -> void:
@@ -273,7 +300,7 @@ func _update_pose(_delta: float) -> void:
 		_apply_death_pose()
 		return
 	var swing := sin(_walk_phase)
-	var amp := 0.55 * _walk_stride * (1.0 - _crouch * 0.28)
+	var amp := (0.55 + 0.16 * _run_blend) * _walk_stride * (1.0 - _crouch * 0.28)
 	var crouch_hip := 0.58 * _crouch
 	var crouch_knee := 0.95 * _crouch
 	if _b_thigh_l >= 0:
@@ -302,7 +329,8 @@ func _update_pose(_delta: float) -> void:
 	var flinch_yaw := _hit_flinch * 0.22 * _hit_dir
 	# Lean the upper body and head toward the target.  Positive aim_pitch is
 	# above the horizon, so pitch the chest back a little and the head more.
-	var lean := -_aim_smooth * 0.22 + 0.24 * _crouch + breath + flinch_pitch + 0.06 * _kick
+	var lean := -_aim_smooth * 0.22 + 0.24 * _crouch + breath + flinch_pitch \
+			+ 0.06 * _kick - 0.10 * _run_blend
 	var head_pitch := -_aim_smooth * 0.38 - 0.14 * _crouch - breath * 0.5 - flinch_pitch * 0.6
 	if _b_spine2 >= 0:
 		skeleton.set_bone_pose_rotation(_b_spine2,
@@ -329,7 +357,8 @@ func _update_pose(_delta: float) -> void:
 				Quaternion(Vector3.UP, sup_yaw) * Quaternion(Vector3.RIGHT, sup_pitch))
 
 	if model != null:
-		var bob := absf(sin(_walk_phase)) * 0.038 * _walk_stride * (1.0 - _crouch * 0.45)
+		var bob := absf(sin(_walk_phase)) * (0.038 + 0.022 * _run_blend) \
+				* _walk_stride * (1.0 - _crouch * 0.45)
 		model.position = _base_model_pos + Vector3(0.0, -0.34 * _crouch + bob, 0.0)
 		model.rotation = _base_model_rot
 

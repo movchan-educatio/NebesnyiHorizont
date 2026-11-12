@@ -1,5 +1,13 @@
 # v27 Planning: Animation System & Billboard Impostor
 
+> **Status update:** This is the original planning document, not the current
+> completion status. Mobile implementation now uses the skinned
+> `soldier_detailed_merged.glb`, eight procedural animation actions, mobile
+> 30/15/0 Hz pose LOD, and a baked four-view Sprite3D impostor. Runtime QA and
+> screenshots are recorded in `docs/FINAL_MOBILE_REPORT.md`. Separate
+> AnimationPlayer clip assets and physical iPhone performance measurements are
+> still not claimed as completed.
+
 ## Objectives
 
 Transform v26 infrastructure into production-ready soldier animation system.

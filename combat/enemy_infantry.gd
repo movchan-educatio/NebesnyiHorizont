@@ -8,6 +8,7 @@ extends StaticBody3D
 signal destroyed(points: int)
 
 const RIFLEMAN_SCENE = preload("res://Assets/combat/rifleman.glb")
+const INFANTRY_IMPOSTOR_ATLAS := "res://Assets/combat/soldier_impostor_atlas.png"
 ## The authored, articulated rifleman. This one has separate leg/arm meshes and
 ## a sane 1.9 m skeleton, unlike the HECU rip whose bind matrices are scaled x100
 ## and collapse inside Godot.
@@ -62,6 +63,7 @@ var _flash_material: StandardMaterial3D = null
 var _flash_token := 0
 var _last_hit_fx_ms := 0
 var _lod_proxy: Node3D = null
+var _lod_impostor: Sprite3D = null
 var _using_proxy := false
 var _lod_tick := 0.0
 
@@ -299,40 +301,53 @@ func _collect_meshes(node: Node) -> void:
 
 
 func _build_lod_proxy() -> void:
-	if _model == null:
+	# Keep the desktop presentation unchanged; the simplified proxy is mobile-only.
+	if not _mobile_visual_lod_enabled() or _model == null:
 		return
 	_lod_proxy = Node3D.new()
 	_lod_proxy.name = "LodProxy"
 	_lod_proxy.visible = false
 	add_child(_lod_proxy)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.18, 0.21, 0.15)
-	mat.roughness = 0.92
-	mat.metallic = 0.04
-	# One merged proxy mesh instead of three primitives: at 95 m the silhouette
-	# is a few pixels tall, and this cuts the proxy from 3 draw calls to 1 per
-	# soldier (26 proxies = 26 draws instead of 78).
-	var capsule := CapsuleMesh.new()
-	capsule.radius = 0.25
-	capsule.height = 1.18
-	var sphere := SphereMesh.new()
-	sphere.radius = 0.14
-	sphere.height = 0.28
-	var box := BoxMesh.new()
-	box.size = Vector3(0.055, 0.055, 0.62)
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	st.append_from(capsule, 0, Transform3D(Basis(), Vector3(0.0, 0.92, 0.0)))
-	st.append_from(sphere, 0, Transform3D(Basis(), Vector3(0.0, 1.62, 0.0)))
-	st.append_from(box, 0, Transform3D(Basis(), Vector3(0.18, 1.28, -0.22)))
-	var merged := st.commit()
-	var proxy := MeshInstance3D.new()
-	proxy.mesh = merged
-	proxy.material_override = mat
-	proxy.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_lod_proxy.scale = Vector3.ONE * 1.8
-	_lod_proxy.add_child(proxy)
-	_meshes.append(proxy)
+	var atlas := load(INFANTRY_IMPOSTOR_ATLAS) as Texture2D \
+			if ResourceLoader.exists(INFANTRY_IMPOSTOR_ATLAS) else null
+	if atlas != null:
+		_lod_impostor = Sprite3D.new()
+		_lod_impostor.name = "FourViewInfantryImpostor"
+		_lod_impostor.texture = atlas
+		_lod_impostor.hframes = 2
+		_lod_impostor.vframes = 2
+		_lod_impostor.pixel_size = 1.88 / 512.0
+		_lod_impostor.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_lod_impostor.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
+		_lod_impostor.position = Vector3(0.0, 0.94, 0.0)
+		_lod_impostor.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_lod_proxy.add_child(_lod_impostor)
+	else:
+		# Safe fallback until the baked atlas has been imported by Godot.
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color(0.18, 0.21, 0.15)
+		mat.roughness = 0.92
+		mat.metallic = 0.04
+		var capsule := CapsuleMesh.new()
+		capsule.radius = 0.25
+		capsule.height = 1.18
+		var sphere := SphereMesh.new()
+		sphere.radius = 0.14
+		sphere.height = 0.28
+		var box := BoxMesh.new()
+		box.size = Vector3(0.055, 0.055, 0.62)
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		st.append_from(capsule, 0, Transform3D(Basis(), Vector3(0.0, 0.92, 0.0)))
+		st.append_from(sphere, 0, Transform3D(Basis(), Vector3(0.0, 1.62, 0.0)))
+		st.append_from(box, 0, Transform3D(Basis(), Vector3(0.18, 1.28, -0.22)))
+		var proxy := MeshInstance3D.new()
+		proxy.mesh = st.commit()
+		proxy.material_override = mat
+		proxy.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_lod_proxy.add_child(proxy)
+		_meshes.append(proxy)
 
 
 func _update_lod(delta: float) -> void:
@@ -346,9 +361,14 @@ func _update_lod(delta: float) -> void:
 	if cam == null:
 		return
 	var dist := global_position.distance_to(cam.global_position)
+	if _detailed_rig != null:
+		_detailed_rig.set_mobile_animation_lod(dist)
+	if _lod_impostor != null:
+		_update_impostor_frame(cam)
 	_apply_animation_lod(dist)
 	if dist > 260.0:
 		# Beyond 260 m a soldier is sub-pixel; stop drawing the rig/proxy.
+		_using_proxy = true # lets the hysteretic transition restore LOD on return
 		_model.visible = false
 		_lod_proxy.visible = false
 		_pause_lod_animation()
@@ -369,6 +389,25 @@ func _update_lod(delta: float) -> void:
 		_pause_lod_animation()
 	else:
 		_resume_lod_animation()
+
+
+func _update_impostor_frame(cam: Camera3D) -> void:
+	if _lod_impostor == null:
+		return
+	var to_camera := cam.global_position - global_position
+	to_camera.y = 0.0
+	if to_camera.length_squared() < 0.0001:
+		return
+	var local_dir := global_transform.basis.inverse() * to_camera.normalized()
+	var angle := atan2(local_dir.x, -local_dir.z)
+	if angle > PI * 0.75 or angle < -PI * 0.75:
+		_lod_impostor.frame = 2 # back
+	elif angle > PI * 0.25:
+		_lod_impostor.frame = 1 # right
+	elif angle < -PI * 0.25:
+		_lod_impostor.frame = 3 # left
+	else:
+		_lod_impostor.frame = 0 # front
 
 
 func _pause_lod_animation() -> void:

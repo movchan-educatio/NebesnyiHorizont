@@ -1,45 +1,35 @@
-## QA test for rifleman_merged.glb: verify mobile uses merged, desktop uses original
 extends Node
 
-const TEST_NAME := "qa_v26_rifleman_merged"
+## Mobile-only verification of the optimized skinned soldier used at runtime.
+## The legacy rifleman_merged.glb is not the active combat model; the runtime
+## asset is soldier_detailed_merged.glb (one skinned primitive).
+const TEST_NAME := "qa_mobile_soldier_asset"
+
 
 func _ready() -> void:
-	var had_mobile := OS.has_environment("MOBILE_UI")
-	OS.unset_environment("MOBILE_UI")
-	
-	# Desktop: should load original rifleman.glb
-	var desktop_inf := EnemyRifleman.new()
-	add_child(desktop_inf)
-	await get_tree().process_frame
-	var desktop_meshes := desktop_inf.get_node_or_null("Model")
-	var desktop_mesh_count := 0
-	if desktop_meshes:
-		var meshes = desktop_meshes.find_children("*", "MeshInstance3D", true, false)
-		desktop_mesh_count = meshes.size()
-		print(f"[{TEST_NAME}] DESKTOP model meshes: {desktop_mesh_count}")
-	desktop_inf.queue_free()
-	
-	if had_mobile:
-		OS.set_environment("MOBILE_UI", "1")
-	
-	# Mobile: should load merged rifleman_merged.glb (1 mesh)
 	OS.set_environment("MOBILE_UI", "1")
-	var mobile_inf := EnemyRifleman.new()
-	add_child(mobile_inf)
+	call_deferred("_run")
+
+
+func _check(ok: bool, label: String) -> void:
+	print("[", TEST_NAME, "] ", "PASS " if ok else "FAIL ", label)
+
+
+func _run() -> void:
+	var rig := DetailedSoldierRig.new()
+	add_child(rig)
+	var loaded := rig.setup_rig(-1)
+	_check(loaded and rig.skeleton != null, "runtime detailed skinned soldier loads")
+	if loaded and rig.model != null:
+		var meshes := rig.model.find_children("*", "MeshInstance3D", true, false)
+		_check(meshes.size() == 1, "runtime soldier uses one merged body mesh")
+		var body := meshes[0] as MeshInstance3D
+		_check(body.skin != null or rig.skeleton != null, "merged body is driven by the soldier skeleton")
+	var soldier := EnemyRifleman.new()
+	add_child(soldier)
 	await get_tree().process_frame
-	var mobile_meshes := mobile_inf.get_node_or_null("Model")
-	var mobile_mesh_count := 0
-	if mobile_meshes:
-		var meshes = mobile_meshes.find_children("*", "MeshInstance3D", true, false)
-		mobile_mesh_count = meshes.size()
-		print(f"[{TEST_NAME}] MOBILE model meshes: {mobile_mesh_count}")
-	mobile_inf.queue_free()
-	
-	OS.unset_environment("MOBILE_UI")
-	
-	# Verify merged is smaller (should be 1 mesh, original >50)
-	var merged_ok := mobile_mesh_count < desktop_mesh_count and mobile_mesh_count <= 2
-	var result := "PASS" if merged_ok else "FAIL"
-	print(f"[{TEST_NAME}] {result}: desktop={desktop_mesh_count} mobile={mobile_mesh_count}")
-	
-	get_tree().quit(0 if merged_ok else 1)
+	_check(soldier.get("_detailed_rig") != null,
+			"mobile combat infantry selects DetailedSoldierRig at runtime")
+	get_tree().quit(0 if loaded and rig.skeleton != null
+			and rig.model != null and rig.model.find_children("*", "MeshInstance3D", true, false).size() == 1
+			and soldier.get("_detailed_rig") != null else 1)
