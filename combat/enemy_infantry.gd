@@ -7,12 +7,11 @@ extends StaticBody3D
 
 signal destroyed(points: int)
 
-const RIFLEMAN_MERGED = preload("res://Assets/combat/rifleman_merged.glb")
 const RIFLEMAN_SCENE = preload("res://Assets/combat/rifleman.glb")
 ## The authored, articulated rifleman. This one has separate leg/arm meshes and
 ## a sane 1.9 m skeleton, unlike the HECU rip whose bind matrices are scaled x100
 ## and collapse inside Godot.
-const SOLDIER_MODEL := "res://Assets/combat/rifleman_merged.glb"
+const SOLDIER_MODEL := "res://Assets/combat/rifleman.glb"
 const TracerScript = preload("res://combat/tracer.gd")
 const ExplosionScript = preload("res://combat/explosion.gd")
 const CombatSfxScript = preload("res://combat/sfx.gd")
@@ -195,21 +194,13 @@ func _build() -> void:
 
 
 func _create_model() -> Node3D:
-	# Mobile prefers merged rifleman (1 primitive, 1 material)
-	var is_mobile := OS.get_name() == "iOS" or OS.has_feature("mobile") \
-			or OS.has_environment("MOBILE_UI")
-	var model_path := "res://Assets/combat/rifleman_merged.glb" if is_mobile \
-			else SOLDIER_MODEL
-	
-	if ResourceLoader.exists(model_path):
-		var packed := load(model_path) as PackedScene
+	if ResourceLoader.exists(SOLDIER_MODEL):
+		var packed := load(SOLDIER_MODEL) as PackedScene
 		if packed != null:
 			var model := packed.instantiate() as Node3D
 			if model != null:
 				return model
-	
-	# Fallback to packed preload
-	return RIFLEMAN_MERGED.instantiate() if is_mobile else RIFLEMAN_SCENE.instantiate()
+	return RIFLEMAN_SCENE.instantiate() as Node3D
 
 
 func _normalise_soldier(model: Node3D, height: float) -> void:
@@ -398,7 +389,6 @@ func _resume_lod_animation() -> void:
 
 
 func _apply_animation_lod(dist: float) -> void:
-	"""Adjust animation playback speed based on distance for mobile."""
 	if not _mobile_visual_lod_enabled() or _anim == null or not _anim.is_playing():
 		return
 	# Near LOD (0–95 m): 30 fps
