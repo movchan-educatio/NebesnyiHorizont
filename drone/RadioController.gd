@@ -280,9 +280,15 @@ func read_input() -> void:
 	var pad_roll := 0.0
 	var pad_pitch := 0.0
 	if touch_active:
-		pad_yaw = _calibrated_stick(mobile, "touch", "yaw", float(touch.get("yaw")))
-		pad_roll = _calibrated_stick(mobile, "touch", "roll", float(touch.get("roll")))
-		pad_pitch = _calibrated_stick(mobile, "touch", "pitch", float(touch.get("pitch")))
+		# The on-screen axes must use the same user deadzone/smoothing controls as
+		# the ELRS/gamepad source; otherwise the mobile tuning sliders only saved
+		# values but had no effect when flying by touch.
+		pad_yaw = Controls.apply_stick_filter("yaw",
+				_calibrated_stick(mobile, "touch", "yaw", float(touch.get("yaw"))))
+		pad_roll = Controls.apply_stick_filter("roll",
+				_calibrated_stick(mobile, "touch", "roll", float(touch.get("roll"))))
+		pad_pitch = Controls.apply_stick_filter("pitch",
+				_calibrated_stick(mobile, "touch", "pitch", float(touch.get("pitch"))))
 	elif wifi_active:
 		pad_yaw = Controls.apply_stick_filter("yaw", _calibrated_stick(mobile, "elrs", "yaw", float(wifi.yaw())))
 		pad_roll = Controls.apply_stick_filter("roll", _calibrated_stick(mobile, "elrs", "roll", float(wifi.roll())))
@@ -356,6 +362,8 @@ func read_input() -> void:
 	var dt := maxf(get_physics_process_delta_time(), 0.0001)
 	var mobile_feel := MenuUI.is_mobile_ui()
 	var throttle_tau := 0.09 if mobile_feel else 0.12
+	if mobile_feel:
+		throttle_tau = 0.025 + float(Controls.get("stick_smoothing")) * 0.65
 	var throttle_slew_up := 3.2 if mobile_feel else 2.4
 	var throttle_slew_down := 7.0 if mobile_feel else 6.0
 	if not _throttle_filter_ready or not armed:

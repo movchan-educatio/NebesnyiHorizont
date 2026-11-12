@@ -346,20 +346,66 @@ func _update_lod(delta: float) -> void:
 	if cam == null:
 		return
 	var dist := global_position.distance_to(cam.global_position)
+	_apply_animation_lod(dist)
 	if dist > 260.0:
 		# Beyond 260 m a soldier is sub-pixel; stop drawing the rig/proxy.
 		_model.visible = false
 		_lod_proxy.visible = false
+		_pause_lod_animation()
 		return
 	if _using_proxy:
 		if dist < 95.0:
 			_using_proxy = false
 			_lod_proxy.visible = false
 			_model.visible = true
+			_resume_lod_animation()
+		else:
+			_lod_proxy.visible = true
+			_model.visible = false
 	elif dist > 125.0:
 		_using_proxy = true
 		_lod_proxy.visible = true
 		_model.visible = false
+		_pause_lod_animation()
+	else:
+		_resume_lod_animation()
+
+
+func _pause_lod_animation() -> void:
+	if _anim == null or not _anim.is_playing():
+		return
+	if _mobile_visual_lod_enabled():
+		_anim.pause()
+
+
+func _resume_lod_animation() -> void:
+	if not _mobile_visual_lod_enabled() or _anim == null \
+			or _using_proxy or not _model.visible:
+		return
+	if _stride > 0.02 and _anim.get_animation_list().has("Walk") \
+			and not _anim.is_playing():
+		_anim.play("Walk")
+		_anim.playback_speed = 1.0  # Near LOD: full speed (30 fps)
+
+
+func _apply_animation_lod(dist: float) -> void:
+	"""Adjust animation playback speed based on distance for mobile."""
+	if not _mobile_visual_lod_enabled() or _anim == null or not _anim.is_playing():
+		return
+	# Near LOD (0–95 m): 30 fps
+	# Mid LOD (95–260 m): 15 fps (playback speed 0.5)
+	# Far LOD (>260 m): paused (speed 0.0)
+	if dist < 95.0:
+		_anim.playback_speed = 1.0
+	elif dist < 260.0:
+		_anim.playback_speed = 0.5
+	else:
+		_anim.playback_speed = 0.0
+
+
+func _mobile_visual_lod_enabled() -> bool:
+	return OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")
 
 
 func _physics_process(delta: float) -> void:
@@ -684,6 +730,9 @@ func _update_pose(delta: float) -> void:
 func _set_locomotion(delta: float, speed: float) -> void:
 	var target_stride := clampf(speed / 2.2, 0.0, 1.35)
 	_stride = lerpf(_stride, target_stride, clampf(delta * 6.0, 0.0, 1.0))
+	if _mobile_visual_lod_enabled() and (_using_proxy \
+			or (_distance > 125.0 and _model != null and not _model.visible)):
+		return
 	_walk_phase += delta * (2.0 + speed * 3.2)
 	if _detailed_rig != null and not _using_proxy:
 		_detailed_rig.set_walk(_walk_phase, _stride)
@@ -775,7 +824,9 @@ func _fire() -> void:
 		return
 	if _detailed_rig != null:
 		_detailed_rig.kick()
-	if _anim != null and _anim.get_animation_list().has("Fire"):
+	if (not _mobile_visual_lod_enabled() or (not _using_proxy \
+			and _model != null and _model.visible)) \
+			and _anim != null and _anim.get_animation_list().has("Fire"):
 		_anim.play("Fire")
 	var muzzle_pos := _muzzle.global_position
 	var target: Vector3 = muzzle_pos - global_transform.basis.z * 50.0

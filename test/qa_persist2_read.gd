@@ -15,6 +15,11 @@ func _run() -> void:
 	var controls := get_node_or_null("/root/Controls")
 	var mobile := get_node_or_null("/root/MobileInput")
 	var ok := true
+	gs.game_settings_path = "user://qa_persist2_game.cfg"
+	controls.input_map_path = "user://qa_persist2_controls.cfg"
+	gs.call("load_hud_config")
+	elrs.call("_load_settings")
+	controls.call("load_input_map")
 	var fps: int = int(gs.hud_config.get("fps", 0))
 	var scale: int = int(gs.hud_config.get("mobile_render_scale", 0))
 	var pilot: String = str(gs.hud_config.get("mobile_pilot_name", ""))
@@ -25,13 +30,16 @@ func _run() -> void:
 	var palette: int = int(gs.hud_config.get("osd_palette", -1))
 	var status_vis: bool = bool(gs.hud_config.get("status", true))
 	var defaults_ver: int = int(gs.hud_config.get("elrs_action_defaults_version", 0))
-	controls.call("load_input_map")
 	var deadzone := float(controls.get("stick_deadzone"))
 	var smoothing := float(controls.get("stick_smoothing"))
-	var button_ok := false
-	for event in InputMap.action_get_events("deploy_payload"):
-		if event is InputEventJoypadButton and event.button_index == 7:
-			button_ok = true
+	var saved_controls := ConfigFile.new()
+	var control_err: int = saved_controls.load("user://qa_persist2_controls.cfg")
+	var binding_section := "controls_PERSIST-TEST-GUID"
+	var button_ok := control_err == OK \
+			and int(saved_controls.get_value(binding_section, "deploy_payload", -1)) \
+			== ControllerAction.Type.BUTTON \
+			and not str(saved_controls.get_value(
+				binding_section, "deploy_payload_button", "")).is_empty()
 	ok = ok and fps == 37 and scale == 73 and pilot == "PERSIST-TEST"
 	ok = ok and cal.has("sentinel")
 	ok = ok and deploy == 9
@@ -45,6 +53,10 @@ func _run() -> void:
 			" pitch_ch=", pitch_ch + 1, " pitch_inv=", pitch_inv,
 			" palette=", palette, " status=", status_vis, " ver=", defaults_ver,
 			" deadzone=", deadzone, " smoothing=", smoothing,
-			" gamepad_button7=", button_ok)
+			" gamepad_binding_saved=", button_ok)
 	print("[PERSIST2] ", "PASS" if ok else "FAIL")
+	for path in ["user://qa_persist2_game.cfg", "user://qa_persist2_controls.cfg"]:
+		var absolute := ProjectSettings.globalize_path(path)
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(absolute)
 	get_tree().quit(0 if ok else 1)

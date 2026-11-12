@@ -269,7 +269,8 @@ const PRESETS := [
 		"dry": 4.6, "batt": 1.2, "kv": 380, "torque": 2200.0, "rpm": 7000.0,
 		"prop_d": 14.0, "prop_p": 8.0, "blades": 2, "rate": 260, "motor_size": 2814,
 		"payload": 0, "payload_mass": 0.0, "combat": true, "has_drop": false,
-		"fixed_wing": true, "max_speed_loaded": 18.1, "max_speed_empty": 22.2,
+		"fixed_wing": true,
+		"max_speed_loaded": 18.1, "max_speed_empty": 22.2,
 		"twr": 2.2,
 		"battery_chemistry": 1, "battery_mah": 6000.0,
 		"battery_resistance": 0.075, "battery_max_current": 80.0,
@@ -278,9 +279,6 @@ const PRESETS := [
 		"drag_area": Vector3(0.050, 0.030, 0.035),
 		"model": "res://Assets/Drones/ua_norm/leleka_100.glb",
 		"model_size": 2.0, "model_fit": false,
-		# Fixed-wing airframe: its 2 m wing/boom sits inside the FPV lens and
-		# filled the whole screen.  Keep the lens clean; the model still flies
-		# and is fully visible to external cameras/QA capture.
 		"fpv_hide_model": true,
 		"fpv_cam_pos": Vector3(0.0, 0.06, -0.56), "fpv_cam_pitch": -7.0,
 	},
@@ -293,7 +291,8 @@ const PRESETS := [
 		"dry": 4.2, "batt": 1.3, "kv": 420, "torque": 2000.0, "rpm": 7200.0,
 		"prop_d": 13.0, "prop_p": 7.0, "blades": 2, "rate": 250, "motor_size": 2812,
 		"payload": 0, "payload_mass": 0.0, "combat": true, "has_drop": false,
-		"fixed_wing": true, "max_speed_loaded": 18.1, "max_speed_empty": 36.1,
+		"fixed_wing": true,
+		"max_speed_loaded": 18.1, "max_speed_empty": 36.1,
 		"twr": 2.3,
 		"battery_chemistry": 1, "battery_mah": 7000.0,
 		"battery_resistance": 0.070, "battery_max_current": 85.0,
@@ -331,15 +330,52 @@ const PRESETS := [
 
 
 func preset(index: int) -> Dictionary:
-	if custom_presets.has(index):
-		return custom_presets[index]
-	return PRESETS[clampi(index, 0, PRESETS.size() - 1)]
+	var idx := clampi(index, 0, PRESETS.size() - 1)
+	var result: Dictionary = custom_presets[index] \
+			if custom_presets.has(index) else PRESETS[idx]
+	if _is_mobile_platform() and idx in [13, 14, 15]:
+		# iOS-only FPV framing and integrated warheads. Keep desktop presets,
+		# loadout mass and clean reconnaissance lens unchanged.
+		result = result.duplicate(true)
+		result["fpv_show_airframe"] = true
+		result.erase("fpv_hide_model")
+		if idx == 13:
+			result["payload"] = 1
+			result["payload_mass"] = 1.5
+			result["kamikaze"] = true
+			result["fpv_cam_pos"] = Vector3(0.0, 0.36, -0.58)
+			result["fpv_cam_pitch"] = -4.0
+		elif idx == 14:
+			result["payload"] = 1
+			result["payload_mass"] = 1.2
+			result["kamikaze"] = true
+			result["fpv_cam_pos"] = Vector3(0.0, 0.34, -0.50)
+			result["fpv_cam_pitch"] = -4.0
+		else:
+			result["fpv_cam_pos"] = Vector3(0.0, 0.10, -0.48)
+			result["fpv_cam_pitch"] = -10.0
+	return result
+
+
+func _is_mobile_platform() -> bool:
+	return OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")
 
 
 ## True when the preset is a combat airframe (armed, non-naval).
 func is_combat(index: int) -> bool:
 	var p := preset(index)
 	return bool(p.get("combat", false)) and not bool(p.get("is_naval", false))
+
+
+## Combat-ready payload activation: detachable stores and integrated kamikaze
+## warheads share the in-flight action, but naval hulls use their own rules.
+func supports_payload_actions(index: int) -> bool:
+	var p := preset(index)
+	return bool(p.get("combat", false)) \
+			and not bool(p.get("is_naval", false)) \
+			and (int(p.get("payload", 0)) > 0 or bool(p.get("has_drop", false)) \
+				or (_is_mobile_platform() and bool(p.get("kamikaze", false))))
 
 
 ## First usable combat airframe, used as the fallback when a sport/recon drone
@@ -688,6 +724,14 @@ func attach_model(parent: Node3D, index: int) -> Node3D:
 	var path := str(p.get("model", ""))
 	if path.is_empty():
 		return null
+	# Certain mobile airframes have many small static GLB objects. Use their
+	# mobile-only join-by-material exports (originals remain for PC) to lower
+	# scene nodes/draw submissions while keeping rotor/camera/warhead nodes.
+	if OS.has_feature("mobile") or OS.get_name() == "iOS" \
+			or OS.has_environment("MOBILE_UI"):
+		var mobile_path := path.trim_suffix(".glb") + "_mobile.glb"
+		if ResourceLoader.exists(mobile_path):
+			path = mobile_path
 	var model: Node3D = null
 	if ResourceLoader.exists(path):
 		var packed = _scene_cached(path)
@@ -705,6 +749,7 @@ func attach_model(parent: Node3D, index: int) -> Node3D:
 	if model == null:
 		return null
 	model.name = "DroneModel"
+	model.set_meta("source_glb", path)
 	model.add_to_group("drone_model")
 	parent.add_child(model)
 	# Inherited GLBs may predate the PBR library; upgrade at generation time

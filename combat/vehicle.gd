@@ -19,6 +19,7 @@ const MODEL_PATHS := {
 	Kind.HELI: "res://Assets/vehicles/apache_hecu_half-life.glb",
 	Kind.SHAHED: "res://Assets/Drones/shahed-136.glb",
 }
+const MOBILE_HELI_MODEL := "res://Assets/vehicles/apache_hecu_half-life_mobile.glb"
 const MODEL_SIZE := {
 	Kind.TANK: 9.2,
 	Kind.BMP: 7.2,
@@ -101,6 +102,10 @@ var _radar: Node3D = null
 var _rotor: Node3D = null
 var _tail_rotor: Node3D = null
 var _drone: Node3D = null
+var _vehicle_model: Node3D = null
+var _lod_proxy: Node3D = null
+var _lod_tick := 0.0
+var _visual_lod := 0
 ## Low-end presets tick distant vehicles at half rate.
 var _ai_low := false
 var _ai_tick := 0
@@ -288,6 +293,14 @@ func _cyl(parent: Node3D, radius: float, height: float, pos: Vector3,
 func _build_body() -> void:
 	if MODEL_PATHS.has(kind):
 		var path: String = MODEL_PATHS[kind]
+		# The original Apache has 46 separate material-bearing mesh objects.
+		# Use a mobile-only joined-by-material export (rotor pieces remain
+		# separate) to cut scene-node traversal and draw submission; PC retains
+		# its original authored asset.
+		if kind == Kind.HELI and (OS.get_name() == "iOS" or OS.has_feature("mobile") \
+				or OS.has_environment("MOBILE_UI")) \
+				and ResourceLoader.exists(MOBILE_HELI_MODEL):
+			path = MOBILE_HELI_MODEL
 		if ResourceLoader.exists(path) and _build_from_model(path, float(MODEL_SIZE.get(kind, 7.0))):
 			if kind == Kind.SAM:
 				_attach_sam_radar_turret()
@@ -356,6 +369,7 @@ func _build_from_model(path: String, target: float) -> bool:
 	if model == null:
 		return false
 	model.name = "Model"
+	model.set_meta("source_glb", path)
 	add_child(model)
 	model.rotation = Vector3(float(MODEL_PITCH.get(kind, 0.0)),
 			float(MODEL_YAW.get(kind, 0.0)), 0.0)
@@ -376,6 +390,10 @@ func _build_from_model(path: String, target: float) -> bool:
 	var size: Vector3 = MODEL_BOX.get(kind, box.size)
 	if size.length_squared() < 0.01:
 		size = Vector3(target * 0.45, target * 0.32, target * 0.85)
+	_vehicle_model = model
+	if OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI"):
+		_setup_mobile_lod_proxy(size)
 	if kind == Kind.APC or kind == Kind.TRUCK or kind == Kind.SAM:
 		_setup_running_gear(size)
 	_muzzle_height = clampf(size.y * 0.82, 1.4, 3.0)
@@ -401,6 +419,91 @@ func _build_from_model(path: String, target: float) -> bool:
 		if not names.is_empty():
 			player.play(names[0])
 	return true
+
+
+## A far-field silhouette for the Mobile renderer.  Full authored models stay
+## visible near the FPV camera; beyond that, one/two unshaded boxes preserve
+## the vehicle read at a fraction of the material/draw-call cost.  Collision,
+## targeting, weapon logic and damage continue on the original node/model.
+func _setup_mobile_lod_proxy(size: Vector3) -> void:
+	if _lod_proxy != null:
+		_lod_proxy.queue_free()
+	_lod_proxy = Node3D.new()
+	_lod_proxy.name = "MobileLodProxy"
+	_lod_proxy.visible = false
+	add_child(_lod_proxy)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = _lod_proxy_color()
+	mat.roughness = 1.0
+	match kind:
+		Kind.HELI:
+			_add_lod_box(Vector3(size.x * 0.34, size.y * 0.34, size.z * 0.72),
+					Vector3(0.0, size.y * 0.52, 0.0), mat)
+			_add_lod_box(Vector3(size.x * 1.45, 0.035, 0.07),
+					Vector3.ZERO + Vector3.UP * size.y * 0.82, mat)
+			_add_lod_box(Vector3(0.05, 0.035, size.z * 0.55),
+					Vector3(0.0, size.y * 0.88, size.z * 0.56), mat)
+		Kind.SHAHED:
+			_add_lod_box(Vector3(size.x * 0.22, size.y * 0.18, size.z),
+					Vector3(0.0, size.y * 0.54, 0.0), mat)
+			_add_lod_box(Vector3(size.x, size.y * 0.06, size.z * 0.28),
+					Vector3(0.0, size.y * 0.50, 0.0), mat)
+		_:
+			_add_lod_box(Vector3(size.x * 0.84, size.y * 0.42, size.z * 0.90),
+					Vector3(0.0, size.y * 0.40, 0.0), mat)
+			_add_lod_box(Vector3(size.x * 0.45, size.y * 0.25, size.z * 0.35),
+					Vector3(0.0, size.y * 0.72, 0.0), mat)
+	_lod_proxy.visible = false
+
+
+func _add_lod_box(box_size: Vector3, at: Vector3, material: Material) -> void:
+	var mesh := BoxMesh.new()
+	mesh.size = box_size
+	var instance := MeshInstance3D.new()
+	instance.mesh = mesh
+	instance.material_override = material
+	instance.position = at
+	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_lod_proxy.add_child(instance)
+
+
+func _lod_proxy_color() -> Color:
+	match kind:
+		Kind.TANK: return Color(0.31, 0.39, 0.23)
+		Kind.BMP: return Color(0.27, 0.34, 0.21)
+		Kind.APC: return Color(0.43, 0.49, 0.34)
+		Kind.TRUCK: return Color(0.55, 0.51, 0.38)
+		Kind.SAM: return Color(0.35, 0.42, 0.28)
+		Kind.HELI: return Color(0.32, 0.37, 0.25)
+		Kind.SHAHED: return Color(0.50, 0.35, 0.18)
+	return Color(0.38, 0.42, 0.32)
+
+
+func _update_mobile_lod(delta: float) -> void:
+	if not (OS.has_feature("mobile") or OS.get_name() == "iOS" \
+			or OS.has_environment("MOBILE_UI")):
+		return
+	_lod_tick -= delta
+	if _lod_tick > 0.0:
+		return
+	_lod_tick = 0.25
+	if is_destroyed:
+		if _lod_proxy != null:
+			_lod_proxy.visible = false
+		return
+	var cam := get_viewport().get_camera_3d()
+	var viewer := cam.global_position if cam != null else \
+			(_drone.global_position if _drone != null and is_instance_valid(_drone) else global_position)
+	var dist := viewer.distance_to(global_position)
+	var next_lod := 0 if dist < 180.0 else (1 if dist < 480.0 else 2)
+	if next_lod == _visual_lod:
+		return
+	_visual_lod = next_lod
+	if _vehicle_model != null and is_instance_valid(_vehicle_model):
+		_vehicle_model.visible = next_lod == 0
+	if _lod_proxy != null:
+		_lod_proxy.visible = next_lod == 1
 
 
 ## Give every vehicle a weathered, theatre-appropriate finish.  Textured models
@@ -1031,6 +1134,7 @@ func set_waypoints(points: Array) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	_update_mobile_lod(delta)
 	if _ai_low and _drone != null and is_instance_valid(_drone):
 		var d2 := global_position.distance_squared_to(_drone.global_position)
 		if d2 > 62500.0:

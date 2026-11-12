@@ -18,6 +18,8 @@ const AUDIO_BUSES := ["Music", "Engine", "Wind", "Combat", "Radio", "Warning"]
 var _music: AudioStreamPlayer = null
 var _click: AudioStreamPlayer = null
 var _music_tween: Tween = null
+var _application_suspended := false
+var _resume_bus_mutes: Array[bool] = []
 
 
 func _ready() -> void:
@@ -53,6 +55,42 @@ func _ready() -> void:
 		limiter.soft_clip_db = 2.0
 		AudioServer.add_bus_effect(0, limiter)
 	update_master_volume()
+	if OS.has_feature("ios") or OS.get_name() == "iOS":
+		# iOS audio interruptions (alarm, Siri, call, Control Center) can leave
+		# the app alive but its buses muted after foregrounding.  Restore the
+		# mixer explicitly on the resume notification.
+		process_mode = Node.PROCESS_MODE_ALWAYS
+
+
+func _notification(what: int) -> void:
+	if not (OS.has_feature("ios") or OS.get_name() == "iOS" \
+			or OS.has_feature("mobile") or OS.has_environment("MOBILE_UI")):
+		return
+	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		_application_suspended = true
+		_resume_bus_mutes.clear()
+		for i in range(AudioServer.bus_count):
+			_resume_bus_mutes.append(AudioServer.is_bus_mute(i))
+	elif _application_suspended and (what == NOTIFICATION_APPLICATION_RESUMED \
+			or what == NOTIFICATION_APPLICATION_FOCUS_IN):
+		_application_suspended = false
+		call_deferred("_restore_after_audio_interruption")
+
+
+func _restore_after_audio_interruption() -> void:
+	if not is_inside_tree():
+		return
+	# Do not leave a stale OS-interruption mute behind.  Reapply the user's
+	# master/music/SFX levels; the active level then recomputes its ducking mix.
+	for i in range(mini(AudioServer.bus_count, _resume_bus_mutes.size())):
+		AudioServer.set_bus_mute(i, _resume_bus_mutes[i])
+	_resume_bus_mutes.clear()
+	update_master_volume()
+	var scene := get_tree().current_scene
+	if scene != null and scene.has_method("_on_audio_resumed"):
+		scene.call_deferred("_on_audio_resumed")
+	elif scene != null and String(scene.scene_file_path).contains("mobile/MobileMenu"):
+		play_menu_music()
 
 
 func _on_node_added(node: Node) -> void:

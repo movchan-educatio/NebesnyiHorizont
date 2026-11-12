@@ -1,6 +1,6 @@
 extends Node
 
-## QA-only: writes sentinel values into the real persistence files, then quits.
+## QA-only: writes sentinel values into isolated user:// persistence files, then quits.
 ## Run this process first, then run qa_persist_read.tscn in a second process.
 
 func _ready() -> void:
@@ -17,6 +17,9 @@ func _run() -> void:
 		print("[PERSIST2] FAIL missing autoload")
 		get_tree().quit(1)
 		return
+	# Keep this test isolated from the real player/developer profile.
+	gs.game_settings_path = "user://qa_persist2_game.cfg"
+	controls.input_map_path = "user://qa_persist2_controls.cfg"
 	gs.hud_config["fps"] = 37
 	gs.hud_config["mobile_render_scale"] = 73
 	gs.hud_config["mobile_pilot_name"] = "PERSIST-TEST"
@@ -31,7 +34,7 @@ func _run() -> void:
 	elrs.arm_channel = 4
 	# Force the no-controller section so the test is deterministic on a PC
 	# that happens to have a radio plugged in.
-	controls.active_controller_guid = ""
+	controls.active_controller_guid = "PERSIST-TEST-GUID"
 	controls.active_device = -1
 	controls.default_controller_guid = ""
 	controls.stick_deadzone = 0.033

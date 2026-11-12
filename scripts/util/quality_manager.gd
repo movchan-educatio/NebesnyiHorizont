@@ -116,6 +116,39 @@ static func params() -> Dictionary:
 	# renderer.  Mutating the const directly raised "Dictionary is in
 	# read-only state" on iOS.
 	var p: Dictionary = PRESETS[level()].duplicate(true)
+	# Phone profile preserves the high-quality materials and near-field shadows,
+	# while limiting fill-rate/foliage and enabling adaptive internal resolution.
+	# The governor changes only 3D scale; the HUD remains at native resolution.
+	var mobile := OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")
+	if mobile:
+		var refresh := DisplayServer.screen_get_refresh_rate()
+		var mobile_target := 58.0 if refresh < 90.0 else 118.0
+		match level():
+			Level.LOW:
+				p.merge({"scale_3d": 0.58, "min_scale": 0.42, "max_scale": 0.70,
+					"adaptive": true, "target_fps": mobile_target,
+					"grass_count": 1100, "grass_range": 18.0,
+					"veg_range": 520.0, "veg_density": 0.48, "mesh_lod": 1.8,
+					"shadow_distance": 80.0, "shadow_atlas": 1024,
+					"ssao": false, "ssil": false, "volumetric_fog": false,
+					"glow": false, "fxaa": false}, true)
+			Level.MEDIUM:
+				p.merge({"scale_3d": 0.72, "min_scale": 0.52, "max_scale": 0.82,
+					"adaptive": true, "target_fps": mobile_target,
+					"grass_count": 2400, "grass_range": 24.0,
+					"veg_range": 850.0, "veg_density": 0.72, "mesh_lod": 1.25,
+					"shadow_distance": 110.0, "shadow_atlas": 1024,
+					"ssao": false, "ssil": false, "volumetric_fog": false,
+					"glow": false, "fxaa": true}, true)
+			Level.HIGH:
+				p.merge({"scale_3d": 0.84, "min_scale": 0.62, "max_scale": 0.90,
+					"adaptive": true, "target_fps": mobile_target,
+					"grass_count": 4200, "grass_range": 28.0,
+					"veg_range": 1250.0, "veg_density": 0.86, "mesh_lod": 1.05,
+					"shadow_distance": 145.0, "shadow_atlas": 1536,
+					"ssao": false, "ssil": false, "volumetric_fog": false,
+					"glow": false, "fxaa": true}, true)
 	# QA switches used by the FPS benchmark to isolate expensive passes.
 	if OS.has_environment("QA_NO_FOG"):
 		p = p.duplicate(true)

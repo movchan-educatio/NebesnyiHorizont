@@ -1,0 +1,140 @@
+v25: Mobile Optimization, Audio Recovery, Fixed-Wing FPV & Integrated Warheads
+
+ISSUES RESOLVED (Prompt)
+========================
+
+[CRITICAL] Calibration & Input
+- Deadzone/Smoothing sliders now affect touch stick behavior correctly
+- CRSF throttle range normalized for mobile ELRS (172–1811 range)
+- Both senstick deadzones and ELRS/gamepad apply filters identically
+
+[CRITICAL] Audio Focus Management
+- iOS app pause/resume now restores audio output after system interruption (alarm/call/Siri)
+- Intentional mute state preserved (pilot setting, not OS state)
+- Tested: PASS (audio resumes, mute state survives pause cycle)
+
+[FEATURE] Fixed-Wing FPV Framing & Integrated Warheads
+- Leleka/Furia/Chaklun now show airframe silhouette in FPV (corpus/fuselage/wings visible)
+- Camera repositioned to frame tail propeller, wing edges, and fuselage in view
+- Integrated warhead system: touch button (БЧ) activates payload for idx 13/14/15
+- Desktop PC: payload=0, original FPV framing preserved (no regression)
+
+OPTIMIZATION (Mobile-Only)
+==========================
+
+Mobile GLB Assets (object count reduction, bounds preserved)
+- Leleka: 118 → 25 meshes (-79%), primitives 119 → 26
+- Furia: 68 → 24 meshes (-65%), primitives 69 → 25
+- Chaklun: 49 → 13 meshes (-73%), primitives 49 → 13
+- Apache: 46 → 26 meshes (-43%), primitives 46 → 26
+
+Graphics Pipeline (iOS-only)
+- Adaptive 3D scale: 0.58–0.84 (device budget)
+- FPS cap: 58 (60 Hz display), 118 (120 Hz display)
+- Mobile quality profiles (LOW/MEDIUM/HIGH):
+  * LOW: scale 0.58, 1100 grass instances, 520 m foliage, 80 m shadows
+  * MEDIUM: scale 0.72, 2400 instances, 850 m, 110 m
+  * HIGH: scale 0.84, 4200 instances, 1250 m, 145 m
+
+LOD for Vehicles (mobile-only)
+- Distance 0–180 m: full model
+- Distance 180–480 m: proxy-silhouette (Apache: 46→26 objects)
+- Distance >480 m: not rendered
+
+Animation
+- Infantry far LOD: animation paused (performance)
+- All pusher props: animated frames (Leleka/Furia/Chaklun)
+- Rotor blur shader (no geometry)
+
+HUD & Input (Mobileonly)
+- Quit button hidden on iOS/mobile
+- Touch control stick deadzone/smoothing active
+- Pause card layout adjusted for mobile (wider, taller rows)
+- Hero drone scales correctly on first load
+
+QA RESULTS
+==========
+
+qa_video_fixes.tscn
+- 50+ individual tests: PASS (0 failures)
+- Covers: quality profile, deadzone/smoothing, audio, warhead, FPV, PC regression checks
+
+qa_persist2_write / qa_persist2_read
+- Settings persistence: PASS
+- Input map, deadzone, smoothing, gamepad binding: PASS
+
+qa_mobile_apache.tscn
+- Desktop: original apache_hecu_half-life.glb (46 objects)
+- Mobile: apache_hecu_half-life_mobile.glb (26 objects, LOD proxy enabled)
+- Result: PASS (both paths verified)
+
+tools/audit_mobile_assets.py
+- Bounds check (original vs mobile GLB): all PASS (delta ≤0.01 m)
+- Object reduction verified: apache 46→26, leleka 118→25, etc.
+
+SCOPE (Mobile-Only)
+===================
+- Desktop/PC code path: unchanged
+- Original GLB for apache, leleka, furia preserved
+- New *_mobile.glb variants selected by MOBILE_UI env or OS.has_feature("mobile")
+- No changes to: payload balance, PC loadouts, PC FPV defaults
+
+FILES MODIFIED
+==============
+autoloads/
+  Audio.gd (iOS _notification for audio resume)
+  DroneCatalog.gd (mobile preset() overrides + fixed-wing FPV params)
+  ElrsWifiInput.gd (CRSF throttle normalization)
+  Graphics.gd (mobile quality detection + FPS cap)
+  TouchControls.gd (deadzone/smoothing applied to stick input)
+
+combat/
+  vehicle.gd (mobile LOD proxy + far-hide)
+  enemy_infantry.gd (far LOD animation pause)
+
+drone/
+  RadioController.gd (smoothing filter integration)
+
+sceneries/
+  BigLevel.gd (FPV framing, mobile front-prop visibility)
+
+scripts/util/
+  quality_manager.gd (mobile adaptive scale, grass/shadow budgets)
+
+test/
+  qa_video_fixes.gd (50+ checks for mobile + PC regression)
+  qa_persist2_*.gd (settings I/O with separate user:// paths)
+  qa_mobile_apache.gd (asset + LOD verification)
+
+tools/
+  optimize_mobile_airframes.py (transform-apply fix for join)
+  optimize_apache_mobile.py (same)
+  audit_mobile_assets.py (bounds + object count audit)
+
+Assets/
+  Drones/ua_norm/*_mobile.glb (new, merged by material)
+  vehicles/apache_hecu_half-life_mobile.glb (new, merged by material)
+
+docs/ios/
+  REPORT_v25.md (optimization summary + QA results)
+  v25_leleka_blender_preview.png (Blender render of mobile asset)
+  v25_fixedwing_leleka.png (FPV in-game capture)
+  v25_apache_mobile.png (Apache mobile LOD test)
+
+NEXT: iOS Build
+===============
+GitHub Actions workflow ready for unsigned IPA v25.
+Expected: build completion + SHA-256 metadata + upload to http://192.168.0.100:8000/
+
+ITEMS NOT IN v25 (Future)
+==========================
+- rifleman.glb merge to 1–2 materials (requires full authoring)
+- Baked AO/lightmaps + occlusion culling for maps
+- Infantry billboards/imposters (150–360 m)
+- 6–8 full animation clips per soldier
+- Damage states, decals, FPV VFX overlay
+- Real iPhone profiling (draw calls, GPU/CPU time)
+- Art direction pass (readability, silhouettes, color coding)
+
+---
+v25 release cycle: 2026-11-12

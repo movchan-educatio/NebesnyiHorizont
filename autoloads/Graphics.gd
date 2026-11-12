@@ -60,6 +60,20 @@ func _is_very_weak_gpu() -> bool:
 			and not adapter.contains("uhd")
 
 
+func _is_mobile_platform() -> bool:
+	return OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")
+
+
+func _mobile_refresh_cap(requested: int) -> int:
+	if not _is_mobile_platform():
+		return requested
+	var refresh := DisplayServer.screen_get_refresh_rate()
+	if refresh < 30.0:
+		refresh = 60.0
+	return mini(requested, int(round(refresh))) if requested > 0 else int(round(refresh))
+
+
 func load_graphics_settings() -> String:
 	var config := ConfigFile.new()
 	var text := ""
@@ -70,11 +84,15 @@ func load_graphics_settings() -> String:
 			if config.has_section_key("graphics", key):
 				graphics_settings[key] = config.get_value("graphics", key)
 		if not has_quality or bool(graphics_settings.get("vsync", false)):
-			graphics_settings["quality"] = int(graphics_settings.get("quality", QualityPreset.MEDIUM))
+			graphics_settings["quality"] = QualityPreset.MEDIUM if _is_mobile_platform() \
+					else int(graphics_settings.get("quality", QualityPreset.MEDIUM))
 			graphics_settings["msaa"] = GameMSAA.OFF
 			graphics_settings["fisheye_mode"] = FisheyeMode.OFF
 			graphics_settings["vsync"] = false
-			if int(graphics_settings.get("fps_limit", 0)) == 30 or int(graphics_settings.get("fps_limit", 0)) == 60:
+			if _is_mobile_platform():
+				graphics_settings["fps_limit"] = _mobile_refresh_cap(
+						int(graphics_settings.get("fps_limit", 120)))
+			elif int(graphics_settings.get("fps_limit", 0)) == 30 or int(graphics_settings.get("fps_limit", 0)) == 60:
 				graphics_settings["fps_limit"] = 120
 			save_graphics_settings()
 		# Version 3 defaults: fullscreen, native resolution, 120 FPS cap.
@@ -103,6 +121,14 @@ func load_graphics_settings() -> String:
 				graphics_settings["fps_limit"] = 60
 			graphics_settings["defaults_version"] = 6
 			save_graphics_settings()
+		# v7: cap mobile rendering to the physical display refresh.  Keep an
+		# explicit saved quality selection intact; the mobile QualityManager
+		# profile applies safe adaptive scale/foliage/shadow budgets at runtime.
+		if _is_mobile_platform() and defaults_version < 7:
+			graphics_settings["fps_limit"] = _mobile_refresh_cap(
+					int(graphics_settings.get("fps_limit", 120)))
+			graphics_settings["defaults_version"] = 7
+			save_graphics_settings()
 		update_window_mode()
 		update_resolution()
 		update_msaa()
@@ -126,7 +152,7 @@ func load_graphics_settings() -> String:
 	else:
 		# Fresh install: pick a preset the GPU can actually run.  UHD handles
 		# MEDIUM (0.8x, shadows, textures); older HD gets LOW.
-		graphics_settings["defaults_version"] = 6
+		graphics_settings["defaults_version"] = 7 if _is_mobile_platform() else 6
 		if _is_weak_gpu():
 			if _is_very_weak_gpu():
 				graphics_settings["quality"] = QualityPreset.LOW
@@ -135,7 +161,10 @@ func load_graphics_settings() -> String:
 			graphics_settings["msaa"] = GameMSAA.OFF
 			graphics_settings["fps_limit"] = 60
 		else:
-			graphics_settings["quality"] = QualityPreset.HIGH
+			graphics_settings["quality"] = QualityPreset.MEDIUM if _is_mobile_platform() \
+					else QualityPreset.HIGH
+		if _is_mobile_platform():
+			graphics_settings["fps_limit"] = _mobile_refresh_cap(120)
 		update_msaa()
 		update_shadows()
 		update_fps_limit()
@@ -295,7 +324,7 @@ func update_vsync() -> void:
 
 
 func update_fps_limit() -> void:
-	Engine.max_fps = int(graphics_settings["fps_limit"])
+	Engine.max_fps = _mobile_refresh_cap(int(graphics_settings["fps_limit"]))
 
 
 func update_quality() -> void:

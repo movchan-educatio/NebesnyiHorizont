@@ -14,7 +14,6 @@ signal mode_changed(using_touch: bool)
 
 const NO_TOUCH := -2
 const MOUSE_TOUCH := -1
-const DEADZONE := 0.06
 const MARGIN := 40.0
 const BOTTOM_MARGIN := 48.0
 
@@ -361,6 +360,8 @@ func _update_mode_button() -> void:
 	_mode_button.text = "ВВІД: СЕНСОР" if touch_mode else "ВВІД: ПУЛЬТ"
 	if _drop_button != null:
 		_drop_button.visible = enabled and touch_mode and not _preview
+		var action := _touch_payload_action()
+		_drop_button.text = "БЧ" if action == "activate_payload" else "СКИД"
 
 
 func _on_mode_pressed() -> void:
@@ -412,17 +413,34 @@ func _on_flight_pressed() -> void:
 
 func _on_action_pressed(action: String) -> void:
 	if action == "deploy_payload":
-		if not _payload_available():
+		var actual_action := _touch_payload_action()
+		if not _payload_available(actual_action):
 			_show_toast("НЕМАЄ БОЄПРИПАСУ")
 			return
-		_show_toast("СКИД")
+		_show_toast("БЧ АКТИВОВАНО" if actual_action == "activate_payload" else "СКИД")
+		_dispatch_action(actual_action)
+		return
 	_dispatch_action(action)
 
 
-func _payload_available() -> bool:
+func _touch_payload_action() -> String:
+	var preset := DroneCatalog.preset(Global.drone_preset)
+	if bool(preset.get("kamikaze", false)) and not bool(preset.get("has_drop", false)):
+		return "activate_payload"
+	return "deploy_payload"
+
+
+func _payload_available(action: String = "deploy_payload") -> bool:
 	var scene := get_tree().current_scene
 	if scene == null:
 		return true
+	if bool(scene.get("_payload_dropped")):
+		return false
+	# Kamikaze/warhead drones carry an integrated charge rather than a
+	# detachable ammo count, so they must not be rejected by the drop-ammo HUD.
+	if action == "activate_payload":
+		var payload_enabled = scene.get("_payload_enabled")
+		return payload_enabled == null or bool(payload_enabled)
 	if scene.has_method("_ammo_count"):
 		if int(scene.call("_ammo_count")) <= 0:
 			return false
@@ -769,22 +787,23 @@ func _drag_touch(index: int, pos: Vector2) -> bool:
 
 
 func _update_stick(left: bool, pos: Vector2) -> void:
+	var deadzone := Controls.stick_deadzone if Controls != null else 0.02
 	var center := _left_center if left else _right_center
 	var offset := (pos - center).limit_length(_radius)
 	if left:
 		_left_knob = offset
 		throttle = clampf(0.5 - offset.y / (2.0 * _radius), 0.0, 1.0)
 		var x := offset.x / _radius
-		yaw = 0.0 if absf(x) < DEADZONE else clampf(x, -1.0, 1.0)
+		yaw = 0.0 if absf(x) < deadzone else clampf(x, -1.0, 1.0)
 	else:
 		_right_knob = offset
 		var x := offset.x / _radius
 		var y := offset.y / _radius
-		var r := 0.0 if absf(x) < DEADZONE else clampf(x, -1.0, 1.0)
+		var r := 0.0 if absf(x) < deadzone else clampf(x, -1.0, 1.0)
 		if invert_roll:
 			r = -r
 		roll = r
-		pitch = 0.0 if absf(y) < DEADZONE else clampf(y, -1.0, 1.0)
+		pitch = 0.0 if absf(y) < deadzone else clampf(y, -1.0, 1.0)
 	_drawer.queue_redraw()
 
 
@@ -822,12 +841,11 @@ func _on_drawer_draw() -> void:
 	# touch overlay only keeps its MODE button visible.
 	if not enabled or _drawer == null or not touch_mode:
 		return
-	_draw_stick(_drawer, _left_center, _left_knob, "THR / YAW", 1.0)
-	_draw_stick(_drawer, _right_center, _right_knob, "PITCH / ROLL", 1.0)
+	_draw_stick(_drawer, _left_center, _left_knob, 1.0)
+	_draw_stick(_drawer, _right_center, _right_knob, 1.0)
 
 
-func _draw_stick(c: Control, center: Vector2, knob: Vector2,
-		label: String, alpha: float) -> void:
+func _draw_stick(c: Control, center: Vector2, knob: Vector2, alpha: float) -> void:
 	var base := Color(0.03, 0.06, 0.09, 0.38 * alpha)
 	var rim := Color(0.70, 0.86, 1.0, 0.45 * alpha)
 	var cross := Color(0.70, 0.86, 1.0, 0.20 * alpha)
@@ -842,11 +860,6 @@ func _draw_stick(c: Control, center: Vector2, knob: Vector2,
 	var knob_r := _radius * 0.29
 	c.draw_circle(knob_pos, knob_r, knob_col)
 	c.draw_arc(knob_pos, knob_r, 0.0, TAU, 32, rim, 1.5, true)
-	var font := ThemeDB.fallback_font
-	var font_size := int(clampf(_radius * 0.15, 12.0, 18.0))
-	c.draw_string(font, center + Vector2(-_radius, -_radius - 12.0),
-			label, HORIZONTAL_ALIGNMENT_CENTER, _radius * 2.0, font_size,
-			Color(0.85, 0.94, 1.0, 0.75 * alpha))
 
 
 func _notification(what: int) -> void:

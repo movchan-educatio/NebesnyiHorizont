@@ -2951,6 +2951,15 @@ func _update_audio_priority(delta: float) -> void:
 				crackle_target, clampf(delta * 5.0, 0.0, 1.0))
 
 
+func _on_audio_resumed() -> void:
+	_audio_mix_tick = 0.0
+	_audio_duck_timer = 0.0
+	if _combat_music != null and not _combat_music.playing:
+		_combat_music.play()
+	_update_audio_mix(1.0)
+	_update_audio_priority(1.0)
+
+
 func _kind_name(kind: int) -> String:
 	match kind:
 		Vehicle.Kind.TANK:
@@ -4562,8 +4571,7 @@ func _attach_fpv_rig() -> void:
 			if child is Node3D and String(child.name).begins_with("Bomb_"):
 				_bomb_nodes.append(child as Node3D)
 	var is_combat: bool = bool(p.get("combat", false))
-	var has_payload_or_drop: bool = is_combat and (int(p.get("payload", 0)) > 0 or bool(p.get("has_drop", false)))
-	_payload_enabled = has_payload_or_drop and not bool(p.get("is_naval", false))
+	_payload_enabled = is_combat and DroneCatalog.supports_payload_actions(Global.drone_preset)
 	if not _payload_enabled:
 		_fpv_payload = null
 		return
@@ -6425,15 +6433,34 @@ func _refresh_model_visibility() -> void:
 		# lifted just above the frame so the body no longer fills the centre.
 		var combat_airframe := bool(p.get("combat", false)) \
 				and not bool(p.get("is_naval", false))
+		var show_airframe := bool(p.get("fpv_show_airframe", false))
 		var hide_model := bool(p.get("fpv_hide_model", false))
+		if show_airframe:
+			hide_model = false
 		# The 2.8 m heavy bomber cannot be framed by a 110-degree lens without
 		# its rack/battery covering the crosshair.  Its external ordnance is
 		# still simulated, the CCIP sight and AMMO counter carry the cue.
 		if bool(p.get("heavy_bomber", false)):
 			hide_model = true
-		_model_root.visible = combat_airframe and not hide_model
-		_apply_combat_fpv_camera(combat_airframe and not hide_model, p)
-		_configure_model_for_camera(_model_root, true, combat_airframe)
+		_model_root.visible = (combat_airframe or show_airframe) and not hide_model
+		var mobile_front_props := _is_mobile_runtime() and not combat_airframe \
+				and not show_airframe and not bool(p.get("fixed_wing", false)) \
+				and not bool(p.get("is_naval", false)) \
+				and not bool(p.get("heavy_bomber", false))
+		if mobile_front_props:
+			_model_root.visible = true
+		_apply_combat_fpv_camera(combat_airframe and not show_airframe and not hide_model, p)
+		if show_airframe:
+			# Recon/loitering fixed-wing aircraft need enough body in frame for
+			# orientation. Hide the close-up camera gimbal itself, which otherwise
+			# fills the centre of the FPV image on Leleka/Furia.
+			_configure_fixed_wing_fpv(_model_root)
+		elif mobile_front_props:
+			# iOS-only: show just the rotating front props/arms at the screen
+			# edges so pilots can judge attitude. PC keeps the clean lens.
+			_configure_mobile_front_props(_model_root)
+		else:
+			_configure_model_for_camera(_model_root, true, combat_airframe)
 	else:
 		_model_root.visible = true
 		_apply_combat_fpv_camera(false, p)
@@ -6442,17 +6469,67 @@ func _refresh_model_visibility() -> void:
 	# must follow the same rule; otherwise their black tips poke into the lower
 	# corners of the FPV frame.
 	var drone_node := get_node_or_null("Drone")
+	var preset_now := DroneCatalog.preset(Global.drone_preset)
+	var mobile_side_props := _is_mobile_runtime() and not third_person \
+			and not bool(preset_now.get("fixed_wing", false)) \
+			and not bool(preset_now.get("is_naval", false)) \
+			and not bool(preset_now.get("heavy_bomber", false))
 	if drone_node != null:
 		for prop in drone_node.find_children("*", "Propeller", true, false):
 			if prop.has_method("set_visibility"):
-				prop.call("set_visibility", third_person)
+				prop.call("set_visibility", third_person or bool(
+					preset_now.get("fpv_show_airframe", false)))
 			elif prop is VisualInstance3D:
-				(prop as VisualInstance3D).visible = third_person
+				(prop as VisualInstance3D).visible = third_person or bool(
+					preset_now.get("fpv_show_airframe", false))
 	if not is_inside_tree():
 		return
 	for pivot in get_tree().get_nodes_in_group("drone_prop_pivot"):
 		if pivot is Node3D:
-			(pivot as Node3D).visible = third_person
+			var pivot_name := String(pivot.name).to_lower()
+			var front_pivot := pivot_name.contains("fl") or pivot_name.contains("fr") \
+					or pivot_name.ends_with("_0") or pivot_name.ends_with("_1")
+			(pivot as Node3D).visible = third_person or bool(
+				preset_now.get("fpv_show_airframe", false)) \
+				or (mobile_side_props and front_pivot)
+
+
+func _is_mobile_runtime() -> bool:
+	return OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")
+
+
+func _configure_mobile_front_props(node: Node) -> void:
+	if node == null:
+		return
+	if node.is_in_group("drone_prop_pivot") or node.name == "PropellerAssembly":
+		if node is Node3D:
+			var pn := String(node.name).to_lower()
+			(node as Node3D).visible = pn.contains("fl") or pn.contains("fr") \
+					or pn.ends_with("_0") or pn.ends_with("_1")
+		return
+	if node is MeshInstance3D:
+		var n := String(node.name).to_lower()
+		(node as MeshInstance3D).visible = n.contains("propeller_fl") \
+				or n.contains("propeller_fr") or n.contains("motor_fl") \
+				or n.contains("motor_fr") or n.contains("arm_fl") \
+				or n.contains("arm_fr") or n.contains("front_arm")
+	for child in node.get_children():
+		_configure_mobile_front_props(child)
+
+
+func _configure_fixed_wing_fpv(node: Node) -> void:
+	if node == null:
+		return
+	if node is MeshInstance3D:
+		var mesh_name := String(node.name).to_lower()
+		var camera_part := mesh_name.contains("camera") or mesh_name.contains("cam")
+		(node as MeshInstance3D).visible = not camera_part
+	elif node is Node3D and (node.name == "propeller_rear" \
+			or node.is_in_group("drone_prop_pivot")):
+		(node as Node3D).visible = true
+	for child in node.get_children():
+		_configure_fixed_wing_fpv(child)
 
 
 func _is_under(node: Node, ancestor: Node) -> bool:
@@ -6565,8 +6642,3 @@ func _find_clear_spawn(origin: Vector2, trees: PackedVector2Array,
 			if min_d2 >= clear_d2:
 				return p
 	return best
-
-
-
-
-

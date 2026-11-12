@@ -252,7 +252,15 @@ func throttle() -> float:
 		return -1.0
 	var ch := int(channel_map.get("throttle", 2))
 	var raw_val := _raw(ch)
-	var val := clampf(raw_val / 32767.0, 0.0, 1.0)
+	# ExpressLRS WiFi has been seen with both the app-normalised 0..32767
+	# range and native CRSF 172..1811 range.  Detect the latter before scaling:
+	# dividing 1811 by 32767 compresses the whole throttle into the bottom 5.5%,
+	# which feels like an abrupt 0-to-mid-stick jump during takeoff.
+	var is_mobile := OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")
+	var val := clampf((raw_val - 172.0) / (1811.0 - 172.0), 0.0, 1.0) \
+			if is_mobile and raw_val <= 2048.0 \
+			else clampf(raw_val / 32767.0, 0.0, 1.0)
 	if invert_throttle:
 		val = 1.0 - val
 	# Bottom deadband so resting at bottom reads exact 0.0% and never fails THROTTLE_HIGH
