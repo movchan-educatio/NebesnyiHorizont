@@ -55,6 +55,7 @@ var _death_variant := 0
 var _death_progress := 0.0
 var _mobile_animation_hz := -1.0
 var _mobile_animation_accumulator := 0.0
+var clip_player: AnimationPlayer = null
 var _base_model_pos := Vector3.ZERO
 var _base_model_rot := Vector3.ZERO
 var _rifle_rest := Vector3.ZERO
@@ -114,6 +115,9 @@ func setup_rig(team_id: int = -1) -> bool:
 		EnemyMarkingsScript.mark_infantry(self)
 	scale = Vector3.ONE * 1.8
 	_ready_ok = true
+	if OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI"):
+		_ensure_clip_preview()
 	return true
 
 
@@ -268,6 +272,40 @@ func set_mobile_animation_lod(distance: float) -> void:
 	if not is_equal_approx(next_hz, _mobile_animation_hz):
 		_mobile_animation_hz = next_hz
 		_mobile_animation_accumulator = 0.0
+
+
+## Reference/preview clips baked from the procedural poses. Gameplay stays
+## procedural; this player only hosts the exported .tres resources so they can
+## be QA'd and later swapped into an AnimationTree without changing the rig.
+func _ensure_clip_preview() -> void:
+	if clip_player != null:
+		return
+	clip_player = AnimationPlayer.new()
+	clip_player.name = "ClipPreview"
+	add_child(clip_player)
+	var library := AnimationLibrary.new()
+	for clip_name in ["Idle", "Walk", "Run", "Aim", "Fire", "Reload", "Hit", "Death"]:
+		var path := "res://Assets/combat/animations/soldier_%s.tres" % clip_name
+		if ResourceLoader.exists(path):
+			var clip := load(path) as Animation
+			if clip != null:
+				library.add_animation(clip_name, clip)
+	clip_player.add_animation_library("soldier", library)
+
+
+func preview_clip(clip_name: String, speed: float = 1.0) -> bool:
+	if clip_player == null:
+		_ensure_clip_preview()
+	if clip_player == null or not clip_player.has_animation("soldier/" + clip_name):
+		return false
+	clip_player.play("soldier/" + clip_name)
+	clip_player.speed_scale = speed
+	return true
+
+
+func stop_preview() -> void:
+	if clip_player != null:
+		clip_player.stop()
 
 
 func _process(delta: float) -> void:

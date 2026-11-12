@@ -77,6 +77,16 @@ const HANDCRAFTED_AVOID := {
 	"wetlands": [Vector2(-60, -140), Vector2(6, 60), Vector2(18, 22)],
 }
 
+## Mobile-only extra dressing anchors: two more themed clusters per map so the
+## open fields between landmarks never read as empty. Placement still goes
+## through the normal clear checks and the same MultiMesh batching.
+const MOBILE_EXTRA_ANCHORS := {
+	"industrial": [Vector2(330, 220), Vector2(-320, -260)],
+	"village": [Vector2(300, -260), Vector2(-320, 260)],
+	"steppe": [Vector2(300, 280), Vector2(-330, -260)],
+	"wetlands": [Vector2(-340, 220), Vector2(300, -260)],
+}
+
 
 static func build(root: Node3D, map_name: String, quality: int = -1) -> void:
 	if root == null or not STUNTS.has(map_name):
@@ -113,6 +123,12 @@ static func build(root: Node3D, map_name: String, quality: int = -1) -> void:
 		var av: Vector2 = a
 		if _is_clear_prop(terrain, military, map_name, av.x, av.y, 5.0):
 			anchors.append(av)
+	if OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI"):
+		for a in MOBILE_EXTRA_ANCHORS.get(map_name, []):
+			var av: Vector2 = a
+			if _is_clear_prop(terrain, military, map_name, av.x, av.y, 5.0):
+				anchors.append(av)
 	# Keep the clutter spread over the map even when authored anchors happen to
 	# sit inside a larger hall/farm/military clear radius.
 	var anchor_tries := 0
@@ -129,6 +145,9 @@ static func build(root: Node3D, map_name: String, quality: int = -1) -> void:
 			func(n): return mesh_set.has(str(n)))
 	var budget := 7 if q == QualityManager.Level.LOW else \
 			(15 if q == QualityManager.Level.MEDIUM else 24)
+	if OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI"):
+		budget = int(round(budget * 1.3))
 	var placed := 0
 	for prop_name in names:
 		var mesh: Mesh = mesh_set[str(prop_name)]

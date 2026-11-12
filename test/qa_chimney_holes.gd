@@ -1,8 +1,10 @@
 extends Node
 
-## QA: Village hall chimney must be solid except for the intended base arch
-## and the open top.  Any horizontal ray that passes through the shell above
-## the arch is a geometry hole (the player saw a white rectangle).
+## QA: The flooded pump-station stack on Wetlands (22,60) must be solid except
+## for its intended base arch and open top.  Any horizontal ray that passes
+## through the shell above the arch is a geometry hole.  (The old Village yard
+## chimney builder is no longer called, so the probe now targets the live
+## WetlandsChimney built by world_detail._dress_wetlands.)
 
 const TERRAIN := preload("res://scripts/util/frontline_terrain.gd")
 
@@ -11,14 +13,14 @@ func _ready() -> void:
 	Global.special_mission = 1
 	Global.combat_mission = 1
 	Global.drone_preset = 6
-	var packed := load("res://sceneries/VillageLevel.tscn") as PackedScene
+	var packed := load("res://sceneries/WetlandsLevel.tscn") as PackedScene
 	var level := packed.instantiate()
 	add_child(level)
 	await get_tree().create_timer(5.0).timeout
 	var space: PhysicsDirectSpaceState3D = level.get_world_3d().direct_space_state
-	var cx := 310.0
-	var cz := 80.0
-	var base: float = TERRAIN.height_at("village", cx, cz)
+	var cx := 22.0
+	var cz := 60.0
+	var base: float = TERRAIN.height_at("wetlands", cx, cz)
 	print("[CHQA] base=", base)
 	var bad := 0
 	for h in [4.5, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0]:

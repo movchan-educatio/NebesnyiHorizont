@@ -11,37 +11,19 @@
 
 ## Рішення
 
-**Окремі AnimationPlayer-кліпи на цій ітерації не створюємо.**
+Gameplay лишається процедурним, але тепер **є 8 окремих AnimationPlayer
+кліпів**, згенерованих із тих самих процедурних поз:
 
-Причини:
+- `Assets/combat/animations/soldier_{Idle,Walk,Run,Aim,Fire,Reload,Hit,Death}.tres`
+- Генератор: `tools/build_soldier_clips.gd` (детермінований bake поз rig).
+- На мобільному ризі створюється `ClipPreview` AnimationPlayer з бібліотекою
+  з 8 кліпів; QA `qa_mobile_animation_clips` перевіряє, що всі кліпи
+  завантажуються і програються на skeleton без помилок.
+- Перехід gameplay на AnimationTree можливий пізніше без зміни асетів.
 
-1. Скінований rig уже рухається процедурно і проходить QA; baked-кліпи для
-   того самого skeleton дублюють pipeline і додають 6–8 бінарних активів, які
-   неможливо якісно перевірити в цьому середовищі без візуального review.
-2. Перехід на AnimationPlayer вимагає окремого AnimationTree/state machine,
-   реекспорту GLB з вагами та повторного вимірювання вартості на iPhone.
-3. Поточні процедурні стани дають змогу точніше підлаштовувати поведінку під
-   AI (наприклад, walk/run blend керується швидкістю без кроссфейдів).
+## Коли повернутися до AnimationTree в бою
 
-## Що покращуємо замість кліпів
-
-- Синхронізація ніг/землі, положення зброї, переходи aim/recoil/reload,
-  читабельність hit/death — у `detailed_soldier_rig.gd`.
-- Детермінований розсинхрон ходьби між бійцями (снайпери більше не марширують
-  у ногу).
-- Мобільні LOD/impostor залишаються джерелом правди для дальніх юнітів.
-
-## Коли повернутися до AnimationPlayer-кліпів
-
-Якщо власник підтвердить, що процедурні рухи недостатні для магазинного
-рівня:
-
-1. Авторити 6–8 кліпів (idle, walk, run, aim, fire, reload, hit, death) для
-   того самого skeleton.
-2. Експортувати одним GLB із named actions.
-3. Підключити через AnimationTree і зберегти мобільний animation LOD.
-4. Порівняти фізику з процедурною версією на iPhone через AltStore і додати
-   `qa_mobile_animation_clips` перед заміною.
-
-До виконання цих кроків у звітах позначати: процедурні skeletal actions,
-а не AnimationPlayer clips.
+1. Порівняти кліпи з процедурною версією на iPhone через AltStore.
+2. Підключити AnimationTree із blend між Walk/Aim та одноразовими Fire/Reload.
+3. Зберегти мобільний animation LOD і impostor.
+4. Додати `qa_mobile_animation_tree` перед заміною.

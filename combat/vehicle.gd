@@ -87,6 +87,8 @@ var health := 0.0
 var is_destroyed := false
 var _stuck_time := 0.0
 var _reverse_left := 0.0
+var _retreating := false
+var _orbit_phase := 0.0
 var _last_obstacle_normal := Vector3.ZERO
 
 var _waypoints: PackedVector3Array = PackedVector3Array()
@@ -1165,7 +1167,7 @@ func _physics_process(delta: float) -> void:
 	_update_halt(delta)
 	var holding := _halt_left > 0.0
 	var hovering := _engaging and kind == Kind.HELI
-	if not holding and not hovering:
+	if not holding and not hovering and not _retreating:
 		_move_along_route(delta)
 	else:
 		_step = 0.0
@@ -1207,7 +1209,10 @@ func _move_along_route(delta: float) -> void:
 		# Reconnaissance/supply Tigr accelerates when an armed drone approaches!
 		var d_dist := global_position.distance_to(_drone.global_position)
 		if d_dist < 85.0:
-			effective_speed = move_speed * 1.38 * _damage_speed_mult
+			var flee_mult := 1.5 if (OS.get_name() == "iOS" \
+					or OS.has_feature("mobile") or OS.has_environment("MOBILE_UI")) \
+					else 1.38
+			effective_speed = move_speed * flee_mult * _damage_speed_mult
 	elif kind != Kind.HELI and kind != Kind.SHAHED:
 		# Slow down during sharp turns so tracked/wheeled vehicles turn tightly
 		# and always move strictly forward along their nose (-Z).
@@ -1478,7 +1483,36 @@ func _combat_engage(delta: float) -> void:
 	var to := _drone.global_position - muzzle
 	var dist := to.length()
 	if dist > fire_range or dist < 3.0:
+		_retreating = false
 		return
+	_retreating = false
+	# Mobile engagement profiles: SAM and BMP hold distance instead of letting
+	# the drone close in; the helicopter orbits the target with lateral strafes.
+	if OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI"):
+		if kind == Kind.SAM or kind == Kind.BMP:
+			var keep := fire_range * 0.35
+			if dist < keep:
+				var away := global_position - _drone.global_position
+				away.y = 0.0
+				if away.length_squared() < 0.01:
+					away = -global_transform.basis.z
+				var dir := away.normalized()
+				if not _is_path_blocked(dir, 2.0):
+					_retreating = true
+					rotation.y = lerp_angle(rotation.y, atan2(-dir.x, -dir.z),
+							clampf(delta * 3.0, 0.0, 1.0))
+					global_position += dir * move_speed * 0.55 * delta
+		elif kind == Kind.HELI:
+			_orbit_phase += delta * 0.55
+			var flat := Vector3(to.x, 0.0, to.z)
+			if flat.length_squared() > 0.01:
+				var ring_radius := fire_range * 0.55
+				var toward := -flat.normalized()
+				var strafe_dir := Vector3(-toward.z, 0.0, toward.x) * sin(_orbit_phase) * 0.8
+				var hold_pos := _drone.global_position + toward * ring_radius + strafe_dir * 10.0
+				hold_pos.y = global_position.y
+				global_position = global_position.lerp(hold_pos, clampf(delta * 0.5, 0.0, 1.0))
 	var space := get_world_3d().direct_space_state
 	var q := PhysicsRayQueryParameters3D.create(muzzle, _drone.global_position)
 	q.collision_mask = 1

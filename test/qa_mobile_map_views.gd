@@ -98,8 +98,65 @@ func _run() -> void:
 		await _capture(output.path_join(map_name + "_" + String(view["name"]) + ".png"), fpv)
 		if String(view["name"]) == "card" and OS.has_environment("MOBILE_MAP_CLEAN_THUMB"):
 			await _capture_clean_thumbnail(output.path_join(map_name + "_thumbnail.png"), fpv, drone)
+	await _route_audit(output, map_name, fpv, drone)
 	print("[MOBILE_MAP_VIEWS] completed ", map_name)
 	get_tree().quit(0 if _failures == 0 else 1)
+
+
+## Straight low-altitude corridors per map. Each corridor is probed at 3, 8 and
+## 15 m; a segment counts as blocked only when it hits a steep/wall surface.
+## Fewer than 50% blocked segments per height keeps the route passable.
+func _route_audit(output: String, map_name: String, fpv: Camera3D,
+		drone: Node3D) -> void:
+	var routes := {
+		"steppe": [Vector2(-180.0, -120.0), Vector2(200.0, 160.0)],
+		"village": [Vector2(-140.0, -100.0), Vector2(160.0, 140.0)],
+		"industrial": [Vector2(-120.0, 120.0), Vector2(160.0, -120.0)],
+		"wetlands": [Vector2(-140.0, 80.0), Vector2(160.0, -60.0)],
+	}
+	var ends: Array = routes.get(map_name, [])
+	if ends.size() < 2:
+		return
+	var start: Vector2 = ends[0]
+	var finish: Vector2 = ends[1]
+	var space := drone.get_world_3d().direct_space_state
+	var steps := 24
+	for height in [3.0, 8.0, 15.0]:
+		var blocked := 0
+		for i in range(steps):
+			var a: Vector2 = start.lerp(finish, float(i) / float(steps))
+			var b: Vector2 = start.lerp(finish, float(i + 1) / float(steps))
+			var ya: float = TERRAIN.height_at(map_name, a.x, a.y) + height
+			var yb: float = TERRAIN.height_at(map_name, b.x, b.y) + height
+			var query := PhysicsRayQueryParameters3D.create(
+					Vector3(a.x, ya, a.y), Vector3(b.x, yb, b.y))
+			query.collision_mask = 1
+			query.exclude = [drone.get_rid()] if drone is CollisionObject3D else []
+			var hit := space.intersect_ray(query)
+			if not hit.is_empty():
+				var normal: Vector3 = hit.get("normal", Vector3.UP)
+				if normal.y < 0.65:
+					blocked += 1
+		var ratio := float(blocked) / float(steps)
+		if ratio >= 0.5:
+			_failures += 1
+		print("[MOBILE_MAP_VIEWS] ", map_name, " corridor h=", height,
+				" blocked=", blocked, "/", steps, " ratio=", snappedf(ratio, 0.01))
+	if OS.has_environment("MOBILE_MAP_CLEAN_THUMB"):
+		drone.freeze = true
+		var mid: Vector2 = start.lerp(finish, 0.5)
+		for i in range(3):
+			var point: Vector2 = start if i == 0 else (finish if i == 2 else mid)
+			var y := TERRAIN.height_at(map_name, point.x, point.y) + 8.0
+			drone.global_position = Vector3(point.x, y, point.y)
+			var look_at := Vector3(finish.x, y, finish.y)
+			if not drone.global_position.is_equal_approx(look_at):
+				drone.look_at(look_at, Vector3.UP)
+			drone.linear_velocity = Vector3.ZERO
+			drone.angular_velocity = Vector3.ZERO
+			await get_tree().process_frame
+			await get_tree().process_frame
+			await _capture(output.path_join(map_name + "_route%d.png" % i), fpv)
 
 
 func _capture(path: String, fpv: Camera3D) -> void:
