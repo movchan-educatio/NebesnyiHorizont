@@ -204,6 +204,7 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 			or OS.has_environment("MOBILE_UI")) \
 			and not OS.has_environment("QA_NO_MOBILE_BEACONS"):
 		_build_mobile_beacons(root, map_name)
+		_build_mobile_hero_landmarks(root, map_name)
 	if map_name == "industrial":
 		_build_industrial_river(root)
 	else:
@@ -1763,6 +1764,149 @@ static func _is_clear_beacon_site(map_name: String, x: float, z: float) -> bool:
 			if Vector2(x, z).distance_to(Vector2(mp)) < 45.0:
 				return false
 	return true
+
+
+## One unique mobile hero landmark per map, built from the same box/cylinder
+## kit as the authored POIs. They sit on clear ground, are collidable, and are
+## registered in _poi_positions so later scatter passes keep their berth.
+static func _build_mobile_hero_landmarks(root: Node3D, map_name: String) -> void:
+	var specs := {
+		"steppe": ["wind_turbine", Vector2(-180.0, 260.0)],
+		"village": ["grain_elevator", Vector2(-180.0, 220.0)],
+		"industrial": ["flare_stack", Vector2(330.0, -120.0)],
+		"wetlands": ["lighthouse", Vector2(320.0, 140.0)],
+	}
+	var spec: Array = specs.get(map_name, [])
+	if spec.size() < 2:
+		return
+	var site := _resolve_mobile_beacon_site(map_name, spec[1])
+	if site.x < -900.0:
+		print("[MobileHero] ", map_name, " rejected ", spec[1])
+		return
+	match String(spec[0]):
+		"wind_turbine":
+			_add_mobile_wind_turbine(root, map_name, site)
+		"grain_elevator":
+			_add_mobile_grain_elevator(root, map_name, site)
+		"flare_stack":
+			_add_mobile_flare_stack(root, map_name, site)
+		"lighthouse":
+			_add_mobile_lighthouse(root, map_name, site)
+	_poi_positions.append(site)
+	reserve_area(site, 30.0)
+	print("[MobileHero] ", map_name, " ", spec[0], " at ", site)
+
+
+static func _add_mobile_wind_turbine(root: Node3D, map_name: String, p: Vector2) -> void:
+	var gy := _height(map_name, p.x, p.y)
+	var node := Node3D.new()
+	node.name = "MobileHero_WindTurbine"
+	node.position = Vector3(p.x, gy, p.y)
+	root.add_child(node)
+	var concrete := _pbr("hall_concrete", Color(0.52, 0.52, 0.48), 0.22)
+	var steel := _pbr("hall_metal", Color(0.72, 0.76, 0.78), 0.18)
+	_add_box(node, Vector3(0.0, 0.35, 0.0), Vector3(6.0, 0.7, 6.0), concrete)
+	_add_cylinder(node, Vector3(0.0, 14.5, 0.0), 0.9, 27.6, steel)
+	var nacelle := _add_box(node, Vector3(0.0, 29.2, 0.6), Vector3(1.6, 1.7, 4.6), steel)
+	_keep_poi_detail(nacelle)
+	var blade_mat := _pbr("steel", Color(0.82, 0.85, 0.84), 0.24)
+	for i in range(3):
+		var yaw := TAU * float(i) / 3.0
+		var blade := _add_box(node, Vector3(cos(yaw) * 7.4, 29.2, 0.6 + sin(yaw) * 7.4),
+				Vector3(0.5, 0.34, 13.6), blade_mat, 0.0, false)
+		blade.rotation.y = -yaw
+		_keep_poi_detail(blade, 900.0)
+	_keep_poi_detail(node, 1200.0)
+
+
+static func _add_mobile_grain_elevator(root: Node3D, map_name: String, p: Vector2) -> void:
+	var gy := _height(map_name, p.x, p.y)
+	var node := Node3D.new()
+	node.name = "MobileHero_GrainElevator"
+	node.position = Vector3(p.x, gy, p.y)
+	root.add_child(node)
+	var concrete := _pbr("hall_concrete", Color(0.62, 0.60, 0.55), 0.24)
+	var rust := _pbr("hall_rust", Color(0.72, 0.55, 0.42), 0.26)
+	var silo := _pbr("hall_metal", Color(0.58, 0.62, 0.60), 0.2)
+	for i in range(3):
+		_add_cylinder(node, Vector3(-3.4 + float(i) * 3.4, 7.6, 0.0), 2.1, 14.2, silo)
+		var cap := _add_cylinder(node, Vector3(-3.4 + float(i) * 3.4, 14.9, 0.0),
+				2.15, 0.6, rust, 0.0, false)
+		_keep_poi_detail(cap)
+	_add_box(node, Vector3(0.0, 15.4, 0.0), Vector3(11.6, 3.6, 5.4), concrete)
+	_add_box(node, Vector3(0.0, 15.4, 3.2), Vector3(1.0, 2.6, 1.0), rust, 0.0, false)
+	_add_cylinder(node, Vector3(0.0, 9.2, 0.0), 0.5, 8.0, rust, 0.0, false)
+	_keep_poi_detail(node, 1200.0)
+
+
+static func _add_mobile_flare_stack(root: Node3D, map_name: String, p: Vector2) -> void:
+	var gy := _height(map_name, p.x, p.y)
+	var node := Node3D.new()
+	node.name = "MobileHero_FlareStack"
+	node.position = Vector3(p.x, gy, p.y)
+	root.add_child(node)
+	var concrete := _pbr("hall_concrete", Color(0.44, 0.44, 0.42), 0.24)
+	var rust := _pbr("hall_rust", Color(0.62, 0.46, 0.34), 0.3)
+	_add_box(node, Vector3(0.0, 0.4, 0.0), Vector3(5.6, 0.8, 5.6), concrete)
+	var stack := _add_cylinder(node, Vector3(0.0, 17.5, 0.0), 0.75, 34.0, rust)
+	_keep_poi_detail(stack)
+	for i in range(4):
+		var yaw := TAU * float(i) / 4.0
+		_add_box(node, Vector3(cos(yaw) * 5.6, 8.5, sin(yaw) * 5.6),
+				Vector3(0.2, 0.2, 8.0), rust, yaw, false)
+	var flame_mat := StandardMaterial3D.new()
+	flame_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	flame_mat.albedo_color = Color(1.0, 0.55, 0.16)
+	flame_mat.emission_enabled = true
+	flame_mat.emission = Color(1.0, 0.45, 0.10)
+	flame_mat.emission_energy_multiplier = 2.6
+	var flame := MeshInstance3D.new()
+	flame.name = "FlareFlame"
+	var sphere_mesh := SphereMesh.new()
+	sphere_mesh.radius = 0.9
+	sphere_mesh.height = 1.8
+	flame.mesh = sphere_mesh
+	flame.material_override = flame_mat
+	flame.position = Vector3(0.0, 35.2, 0.0)
+	flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	flame.set_meta("no_batch", true)
+	node.add_child(flame)
+	_keep_poi_detail(node, 1200.0)
+
+
+static func _add_mobile_lighthouse(root: Node3D, map_name: String, p: Vector2) -> void:
+	var gy := _height(map_name, p.x, p.y)
+	var node := Node3D.new()
+	node.name = "MobileHero_Lighthouse"
+	node.position = Vector3(p.x, gy, p.y)
+	root.add_child(node)
+	var concrete := _pbr("hall_concrete", Color(0.58, 0.58, 0.54), 0.24)
+	var white := _pbr("hall_concrete", Color(0.82, 0.84, 0.82), 0.18)
+	var band := _pbr("hall_rust", Color(0.68, 0.24, 0.18), 0.24)
+	_add_box(node, Vector3(0.0, 0.3, 0.0), Vector3(8.0, 0.6, 8.0), concrete)
+	var tower := _add_cylinder(node, Vector3(0.0, 10.6, 0.0), 2.3, 20.6, white)
+	_keep_poi_detail(tower)
+	for h in [3.4, 7.2, 11.0, 14.8]:
+		_add_cylinder(node, Vector3(0.0, h, 0.0), 2.32, 0.5, band, 0.0, false)
+	_add_box(node, Vector3(0.0, 21.6, 0.0), Vector3(5.6, 0.7, 5.6), band)
+	var lamp_mat := StandardMaterial3D.new()
+	lamp_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	lamp_mat.albedo_color = Color(0.20, 0.95, 0.55)
+	lamp_mat.emission_enabled = true
+	lamp_mat.emission = Color(0.16, 0.90, 0.50)
+	lamp_mat.emission_energy_multiplier = 2.4
+	var lamp := MeshInstance3D.new()
+	lamp.name = "LighthouseLamp"
+	var lamp_mesh := SphereMesh.new()
+	lamp_mesh.radius = 0.7
+	lamp_mesh.height = 1.4
+	lamp.mesh = lamp_mesh
+	lamp.material_override = lamp_mat
+	lamp.position = Vector3(0.0, 22.4, 0.0)
+	lamp.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	lamp.set_meta("no_batch", true)
+	node.add_child(lamp)
+	_keep_poi_detail(node, 1200.0)
 
 
 static func _add_mobile_beacon(root: Node3D, map_name: String, p: Vector2,

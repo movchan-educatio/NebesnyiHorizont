@@ -92,6 +92,19 @@ func _run() -> void:
 	_check(float(rig.get("_mobile_animation_hz")) == 30.0
 			and bool(soldier.get("_model").visible),
 			"camera-based near LOD recovers without a Drone")
+	# Mobile squad behavior: deterministic gait offset and a local alert reaction.
+	var squad_mate := EnemyRifleman.new()
+	squad_mate.name = "MobileSquadMate"
+	add_child(squad_mate)
+	await get_tree().process_frame
+	squad_mate.global_position = Vector3(10.0, 0.0, 0.0)
+	var phase_a := float(soldier.get("_walk_phase"))
+	var phase_b := float(squad_mate.get("_walk_phase"))
+	_check(not is_equal_approx(phase_a, phase_b),
+			"squad gait phases differ deterministically")
+	squad_mate.call("_alert_group", squad_mate.global_position)
+	_check(float(soldier.get("_suppress_timer")) >= 1.9,
+			"nearby infantry duck when a comrade is hit")
 	var breath_before := float(rig.get("_breath_phase"))
 	rig.call("_process", 1.0 / 30.0)
 	_check(not is_equal_approx(float(rig.get("_breath_phase")), breath_before),

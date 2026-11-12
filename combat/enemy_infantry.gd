@@ -107,6 +107,10 @@ func _ready() -> void:
 	_disabled = _qa_disabled()
 	_ai_low = QualityManager.get_active_level() == QualityManager.Level.LOW
 	_strafe_dir = -1.0 if (abs(get_instance_id()) % 2 == 0) else 1.0
+	if OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI"):
+		# Deterministic per-soldier gait offset so squads never march in lockstep.
+		_walk_phase = fmod(float(abs(get_instance_id())) * 0.6180339, TAU)
 	_build()
 	_build_lod_proxy()
 	_drone = get_tree().current_scene.get_node_or_null("Drone") as Drone
@@ -967,8 +971,37 @@ func take_damage(amount: float, hit_position: Vector3 = Vector3.ZERO) -> void:
 	if _detailed_rig != null:
 		_detailed_rig.hit_react(amount >= 20.0)
 	_flash()
+	_alert_group(global_position)
 	if health <= 0.0:
 		_destroy()
+
+
+## Mobile-only squad reaction: nearby infantry notice a hit or a destroyed
+## comrade. They briefly duck (suppression) and about a third of them break into
+## a short scatter away from the impact. Deterministic distance gate keeps this
+## cheap and local; the desktop combat behavior is untouched.
+func _alert_group(source_pos: Vector3) -> void:
+	if not _mobile_visual_lod_enabled() or is_destroyed:
+		return
+	for node in get_tree().get_nodes_in_group("enemy_infantry"):
+		if node == self or not node is EnemyRifleman or not is_instance_valid(node):
+			continue
+		if (node as EnemyRifleman).global_position.distance_to(source_pos) < 42.0:
+			(node as EnemyRifleman).call("_react_to_alert", source_pos)
+
+
+func _react_to_alert(source_pos: Vector3) -> void:
+	if is_destroyed or _disabled:
+		return
+	_suppress_timer = maxf(_suppress_timer, 2.0)
+	if _panic_state == 0 and randf() < 0.35:
+		var away := global_position - source_pos
+		away.y = 0.0
+		if away.length_squared() < 0.01:
+			away = Vector3.FORWARD
+		_panic_dir = away.normalized().rotated(Vector3.UP, randf_range(-0.5, 0.5))
+		_panic_state = 1
+		_panic_timer = randf_range(1.0, 2.0)
 
 
 func _flash() -> void:
@@ -1001,6 +1034,7 @@ func _destroy() -> void:
 	collision_layer = 0
 	collision_mask = 0
 	_burst_left = 0
+	_alert_group(global_position)
 	if _label != null:
 		_label.visible = false
 	for mesh in _meshes:
