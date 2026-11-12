@@ -49,9 +49,9 @@ var _invert_touch_check: CheckBox = null
 var _invert_touch_pitch_check: CheckBox = null
 ## Touch roll inversion (the ELRS radio has its own invert flag).
 var invert_roll := false
-## Touch pitch inversion: casual pilots expect stick-up = nose-up, which is
-## the opposite of the raw FPV (stick-up = nose-down) convention.
-var invert_pitch := true
+## Touch pitch inversion.  Default false: standard FPV, stick-up = nose-down
+## (matches the keyboard and ELRS convention).  Enable for arcade "up = up".
+var invert_pitch := false
 var _throttle_grab_y := 0.0
 var _throttle_grab_value := 0.0
 var _left_center := Vector2.ZERO
@@ -226,7 +226,7 @@ func set_enabled(value: bool) -> void:
 		var gs := get_node_or_null("/root/GameSettings")
 		if gs != null:
 			invert_roll = bool(gs.hud_config.get("touch_invert_roll", false))
-		invert_pitch = bool(gs.hud_config.get("touch_invert_pitch", true))
+		invert_pitch = bool(gs.hud_config.get("touch_invert_pitch", false))
 		_reset_sticks()
 		_update_mode_button()
 	else:

@@ -70,9 +70,10 @@ func _run() -> void:
 	var ok := absf(yaw) > 0.5 and absf(yaw_axis) > 0.5 \
 			and throttle > 0.5 and throttle_axis > 0.0 \
 			and absf(roll) > 0.5 and absf(roll_axis) > 0.5 \
-			and absf(pitch) > 0.5 and absf(pitch_axis) > 0.5 \
+			and pitch < -0.5 and pitch_axis < -0.5 \
 			and absf(roll_plain) > 0.5 and absf(roll_inverted) > 0.5 \
 			and signf(roll_plain) != signf(roll_inverted)
+	print("[STICKQA] pitch (stick-up must be negative = nose-down) =", pitch)
 	print("[STICKQA] ", "PASS" if ok else "FAIL")
 	mobile.call("set_source", old_source)
 	get_tree().quit()
