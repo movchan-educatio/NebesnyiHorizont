@@ -560,6 +560,29 @@ static func _shockwave(parent: Node, pos: Vector3, radius: float) -> void:
 			.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	tw.tween_property(mat, "albedo_color:a", 0.0, 0.55)
 	tw.chain().tween_callback(ring.queue_free)
+	# Wider, darker dust ring that lingers behind the flash ring.
+	var dust := MeshInstance3D.new()
+	var dtorus := TorusMesh.new()
+	dtorus.inner_radius = 0.94
+	dtorus.outer_radius = 1.0
+	dtorus.rings = 20
+	dtorus.ring_segments = 5
+	dust.mesh = dtorus
+	var dmat := StandardMaterial3D.new()
+	dmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	dmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	dmat.albedo_color = Color(0.30, 0.27, 0.22, 0.30)
+	dust.material_override = dmat
+	dust.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(dust)
+	dust.global_position = pos
+	dust.scale = Vector3.ONE * 0.4
+	var dw := dust.create_tween()
+	dw.set_parallel(true)
+	dw.tween_property(dust, "scale", Vector3(radius * 1.3, 0.12, radius * 1.3), 0.8)\
+			.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	dw.tween_property(dmat, "albedo_color:a", 0.0, 0.8)
+	dw.chain().tween_callback(dust.queue_free)
 
 
 ## ------------------------------- debris ------------------------------------

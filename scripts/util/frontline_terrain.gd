@@ -197,6 +197,9 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 	_build_unique_pois(root, map_name)
 	_build_blender_landmarks(root, map_name)
 	_spawn_handcrafted_assets(root, map_name)
+	# War-wear dressing: charred ground, rust streaks and rubble on every
+	# large building so the frontline reads as fought-over, not pristine.
+	_add_war_wear(root, map_name)
 	# Mobile-only navigation beacons: tall color-coded masts placed on clear
 	# ground between the authored landmarks so pilots can read the map from a
 	# distance instead of flying over unmarked fields.
@@ -4308,6 +4311,115 @@ static func _trim_small_shadow_casters(root: Node3D) -> void:
 ## same material recipe are applied everywhere.  The Industrial hall gets the
 ## full interior rig (shafts, dust, fog); the other maps use a dim fill because
 ## their halls are background landmarks seen from outside.
+## War-wear dressing: charred ground, rust streaks and rubble on every large
+## building so the frontline reads as fought-over, not pristine.  Visual only
+## (no collision); cheap unshaded/opaque quads and small boxes.
+static func _add_war_wear(root: Node3D, map_name: String) -> void:
+	var rust_tex := load("res://Assets/handcrafted/textures/decal_rust.png") as Texture2D
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(map_name) + 7717
+	var worn := 0
+	for node in root.get_children():
+		if not (node is Node3D):
+			continue
+		var aabb := _wear_aabb(node as Node3D)
+		if aabb.size.y < 6.0 or maxf(aabb.size.x, aabb.size.z) < 8.0:
+			continue
+		if aabb.size.y > 70.0 or maxf(aabb.size.x, aabb.size.z) > 150.0:
+			continue  # not a building
+		_wear_building(node as Node3D, aabb, rust_tex, rng)
+		worn += 1
+	print("[WarWear] ", map_name, " buildings=", worn)
+
+
+static func _wear_aabb(node: Node3D) -> AABB:
+	var box := AABB()
+	var first := true
+	for mi in node.find_children("*", "MeshInstance3D", true, false):
+		var m := mi as MeshInstance3D
+		if m.mesh == null:
+			continue
+		var b := m.transform * m.get_aabb()
+		box = b if first else box.merge(b)
+		first = false
+	return box
+
+
+static func _wear_building(node: Node3D, aabb: AABB, rust_tex: Texture2D,
+		rng: RandomNumberGenerator) -> void:
+	var base := aabb.position.y
+	var hw := aabb.size.x * 0.5
+	var hd := aabb.size.z * 0.5
+	_add_wear_char(node, Vector3(hw * 0.55, base + 0.05, hd * 0.55),
+			rng.randf_range(9.0, 14.0))
+	for sx in [-1.0, 1.0]:
+		_add_wear_rubble(node, Vector3(sx * (hw + 2.0), base, hd * 0.6), rng)
+	if rust_tex != null:
+		_add_wear_rust(node, Vector3(0.0, base + 1.5, hd + 0.04),
+				Vector2(minf(aabb.size.x * 0.5, 15.0), 4.0), 0.0, rust_tex)
+		_add_wear_rust(node, Vector3(0.0, base + 1.7, -hd - 0.04),
+				Vector2(minf(aabb.size.x * 0.5, 15.0), 4.0), PI, rust_tex)
+
+
+static func _add_wear_char(node: Node3D, pos: Vector3, size: float) -> void:
+	var q := QuadMesh.new()
+	q.size = Vector2(size, size * 0.7)
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.06, 0.055, 0.05, 0.5)
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var mi := MeshInstance3D.new()
+	mi.mesh = q
+	mi.material_override = m
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.position = pos
+	mi.rotation.x = -PI * 0.5
+	node.add_child(mi)
+
+
+static func _add_wear_rubble(node: Node3D, pos: Vector3,
+		rng: RandomNumberGenerator) -> void:
+	for i in range(8):
+		var w := rng.randf_range(0.4, 1.4)
+		var d := rng.randf_range(0.4, 1.2)
+		var h := rng.randf_range(0.2, 0.7)
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(w, h, d)
+		mi.mesh = bm
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color(0.42, 0.24, 0.12) if i % 3 == 0 \
+				else Color(0.34, 0.33, 0.29)
+		mat.roughness = 0.9
+		mi.material_override = mat
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.position = pos + Vector3(rng.randf_range(-2.2, 2.2), h * 0.5,
+				rng.randf_range(-2.2, 2.2))
+		mi.rotation = Vector3(rng.randf_range(-0.4, 0.4),
+				rng.randf_range(0.0, TAU), 0.0)
+		node.add_child(mi)
+
+
+static func _add_wear_rust(node: Node3D, pos: Vector3, size: Vector2,
+		yaw: float, tex: Texture2D) -> void:
+	var q := QuadMesh.new()
+	q.size = size
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = tex
+	m.albedo_color = Color(0.9, 0.85, 0.8)
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var mi := MeshInstance3D.new()
+	mi.mesh = q
+	mi.material_override = m
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.position = pos
+	mi.rotation.y = yaw
+	node.add_child(mi)
+
+
 static func _build_hall_sites(root: Node3D, map_name: String) -> void:
 	var site: Dictionary = HALL_SITES.get(map_name, {})
 	if site.is_empty():
