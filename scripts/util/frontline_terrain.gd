@@ -4354,11 +4354,59 @@ static func _wear_building(node: Node3D, aabb: AABB, rust_tex: Texture2D,
 			rng.randf_range(9.0, 14.0))
 	for sx in [-1.0, 1.0]:
 		_add_wear_rubble(node, Vector3(sx * (hw + 2.0), base, hd * 0.6), rng)
+	# Shell damage on the front face: two dark impact holes with rubble beneath.
+	var hole_tex := _shell_hole_tex()
+	for i in range(2):
+		var hx := rng.randf_range(-hw * 0.4, hw * 0.4)
+		_add_shell_hole(node, Vector3(hx, base + rng.randf_range(2.5, 6.0),
+				hd + 0.04), rng.randf_range(2.0, 3.4), hole_tex)
+		_add_wear_rubble(node, Vector3(hx, base, hd + 1.4), rng)
 	if rust_tex != null:
 		_add_wear_rust(node, Vector3(0.0, base + 1.5, hd + 0.04),
 				Vector2(minf(aabb.size.x * 0.5, 15.0), 4.0), 0.0, rust_tex)
 		_add_wear_rust(node, Vector3(0.0, base + 1.7, -hd - 0.04),
 				Vector2(minf(aabb.size.x * 0.5, 15.0), 4.0), PI, rust_tex)
+
+
+static var _shell_hole_tex_cache: Texture2D = null
+
+
+static func _shell_hole_tex() -> Texture2D:
+	if _shell_hole_tex_cache == null:
+		var grad := Gradient.new()
+		grad.offsets = PackedFloat32Array([0.0, 0.6, 1.0])
+		grad.colors = PackedColorArray([
+			Color(0.05, 0.045, 0.04, 0.95),
+			Color(0.08, 0.07, 0.06, 0.6),
+			Color(0.1, 0.09, 0.08, 0.0),
+		])
+		var tex := GradientTexture2D.new()
+		tex.gradient = grad
+		tex.width = 64
+		tex.height = 64
+		tex.fill = GradientTexture2D.FILL_RADIAL
+		tex.fill_from = Vector2(0.5, 0.5)
+		tex.fill_to = Vector2(1.0, 0.5)
+		_shell_hole_tex_cache = tex
+	return _shell_hole_tex_cache
+
+
+static func _add_shell_hole(node: Node3D, pos: Vector3, size: float,
+		tex: Texture2D) -> void:
+	var q := QuadMesh.new()
+	q.size = Vector2(size, size * 1.15)
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = tex
+	m.albedo_color = Color(1.0, 1.0, 1.0)
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var mi := MeshInstance3D.new()
+	mi.mesh = q
+	mi.material_override = m
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.position = pos
+	node.add_child(mi)
 
 
 static func _add_wear_char(node: Node3D, pos: Vector3, size: float) -> void:
