@@ -56,6 +56,13 @@ func _run() -> void:
 		push_warning("[MOBILE_MAP_VIEWS] %d mobile hero landmarks on %s" % [heroes.size(), map_name])
 	else:
 		print("[MOBILE_MAP_VIEWS] ", map_name, " heroes=", heroes.size())
+	var patches := terrain.find_children("MobileGroundPatch*", "MeshInstance3D", true, false) \
+			if terrain != null else []
+	if patches.size() < 4:
+		_failures += 1
+		push_warning("[MOBILE_MAP_VIEWS] %d ground tint patches on %s" % [patches.size(), map_name])
+	else:
+		print("[MOBILE_MAP_VIEWS] ", map_name, " ground patches=", patches.size())
 	var drone := level.get_node_or_null("Drone") as RigidBody3D
 	var fpv := level.get_node_or_null("Drone/FPVCamera") as Camera3D
 	if drone == null or fpv == null:

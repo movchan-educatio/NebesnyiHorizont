@@ -213,6 +213,13 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 	_dress_handcrafted_sites(root, map_name)
 	_add_wall_decals(root, map_name)
 	_add_map_mist(root, map_name)
+	# Mobile-only ground tint patches: large low-alpha quads that break the
+	# repetitive grass tiling without adding texture samples to the terrain
+	# shader. They follow the height field and are placed away from the hall.
+	if (OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")) \
+			and not OS.has_environment("QA_NO_MOBILE_PATCHES"):
+		_add_mobile_ground_patches(root, map_name)
 	# Tactical FPV stunt course + battlefield dressing.  Runs after every
 	# authored landmark/military structure (so it can reserve clear ground) and
 	# before tree/prop/world-detail scatter; the reserved zones keep vegetation
@@ -1504,6 +1511,65 @@ static func _dress_handcrafted_sites(root: Node3D, map_name: String) -> void:
 
 ## Rust/crack decal quads on the south facades of the main halls.  They are
 ## unshaded alpha quads (six draws per map) and break the flat concrete look.
+## Mobile-only ground tint patches: large low-alpha quads laid flat over the
+## terrain to break repeating grass tiling. Deterministic, height-field driven
+## and cheap; transparent quads are not merged by the static batcher, so each
+## tint costs a handful of draws.
+static func _add_mobile_ground_patches(root: Node3D, map_name: String) -> void:
+	var plans := {
+		"steppe": [
+			Vector2(-90.0, -120.0), Vector2(150.0, -180.0), Vector2(300.0, 60.0),
+			Vector2(-240.0, -40.0), Vector2(40.0, 200.0), Vector2(-320.0, -240.0),
+		],
+		"village": [
+			Vector2(-60.0, -140.0), Vector2(120.0, 220.0), Vector2(300.0, 120.0),
+			Vector2(-320.0, 140.0), Vector2(80.0, -220.0), Vector2(-180.0, -60.0),
+		],
+		"industrial": [
+			Vector2(-120.0, 220.0), Vector2(140.0, -180.0), Vector2(300.0, -60.0),
+			Vector2(-340.0, -60.0), Vector2(-40.0, -240.0), Vector2(240.0, 220.0),
+		],
+		"wetlands": [
+			Vector2(-120.0, 200.0), Vector2(160.0, 220.0), Vector2(300.0, -40.0),
+			Vector2(-300.0, -120.0), Vector2(20.0, -220.0), Vector2(-200.0, -40.0),
+		],
+	}
+	var tints := {
+		"steppe": [Color(0.52, 0.46, 0.30, 0.14), Color(0.40, 0.42, 0.24, 0.12)],
+		"village": [Color(0.44, 0.50, 0.26, 0.13), Color(0.52, 0.46, 0.30, 0.12)],
+		"industrial": [Color(0.42, 0.40, 0.32, 0.14), Color(0.32, 0.36, 0.26, 0.12)],
+		"wetlands": [Color(0.26, 0.38, 0.28, 0.14), Color(0.36, 0.34, 0.24, 0.12)],
+	}
+	var patch_tints: Array = tints.get(map_name, [Color(0.4, 0.4, 0.3, 0.12)])
+	var placed := 0
+	for i in range(plans.get(map_name, []).size()):
+		var base: Vector2 = plans[map_name][i]
+		if _hall_clear_zone(map_name, base.x, base.y) \
+				or _structure_clear_zone(map_name, base.x, base.y):
+			continue
+		var gy := mesh_surface_height(map_name, base.x, base.y)
+		if gy <= water_level(map_name) + 0.25:
+			continue
+		var quad := QuadMesh.new()
+		quad.size = Vector2(randf_range(38.0, 74.0), randf_range(30.0, 56.0))
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.albedo_color = patch_tints[i % patch_tints.size()]
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		var mi := MeshInstance3D.new()
+		mi.name = "MobileGroundPatch%d" % placed
+		mi.mesh = quad
+		mi.material_override = mat
+		mi.position = Vector3(base.x, gy + 0.06, base.y)
+		mi.rotation.x = -PI * 0.5
+		mi.rotation.z = randf_range(0.0, TAU)
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(mi)
+		placed += 1
+	print("[MobilePatches] ", map_name, " placed=", placed)
+
+
 static func _add_wall_decals(root: Node3D, map_name: String) -> void:
 	var rust := load("res://Assets/handcrafted/textures/decal_rust.png") as Texture2D
 	var crack := load("res://Assets/handcrafted/textures/decal_crack.png") as Texture2D

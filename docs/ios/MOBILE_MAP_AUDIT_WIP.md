@@ -77,6 +77,9 @@ QA-сцену `test/qa_mobile_map_views.tscn` доповнено перевір�
 - Другий hero-об’єкт на карту: паливне депо (Steppe), церква (Village),
   трубна естакада (Industrial), човновий ангар (Wetlands). Перевірка
   `qa_mobile_map_views` тепер вимагає щонайменше два `MobileHero*` вузли.
+- Зменшення тайлінгу землі: мобільні напівпрозорі плями ґрунту
+  (`MobileGroundPatch*`), розкладені за height field і подалі від ангарів;
+  `qa_mobile_map_views` вимагає щонайменше чотири плями на карту.
 - Колізійні QA на мобільних картах: `qa_object_solid` PASS (9 перевірок),
   `qa_landing_roof` PASS, `qa_open_tops` PASS, `qa_floating_probe` і
   `qa_near_factory` exit 0. `qa_chimney_holes` на Village (310, 80) повертає
