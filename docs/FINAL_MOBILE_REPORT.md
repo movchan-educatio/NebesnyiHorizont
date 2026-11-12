@@ -39,3 +39,9 @@ Automated mobile-path QA passes, but this session did not run on a physical iPho
 ![Mobile detailed soldier and four-view impostor comparison](ios/v26_mobile_infantry_lod.png)
 
 ![Four-view impostor source atlas](../Assets/combat/soldier_impostor_atlas.png)
+
+## Rebuild the impostor atlas
+
+1. Run `tools/create_infantry_billboard.py` with Blender 5.x to render the four transparent views.
+2. Run `python tools/assemble_infantry_impostor.py` (Pillow required) to build the atlas.
+3. Run a Godot editor import, then `qa_mobile_infantry_lod` with `MOBILE_UI=1`.
