@@ -41,6 +41,14 @@ func _run() -> void:
 		push_error("[MOBILE_MAP_VIEWS] real terrain failed to load for " + map_name)
 		get_tree().quit(1)
 		return
+	var terrain := level.get_node_or_null("FrontlineTerrain") as Node3D
+	var beacons := terrain.find_children("MobileBeacon_*", "Node3D", true, false) \
+			if terrain != null else []
+	if beacons.size() < 2:
+		_failures += 1
+		push_warning("[MOBILE_MAP_VIEWS] only %d navigation beacons on %s" % [beacons.size(), map_name])
+	else:
+		print("[MOBILE_MAP_VIEWS] ", map_name, " navigation beacons=", beacons.size())
 	var drone := level.get_node_or_null("Drone") as RigidBody3D
 	var fpv := level.get_node_or_null("Drone/FPVCamera") as Camera3D
 	if drone == null or fpv == null:

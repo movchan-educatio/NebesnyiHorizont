@@ -748,12 +748,21 @@ func _build_help_overlay(hud_root: Node) -> void:
 	diagrams.add_child(_make_stick_diagram("ПРАВИЙ СТІК", "ТАНГАЖ", "КРЕН",
 			Color(0.95, 0.72, 0.25)))
 
+	var is_mobile := OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")
 	var controls := Label.new()
-	controls.text = "КЛАВІАТУРА:  W / S — газ   ·   A / D — рискання   ·   ↑ / ↓ — тангаж   ·   ← / → — крен\n" \
-			+ "ПРОБІЛ — увімкнути / вимкнути двигуни   ·   C/V — нахил FPV-камери   ·   T — повторити модуль   ·   F2 — ця довідка   ·   ESC — пауза\n" \
-			+ "ПУЛЬТ:  лівий стік — газ/рискання   ·   правий стік — тангаж/крен   ·   RS — двигуни   ·   LB — респавн\n" \
-			+ "X — скид   ·   Y — активація БЧ   ·   B — повторити модуль   ·   Start — довідка\n" \
-			+ "ГОЛОВНЕ: рухи плавні, після кожного руху повертайте стік у центр. Висоту тримайте газом, а не нахилом."
+	if is_mobile:
+		controls.text = "СЕНСОР:  лівий стік — газ/рискання   ·   правий стік — тангаж/крен\n" \
+				+ "АРМ — двигуни   ·   РЕСЕТ — респавн   ·   ВІДЕО — режим зображення\n" \
+				+ "ПУЛЬТ ELRS:  лівий стік — газ/рискання   ·   правий стік — тангаж/крен\n" \
+				+ "START — довідка   ·   B — повторити модуль   ·   CH5/ARM — двигуни\n" \
+				+ "ГОЛОВНЕ: рухи плавні, після кожного руху повертайте стік у центр. Висоту тримайте газом, а не нахилом."
+	else:
+		controls.text = "КЛАВІАТУРА:  W / S — газ   ·   A / D — рискання   ·   ↑ / ↓ — тангаж   ·   ← / → — крен\n" \
+				+ "ПРОБІЛ — увімкнути / вимкнути двигуни   ·   C/V — нахил FPV-камери   ·   T — повторити модуль   ·   F2 — ця довідка   ·   ESC — пауза\n" \
+				+ "ПУЛЬТ:  лівий стік — газ/рискання   ·   правий стік — тангаж/крен   ·   RS — двигуни   ·   LB — респавн\n" \
+				+ "X — скид   ·   Y — активація БЧ   ·   B — повторити модуль   ·   Start — довідка\n" \
+				+ "ГОЛОВНЕ: рухи плавні, після кожного руху повертайте стік у центр. Висоту тримайте газом, а не нахилом."
 	controls.add_theme_font_size_override("font_size", 13)
 	controls.add_theme_color_override("font_color", Color(0.88, 0.93, 0.88))
 	controls.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -767,7 +776,7 @@ func _build_help_overlay(hud_root: Node) -> void:
 	vb.add_child(hint)
 
 	var footer := Label.new()
-	footer.text = "ENTER — ПОЧАТИ / ПРОДОВЖИТИ"
+	footer.text = "START — ЗАКРИТИ ДОВІДКУ" if is_mobile else "ENTER — ПОЧАТИ / ПРОДОВЖИТИ"
 	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	footer.add_theme_font_size_override("font_size", 15)
 	footer.add_theme_color_override("font_color", MenuUI.ACCENT)

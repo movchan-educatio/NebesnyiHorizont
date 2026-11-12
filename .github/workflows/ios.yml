@@ -13,7 +13,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GODOT_VERSION: 4.6.1-stable
+  GODOT_VERSION: 4.7.2-stable
+  GODOT_TEMPLATE_DIR: 4.7.2.stable
   IOS_PRESET: iOS
   NAME: NebesnyiHorizont
 
@@ -67,15 +68,15 @@ jobs:
             find "$RUNNER_TEMP/tpl_extract" -name version.txt -exec cp {} "$RUNNER_TEMP/templates/version.txt" \;
           fi
           test -f "$RUNNER_TEMP/templates/ios.zip"
-          mkdir -p "$HOME/Library/Application Support/Godot/export_templates/4.6.1.stable"
+          mkdir -p "$HOME/Library/Application Support/Godot/export_templates/${GODOT_TEMPLATE_DIR}"
           cp "$RUNNER_TEMP/templates/ios.zip" \
-            "$HOME/Library/Application Support/Godot/export_templates/4.6.1.stable/ios.zip"
+            "$HOME/Library/Application Support/Godot/export_templates/${GODOT_TEMPLATE_DIR}/ios.zip"
           cp "$RUNNER_TEMP/templates/version.txt" \
-            "$HOME/Library/Application Support/Godot/export_templates/4.6.1.stable/version.txt"
+            "$HOME/Library/Application Support/Godot/export_templates/${GODOT_TEMPLATE_DIR}/version.txt"
           # Keep only the cached ios.zip; the 1.1 GB .tpz archive and its
           # extraction are not needed after the template is installed.
           rm -rf "$RUNNER_TEMP/templates.tpz" "$RUNNER_TEMP/tpl_extract"
-          ls -lh "$HOME/Library/Application Support/Godot/export_templates/4.6.1.stable"
+          ls -lh "$HOME/Library/Application Support/Godot/export_templates/${GODOT_TEMPLATE_DIR}"
 
       - name: Import project
         run: |

@@ -86,6 +86,7 @@ var ai_target: Node3D = null
 var health := 0.0
 var is_destroyed := false
 var _stuck_time := 0.0
+var _reverse_left := 0.0
 var _last_obstacle_normal := Vector3.ZERO
 
 var _waypoints: PackedVector3Array = PackedVector3Array()
@@ -1244,10 +1245,22 @@ func _move_along_route(delta: float) -> void:
 					avoid_dir.y = 0.0
 					if avoid_dir.length_squared() > 0.01:
 						rotation.y = atan2(-avoid_dir.x, -avoid_dir.z)
+				# Mobile extra escape: if the bounce still faces the obstacle,
+				# back up briefly so the turn has room instead of grinding the
+				# wall forever in tight yards.
+				if OS.get_name() == "iOS" or OS.has_feature("mobile") \
+						or OS.has_environment("MOBILE_UI"):
+					_reverse_left = 1.1
 		else:
 			_stuck_time = maxf(0.0, _stuck_time - delta * 0.5)
+	elif _reverse_left > 0.0:
+		# Keep consuming the reverse timer while the obstacle disappears; the
+		# backward step below applies only to ground vehicles.
+		_reverse_left = maxf(0.0, _reverse_left - delta)
 
-	if not blocked:
+	if _reverse_left > 0.0 and kind != Kind.HELI and kind != Kind.SHAHED:
+		global_position -= forward * effective_speed * 0.62 * delta
+	elif not blocked:
 		global_position += forward * _step
 
 

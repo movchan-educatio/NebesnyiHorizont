@@ -567,7 +567,22 @@ func _can_step(move_dir: Vector3, step_len: float) -> bool:
 	query.collision_mask = 1
 	query.exclude = [get_rid()]
 	var hit := space.intersect_ray(query)
-	return hit.is_empty()
+	if not hit.is_empty():
+		return false
+	if _mobile_visual_lod_enabled():
+		# A single chest ray can pass beside thin posts and rails. On mobile the
+		# soldiers often fight around fences and hedgehogs, so also probe both
+		# shoulder lines before committing to the step.
+		var right := Vector3(move_dir.z, 0.0, -move_dir.x).normalized()
+		for side: float in [-0.45, 0.45]:
+			var origin := from + right * side
+			var side_query := PhysicsRayQueryParameters3D.create(
+					origin, origin + move_dir * (step_len + 0.55))
+			side_query.collision_mask = 1
+			side_query.exclude = [get_rid()]
+			if not space.intersect_ray(side_query).is_empty():
+				return false
+	return true
 
 
 ## Idle riflemen that have no patrol advance on an armed drone in a jog, weaving

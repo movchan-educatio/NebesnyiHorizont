@@ -197,6 +197,13 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 	_build_unique_pois(root, map_name)
 	_build_blender_landmarks(root, map_name)
 	_spawn_handcrafted_assets(root, map_name)
+	# Mobile-only navigation beacons: tall color-coded masts placed on clear
+	# ground between the authored landmarks so pilots can read the map from a
+	# distance instead of flying over unmarked fields.
+	if (OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")) \
+			and not OS.has_environment("QA_NO_MOBILE_BEACONS"):
+		_build_mobile_beacons(root, map_name)
 	if map_name == "industrial":
 		_build_industrial_river(root)
 	else:
@@ -1677,6 +1684,118 @@ static func _mobile_ground_palette(map_name: String, source: Dictionary) -> Dict
 			conf["mud_tint"] = Color(0.49, 0.56, 0.45)
 			conf["macro_contrast"] = 0.38
 	return conf
+
+
+## Mobile-only colour-coded navigation masts. Three per frontline map, placed
+## on clear ground between the authored landmarks. Each mast is collidable, cheap
+## (a handful of boxes plus one unshaded beacon light) and reserves its ground so
+## later scatter passes keep it readable.
+static func _build_mobile_beacons(root: Node3D, map_name: String) -> void:
+	var specs := {
+		"steppe": [
+			Vector2(150.0, 250.0), Vector2(350.0, -70.0), Vector2(-310.0, 90.0),
+		],
+		"village": [
+			Vector2(300.0, 220.0), Vector2(-240.0, -230.0), Vector2(40.0, -300.0),
+		],
+		"industrial": [
+			Vector2(300.0, 250.0), Vector2(-280.0, -220.0), Vector2(260.0, -240.0),
+		],
+		"wetlands": [
+			Vector2(280.0, 220.0), Vector2(-300.0, 40.0), Vector2(250.0, 260.0),
+		],
+	}
+	var lights := [Color(0.95, 0.26, 0.18), Color(1.0, 0.62, 0.16),
+			Color(0.24, 0.85, 0.46)]
+	var placed := 0
+	for i in range(specs.get(map_name, []).size()):
+		var site: Vector2 = _resolve_mobile_beacon_site(map_name,
+				specs[map_name][i])
+		if site.x < -900.0:
+			if OS.has_environment("DRONE_BEACON_DEBUG"):
+				print("[MobileBeacons] ", map_name, " rejected ",
+						specs[map_name][i])
+			continue
+		_add_mobile_beacon(root, map_name, site, lights[i % lights.size()])
+		placed += 1
+	print("[MobileBeacons] ", map_name, " placed=", placed)
+
+
+static func _resolve_mobile_beacon_site(map_name: String, base: Vector2) -> Vector2:
+	for ring in range(0, 10):
+		var radius := 0.0 if ring == 0 else 20.0 * float(ring)
+		var steps := 1 if ring == 0 else 16
+		for i in range(steps):
+			var a := TAU * float(i) / float(steps) + float(ring) * 0.31
+			var p := base + Vector2(cos(a), sin(a)) * radius
+			if _is_clear_beacon_site(map_name, p.x, p.y):
+				return p
+	return Vector2(-9999.0, -9999.0)
+
+
+static func _is_clear_beacon_site(map_name: String, x: float, z: float) -> bool:
+	if absf(x) > 430.0 or absf(z) > 430.0:
+		return false
+	if _hall_clear_zone(map_name, x, z) or _structure_clear_zone(map_name, x, z) \
+			or _farm_clear_zone(map_name, x, z):
+		return false
+	var water := float(water_level(map_name))
+	var ground := float(mesh_surface_height(map_name, x, z))
+	if ground < water + 1.6:
+		return false
+	var e := 7.0
+	var h0 := float(mesh_surface_height(map_name, x - e, z))
+	var h1 := float(mesh_surface_height(map_name, x + e, z))
+	var h2 := float(mesh_surface_height(map_name, x, z - e))
+	var h3 := float(mesh_surface_height(map_name, x, z + e))
+	if maxf(maxf(h0, h1), maxf(h2, h3)) - minf(minf(h0, h1), minf(h2, h3)) > 7.5:
+		return false
+	var roads: Array = _road_points(map_name)
+	for line in roads:
+		var pts: PackedVector2Array = line
+		for i in range(pts.size() - 1):
+			if Geometry2D.get_closest_point_to_segment(Vector2(x, z),
+					pts[i], pts[i + 1]).distance_to(Vector2(x, z)) < 26.0:
+				return false
+	var mil_script = load("res://scripts/util/military_structures.gd")
+	if mil_script != null and mil_script.spawned_positions.has(map_name):
+		for mp in mil_script.spawned_positions[map_name]:
+			if Vector2(x, z).distance_to(Vector2(mp)) < 45.0:
+				return false
+	return true
+
+
+static func _add_mobile_beacon(root: Node3D, map_name: String, p: Vector2,
+		light_color: Color) -> void:
+	var gy := _height(map_name, p.x, p.y)
+	var node := Node3D.new()
+	node.name = "MobileBeacon_%s_%d_%d" % [map_name, int(p.x), int(p.y)]
+	root.add_child(node)
+	var base_mat := _pbr("hall_concrete", Color(0.42, 0.42, 0.40), 0.35)
+	_add_box(node, Vector3(0.0, 0.18, 0.0), Vector3(3.4, 0.36, 3.4), base_mat)
+	var pole_mat := _pbr("hall_metal", Color(0.55, 0.57, 0.55), 0.32)
+	_add_box(node, Vector3(0.0, 13.4, 0.0), Vector3(0.5, 26.0, 0.5), pole_mat)
+	var plat_mat := _pbr("steel", Color(0.72, 0.30, 0.22), 0.40)
+	_add_box(node, Vector3(0.0, 26.55, 0.0), Vector3(1.7, 0.3, 1.7), plat_mat)
+	var light_mat := StandardMaterial3D.new()
+	light_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	light_mat.albedo_color = light_color
+	light_mat.emission_enabled = true
+	light_mat.emission = light_color
+	light_mat.emission_energy_multiplier = 2.0
+	var sphere := MeshInstance3D.new()
+	sphere.name = "BeaconLight"
+	var sphere_mesh := SphereMesh.new()
+	sphere_mesh.radius = 0.55
+	sphere_mesh.height = 1.1
+	sphere.mesh = sphere_mesh
+	sphere.material_override = light_mat
+	sphere.position = Vector3(0.0, 27.35, 0.0)
+	sphere.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	sphere.set_meta("no_batch", true)
+	node.add_child(sphere)
+	node.position = Vector3(p.x, gy, p.y)
+	reserve_area(p, 26.0)
 
 
 static func _mat(color: Color, rough: float = 0.9, metal: float = 0.0) -> StandardMaterial3D:
