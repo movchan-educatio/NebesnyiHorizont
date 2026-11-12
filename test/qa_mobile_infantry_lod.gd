@@ -92,6 +92,34 @@ func _run() -> void:
 	_check(float(rig.get("_mobile_animation_hz")) == 30.0
 			and bool(soldier.get("_model").visible),
 			"camera-based near LOD recovers without a Drone")
+	# Animation polish: heel-toe foot roll and idle weapon sway on the 30 Hz path.
+	var foot := int(rig.get("_b_foot_l"))
+	_check(foot >= 0, "left foot bone available for the heel-toe check")
+	if foot >= 0:
+		var foot_rest: Quaternion = rig.get("_rest")[foot]
+		rig.set_walk(PI, 1.0)
+		rig.call("_process", 1.0 / 30.0)
+		var heel_strike := rig.skeleton.get_bone_pose_rotation(foot)
+		rig.set_walk(0.0, 1.0)
+		rig.call("_process", 1.0 / 30.0)
+		var toe_off := rig.skeleton.get_bone_pose_rotation(foot)
+		_check(not heel_strike.is_equal_approx(toe_off),
+				"foot pose differs between heel strike and toe-off")
+		rig.set_walk(0.0, 0.0)
+		rig.call("_process", 1.0 / 30.0)
+		_check(rig.skeleton.get_bone_pose_rotation(foot).is_equal_approx(foot_rest),
+				"foot returns to rest when standing still")
+	var rifle := rig.get("rifle_pivot") as Node3D
+	_check(rifle != null, "rifle pivot available for the idle sway check")
+	if rifle != null:
+		var parts_count := rifle.find_children("*", "MeshInstance3D", true, false).size()
+		_check(parts_count >= 3,
+				"procedural carbine arms the merged soldier (%d parts)" % parts_count)
+		var sway_before := rifle.basis
+		rig.call("_process", 1.0 / 30.0)
+		var sway_after := rifle.basis
+		_check(not sway_before.is_equal_approx(sway_after),
+				"idle weapon sway animates the rifle while standing")
 	# Mobile squad behavior: deterministic gait offset and a local alert reaction.
 	var squad_mate := EnemyRifleman.new()
 	squad_mate.name = "MobileSquadMate"

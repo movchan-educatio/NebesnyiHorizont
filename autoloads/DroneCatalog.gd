@@ -220,7 +220,7 @@ const PRESETS := [
 	},
 	{
 		"name": "Військовий дрон (Камікадзе / Скид)",
-		"tag": "ВІЙСЬКОВИЙ БПЛА 8–10\"",
+		"tag": "ВІЙСЬКОВИЙ БПЛА 8–10″",
 		"desc": "Важкий ударний дрон із бойовою частиною",
 		"info": "Великий камікадзе або скидувач 8–10 дюймів із важкою бойовою частиною під днищем. Збільшена маса та інерція, центр-mass зміщений вниз і вперед, низьке співвідношення тяги до ваги та значна парусність бойового комплекту.",
 		"dry": 1.4, "batt": 0.8, "kv": 1100, "torque": 5500.0, "rpm": 18000.0,
@@ -337,20 +337,24 @@ func preset(index: int) -> Dictionary:
 		# iOS-only FPV framing and integrated warheads. Keep desktop presets,
 		# loadout mass and clean reconnaissance lens unchanged.
 		result = result.duplicate(true)
-		result["fpv_show_airframe"] = true
-		result.erase("fpv_hide_model")
+		# The old "show airframe" framing put the lens at wing height on the
+		# high-wing Leleka/Furia, so the wing filled the centre of the screen
+		# and blocked the course.  Keep a clean recon lens on mobile; the
+		# warhead is still simulated and the БЧ button still works.
+		result["fpv_hide_model"] = true
+		result.erase("fpv_show_airframe")
 		if idx == 13:
 			result["payload"] = 1
 			result["payload_mass"] = 1.5
 			result["kamikaze"] = true
-			result["fpv_cam_pos"] = Vector3(0.0, 0.36, -0.58)
-			result["fpv_cam_pitch"] = -4.0
+			result["fpv_cam_pos"] = Vector3(0.0, 0.06, -0.72)
+			result["fpv_cam_pitch"] = -5.0
 		elif idx == 14:
 			result["payload"] = 1
 			result["payload_mass"] = 1.2
 			result["kamikaze"] = true
-			result["fpv_cam_pos"] = Vector3(0.0, 0.34, -0.50)
-			result["fpv_cam_pitch"] = -4.0
+			result["fpv_cam_pos"] = Vector3(0.0, 0.04, -0.55)
+			result["fpv_cam_pitch"] = -5.0
 		else:
 			result["fpv_cam_pos"] = Vector3(0.0, 0.10, -0.48)
 			result["fpv_cam_pitch"] = -10.0

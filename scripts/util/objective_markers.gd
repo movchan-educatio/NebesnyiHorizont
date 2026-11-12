@@ -40,8 +40,8 @@ func setup(level: Node) -> void:
 	_objective_label.add_theme_constant_override("outline_size", 6)
 	_objective_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_objective_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_objective_label.custom_minimum_size = Vector2(390, 32)
-	_objective_label.size = Vector2(390, 32)
+	_objective_label.custom_minimum_size = Vector2(470, 32)
+	_objective_label.size = Vector2(470, 32)
 	_objective_label.visible = false
 	add_child(_objective_label)
 
@@ -94,7 +94,26 @@ func _show_primary(cam: Camera3D, drone: Node3D, info: Dictionary) -> void:
 			clampf(pos.y, 110.0, screen.y - 150.0))
 	var dist_m := int(round(drone.global_position.distance_to(target_pos)))
 	var label_text := str(info.get("label", "ЦІЛЬ"))
-	# distance intentionally not shown; keep the objective name and hold %
+	# Distance + bearing arrow so the pilot can actually find the zone: the
+	# old marker only showed the objective name and hold %, and a player who
+	# flew the wrong way had no way to tell that the zone was 300 m behind.
+	var flat := target_pos - drone.global_position
+	flat.y = 0.0
+	var fwd := -drone.global_transform.basis.z
+	fwd.y = 0.0
+	var right := drone.global_transform.basis.x
+	right.y = 0.0
+	var arrow := "↑"
+	var flat_len := flat.length()
+	if flat_len > 0.5:
+		var ahead := flat.dot(fwd)
+		var side := flat.dot(right)
+		if ahead < -0.2 * flat_len:
+			arrow = "↓"
+		elif side > 0.38 * flat_len:
+			arrow = "→"
+		elif side < -0.38 * flat_len:
+			arrow = "←"
 	if MenuUI.is_english():
 		match label_text:
 			"РОЗВІДКА":
@@ -104,10 +123,10 @@ func _show_primary(cam: Camera3D, drone: Node3D, info: Dictionary) -> void:
 			"УДАР":
 				label_text = "STRIKE"
 	var progress := int(clampf(float(info.get("progress", 0.0)), 0.0, 1.0) * 100.0)
-	_objective_label.text = "◆ %s  %d%%" % [label_text, progress]
+	_objective_label.text = "◆ %s %s  %d м · %d%%" % [label_text, arrow, dist_m, progress]
 	var col: Color = info.get("color", Color(0.35, 0.95, 0.75))
 	_objective_label.add_theme_color_override("font_color", col)
-	_objective_label.position = clamped - Vector2(195.0, 14.0)
+	_objective_label.position = clamped - Vector2(235.0, 14.0)
 	_objective_label.visible = true
 
 

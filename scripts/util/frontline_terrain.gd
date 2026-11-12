@@ -275,6 +275,16 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 		_batch_static_meshes(root)
 		_batch_multisurface_meshes(root)
 	_texture_flat_large_meshes(root)
+	# Curated Blender pack: 20 low-poly props + 5 large landmarks per map.  It
+	# runs after the material upgrade, floating scan and static batching so the
+	# new objects keep their own vertex-colour material, colliders and LOD
+	# instead of being folded into the terrain batches.
+	if (OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")) \
+			and not OS.has_environment("QA_NO_MOBILE_PACK"):
+		var pack = load("res://scripts/util/mobile_prop_pack.gd")
+		if pack != null:
+			pack.build(root, map_name)
 
 	print("[FrontlineTerrain] built ", map_name, " (", OUTER_SIZE, " m clipmap)")
 
@@ -1391,10 +1401,18 @@ static func _build_crop_fields(root: Node3D, map_name: String) -> void:
 		return
 	var mat := StandardMaterial3D.new()
 	mat.albedo_texture = tex
+	mat.vertex_color_use_as_albedo = true
 	mat.roughness = 0.95
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(map_name) + 5150
+	# Muted field tints: the raw crop texture read as bright lime next to the
+	# terrain palette in the owner's recording.  Per-field vertex colours give
+	# variety without extra materials.
+	var field_tints := [
+		Color(0.78, 0.80, 0.58), Color(0.86, 0.80, 0.52),
+		Color(0.66, 0.76, 0.50), Color(0.72, 0.70, 0.46),
+	]
 	var placed := 0
 	var fields: Array = []
 	for _i in range(30):
@@ -1420,15 +1438,20 @@ static func _build_crop_fields(root: Node3D, map_name: String) -> void:
 		var verts := PackedVector3Array()
 		var norms := PackedVector3Array()
 		var uvs := PackedVector2Array()
+		var colors := PackedColorArray()
 		var idx := PackedInt32Array()
+		var tint: Color = field_tints[placed % field_tints.size()]
 		for cz in range(cells + 1):
 			for cx in range(cells + 1):
 				var px := x - w * 0.5 + w * float(cx) / float(cells)
 				var pz := z - d * 0.5 + d * float(cz) / float(cells)
-				verts.append(Vector3(px, _height(map_name, px, pz) + 0.12, pz))
+				# Use the rendered terrain triangle height, not the analytic
+				# field, so the crop plane cannot hover over a slope.
+				verts.append(Vector3(px, mesh_surface_height(map_name, px, pz) + 0.06, pz))
 				norms.append(Vector3.UP)
 				uvs.append(Vector2(float(cx) / float(cells) * w / 10.0,
 						float(cz) / float(cells) * d / 10.0))
+				colors.append(tint)
 		for cz in range(cells):
 			for cx in range(cells):
 				var a := cz * (cells + 1) + cx
@@ -1439,6 +1462,7 @@ static func _build_crop_fields(root: Node3D, map_name: String) -> void:
 		arrays[Mesh.ARRAY_VERTEX] = verts
 		arrays[Mesh.ARRAY_NORMAL] = norms
 		arrays[Mesh.ARRAY_TEX_UV] = uvs
+		arrays[Mesh.ARRAY_COLOR] = colors
 		arrays[Mesh.ARRAY_INDEX] = idx
 		var mesh := ArrayMesh.new()
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
@@ -1840,18 +1864,22 @@ static func _build_mobile_hero_landmarks(root: Node3D, map_name: String) -> void
 		"steppe": [
 			["wind_turbine", Vector2(-180.0, 260.0)],
 			["fuel_depot", Vector2(240.0, -240.0)],
+			["silo_bank", Vector2(-350.0, -60.0)],
 		],
 		"village": [
 			["grain_elevator", Vector2(-180.0, 220.0)],
 			["church", Vector2(-340.0, 80.0)],
+			["market_stalls", Vector2(340.0, -140.0)],
 		],
 		"industrial": [
 			["flare_stack", Vector2(330.0, -120.0)],
 			["pipe_rack", Vector2(-260.0, 260.0)],
+			["water_cistern", Vector2(-360.0, 140.0)],
 		],
 		"wetlands": [
 			["lighthouse", Vector2(320.0, 140.0)],
 			["boathouse", Vector2(-240.0, 220.0)],
+			["pier_house", Vector2(200.0, -240.0)],
 		],
 	}
 	var list: Array = specs.get(map_name, [])
@@ -1877,6 +1905,14 @@ static func _build_mobile_hero_landmarks(root: Node3D, map_name: String) -> void
 				_add_mobile_lighthouse(root, map_name, site)
 			"boathouse":
 				_add_mobile_boathouse(root, map_name, site)
+			"silo_bank":
+				_add_mobile_silo_bank(root, map_name, site)
+			"market_stalls":
+				_add_mobile_market_stalls(root, map_name, site)
+			"water_cistern":
+				_add_mobile_water_cistern(root, map_name, site)
+			"pier_house":
+				_add_mobile_pier_house(root, map_name, site)
 		_poi_positions.append(site)
 		reserve_area(site, 30.0)
 		print("[MobileHero] ", map_name, " ", entry[0], " at ", site)
@@ -1949,6 +1985,78 @@ static func _add_mobile_boathouse(root: Node3D, map_name: String, p: Vector2) ->
 				Vector3(0.4, 1.8, 5.2), wood)
 	_add_box(node, Vector3(0.0, 2.0, 0.0), Vector3(8.0, 0.24, 5.4), wood)
 	_add_prism(node, Vector3(0.0, 3.0, 0.0), Vector3(9.0, 2.2, 6.2), roof)
+	_keep_poi_detail(node, 1200.0)
+
+
+static func _add_mobile_silo_bank(root: Node3D, map_name: String, p: Vector2) -> void:
+	var gy := _height(map_name, p.x, p.y)
+	var node := Node3D.new()
+	node.name = "MobileHero3_SiloBank"
+	node.position = Vector3(p.x, gy, p.y)
+	root.add_child(node)
+	var concrete := _pbr("hall_concrete", Color(0.66, 0.64, 0.58), 0.22)
+	var silo := _pbr("hall_metal", Color(0.72, 0.70, 0.62), 0.2)
+	var rust := _pbr("hall_rust", Color(0.70, 0.52, 0.40), 0.26)
+	_add_box(node, Vector3(0.0, 0.16, 0.0), Vector3(13.0, 0.32, 6.0), concrete)
+	for i in range(4):
+		_add_cylinder(node, Vector3(-4.5 + float(i) * 3.0, 6.2, 0.0), 1.5, 11.6, silo)
+		_add_cylinder(node, Vector3(-4.5 + float(i) * 3.0, 12.1, 0.0), 1.56, 0.5, rust, 0.0, false)
+	_add_cylinder(node, Vector3(0.0, 4.6, 0.0), 0.3, 10.0, rust, PI * 0.5, false)
+	_keep_poi_detail(node, 1200.0)
+
+
+static func _add_mobile_market_stalls(root: Node3D, map_name: String, p: Vector2) -> void:
+	var gy := _height(map_name, p.x, p.y)
+	var node := Node3D.new()
+	node.name = "MobileHero3_MarketStalls"
+	node.position = Vector3(p.x, gy, p.y)
+	root.add_child(node)
+	var wood := _pbr("wood", Color(0.58, 0.46, 0.32), 0.3)
+	var awning := _pbr("hall_paint", Color(0.70, 0.26, 0.22), 0.3)
+	var awning2 := _pbr("hall_paint", Color(0.24, 0.44, 0.62), 0.3)
+	for row in range(2):
+		for i in range(3):
+			var bx := -5.0 + float(i) * 5.0
+			var bz := -2.5 + float(row) * 5.0
+			_add_box(node, Vector3(bx, 0.15, bz), Vector3(3.8, 0.3, 3.8), wood)
+			for side in [-1.0, 1.0]:
+				_add_box(node, Vector3(bx + side * 1.7, 1.15, bz), Vector3(0.15, 2.0, 3.8), wood)
+			_add_prism(node, Vector3(bx, 1.8, bz), Vector3(4.2, 0.8, 4.2),
+					awning if (i + row) % 2 == 0 else awning2)
+	_keep_poi_detail(node, 1200.0)
+
+
+static func _add_mobile_water_cistern(root: Node3D, map_name: String, p: Vector2) -> void:
+	var gy := _height(map_name, p.x, p.y)
+	var node := Node3D.new()
+	node.name = "MobileHero3_WaterCistern"
+	node.position = Vector3(p.x, gy, p.y)
+	root.add_child(node)
+	var concrete := _pbr("hall_concrete", Color(0.54, 0.53, 0.50), 0.24)
+	var steel := _pbr("hall_metal", Color(0.62, 0.64, 0.64), 0.2)
+	_add_box(node, Vector3(0.0, 0.2, 0.0), Vector3(8.0, 0.4, 8.0), concrete)
+	var tank := _add_cylinder(node, Vector3(0.0, 7.0, 0.0), 3.0, 13.0, steel)
+	_keep_poi_detail(tank)
+	for sx in [-1.0, 1.0]:
+		for sz in [-1.0, 1.0]:
+			_add_box(node, Vector3(sx * 2.6, 2.9, sz * 2.6), Vector3(0.3, 5.4, 0.3), steel)
+	_add_cylinder(node, Vector3(0.0, 14.0, 0.0), 3.05, 0.5, steel, 0.0, false)
+	_keep_poi_detail(node, 1200.0)
+
+
+static func _add_mobile_pier_house(root: Node3D, map_name: String, p: Vector2) -> void:
+	var gy := _height(map_name, p.x, p.y)
+	var node := Node3D.new()
+	node.name = "MobileHero3_PierHouse"
+	node.position = Vector3(p.x, gy, p.y)
+	root.add_child(node)
+	var wood := _pbr("wood", Color(0.52, 0.42, 0.28), 0.3)
+	var roof := _pbr("hall_rust", Color(0.34, 0.40, 0.34), 0.32)
+	for i in range(6):
+		_add_box(node, Vector3(-6.0 + float(i) * 2.4, 0.9, 0.0), Vector3(0.4, 1.8, 6.0), wood)
+	_add_box(node, Vector3(0.0, 1.9, 0.0), Vector3(13.0, 0.3, 6.2), wood)
+	_add_prism(node, Vector3(0.0, 3.2, 0.0), Vector3(14.0, 2.6, 7.0), roof)
+	_add_box(node, Vector3(6.6, 0.6, 0.0), Vector3(1.6, 1.2, 3.0), wood)
 	_keep_poi_detail(node, 1200.0)
 
 
@@ -2637,9 +2745,11 @@ static func _road_points(map_name: String) -> Array:
 
 
 static func _build_roads(root: Node3D, map_name: String) -> void:
-	var mat := _pbr("dirt", Color(0.78, 0.66, 0.48), 0.28)
+	# Larger texture scale: the old 0.28 UV repeat made the dirt tracks read as
+	# a conveyor-belt pattern from the air on the owner's recording.
+	var mat := _pbr("dirt", Color(0.70, 0.60, 0.43), 0.12)
 	if map_name == "industrial":
-		mat = _pbr("asphalt", Color(0.62, 0.62, 0.60), 0.18)
+		mat = _pbr("asphalt", Color(0.58, 0.58, 0.57), 0.10)
 	var width := 7.0
 	if map_name == "wetlands":
 		width = 5.0
@@ -4106,16 +4216,18 @@ static func _poi_burnt_armour(root: Node3D, map_name: String, p: Vector2) -> voi
 	scorch.name = "POI_Scorch"
 	var tex := GradientTexture2D.new()
 	var grad := Gradient.new()
-	grad.colors = PackedColorArray([Color(0.05, 0.04, 0.03, 0.9),
-			Color(0.04, 0.035, 0.03, 0.0)])
+	# Softer, brighter scorch: the old near-black alpha-0.9 disc read as a
+	# hard black hole from the air on the owner's device recording.
+	grad.colors = PackedColorArray([Color(0.12, 0.10, 0.08, 0.55),
+			Color(0.10, 0.09, 0.08, 0.0)])
 	grad.offsets = PackedFloat32Array([0.0, 1.0])
 	tex.gradient = grad
 	tex.fill = GradientTexture2D.FILL_RADIAL
 	tex.fill_from = Vector2(0.5, 0.5)
 	tex.fill_to = Vector2(1.0, 0.5)
 	scorch.texture_albedo = tex
-	scorch.size = Vector3(22.0, 7.0, 22.0)
-	scorch.albedo_mix = 0.85
+	scorch.size = Vector3(18.0, 7.0, 18.0)
+	scorch.albedo_mix = 0.55
 	scorch.cull_mask = 1
 	scorch.position = Vector3(site.x + 5.0, gy + 3.0, site.y + 3.0)
 	root.add_child(scorch)

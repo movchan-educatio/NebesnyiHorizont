@@ -158,7 +158,7 @@ func _spawn_crater() -> void:
 	decal.texture_albedo = _crater_texture
 	decal.size = Vector3(crater_r * 2.1, 7.0, crater_r * 2.1)
 	decal.cull_mask = 1
-	decal.albedo_mix = 0.9
+	decal.albedo_mix = 0.55
 	decal.upper_fade = 0.45
 	decal.lower_fade = 0.35
 	decal.position = Vector3(ground.x, ground.y + 3.2, ground.z)

@@ -376,12 +376,11 @@ static func build_fpv_slalom_gate_course(parent: Node3D, pos: Vector3, yaw: floa
 	parent.add_child(root)
 
 	var hazard := _get_mat("hazard")
-	var camo := _get_mat("camo", Color(0.28, 0.38, 0.22))
 	var steel := _get_mat("steel", Color(0.32, 0.34, 0.36))
 
 	var gate_w := 5.2
 	var gate_h := 4.2
-	var gate_thick := 0.22
+	var gate_thick := 0.34
 
 	for i in range(4):
 		var gz := float(i - 1.5) * 14.0
@@ -398,8 +397,10 @@ static func build_fpv_slalom_gate_course(parent: Node3D, pos: Vector3, yaw: floa
 		_add_box(root, Vector3(1.0, 0.18, 0.18), Vector3(gx - gate_w * 0.5 + 0.4, gate_h - 0.4, gz), hazard, true)
 		_add_box(root, Vector3(1.0, 0.18, 0.18), Vector3(gx + gate_w * 0.5 - 0.4, gate_h - 0.4, gz), hazard, true)
 
-		# Top Camo Banner (Visual FPV racing flag)
-		_add_box(root, Vector3(gate_w * 0.9, 0.6, 0.05), Vector3(gx, gate_h + 0.4, gz), camo, false)
+		# Top hazard banner: the old dark camo banner vanished into the ground
+		# palette at range and read as a floating black slab.  Hazard stripes
+		# keep the gate readable from several hundred metres.
+		_add_box(root, Vector3(gate_w * 0.94, 0.75, 0.07), Vector3(gx, gate_h + 0.45, gz), hazard, false)
 		# Deep Base Anchor Piers (embedded 4.5m into terrain so never floating)
 		_add_box(root, Vector3(0.9, 4.5, 0.9), Vector3(gx - gate_w * 0.5, -2.0, gz), steel, true)
 		_add_box(root, Vector3(0.9, 4.5, 0.9), Vector3(gx + gate_w * 0.5, -2.0, gz), steel, true)

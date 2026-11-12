@@ -51,11 +51,21 @@ func _run() -> void:
 		print("[MOBILE_MAP_VIEWS] ", map_name, " navigation beacons=", beacons.size())
 	var heroes := terrain.find_children("MobileHero*", "Node3D", true, false) \
 			if terrain != null else []
-	if heroes.size() < 2:
+	if heroes.size() < 3:
 		_failures += 1
-		push_warning("[MOBILE_MAP_VIEWS] %d mobile hero landmarks on %s" % [heroes.size(), map_name])
+		push_warning("[MOBILE_MAP_VIEWS] %d mobile hero landmarks on %s (want 3)" % [heroes.size(), map_name])
 	else:
 		print("[MOBILE_MAP_VIEWS] ", map_name, " heroes=", heroes.size())
+	# Float scan: every hero landmark must sit on the analytic terrain height.
+	# A wrong y means the POI either hovers in the air or is sunk underground.
+	for h in heroes:
+		var hp := (h as Node3D).global_position
+		var ground := TERRAIN.height_at(map_name, hp.x, hp.z)
+		var sink := ground - hp.y
+		if sink > 0.45 or sink < -2.6:
+			_failures += 1
+			push_warning("[MOBILE_MAP_VIEWS] %s floats/sinks by %.2f m at (%.0f, %.0f)"
+					% [h.name, sink, hp.x, hp.z])
 	var patches := terrain.find_children("MobileGroundPatch*", "MeshInstance3D", true, false) \
 			if terrain != null else []
 	if patches.size() < 4:
@@ -63,6 +73,55 @@ func _run() -> void:
 		push_warning("[MOBILE_MAP_VIEWS] %d ground tint patches on %s" % [patches.size(), map_name])
 	else:
 		print("[MOBILE_MAP_VIEWS] ", map_name, " ground patches=", patches.size())
+	# Curated Blender pack: 20 small props + 5 large landmarks.  Verify spacing,
+	# ground contact (no floating/sinking) and colliders on every object.
+	var prop_pack := terrain.get_node_or_null("MobilePropPack") if terrain != null else null
+	var placed_props := int(prop_pack.get_meta("placed", 0)) if prop_pack != null else 0
+	var footprints: Array = prop_pack.get_meta("footprints", []) if prop_pack != null else []
+	var pack_ok := placed_props >= 24
+	var spacing_bad := 0
+	for a in range(footprints.size()):
+		for b in range(a + 1, footprints.size()):
+			var pa: Dictionary = footprints[a]
+			var pb: Dictionary = footprints[b]
+			var need: float = float(pa["radius"]) + float(pb["radius"]) + 1.5
+			if (pa["pos"] as Vector2).distance_to(pb["pos"]) < need:
+				spacing_bad += 1
+	if spacing_bad > 0:
+		pack_ok = false
+		push_warning("[MOBILE_MAP_VIEWS] %s: %d overlapping prop pairs"
+				% [map_name, spacing_bad])
+	var float_bad := 0
+	var collider_bad := 0
+	var large_count := 0
+	if prop_pack != null:
+		for prop in prop_pack.get_children():
+			var node := prop as Node3D
+			if bool(node.get_meta("pack_large", false)):
+				large_count += 1
+			if not bool(node.get_meta("pack_floating", false)):
+				var ground := float(TERRAIN.mesh_surface_height(map_name,
+						node.position.x, node.position.z))
+				if absf(node.position.y - ground) > 0.35:
+					float_bad += 1
+			var has_collider := false
+			for c in node.find_children("*", "StaticBody3D", true, false):
+				has_collider = true
+				break
+			if not has_collider:
+				collider_bad += 1
+	if float_bad > 0 or collider_bad > 0 or large_count < 5:
+		pack_ok = false
+		push_warning("[MOBILE_MAP_VIEWS] %s pack: floating=%d no_collider=%d large=%d"
+				% [map_name, float_bad, collider_bad, large_count])
+	if not pack_ok:
+		_failures += 1
+		push_warning("[MOBILE_MAP_VIEWS] prop pack on %s: placed=%d"
+				% [map_name, placed_props])
+	else:
+		print("[MOBILE_MAP_VIEWS] ", map_name, " props=", placed_props,
+				" large=", large_count, " spacing_overlaps=", spacing_bad,
+				" float_bad=", float_bad, " collider_bad=", collider_bad)
 	var drone := level.get_node_or_null("Drone") as RigidBody3D
 	var fpv := level.get_node_or_null("Drone/FPVCamera") as Camera3D
 	if drone == null or fpv == null:
@@ -160,6 +219,11 @@ func _route_audit(output: String, map_name: String, fpv: Camera3D,
 
 
 func _capture(path: String, fpv: Camera3D) -> void:
+	if DisplayServer.get_name() == "headless":
+		# The dummy renderer never emits frame_post_draw, so a headless run
+		# would hang forever on the first screenshot.  Assertions still run.
+		print("[MOBILE_MAP_VIEWS] headless: skipped capture ", path)
+		return
 	fpv.current = true
 	await RenderingServer.frame_post_draw
 	var image := get_viewport().get_texture().get_image()

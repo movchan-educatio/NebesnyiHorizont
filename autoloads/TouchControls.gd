@@ -60,6 +60,10 @@ var _owner_id := 0
 ## Menu preview: the calibration/controls screens show only the twin sticks,
 ## without the flight buttons.  Keeps the exact same stick feel as in flight.
 var _preview := false
+## Compact in-flight top bar: only MENU + "⋯" by default; the secondary
+## toggles (mode/input/reset/video) live behind the ellipsis button.
+var _bar_open := false
+var _more_button: Button = null
 
 
 func _ready() -> void:
@@ -102,6 +106,7 @@ func _ready() -> void:
 	_flight_button = _make_top_button("РЕЖИМ", _on_flight_pressed)
 	_reset_button = _make_top_button("РЕСЕТ", _on_action_pressed.bind("respawn"))
 	_video_button = _make_top_button("ВІДЕО", _on_action_pressed.bind("cycle_video_mode"))
+	_more_button = _make_top_button("⋯", Callable(self, "_on_more_pressed"))
 
 	_drop_button = Button.new()
 	_drop_button.name = "TouchDropButton"
@@ -175,7 +180,7 @@ func set_menu_preview(on: bool) -> void:
 		_layout()
 		_reset_sticks()
 		for b in [_pause_button, _flight_button, _setup_button, _drop_button,
-				_reset_button, _video_button, _mode_button, _arm_button]:
+				_reset_button, _video_button, _mode_button, _arm_button, _more_button]:
 			if b != null:
 				b.visible = false
 		if _setup_root != null:
@@ -187,8 +192,8 @@ func set_menu_preview(on: bool) -> void:
 	_preview = false
 	process_mode = Node.PROCESS_MODE_INHERIT
 	set_enabled(false)
-	for b in [_pause_button, _flight_button, _setup_button,
-			_reset_button, _video_button, _mode_button, _arm_button]:
+	_bar_open = false
+	for b in [_arm_button]:
 		if b != null:
 			b.visible = true
 	if _drop_button != null:
@@ -242,6 +247,24 @@ func _make_top_button(text: String, cb: Callable) -> Button:
 	return b
 
 
+func _on_more_pressed() -> void:
+	_bar_open = not _bar_open
+	_apply_top_bar_visibility()
+	_layout()
+
+
+func _apply_top_bar_visibility() -> void:
+	var live := enabled and not _preview
+	if _pause_button != null:
+		_pause_button.visible = live
+	if _more_button != null:
+		_more_button.visible = live
+	var open := live and _bar_open
+	for b in [_flight_button, _setup_button, _reset_button, _video_button, _mode_button]:
+		if b != null:
+			b.visible = open
+
+
 func _layout() -> void:
 	if _root == null or _drawer == null:
 		return
@@ -274,21 +297,37 @@ func _layout() -> void:
 				bottom - _radius)
 		_right_center = Vector2(minf(vs.x * 0.72,
 				vs.x - _radius - notch.z - 12.0), bottom - _radius)
-	var bar_w := 160.0 + 12.0 + 210.0 + 12.0 + 270.0
-	var bar_x := (vs.x - bar_w) * 0.5
-	_pause_button.position = Vector2(bar_x, 90.0 + notch.y)
-	_pause_button.size = Vector2(160.0, 68.0)
-	_flight_button.position = Vector2(bar_x + 172.0, 90.0 + notch.y)
-	_flight_button.size = Vector2(210.0, 68.0)
-	_flight_button.add_theme_font_size_override("font_size", 19)
-	_mode_button.position = Vector2(bar_x + 394.0, 90.0 + notch.y)
-	_mode_button.size = Vector2(270.0, 68.0)
-	var row2: Array[Button] = [_reset_button, _video_button]
-	var row2_w := 2.0 * 160.0 + 16.0
-	var row2_x := (vs.x - row2_w) * 0.5
-	for i in range(row2.size()):
-		row2[i].position = Vector2(row2_x + i * 176.0, 168.0 + notch.y)
-		row2[i].size = Vector2(160.0, 60.0)
+	# In-flight action bar on the left edge, vertically centred: the top-centre
+	# position collided with the "ГОТОВИЙ ДО СТАРТУ" hint.  Compact mode shows
+	# MENU + "⋯"; the ellipsis expands the secondary toggles in a column.
+	var side_x := 20.0 + notch.x
+	var menu_w := 150.0
+	var more_h := 56.0
+	var menu_h := 64.0
+	if _bar_open and _pause_button != null and _more_button != null:
+		var y0 := maxf(notch.y + 90.0, vs.y * 0.5 - 160.0)
+		_pause_button.position = Vector2(side_x, y0)
+		_pause_button.size = Vector2(menu_w, menu_h)
+		_flight_button.position = Vector2(side_x, y0 + 72.0)
+		_flight_button.size = Vector2(menu_w, more_h)
+		_flight_button.add_theme_font_size_override("font_size", 18)
+		_mode_button.position = Vector2(side_x, y0 + 136.0)
+		_mode_button.size = Vector2(menu_w, more_h)
+		_reset_button.position = Vector2(side_x, y0 + 200.0)
+		_reset_button.size = Vector2(72.0, more_h)
+		_reset_button.add_theme_font_size_override("font_size", 16)
+		_video_button.position = Vector2(side_x + 78.0, y0 + 200.0)
+		_video_button.size = Vector2(72.0, more_h)
+		_video_button.add_theme_font_size_override("font_size", 16)
+		_more_button.position = Vector2(side_x, y0 + 264.0)
+		_more_button.size = Vector2(64.0, more_h)
+	elif _pause_button != null and _more_button != null:
+		var y0c := maxf(notch.y + 90.0, vs.y * 0.5 - 68.0)
+		_pause_button.position = Vector2(side_x, y0c)
+		_pause_button.size = Vector2(menu_w, menu_h)
+		_more_button.position = Vector2(side_x, y0c + 72.0)
+		_more_button.size = Vector2(menu_w, more_h)
+	_apply_top_bar_visibility()
 	_arm_button.position = Vector2(vs.x * 0.5 - 110.0, vs.y - 170.0 - notch.w)
 	_arm_button.size = Vector2(220.0, 78.0)
 	var drop_size := clampf(_radius * 0.60, 78.0, 106.0)
@@ -335,11 +374,14 @@ func _apply_button_style() -> void:
 	_mode_button.add_theme_stylebox_override("normal", normal)
 	_mode_button.add_theme_stylebox_override("hover", normal)
 	_mode_button.add_theme_stylebox_override("pressed", pressed)
-	for b in [_pause_button, _flight_button, _setup_button, _reset_button, _video_button]:
+	for b in [_pause_button, _flight_button, _setup_button, _reset_button, _video_button,
+			_more_button]:
 		if b != null:
 			b.add_theme_stylebox_override("normal", normal)
 			b.add_theme_stylebox_override("hover", normal)
 			b.add_theme_stylebox_override("pressed", pressed)
+	if _more_button != null:
+		_more_button.add_theme_font_size_override("font_size", 30)
 	if _arm_button == null:
 		return
 	var arm_normal := StyleBoxFlat.new()

@@ -59,6 +59,7 @@ var _speed_time := 0.0
 var _rings_passed := 0
 var _rings_total := 0
 var _training_rings: Array[Area3D] = []
+var _ring_pulse := 0.0
 var _nav_marker: Label = null
 var _vehicles: Array[Vehicle] = []
 var _infantry_units: Array[Node3D] = []
@@ -904,6 +905,14 @@ func _tune_map_environment() -> void:
 		return
 	var env := we.environment
 	var sun := get_node_or_null("Sun") as DirectionalLight3D
+	# Subtle global grade: the mobile palette read washed out in the owner's
+	# recording.  Skipped on the LOW preset so the cheapest tier keeps its
+	# frame budget.
+	if QualityManager.get_active_level() != QualityManager.Level.LOW:
+		env.adjustment_enabled = true
+		env.adjustment_brightness = 1.0
+		env.adjustment_contrast = 1.04
+		env.adjustment_saturation = 1.06
 	match frontline_map:
 		"industrial":
 			env.fog_light_color = Color(0.62, 0.68, 0.74)
@@ -2379,6 +2388,9 @@ func _make_ring(position: Vector3, radius: float, color: Color,
 	material.emission = color
 	material.emission_energy_multiplier = 2.5
 	mesh.material_override = material
+	# The next gate pulses while the rest dim; the ring material is kept on the
+	# Area3D so the training HUD can drive it without another lookup path.
+	area.set_meta("ring_material", material)
 	# Holographic course rings must not drop hard shadows across the track.
 	mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	area.add_child(mesh)
@@ -2426,6 +2438,27 @@ func _on_ring_entered(body: Node3D, ring: Area3D) -> void:
 	_set_flash("Ворота %d/%d" % [_rings_passed, _rings_total])
 	if _rings_passed >= _rings_total:
 		_finish_mission("ТРЕНУВАННЯ ЗАВЕРШЕНО")
+
+
+## Training UX: pulse the next gate and dim the rest, so the course is readable
+## at range instead of 24 identical rings scattered across the map.
+func _update_training_ring_highlight(delta: float) -> void:
+	if _training_rings.is_empty():
+		return
+	_ring_pulse += delta * 3.6
+	var next_idx := mini(_rings_passed, _training_rings.size() - 1)
+	var course_live := _rings_passed < _rings_total
+	for i in range(_training_rings.size()):
+		var ring := _training_rings[i]
+		if ring == null or not is_instance_valid(ring):
+			continue
+		var mat := ring.get_meta("ring_material", null) as StandardMaterial3D
+		if mat == null:
+			continue
+		if course_live and i == next_idx and ring.visible:
+			mat.emission_energy_multiplier = 3.6 + sin(_ring_pulse) * 1.8
+		else:
+			mat.emission_energy_multiplier = 0.85
 
 
 func _spawn_speed_course() -> void:
@@ -4234,7 +4267,7 @@ func _update_telemetry(delta: float) -> void:
 	var batt_tag := ""
 	var low_voltage := cell_v < 3.5
 	if low_voltage:
-		batt_tag = "  LOW VOLTAGE!"
+		batt_tag = "  НИЗЬКА НАПРУГА!"
 	var jamming: bool = _reb != null and _reb.limits_enabled \
 			and _reb.reb_zones_enabled and _reb.in_ew > 0.08
 	var warn_phase := int(Time.get_ticks_msec() / 280) % 2 == 0
@@ -4242,9 +4275,26 @@ func _update_telemetry(delta: float) -> void:
 	if _reb != null:
 		var jam_tag := ""
 		if jamming:
-			jam_tag = "  JAMMING" if warn_phase else ""
+			jam_tag = "  ПРИДУШЕННЯ" if warn_phase else ""
+		var link_status := _reb.get_status_text()
+		# The REB subsystem keeps English tokens for QA; the HUD speaks
+		# Ukrainian, so translate only the displayed copy.
+		if not MenuUI.is_english():
+			match link_status:
+				"UNLIMITED":
+					link_status = "БЕЗ ОБМЕЖЕНЬ"
+				"FAILSAFE":
+					link_status = "ФЕЙЛСЕЙФ"
+				"CRITICAL":
+					link_status = "КРИТИЧНО"
+				"WEAK":
+					link_status = "СЛАБКИЙ"
+				"OK":
+					link_status = "НОРМА"
+				"LINK":
+					link_status = "ЗВ'ЯЗОК"
 		lq_line = "\nLQ %d%%  %s%s  |  %.0f ms" % [
-				_reb.get_lq_percent(), _reb.get_status_text(), jam_tag, _reb.latency_ms]
+				_reb.get_lq_percent(), link_status, jam_tag, _reb.latency_ms]
 	var q_lvl := QualityManagerScript.get_active_level()
 	var q_short := "НИЗ"
 	if q_lvl == 1:
@@ -5618,6 +5668,8 @@ func _process(delta: float) -> void:
 		_audio_priority_tick = 0.1
 		_update_audio_priority(0.1)
 	_update_threats(delta)
+	if Global.play_mode == Global.PlayMode.TRAINING:
+		_update_training_ring_highlight(delta)
 	_nav_tick -= delta
 	if _nav_tick <= 0.0:
 		_nav_tick = 0.1
@@ -6448,10 +6500,10 @@ func _refresh_model_visibility() -> void:
 		if bool(p.get("heavy_bomber", false)):
 			hide_model = true
 		_model_root.visible = (combat_airframe or show_airframe) and not hide_model
-		var mobile_front_props := _is_mobile_runtime() and not combat_airframe \
-				and not show_airframe and not bool(p.get("fixed_wing", false)) \
-				and not bool(p.get("is_naval", false)) \
-				and not bool(p.get("heavy_bomber", false))
+		# Mobile attitude-reference props were removed: at 110° FOV the front
+		# blades were visibly cut off at the screen edges, which read as a
+		# rendering bug.  Keep the clean lens instead.
+		var mobile_front_props := false
 		if mobile_front_props:
 			_model_root.visible = true
 		_apply_combat_fpv_camera(combat_airframe and not show_airframe and not hide_model, p)
@@ -6475,10 +6527,7 @@ func _refresh_model_visibility() -> void:
 	# corners of the FPV frame.
 	var drone_node := get_node_or_null("Drone")
 	var preset_now := DroneCatalog.preset(Global.drone_preset)
-	var mobile_side_props := _is_mobile_runtime() and not third_person \
-			and not bool(preset_now.get("fixed_wing", false)) \
-			and not bool(preset_now.get("is_naval", false)) \
-			and not bool(preset_now.get("heavy_bomber", false))
+	var mobile_side_props := false
 	if drone_node != null:
 		for prop in drone_node.find_children("*", "Propeller", true, false):
 			if prop.has_method("set_visibility"):

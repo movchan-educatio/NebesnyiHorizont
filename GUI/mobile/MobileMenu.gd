@@ -512,6 +512,7 @@ func _vsize() -> Vector2:
 
 func _fs(px: float) -> int:
 	var scale := clampf(_vsize().y / 760.0, 1.15, 1.55)
+	scale *= float(GameSettings.hud_config.get("mobile_font_scale", 1.0))
 	return maxi(16, int(round(px * scale)))
 
 
@@ -1259,18 +1260,22 @@ func _combined_bounds(node: Node3D) -> AABB:
 	return result
 
 
-## Safety net for the first GLB load: if the measured preview is far below the
-## intended podium size (the old "tiny drone" bug), scale it up and put its
-## skids back on the pedestal instead of leaving a speck under the camera.
+## Keeps a preview model inside a sane size band on the card.  The old guard
+## only up-scaled tiny models, so one bad AABB measurement could leave an
+## oversized model clipped by the card and covering the specs text.  Clamp
+## both ways (±18%) and re-seat the model on the pedestal.
 func _ensure_preview_scale(holder: Node3D, model: Node3D, target: float,
 		bottom: float) -> void:
 	if holder == null or model == null or target <= 0.0:
 		return
 	var box := _combined_bounds(holder)
 	var max_dim := maxf(box.size.x, maxf(box.size.y, box.size.z))
-	if max_dim <= 0.0001 or max_dim >= target * 0.65:
+	if max_dim <= 0.0001:
 		return
-	model.scale *= target / max_dim
+	var wanted := clampf(max_dim, target * 0.82, target * 1.18)
+	if absf(wanted - max_dim) <= 0.001:
+		return
+	model.scale *= wanted / max_dim
 	model.force_update_transform()
 	var fitted := _combined_bounds(holder)
 	model.position.y += bottom - fitted.position.y
@@ -3038,6 +3043,54 @@ func _build_settings_tab_sys() -> void:
 	var lang_lbl := _label("УКРАЇНСЬКА (UA)", 18, MenuUI.FPV_GREEN)
 	lang_box.add_child(lang_lbl)
 	sv.add_child(lang_box)
+
+	# 6. Interface font scale (accessibility)
+	var font_box := VBoxContainer.new()
+	font_box.add_theme_constant_override("separation", _gap(6))
+	var font_hdr := HBoxContainer.new()
+	font_hdr.add_child(_label("Розмір шрифту інтерфейсу", 20, MenuUI.TEXT))
+	var font_lbl := _label("%d%%" % int(round(float(
+			GameSettings.hud_config.get("mobile_font_scale", 1.0)) * 100.0)),
+			20, MenuUI.FPV_GREEN)
+	font_lbl.custom_minimum_size.x = _fs(60)
+	font_hdr.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
+	font_hdr.add_child(font_lbl)
+	font_box.add_child(font_hdr)
+	font_box.add_child(_label("Доступність: збільшує текст меню, брифінгів та підказок HUD", 14, MenuUI.MUTED))
+	var font_slider := _slider(
+			float(GameSettings.hud_config.get("mobile_font_scale", 1.0)) * 100.0,
+			85, 145, 5, func(val: float):
+		var scale := roundf(val / 5.0) * 5.0 / 100.0
+		font_lbl.text = "%d%%" % int(round(scale * 100.0))
+		GameSettings.hud_config["mobile_font_scale"] = scale
+		GameSettings.save_hud_config()
+		call_deferred("_rebuild_screens")
+	)
+	font_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	font_box.add_child(font_slider)
+	sv.add_child(font_box)
+
+
+## Rebuild every menu screen in place after a global presentation change
+## (accessibility font scale).  Deferred so the triggering control is no
+## longer in its signal callback when its subtree is freed.
+func _rebuild_screens() -> void:
+	if _content == null:
+		return
+	var keep := _current if _screens.has(_current) else "main"
+	for c in _content.get_children():
+		c.free()
+	_screens.clear()
+	_settings_panels.clear()
+	_settings_tab_buttons.clear()
+	_build_main()
+	_build_play()
+	_build_controls()
+	_build_rates()
+	_build_drone()
+	_build_settings()
+	_show(keep)
+	_update_status()
 
 
 func _spacer(height: float, flags: int = Control.SIZE_SHRINK_CENTER) -> Control:

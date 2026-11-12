@@ -16,13 +16,19 @@ func _ready() -> void:
 	set_message("ДВИГУНИ ВИМКНЕНО")
 
 
+func _is_mobile() -> bool:
+	return OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")
+
+
 func set_status(s: int) -> void:
 	if s < Status.size():
 		status = s
 		var status_text := ""
 		match status:
 			Status.DISARMED:
-				status_text = "ДВИГУНИ ВИМКНЕНО  (ПРОБІЛ — увімкнути)"
+				status_text = "ДВИГУНИ ВИМКНЕНО  (АРМ — увімкнути)" if _is_mobile() \
+						else "ДВИГУНИ ВИМКНЕНО  (ПРОБІЛ — увімкнути)"
 			Status.ARMED:
 				status_text = "ДВИГУНИ УВІМКНЕНО — ГАЗ УГОРУ"
 				message_timer.start(1.0)

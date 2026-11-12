@@ -44,6 +44,7 @@ var _walk_phase := 0.0
 var _walk_stride := 0.0
 var _run_blend := 0.0
 var _breath_phase := 0.0
+var _sway_phase := 0.0
 var _crouch_target := 0.0
 var _crouch := 0.0
 var _reload_time := 0.0
@@ -181,10 +182,48 @@ func _build_rifle_prop() -> void:
 		muzzle.position = RIFLE_LONG.normalized() * RIFLE_MUZZLE_OFFSET
 		copy.add_child(muzzle)
 	else:
-		muzzle = Marker3D.new()
-		muzzle.name = "Muzzle"
-		muzzle.position = Vector3(-0.26, 1.10, -0.45)
-		add_child(muzzle)
+		_build_procedural_rifle()
+
+
+## The merged mobile GLB has no authored rifle mesh (one body primitive with a
+## single atlas material), so soldiers would otherwise be visibly unarmed.  A
+## cheap box-built carbine gives the rig a real weapon to aim, sway, kick and
+## drop: six primitives, one shared material, plus the muzzle marker.
+func _build_procedural_rifle() -> void:
+	rifle_pivot = Node3D.new()
+	rifle_pivot.name = "RiflePivot"
+	rifle_pivot.position = Vector3(-0.02, 1.33, -0.45)
+	_rifle_basis = _make_rifle_basis()
+	rifle_pivot.basis = _rifle_basis
+	add_child(rifle_pivot)
+	_rifle_rest = rifle_pivot.position
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.16, 0.16, 0.17)
+	mat.roughness = 0.42
+	mat.metallic = 0.35
+	# Layout along the pivot's local -Z, the forward/aim axis.
+	var parts := {
+		"RifleReceiver": [Vector3(0.0, 0.0, -0.16), Vector3(0.055, 0.09, 0.30)],
+		"RifleHandguard": [Vector3(0.0, 0.0, -0.36), Vector3(0.045, 0.075, 0.16)],
+		"RifleBarrel": [Vector3(0.0, 0.0, -0.50), Vector3(0.02, 0.02, 0.18)],
+		"RifleStock": [Vector3(0.0, 0.0, 0.12), Vector3(0.05, 0.075, 0.16)],
+		"RifleMag": [Vector3(0.0, -0.105, -0.10), Vector3(0.038, 0.13, 0.07)],
+		"RifleGrip": [Vector3(0.0, -0.08, -0.015), Vector3(0.034, 0.085, 0.05)],
+	}
+	for part in parts:
+		var box := BoxMesh.new()
+		box.size = parts[part][1]
+		var mi := MeshInstance3D.new()
+		mi.name = part
+		mi.mesh = box
+		mi.material_override = mat
+		mi.position = parts[part][0]
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		rifle_pivot.add_child(mi)
+	muzzle = Marker3D.new()
+	muzzle.name = "Muzzle"
+	muzzle.position = Vector3(0.0, 0.0, -0.60)
+	rifle_pivot.add_child(muzzle)
 
 
 func _build_team_patch(team_id: int) -> void:
@@ -322,6 +361,7 @@ func _process(delta: float) -> void:
 		pose_delta = _mobile_animation_accumulator
 		_mobile_animation_accumulator = 0.0
 	_breath_phase += pose_delta * (2.2 + _walk_stride * 2.4)
+	_sway_phase += pose_delta * (0.9 + _walk_stride * 0.5)
 	_aim_smooth = lerpf(_aim_smooth, _aim_pitch, 1.0 - exp(-pose_delta / 0.09))
 	_look_yaw_smooth = lerpf(_look_yaw_smooth, _look_yaw, 1.0 - exp(-pose_delta / 0.12))
 	_crouch = move_toward(_crouch, _crouch_target, pose_delta * 3.8)
@@ -344,6 +384,12 @@ func _update_pose(_delta: float) -> void:
 	var amp := (0.55 + 0.16 * _run_blend) * _walk_stride * (1.0 - _crouch * 0.28)
 	var crouch_hip := 0.58 * _crouch
 	var crouch_knee := 0.95 * _crouch
+	# Heel-toe roll: the stance foot rocks from heel strike (toe up, phase=PI)
+	# through a flat plant to toe-off (toe down, phase=0/TAU).  The legs are
+	# anti-phased, so the right foot uses the mirrored sign.  Amplitude fades
+	# out when crouching or standing still.
+	var heel_toe := 0.15 * cos(_walk_phase) * clampf(_walk_stride, 0.0, 1.0) \
+			* (1.0 - 0.35 * _crouch)
 	if _b_thigh_l >= 0:
 		skeleton.set_bone_pose_rotation(_b_thigh_l,
 				Quaternion(Vector3.FORWARD, swing * amp + crouch_hip) * _rest[_b_thigh_l])
@@ -360,10 +406,12 @@ func _update_pose(_delta: float) -> void:
 				maxf(0.0, swing) * 0.85 * _walk_stride + crouch_knee) * _rest[_b_calf_r])
 	if _b_foot_l >= 0:
 		skeleton.set_bone_pose_rotation(_b_foot_l,
-				Quaternion(Vector3.BACK, -swing * 0.22 * _walk_stride + 0.32 * _crouch) * _rest[_b_foot_l])
+				Quaternion(Vector3.BACK, -swing * 0.22 * _walk_stride
+				+ heel_toe + 0.32 * _crouch) * _rest[_b_foot_l])
 	if _b_foot_r >= 0:
 		skeleton.set_bone_pose_rotation(_b_foot_r,
-				Quaternion(Vector3.BACK, swing * 0.22 * _walk_stride + 0.32 * _crouch) * _rest[_b_foot_r])
+				Quaternion(Vector3.BACK, swing * 0.22 * _walk_stride
+				- heel_toe + 0.32 * _crouch) * _rest[_b_foot_r])
 
 	var breath := sin(_breath_phase) * 0.025
 	var flinch_pitch := _hit_flinch * 0.28
@@ -403,14 +451,28 @@ func _update_pose(_delta: float) -> void:
 		model.position = _base_model_pos + Vector3(0.0, -0.34 * _crouch + bob, 0.0)
 		model.rotation = _base_model_rot
 
+	# Idle weapon sway: a slow, low-amplitude drift that dies down while the
+	# soldier walks, aims or crouches, so steady aiming stays steady.
+	var sway_amp := clampf(1.0 - 0.55 * clampf(_walk_stride, 0.0, 1.0)
+			- 0.55 * absf(_aim_smooth) - 0.5 * _crouch, 0.0, 1.0)
+	var sway_yaw := sin(_sway_phase) * 0.022 * sway_amp
+	var sway_pitch := sin(_sway_phase * 1.37 + 1.7) * 0.015 * sway_amp
+	var sway_roll := sin(_sway_phase * 0.71 + 0.6) * 0.013 * sway_amp
+	var sway_pos := Vector3(
+			0.014 * sway_amp * sin(_sway_phase * 0.83),
+			0.012 * sway_amp * sin(_sway_phase * 1.13 + 2.0),
+			0.0)
+
 	if rifle_pivot != null:
 		rifle_pivot.position = _rifle_rest + Vector3(
 				0.04 * reload_blend,
 				-0.012 * _kick - 0.28 * _crouch - 0.06 * reload_blend + breath * 0.35,
-				0.055 * _kick + 0.04 * reload_blend)
+				0.055 * _kick + 0.04 * reload_blend) + sway_pos
 		var aim_tilt := -_aim_smooth * 0.55 + 0.035 * _kick + 0.42 * reload_blend
 		var roll_tilt := 0.48 * reload_blend
-		rifle_pivot.basis = Basis(Vector3.RIGHT, aim_tilt) * Basis(Vector3.FORWARD, roll_tilt) * _rifle_basis
+		rifle_pivot.basis = Basis(Vector3.UP, sway_yaw) \
+				* Basis(Vector3.RIGHT, aim_tilt + sway_pitch) \
+				* Basis(Vector3.FORWARD, roll_tilt + sway_roll) * _rifle_basis
 
 
 func _apply_death_pose() -> void:
