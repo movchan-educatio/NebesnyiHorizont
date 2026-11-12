@@ -143,6 +143,14 @@ jobs:
           df -h /
           du -sh build/ios .git .godot 2>/dev/null || true
 
+      - name: Select newest available Xcode
+        run: |
+          set -e
+          NEWEST_XCODE=$(ls -d /Applications/Xcode_*.app | sort -V | tail -n 1)
+          echo "Selecting $NEWEST_XCODE"
+          sudo xcode-select -s "$NEWEST_XCODE"
+          xcodebuild -version
+
       - name: Build unsigned archive
         run: |
           set -o pipefail
