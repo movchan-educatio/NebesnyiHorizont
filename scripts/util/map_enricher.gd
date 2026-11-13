@@ -19,40 +19,40 @@ extends RefCounted
 
 const STUNTS := {
 	"industrial": [
-		{"builder": "build_shipping_container_complex", "base": Vector2(232.0, 146.0),
+		{"builder": "build_shipping_container_complex", "base": Vector2(158.0, 102.0),
 			"yaw": 0.35, "reserve": 34.0},
-		{"builder": "build_pipeline_overpass", "base": Vector2(-128.0, 42.0),
+		{"builder": "build_pipeline_overpass", "base": Vector2(-118.0, 32.0),
 			"yaw": 1.15, "reserve": 30.0},
 	],
 	"village": [
-		{"builder": "build_fpv_slalom_gate_course", "base": Vector2(296.0, 168.0),
+		{"builder": "build_fpv_slalom_gate_course", "base": Vector2(198.0, 118.0),
 			"yaw": 0.15, "reserve": 42.0},
-		{"builder": "build_damaged_hangar_arch", "base": Vector2(-226.0, 152.0),
+		{"builder": "build_damaged_hangar_arch", "base": Vector2(-162.0, 108.0),
 			"yaw": -0.25, "reserve": 30.0},
 	],
 	"steppe": [
-		{"builder": "build_fpv_slalom_gate_course", "base": Vector2(64.0, 268.0),
+		{"builder": "build_fpv_slalom_gate_course", "base": Vector2(72.0, 198.0),
 			"yaw": 0.0, "reserve": 42.0},
-		{"builder": "build_hardened_trench_bunker", "base": Vector2(-188.0, 226.0),
+		{"builder": "build_hardened_trench_bunker", "base": Vector2(-152.0, 168.0),
 			"yaw": 0.8, "reserve": 28.0},
 	],
 	"wetlands": [
-		{"builder": "build_concrete_pipe_culvert_course", "base": Vector2(-176.0, 138.0),
+		{"builder": "build_concrete_pipe_culvert_course", "base": Vector2(-148.0, 104.0),
 			"yaw": 0.4, "reserve": 34.0},
-		{"builder": "build_pipeline_overpass", "base": Vector2(164.0, -166.0),
+		{"builder": "build_pipeline_overpass", "base": Vector2(138.0, -124.0),
 			"yaw": 1.8, "reserve": 30.0},
 	],
 }
 
 const DRESS_ANCHORS := {
-	"industrial": [Vector2(48, 150), Vector2(210, 82), Vector2(-76, 118),
-			Vector2(-212, 22), Vector2(186, -96), Vector2(-300, 154)],
-	"village": [Vector2(20, 88), Vector2(168, 88), Vector2(-228, 86),
-			Vector2(310, 12), Vector2(104, -58), Vector2(-158, -156)],
-	"steppe": [Vector2(76, 156), Vector2(-166, 116), Vector2(240, 92),
-			Vector2(-246, 24), Vector2(102, -70), Vector2(300, 244)],
-	"wetlands": [Vector2(18, 84), Vector2(166, 112), Vector2(-188, 52),
-			Vector2(208, -32), Vector2(-102, -168), Vector2(-228, 224)],
+	"industrial": [Vector2(48, 128), Vector2(172, 66), Vector2(-84, 96),
+			Vector2(-178, 18), Vector2(148, -82), Vector2(-212, 118)],
+	"village": [Vector2(20, 74), Vector2(138, 72), Vector2(-168, 74),
+			Vector2(218, 12), Vector2(92, -48), Vector2(-132, -118)],
+	"steppe": [Vector2(66, 122), Vector2(-136, 92), Vector2(182, 74),
+			Vector2(-188, 18), Vector2(92, -56), Vector2(212, 178)],
+	"wetlands": [Vector2(18, 70), Vector2(132, 88), Vector2(-148, 44),
+			Vector2(162, -28), Vector2(-86, -126), Vector2(-168, 158)],
 }
 
 const DRESS_PROPS := {
@@ -73,7 +73,7 @@ const DRESS_PROPS := {
 const HANDCRAFTED_AVOID := {
 	"industrial": [Vector2(-200, -180), Vector2(0, -15), Vector2(-125, 80)],
 	"village": [Vector2(60, -110), Vector2(36, 58), Vector2(126, 96)],
-	"steppe": [Vector2(40, 146), Vector2(280, -40), Vector2(302, -58)],
+	"steppe": [Vector2(40, 146), Vector2(225, -40), Vector2(245, -58)],
 	"wetlands": [Vector2(-60, -140), Vector2(6, 60), Vector2(18, 22)],
 }
 
@@ -81,10 +81,10 @@ const HANDCRAFTED_AVOID := {
 ## open fields between landmarks never read as empty. Placement still goes
 ## through the normal clear checks and the same MultiMesh batching.
 const MOBILE_EXTRA_ANCHORS := {
-	"industrial": [Vector2(330, 220), Vector2(-320, -260)],
-	"village": [Vector2(300, -260), Vector2(-320, 260)],
-	"steppe": [Vector2(300, 280), Vector2(-330, -260)],
-	"wetlands": [Vector2(-340, 220), Vector2(300, -260)],
+	"industrial": [Vector2(225, 165), Vector2(-220, -195)],
+	"village": [Vector2(215, -195), Vector2(-225, 195)],
+	"steppe": [Vector2(215, 205), Vector2(-230, -195)],
+	"wetlands": [Vector2(-235, 165), Vector2(215, -195)],
 }
 
 
@@ -134,8 +134,8 @@ static func build(root: Node3D, map_name: String, quality: int = -1) -> void:
 	var anchor_tries := 0
 	while anchors.size() < 6 and anchor_tries < 220:
 		anchor_tries += 1
-		var p := Vector2(rng.randf_range(-380.0, 380.0),
-				rng.randf_range(-380.0, 380.0))
+		var p := Vector2(rng.randf_range(-245.0, 245.0),
+				rng.randf_range(-245.0, 245.0))
 		if _is_clear_prop(terrain, military, map_name, p.x, p.y, 6.0):
 			anchors.append(p)
 	if anchors.is_empty():
@@ -230,7 +230,7 @@ static func _find_site(terrain, military, map_name: String, base: Vector2,
 
 static func _is_clear_prop(terrain, military, map_name: String, x: float,
 		z: float, clearance: float) -> bool:
-	if absf(x) > 430.0 or absf(z) > 430.0:
+	if absf(x) > 265.0 or absf(z) > 265.0:
 		return false
 	if terrain._hall_clear_zone(map_name, x, z):
 		return false

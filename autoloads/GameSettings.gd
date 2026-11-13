@@ -22,7 +22,7 @@ func _ready() -> void:
 	# saved calibration/action map looked like it had not been saved.
 	load_hud_config()
 
-var hud_config := {"fps": 20, "crosshair": false, "horizon": true, "ladder": false,
+var hud_config := {"fps": 20, "crosshair": false, "ladder": false,
 		"speed": true, "altitude": true, "heading": true, "sticks": true, "rpm": false,
 		"osd": true, "fpv_rig": false, "weather": 0, "sim_thrust": true,
 		"infinite_battery": true,
@@ -59,8 +59,7 @@ var hud_config := {"fps": 20, "crosshair": false, "horizon": true, "ladder": fal
 		"mobile_distance_units": "km",
 		"mobile_rate_profiles": {},
 		"mobile_drone_tint": "ХАКІ",
-		"mobile_drone_parts": {},
-		"mobile_font_scale": 1.0}
+		"mobile_drone_parts": {}}
 
 
 func load_hud_config() -> void:
@@ -103,8 +102,6 @@ func load_hud_config() -> void:
 						hud_config[key] = value
 					elif key == "mobile_render_scale" and (value is int or value is float):
 						hud_config[key] = clampi(int(value), 50, 100)
-					elif key == "mobile_font_scale" and (value is int or value is float):
-						hud_config[key] = clampf(float(value), 0.85, 1.45)
 					elif key in ["mobile_stream_mode", "mobile_ghost", "mobile_racing_line"] \
 							and value is bool:
 						hud_config[key] = value

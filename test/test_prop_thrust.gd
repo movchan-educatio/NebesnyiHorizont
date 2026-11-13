@@ -10,12 +10,12 @@ func _ready() -> void:
 	var drone := packed.instantiate() as Drone
 	add_child(drone)
 	await get_tree().physics_frame
-	DroneCatalog.apply_to_drone(drone, 0)
+	DroneCatalog.apply_to_drone(drone, 3)
 	drone.global_position = Vector3(0.0, 50.0, 0.0)
 	await get_tree().physics_frame
 
 	var weight := drone.mass * 9.81
-	print("[THRUST-CAL] preset=", DroneCatalog.preset(0)["name"],
+	print("[THRUST-CAL] preset=", DroneCatalog.preset(3)["name"],
 		" mass=", drone.mass, "kg target_twr=", drone.target_max_twr,
 		" physical_twr=", drone.physical_max_twr, " weight=", weight, "N")
 	var curve_twr: float = drone.physical_max_twr if drone.physical_max_twr > 0.01 else drone.target_max_twr

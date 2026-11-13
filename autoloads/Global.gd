@@ -56,8 +56,8 @@ func get_special_mission_name(mission_id: int = -1) -> String:
 var chain_briefing_pending: bool = false
 ## 20-minute time limit (in seconds) for each combat mission.
 const COMBAT_TIME_LIMIT := 1200.0
-## Small set of menu-only preferences (start video sound, defaults, ...).
-var menu_settings := {"video_audio": false, "drone_preset": 0,
+## Small set of menu-only preferences (haptics, defaults, ...).
+var menu_settings := {"haptics_enabled": true, "drone_preset": 0,
 		"selected_mode": 1, "selected_mission": 1, "selected_special": 0,
 		"selected_map": "village", "difficulty": 1}
 
@@ -174,7 +174,7 @@ func _ready() -> void:
 	if OS.has_environment("DRONE_TUTORIAL"):
 		play_mode = PlayMode.TUTORIAL
 	if OS.has_environment("DRONE_COMBAT_MISSION"):
-		combat_mission = clampi(int(OS.get_environment("DRONE_COMBAT_MISSION")), 1, 5)
+		combat_mission = clampi(int(OS.get_environment("DRONE_COMBAT_MISSION")), 1, 4)
 	if OS.has_environment("DRONE_PRESET"):
 		drone_preset = clampi(int(OS.get_environment("DRONE_PRESET")), 0, maxi(DroneCatalog.count() - 1, 0))
 
@@ -273,12 +273,12 @@ func get_mission_record(mission_id: int) -> Dictionary:
 
 
 ## Sequential campaign gate: missions unlock only when the previous one is
-## completed.  Returns the first incomplete mission (1..5).
+## completed.  Returns the first incomplete mission (1..4).
 func campaign_unlocked_mission() -> int:
-	for mission_id in range(1, 6):
+	for mission_id in range(1, 5):
 		if not bool(get_mission_record(mission_id).get("completed", false)):
 			return mission_id
-	return 5
+	return 4
 
 
 func is_mission_unlocked(mission_id: int) -> bool:
@@ -287,7 +287,7 @@ func is_mission_unlocked(mission_id: int) -> bool:
 
 func campaign_completed_count() -> int:
 	var count := 0
-	for mission_id in range(1, 6):
+	for mission_id in range(1, 5):
 		if bool(get_mission_record(mission_id).get("completed", false)):
 			count += 1
 	return count
@@ -295,13 +295,13 @@ func campaign_completed_count() -> int:
 
 func campaign_stars_total() -> int:
 	var total := 0
-	for mission_id in range(1, 6):
+	for mission_id in range(1, 5):
 		total += int(get_mission_record(mission_id).get("stars", 0))
 	return total
 
 
 func campaign_is_complete() -> bool:
-	return campaign_completed_count() >= 5
+	return campaign_completed_count() >= 4
 
 
 func is_tutorial_completed() -> bool:

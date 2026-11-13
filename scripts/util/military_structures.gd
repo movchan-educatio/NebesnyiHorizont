@@ -290,45 +290,46 @@ static func build_construction_skeleton_rubik(parent: Node3D, pos: Vector3, yaw:
 	var hazard := _get_mat("hazard")
 	var steel := _get_mat("steel", Color(0.35, 0.38, 0.40))
 
-	var w := 16.0
-	var d := 14.0
-	var h_floor := 4.2
+	var w := 24.0
+	var d := 20.0
+	var h_floor := 5.6
 	var total_h := h_floor * 3.0
 
-	# 12 Perimeter & Interior Columns (Solid pillars with full fly-through bays between them)
-	var col_size := Vector3(0.65, total_h, 0.65)
-	for cx in [-w * 0.5, -w * 0.16, w * 0.16, w * 0.5]:
+	# 12 Massive Perimeter & Interior Columns (7.5m+ fly-through bays between them)
+	var col_size := Vector3(0.85, total_h, 0.85)
+	for cx in [-w * 0.5, -w * 0.17, w * 0.17, w * 0.5]:
 		for cz in [-d * 0.5, 0.0, d * 0.5]:
 			_add_box(root, col_size, Vector3(cx, total_h * 0.5, cz), concrete, true)
 
-	# Floor 1 Slab (Deep concrete foundation skirt, embedded 4.6m into terrain to eliminate floating gaps)
-	_add_box(root, Vector3(w + 1.0, 5.0, d + 1.0), Vector3(0.0, -2.1, 0.0), concrete, true)
+	# Floor 1 Slab (Deep concrete foundation skirt, embedded 5.5m into terrain)
+	_add_box(root, Vector3(w + 1.4, 5.5, d + 1.4), Vector3(0.0, -2.35, 0.0), concrete, true)
 
-	# Floor 2 Slab with Large Left Vertical Dive Cutout (6m x 5m gap)
-	_add_box(root, Vector3(w * 0.5, 0.35, d), Vector3(w * 0.25, h_floor, 0.0), concrete, true)
-	_add_box(root, Vector3(w * 0.5, 0.35, d * 0.3), Vector3(-w * 0.25, h_floor, d * 0.35), concrete, true)
-	_add_box(root, Vector3(w * 0.5, 0.35, d * 0.3), Vector3(-w * 0.25, h_floor, -d * 0.35), concrete, true)
-	# Hazard striping along the dive shaft edge
-	_add_box(root, Vector3(0.2, 0.4, d * 0.4), Vector3(0.0, h_floor + 0.1, 0.0), hazard, false)
+	# Floor 2 Slab with Large Left Vertical Dive Cutout (8m x 8m gap)
+	_add_box(root, Vector3(w * 0.5, 0.42, d), Vector3(w * 0.25, h_floor, 0.0), concrete, true)
+	_add_box(root, Vector3(w * 0.5, 0.42, d * 0.3), Vector3(-w * 0.25, h_floor, d * 0.35), concrete, true)
+	_add_box(root, Vector3(w * 0.5, 0.42, d * 0.3), Vector3(-w * 0.25, h_floor, -d * 0.35), concrete, true)
+	_add_box(root, Vector3(0.25, 0.48, d * 0.4), Vector3(0.0, h_floor + 0.12, 0.0), hazard, false)
 
-	# Floor 3 Slab with Large Right Vertical Dive Cutout (6m x 5m gap)
-	_add_box(root, Vector3(w * 0.5, 0.35, d), Vector3(-w * 0.25, h_floor * 2.0, 0.0), concrete, true)
-	_add_box(root, Vector3(w * 0.5, 0.35, d * 0.3), Vector3(w * 0.25, h_floor * 2.0, d * 0.35), concrete, true)
-	_add_box(root, Vector3(w * 0.5, 0.35, d * 0.3), Vector3(w * 0.25, h_floor * 2.0, -d * 0.35), concrete, true)
-	_add_box(root, Vector3(0.2, 0.4, d * 0.4), Vector3(0.0, h_floor * 2.0 + 0.1, 0.0), hazard, false)
+	# Floor 3 Slab with Large Right Vertical Dive Cutout (8m x 8m gap)
+	_add_box(root, Vector3(w * 0.5, 0.42, d), Vector3(-w * 0.25, h_floor * 2.0, 0.0), concrete, true)
+	_add_box(root, Vector3(w * 0.5, 0.42, d * 0.3), Vector3(w * 0.25, h_floor * 2.0, d * 0.35), concrete, true)
+	_add_box(root, Vector3(w * 0.5, 0.42, d * 0.3), Vector3(w * 0.25, h_floor * 2.0, -d * 0.35), concrete, true)
+	_add_box(root, Vector3(0.25, 0.48, d * 0.4), Vector3(0.0, h_floor * 2.0 + 0.12, 0.0), hazard, false)
 
-	# Roof Slab with Open Center Skylight (7m x 6m central dive hole from 13m altitude)
-	_add_box(root, Vector3(w, 0.35, 3.5), Vector3(0.0, total_h, d * 0.5 - 1.75), concrete, true)
-	_add_box(root, Vector3(w, 0.35, 3.5), Vector3(0.0, total_h, -d * 0.5 + 1.75), concrete, true)
-	_add_box(root, Vector3(3.5, 0.35, d - 7.0), Vector3(-w * 0.5 + 1.75, total_h, 0.0), concrete, true)
-	_add_box(root, Vector3(3.5, 0.35, d - 7.0), Vector3(w * 0.5 - 1.75, total_h, 0.0), concrete, true)
-	# Perimeter Safety Guardrails with hazard stripe
-	_add_box(root, Vector3(w, 0.15, 0.15), Vector3(0.0, total_h + 1.0, d * 0.5), steel, false)
-	_add_box(root, Vector3(w, 0.15, 0.15), Vector3(0.0, total_h + 1.0, -d * 0.5), steel, false)
+	# Roof Slab with Huge Open Center Skylight (16m x 12m central dive hole from 17m altitude)
+	_add_box(root, Vector3(w, 0.42, 4.0), Vector3(0.0, total_h, d * 0.5 - 2.0), concrete, true)
+	_add_box(root, Vector3(w, 0.42, 4.0), Vector3(0.0, total_h, -d * 0.5 + 2.0), concrete, true)
+	_add_box(root, Vector3(4.0, 0.42, d - 8.0), Vector3(-w * 0.5 + 2.0, total_h, 0.0), concrete, true)
+	_add_box(root, Vector3(4.0, 0.42, d - 8.0), Vector3(w * 0.5 - 2.0, total_h, 0.0), concrete, true)
+	_add_box(root, Vector3(w - 8.0, 0.32, 0.32), Vector3(0.0, total_h + 0.2, d * 0.5 - 4.0), hazard, false)
+	_add_box(root, Vector3(w - 8.0, 0.32, 0.32), Vector3(0.0, total_h + 0.2, -d * 0.5 + 4.0), hazard, false)
+	# Perimeter Safety Guardrails
+	_add_box(root, Vector3(w, 0.18, 0.18), Vector3(0.0, total_h + 1.1, d * 0.5), steel, false)
+	_add_box(root, Vector3(w, 0.18, 0.18), Vector3(0.0, total_h + 1.1, -d * 0.5), steel, false)
 	return root
 
 
-## 2. Industrial Pipe & Truss Power-Loop Arch (Overhead Gantry with Dual Gaps)
+## 2. Enlarged Industrial Pipe & Truss Power-Loop Arch (Overhead Gantry with Dual Gaps)
 static func build_pipeline_powerloop_arch(parent: Node3D, pos: Vector3, yaw: float) -> Node3D:
 	var root := Node3D.new()
 	root.name = "PipelinePowerloopArch"
@@ -341,29 +342,21 @@ static func build_pipeline_powerloop_arch(parent: Node3D, pos: Vector3, yaw: flo
 	var hazard := _get_mat("hazard")
 	var concrete := _get_mat("concrete", Color(0.70, 0.68, 0.64))
 
-	var span := 18.0
-	var h_arch := 13.0
+	var span := 28.0
+	var h_arch := 18.0
 
-	# Left and Right Heavy A-frame Trestle Legs with Deep Foundation Piers
 	for side in [-1.0, 1.0]:
 		var lx: float = float(side) * span * 0.5
-		# Deep concrete foundation blocks buried 5.5m into terrain
-		_add_box(root, Vector3(2.4, 5.5, 4.8), Vector3(lx, -2.4, 0.0), concrete, true)
-		_add_box(root, Vector3(1.2, h_arch, 1.2), Vector3(lx, h_arch * 0.5, -1.5), steel, true)
-		_add_box(root, Vector3(1.2, h_arch, 1.2), Vector3(lx, h_arch * 0.5, 1.5), steel, true)
-		# Diagonal brace
-		_add_box(root, Vector3(0.8, 1.0, 3.8), Vector3(lx, h_arch * 0.3, 0.0), steel, true)
+		_add_box(root, Vector3(3.0, 6.0, 5.6), Vector3(lx, -2.6, 0.0), concrete, true)
+		_add_box(root, Vector3(1.5, h_arch, 1.5), Vector3(lx, h_arch * 0.5, -1.8), steel, true)
+		_add_box(root, Vector3(1.5, h_arch, 1.5), Vector3(lx, h_arch * 0.5, 1.8), steel, true)
+		_add_box(root, Vector3(1.0, 1.2, 4.6), Vector3(lx, h_arch * 0.32, 0.0), steel, true)
+		_add_box(root, Vector3(1.0, 1.2, 4.6), Vector3(lx, h_arch * 0.68, 0.0), steel, true)
 
-	# Main Overhead Heavy Pipeline 1 (Diameter 1.6m, at Y=12m)
-	_add_cyl(root, 0.8, span + 4.0, Vector3(0.0, h_arch, -1.2), rust, Vector3(0.0, 0.0, PI * 0.5), true)
-	# Secondary Overhead Pipeline 2 (Diameter 1.2m, at Y=14m)
-	_add_cyl(root, 0.6, span + 4.0, Vector3(0.0, h_arch + 2.2, 1.2), steel, Vector3(0.0, 0.0, PI * 0.5), true)
-
-	# Upper Truss Beam Frame (Creates upper 3.5m x 14m knife-edge gap slot!)
-	_add_box(root, Vector3(span, 0.35, 0.35), Vector3(0.0, h_arch + 3.4, 0.0), steel, true)
-
-	# Lower Yellow-Black Hazard Gantry Bar (Marks main 10.5m x 15m power-loop opening)
-	_add_box(root, Vector3(span, 0.4, 0.4), Vector3(0.0, h_arch - 1.2, 0.0), hazard, true)
+	_add_cyl(root, 1.05, span + 6.0, Vector3(0.0, h_arch, -1.5), rust, Vector3(0.0, 0.0, PI * 0.5), true)
+	_add_cyl(root, 0.80, span + 6.0, Vector3(0.0, h_arch + 3.0, 1.5), steel, Vector3(0.0, 0.0, PI * 0.5), true)
+	_add_box(root, Vector3(span, 0.45, 0.45), Vector3(0.0, h_arch + 4.8, 0.0), steel, true)
+	_add_box(root, Vector3(span, 0.50, 0.50), Vector3(0.0, h_arch - 1.6, 0.0), hazard, true)
 	return root
 
 
@@ -419,48 +412,42 @@ static func build_cooling_tower_dive_funnel(parent: Node3D, pos: Vector3, yaw: f
 	var hazard := _get_mat("hazard")
 	var rust := _get_mat("rust", Color(0.48, 0.32, 0.22))
 
-	var h := 22.0
-	var r := 4.2
+	var h := 32.0
+	var r := 6.6
 	var segs := 16
 
-	# Deep foundation collar embedded 6.5m into terrain (prevents hovering on slopes)
-	_add_cyl(root, r + 0.4, 6.5, Vector3(0.0, -3.2, 0.0), concrete, Vector3.ZERO, true)
+	# Deep foundation collar embedded 7m into terrain (prevents hovering on slopes)
+	_add_cyl(root, r + 0.6, 7.0, Vector3(0.0, -3.3, 0.0), concrete, Vector3.ZERO, true)
 
-	# Hollow faceted cylinder wall (Constructed as segment panels leaving top 100% open,
-	# and two bottom panels omitted at North & South for 4m x 3.5m exit breaches!)
+	# Hollow faceted cylinder wall with 5.2m wide x 5.0m tall exit breaches at N & S
 	for s in range(segs):
 		var ang := float(s) * TAU / float(segs)
-		var is_breach := (s == 0 or s == segs / 2) # South and North ground breach exits
+		var is_breach := (s == 0 or s == 1 or s == segs / 2 or s == segs / 2 + 1)
 
 		var px := sin(ang) * r
 		var pz := cos(ang) * r
 		var panel_w := (TAU * r / float(segs)) * 1.05
 
 		if is_breach:
-			# Wall starts at Y=3.6m above the breach opening!
-			var wall_h := h - 3.6
-			var mi := _add_box(root, Vector3(panel_w, wall_h, 0.45), Vector3(px, 3.6 + wall_h * 0.5, pz), concrete, true)
+			var wall_h := h - 5.0
+			var mi := _add_box(root, Vector3(panel_w, wall_h, 0.55), Vector3(px, 5.0 + wall_h * 0.5, pz), concrete, true)
 			mi.rotation.y = ang
-			# Hazard stripe over the exit breach header
-			var hb := _add_box(root, Vector3(panel_w, 0.4, 0.5), Vector3(px, 3.6, pz), hazard, true)
+			var hb := _add_box(root, Vector3(panel_w, 0.5, 0.6), Vector3(px, 5.0, pz), hazard, true)
 			hb.rotation.y = ang
 		else:
-			# Deep anchored solid wall panel extending into ground
-			var wall_h := h + 6.0
-			var mi := _add_box(root, Vector3(panel_w, wall_h, 0.45), Vector3(px, (h - 6.0) * 0.5, pz), concrete, true)
+			var wall_h := h + 6.5
+			var mi := _add_box(root, Vector3(panel_w, wall_h, 0.55), Vector3(px, (h - 6.5) * 0.5, pz), concrete, true)
 			mi.rotation.y = ang
 
-	# Top Red/Yellow Hazard Lip Rim (Marks the 7.5m diameter dive target)
 	for s in range(segs):
 		var ang := float(s) * TAU / float(segs)
 		var px := sin(ang) * r
 		var pz := cos(ang) * r
 		var panel_w := (TAU * r / float(segs)) * 1.08
-		var rim := _add_box(root, Vector3(panel_w, 0.5, 0.7), Vector3(px, h, pz), hazard, true)
+		var rim := _add_box(root, Vector3(panel_w, 0.6, 0.85), Vector3(px, h, pz), hazard, true)
 		rim.rotation.y = ang
 
-	# External Maintenance Ladder & Caged Flue Pipe
-	_add_cyl(root, 0.35, h + 2.0, Vector3(r + 0.6, h * 0.5, 0.0), rust, Vector3.ZERO, true)
+	_add_cyl(root, 0.45, h + 3.0, Vector3(r + 0.85, h * 0.5, 0.0), rust, Vector3.ZERO, true)
 	return root
 
 
@@ -631,40 +618,33 @@ static func build_damaged_hangar_arch(parent: Node3D, pos: Vector3, yaw: float) 
 	var concrete := _get_mat("concrete", Color(0.74, 0.72, 0.68))
 	var hazard := _get_mat("hazard")
 
-	var length := 22.0
-	var w := 14.0
-	var h := 7.5
+	var length := 34.0
+	var w := 22.0
+	var h := 10.6
 
-	# Deep Concrete Foundation Curbs (embedded 5.5m into terrain)
-	_add_box(root, Vector3(1.8, 5.5, length + 1.0), Vector3(-w * 0.5, -2.2, 0.0), concrete, true)
-	_add_box(root, Vector3(1.8, 5.5, length + 1.0), Vector3(w * 0.5, -2.2, 0.0), concrete, true)
-	_add_box(root, Vector3(w, 5.0, length), Vector3(0.0, -2.4, 0.0), concrete, true)
+	# Deep Concrete Foundation Curbs (embedded 6m into terrain)
+	_add_box(root, Vector3(2.2, 6.0, length + 1.2), Vector3(-w * 0.5, -2.4, 0.0), concrete, true)
+	_add_box(root, Vector3(2.2, 6.0, length + 1.2), Vector3(w * 0.5, -2.4, 0.0), concrete, true)
+	_add_box(root, Vector3(w, 5.5, length), Vector3(0.0, -2.6, 0.0), concrete, true)
 
-	# 7 Curved Steel Truss Ribs
-	for i in range(7):
-		var rz := float(i - 3) * (length / 6.0)
-		# Left vertical wall
-		_add_box(root, Vector3(0.4, 3.8, 0.4), Vector3(-w * 0.5, 2.0, rz), steel, true)
-		# Right vertical wall
-		_add_box(root, Vector3(0.4, 3.8, 0.4), Vector3(w * 0.5, 2.0, rz), steel, true)
-		# Left roof pitch
-		var mi1 := _add_box(root, Vector3(7.6, 0.35, 0.4), Vector3(-w * 0.25, 5.6, rz), steel, true)
-		mi1.rotation.z = -0.45
-		# Right roof pitch
-		var mi2 := _add_box(root, Vector3(7.6, 0.35, 0.4), Vector3(w * 0.25, 5.6, rz), steel, true)
-		mi2.rotation.z = 0.45
+	# 9 Curved Steel Truss Ribs
+	for i in range(9):
+		var rz := float(i - 4) * (length / 8.0)
+		_add_box(root, Vector3(0.55, 5.8, 0.55), Vector3(-w * 0.5, 2.9, rz), steel, true)
+		_add_box(root, Vector3(0.55, 5.8, 0.55), Vector3(w * 0.5, 2.9, rz), steel, true)
+		var mi1 := _add_box(root, Vector3(12.2, 0.45, 0.55), Vector3(-w * 0.25, 8.2, rz), steel, true)
+		mi1.rotation.z = -0.42
+		var mi2 := _add_box(root, Vector3(12.2, 0.45, 0.55), Vector3(w * 0.25, 8.2, rz), steel, true)
+		mi2.rotation.z = 0.42
 
-	# Corrugated Roof Panels: Middle ribs have sections REMOVED creating two 4.5m x 5m Skylight Dive Holes!
-	# Front roof section
-	_add_box(root, Vector3(w * 0.5, 0.12, 6.0), Vector3(-w * 0.26, 5.7, 7.5), corrugated, true)
-	_add_box(root, Vector3(w * 0.5, 0.12, 6.0), Vector3(w * 0.26, 5.7, 7.5), corrugated, true)
-	# Rear roof section
-	_add_box(root, Vector3(w * 0.5, 0.12, 6.0), Vector3(-w * 0.26, 5.7, -7.5), corrugated, true)
-	_add_box(root, Vector3(w * 0.5, 0.12, 6.0), Vector3(w * 0.26, 5.7, -7.5), corrugated, true)
+	# Corrugated Roof Panels leaving 16m central skylight dive bay
+	_add_box(root, Vector3(w * 0.5, 0.16, 9.0), Vector3(-w * 0.26, 8.4, 12.5), corrugated, true)
+	_add_box(root, Vector3(w * 0.5, 0.16, 9.0), Vector3(w * 0.26, 8.4, 12.5), corrugated, true)
+	_add_box(root, Vector3(w * 0.5, 0.16, 9.0), Vector3(-w * 0.26, 8.4, -12.5), corrugated, true)
+	_add_box(root, Vector3(w * 0.5, 0.16, 9.0), Vector3(w * 0.26, 8.4, -12.5), corrugated, true)
 
-	# Portal Portals Hazard Striping
-	_add_box(root, Vector3(w, 0.3, 0.3), Vector3(0.0, h, length * 0.5), hazard, false)
-	_add_box(root, Vector3(w, 0.3, 0.3), Vector3(0.0, h, -length * 0.5), hazard, false)
+	_add_box(root, Vector3(w, 0.4, 0.4), Vector3(0.0, h, length * 0.5), hazard, false)
+	_add_box(root, Vector3(w, 0.4, 0.4), Vector3(0.0, h, -length * 0.5), hazard, false)
 	return root
 
 
@@ -1189,21 +1169,21 @@ static func build_military_arch_portal(parent: Node3D, pos: Vector3, yaw: float)
 	var hazard := _get_mat("hazard")
 	var steel := _get_mat("steel", Color(0.32, 0.35, 0.38))
 
-	var h := 10.0
-	# 3 Massive Concrete Piers with 5.5m deep foundation piers
-	for px in [-7.0, 0.0, 7.0]:
-		_add_box(root, Vector3(2.4, 5.5, 3.2), Vector3(px, -2.4, 0.0), concrete, true)
-		_add_box(root, Vector3(2.0, h, 2.8), Vector3(px, h * 0.5, 0.0), concrete, true)
+	var h := 15.0
+	# 3 Massive Concrete Piers forming twin 9m x 14.5m portals
+	for px in [-11.5, 0.0, 11.5]:
+		_add_box(root, Vector3(3.2, 6.0, 4.2), Vector3(px, -2.5, 0.0), concrete, true)
+		_add_box(root, Vector3(2.6, h, 3.6), Vector3(px, h * 0.5, 0.0), concrete, true)
 
 	# Overhead Command Catwalk
-	_add_box(root, Vector3(16.5, 1.8, 3.2), Vector3(0.0, h + 0.9, 0.0), concrete, true)
-	_add_box(root, Vector3(6.0, 0.3, 0.3), Vector3(-3.5, h - 0.5, 0.0), hazard, false)
-	_add_box(root, Vector3(6.0, 0.3, 0.3), Vector3(3.5, h - 0.5, 0.0), hazard, false)
-	_add_box(root, Vector3(16.5, 1.0, 0.1), Vector3(0.0, h + 2.3, 1.5), steel, false)
+	_add_box(root, Vector3(27.0, 2.2, 4.0), Vector3(0.0, h + 1.1, 0.0), concrete, true)
+	_add_box(root, Vector3(9.0, 0.4, 0.4), Vector3(-5.75, h - 0.5, 0.0), hazard, false)
+	_add_box(root, Vector3(9.0, 0.4, 0.4), Vector3(5.75, h - 0.5, 0.0), hazard, false)
+	_add_box(root, Vector3(27.0, 1.2, 0.14), Vector3(0.0, h + 2.8, 1.9), steel, false)
 	return root
 
 
-## 29. 3D Scaffolding Cube Maze (Freestyle Trick Playground)
+## 29. Enlarged 3D Scaffolding Cube Maze (3-Tier Freestyle Trick Playground)
 static func build_scaffolding_freestyle_cube(parent: Node3D, pos: Vector3, yaw: float) -> Node3D:
 	var root := Node3D.new()
 	root.name = "ScaffoldingFreestyleCube"
@@ -1216,30 +1196,28 @@ static func build_scaffolding_freestyle_cube(parent: Node3D, pos: Vector3, yaw: 
 	var hazard := _get_mat("hazard")
 	var concrete := _get_mat("concrete", Color(0.70, 0.68, 0.64))
 
-	var size := 10.0
-	var h := 8.0
+	var size := 16.0
+	var h := 13.5
 
-	# 5.0m Deep Concrete Foundation Slab
-	_add_box(root, Vector3(size + 1.0, 5.0, size + 1.0), Vector3(0.0, -2.4, 0.0), concrete, true)
+	_add_box(root, Vector3(size + 1.6, 5.5, size + 1.6), Vector3(0.0, -2.6, 0.0), concrete, true)
 
-	# 9 Vertical Scaffolding Steel Poles
 	for cx in [-size * 0.5, 0.0, size * 0.5]:
 		for cz in [-size * 0.5, 0.0, size * 0.5]:
-			_add_box(root, Vector3(0.2, h, 0.2), Vector3(cx, h * 0.5, cz), steel, true)
+			_add_box(root, Vector3(0.28, h, 0.28), Vector3(cx, h * 0.5, cz), steel, true)
 
-	# Horizontal Ledger Tubes at Y=4m and Y=8m
-	for y in [4.0, 8.0]:
+	for y in [4.5, 9.0, 13.5]:
 		for cx in [-size * 0.5, 0.0, size * 0.5]:
-			_add_box(root, Vector3(0.15, 0.15, size), Vector3(cx, y, 0.0), steel, true)
+			_add_box(root, Vector3(0.2, 0.2, size), Vector3(cx, y, 0.0), steel, true)
 		for cz in [-size * 0.5, 0.0, size * 0.5]:
-			_add_box(root, Vector3(size, 0.15, 0.15), Vector3(0.0, y, cz), steel, true)
+			_add_box(root, Vector3(size, 0.2, 0.2), Vector3(0.0, y, cz), steel, true)
 
-	# Wooden Plank Walkways (Leaves alternating cube cells 100% open for vertical and diagonal dives!)
-	_add_box(root, Vector3(size * 0.5, 0.1, size * 0.5), Vector3(-size * 0.25, 4.05, -size * 0.25), wood, true)
-	_add_box(root, Vector3(size * 0.5, 0.1, size * 0.5), Vector3(size * 0.25, 4.05, size * 0.25), wood, true)
-	_add_box(root, Vector3(size * 0.5, 0.1, size * 0.5), Vector3(size * 0.25, 8.05, -size * 0.25), wood, true)
-	# Hazard safety toe-boards
-	_add_box(root, Vector3(size * 0.5, 0.2, 0.1), Vector3(-size * 0.25, 4.2, 0.0), hazard, false)
+	# Alternating 8m x 8m wooden decks leaving full vertical dive wells
+	_add_box(root, Vector3(size * 0.5, 0.14, size * 0.5), Vector3(-size * 0.25, 4.56, -size * 0.25), wood, true)
+	_add_box(root, Vector3(size * 0.5, 0.14, size * 0.5), Vector3(size * 0.25, 4.56, size * 0.25), wood, true)
+	_add_box(root, Vector3(size * 0.5, 0.14, size * 0.5), Vector3(size * 0.25, 9.06, -size * 0.25), wood, true)
+	_add_box(root, Vector3(size * 0.5, 0.14, size * 0.5), Vector3(-size * 0.25, 13.56, size * 0.25), wood, true)
+	_add_box(root, Vector3(size * 0.5, 0.28, 0.14), Vector3(-size * 0.25, 4.75, 0.0), hazard, false)
+	_add_box(root, Vector3(size * 0.5, 0.28, 0.14), Vector3(size * 0.25, 9.25, 0.0), hazard, false)
 	return root
 
 
@@ -1274,8 +1252,187 @@ static func build_communication_mast_guyed(parent: Node3D, pos: Vector3, yaw: fl
 	return root
 
 
+## 31. SAM Battery Launch Gantry (Angled Missile Canisters + Open Under-Arch)
+static func build_sam_battery_gantry(parent: Node3D, pos: Vector3, yaw: float) -> Node3D:
+	var root := Node3D.new()
+	root.name = "SamBatteryGantry"
+	root.position = pos
+	root.rotation.y = yaw
+	parent.add_child(root)
+
+	var concrete := _get_mat("concrete", Color(0.68, 0.67, 0.63))
+	var steel := _get_mat("steel", Color(0.32, 0.36, 0.38))
+	var camo := _get_mat("camo", Color(0.28, 0.36, 0.22))
+	var rust := _get_mat("rust", Color(0.46, 0.30, 0.20))
+	var hazard := _get_mat("hazard")
+
+	# Deep Concrete Launch Apron (22 x 18m)
+	_add_box(root, Vector3(22.0, 6.0, 18.0), Vector3(0.0, -2.5, 0.0), concrete, true)
+	# Flanking Reinforced Blast Walls
+	for sx in [-1.0, 1.0]:
+		_add_box(root, Vector3(2.0, 4.8, 17.5), Vector3(sx * 9.5, 2.4, 0.0), concrete, true)
+		_add_box(root, Vector3(1.4, 15.0, 1.4), Vector3(sx * 5.8, 7.5, -2.0), steel, true)
+		_add_box(root, Vector3(1.4, 15.0, 1.4), Vector3(sx * 5.8, 7.5, 2.0), steel, true)
+		_add_box(root, Vector3(1.0, 1.0, 4.4), Vector3(sx * 5.8, 8.2, 0.0), steel, true)
+
+	# Overhead Steel Cross-Gantry & Lower Hazard Arch (10.2m x 7.2m open pass-through)
+	_add_box(root, Vector3(14.0, 1.3, 4.8), Vector3(0.0, 14.5, 0.0), steel, true)
+	_add_box(root, Vector3(10.6, 0.5, 0.5), Vector3(0.0, 7.6, 2.1), hazard, false)
+	_add_box(root, Vector3(10.6, 0.5, 0.5), Vector3(0.0, 7.6, -2.1), hazard, false)
+
+	# Launcher Cradle Platform at Y=8.5m + 4 Angled Olive/Rust Missile Tubes
+	_add_box(root, Vector3(9.6, 0.9, 5.2), Vector3(0.0, 8.6, 0.0), camo, true)
+	for i in range(4):
+		var tx := -3.3 + float(i) * 2.2
+		_add_cyl(root, 0.65, 9.6, Vector3(tx, 11.4, 0.6), camo if i % 2 == 0 else rust,
+				Vector3(-0.62, 0.0, 0.0), true)
+	return root
+
+
+## 32. Fortified Helipad Hangar (Open-Ended Armored Nave + Skylight Dive Bay)
+static func build_fortified_helipad_hangar(parent: Node3D, pos: Vector3, yaw: float) -> Node3D:
+	var root := Node3D.new()
+	root.name = "FortifiedHelipadHangar"
+	root.position = pos
+	root.rotation.y = yaw
+	parent.add_child(root)
+
+	var concrete := _get_mat("concrete", Color(0.66, 0.65, 0.62))
+	var corrugated := _get_mat("corrugated", Color(0.36, 0.40, 0.34))
+	var steel := _get_mat("steel", Color(0.32, 0.35, 0.38))
+	var hazard := _get_mat("hazard")
+
+	var w := 22.0
+	var l := 30.0
+	var h := 11.5
+	# Deep Foundation Pad
+	_add_box(root, Vector3(w + 2.0, 6.0, l + 2.0), Vector3(0.0, -2.5, 0.0), concrete, true)
+	# Lower Concrete Flank Walls & Tall Corrugated Upper Sidewalls (Ends completely open)
+	for sx in [-1.0, 1.0]:
+		_add_box(root, Vector3(2.2, 5.0, l), Vector3(sx * 10.0, 2.5, 0.0), concrete, true)
+		_add_box(root, Vector3(0.5, h - 5.0, l), Vector3(sx * 10.0, 5.0 + (h - 5.0) * 0.5, 0.0), corrugated, true)
+	# Armored Roof Wings with Wide Open Central Skylight (10m x 18m dive hole!)
+	for sz in [-1.0, 1.0]:
+		_add_box(root, Vector3(w + 0.6, 0.6, 10.0), Vector3(0.0, h, sz * 10.0), concrete, true)
+		_add_box(root, Vector3(w - 3.0, 0.4, 0.4), Vector3(0.0, h - 0.5, sz * 5.0), hazard, false)
+	# Internal Overhead Gantry Crane Beam at Y=8.5m for Inverted / Under-Arch Passes
+	_add_box(root, Vector3(19.0, 0.9, 1.0), Vector3(0.0, 8.5, 0.0), hazard, true)
+	_add_box(root, Vector3(2.4, 1.8, 2.4), Vector3(0.0, 7.3, 0.0), steel, true)
+	return root
+
+
+## 33. Bailey Military Truss Bridge (Under-Deck & Inside-Truss Dual Fly-Through)
+static func build_bailey_truss_bridge(parent: Node3D, pos: Vector3, yaw: float) -> Node3D:
+	var root := Node3D.new()
+	root.name = "BaileyTrussBridge"
+	root.position = pos
+	root.rotation.y = yaw
+	parent.add_child(root)
+
+	var concrete := _get_mat("concrete", Color(0.68, 0.66, 0.62))
+	var steel := _get_mat("steel", Color(0.36, 0.40, 0.42))
+	var rust := _get_mat("rust", Color(0.46, 0.34, 0.24))
+	var wood := _get_mat("wood", Color(0.45, 0.36, 0.26))
+	var hazard := _get_mat("hazard")
+
+	var span := 32.0
+	var bw := 10.5
+	var deck_y := 6.2
+	var truss_h := 6.2
+
+	# Deep Concrete Abutments Leaving 23m Wide x 5.8m High Open Span Underneath
+	for sz in [-1.0, 1.0]:
+		_add_box(root, Vector3(bw + 1.6, 12.0, 4.6), Vector3(0.0, 0.2, sz * 14.0), concrete, true)
+		_add_box(root, Vector3(bw - 1.0, 0.4, 0.4), Vector3(0.0, deck_y + truss_h - 0.3, sz * (span * 0.5)), hazard, false)
+
+	# Bridge Roadway Deck (Steel Stringers + Wood Planking)
+	_add_box(root, Vector3(bw, 0.6, span), Vector3(0.0, deck_y, 0.0), steel, true)
+	_add_box(root, Vector3(bw - 1.2, 0.16, span - 0.6), Vector3(0.0, deck_y + 0.38, 0.0), wood, true)
+
+	# Side Lattice Trusses + Overhead Portal Cross-Frames
+	for sx in [-1.0, 1.0]:
+		_add_box(root, Vector3(0.6, 0.6, span), Vector3(sx * (bw * 0.5 - 0.3), deck_y + truss_h, 0.0), rust, true)
+	for i in range(6):
+		var pz := -span * 0.5 + float(i) * (span / 5.0)
+		for sx in [-1.0, 1.0]:
+			_add_box(root, Vector3(0.55, truss_h, 0.55), Vector3(sx * (bw * 0.5 - 0.3), deck_y + truss_h * 0.5, pz), steel, true)
+		_add_box(root, Vector3(bw, 0.55, 0.55), Vector3(0.0, deck_y + truss_h, pz), steel, true)
+	return root
+
+
+## 34. Heavy GCI Radar Tower Complex (3 Stacked Fly-Through Lattice Bays + Dish)
+static func build_heavy_radar_gci_complex(parent: Node3D, pos: Vector3, yaw: float) -> Node3D:
+	var root := Node3D.new()
+	root.name = "HeavyRadarGciComplex"
+	root.position = pos
+	root.rotation.y = yaw
+	parent.add_child(root)
+
+	var concrete := _get_mat("concrete", Color(0.70, 0.68, 0.65))
+	var steel := _get_mat("steel", Color(0.38, 0.42, 0.44))
+	var camo := _get_mat("camo", Color(0.30, 0.38, 0.24))
+	var hazard := _get_mat("hazard")
+
+	# Deep Concrete Podium with Open Pass-Through Tunnel Along X
+	_add_box(root, Vector3(16.0, 5.5, 16.0), Vector3(0.0, -2.5, 0.0), concrete, true)
+	for sz in [-1.0, 1.0]:
+		_add_box(root, Vector3(15.0, 3.8, 3.8), Vector3(0.0, 1.9, sz * 5.6), concrete, true)
+	_add_box(root, Vector3(15.0, 1.0, 15.0), Vector3(0.0, 4.3, 0.0), concrete, true)
+
+	# 20m Tall Open 4-Leg Steel Lattice Tower (3 Open 8m Bays at Y=4.8..24.8)
+	var base_y := 4.8
+	var tower_h := 20.0
+	var hw := 4.5
+	for sx in [-1.0, 1.0]:
+		for sz in [-1.0, 1.0]:
+			_add_box(root, Vector3(0.65, tower_h, 0.65), Vector3(sx * hw, base_y + tower_h * 0.5, sz * hw), steel, true)
+	for lvl_y in [base_y + 6.5, base_y + 13.0, base_y + tower_h]:
+		for s in [-1.0, 1.0]:
+			_add_box(root, Vector3(hw * 2.0 + 0.6, 0.45, 0.45), Vector3(0.0, lvl_y, s * hw), hazard, true)
+			_add_box(root, Vector3(0.45, 0.45, hw * 2.0 + 0.6), Vector3(s * hw, lvl_y, 0.0), steel, true)
+
+	# Rotating GCI Radar Reflector Crown
+	_add_cyl(root, 1.6, 2.4, Vector3(0.0, base_y + tower_h + 1.2, 0.0), camo, Vector3.ZERO, true)
+	var dish := _add_box(root, Vector3(14.0, 5.2, 0.45), Vector3(0.0, base_y + tower_h + 4.4, 0.0), steel, true)
+	dish.rotation.x = -0.18
+	_add_box(root, Vector3(14.0, 0.4, 0.5), Vector3(0.0, base_y + tower_h + 6.9, -0.45), hazard, false)
+	return root
+
+
+## 35. Twin-Casemate Artillery Bunker Fortress (Open Central Tunnel + Dual Barrels)
+static func build_artillery_bunker_complex(parent: Node3D, pos: Vector3, yaw: float) -> Node3D:
+	var root := Node3D.new()
+	root.name = "ArtilleryBunkerComplex"
+	root.position = pos
+	root.rotation.y = yaw
+	parent.add_child(root)
+
+	var concrete := _get_mat("concrete", Color(0.64, 0.63, 0.60))
+	var sandbag := _get_mat("sandbag", Color(0.56, 0.50, 0.36))
+	var steel := _get_mat("steel", Color(0.28, 0.30, 0.34))
+	var camo := _get_mat("camo", Color(0.28, 0.36, 0.22))
+	var hazard := _get_mat("hazard")
+
+	# Deep Concrete Foundation Slab (26 x 18m)
+	_add_box(root, Vector3(26.0, 6.0, 18.0), Vector3(0.0, -2.5, 0.0), concrete, true)
+	# Left & Right Casemates Leaving Clear 7.5m x 5.2m Central Blast Corridor
+	for sx in [-1.0, 1.0]:
+		_add_box(root, Vector3(8.5, 5.5, 14.0), Vector3(sx * 8.0, 2.75, 0.0), concrete, true)
+		_add_box(root, Vector3(2.2, 2.6, 16.0), Vector3(sx * 13.0, 1.3, 0.0), sandbag, true)
+		# Long Heavy Coastal/Field Gun Barrel Protruding Out Front
+		_add_cyl(root, 0.55, 11.0, Vector3(sx * 8.0, 4.1, 8.5), steel, Vector3(PI * 0.5 - 0.12, 0.0, 0.0), true)
+		_add_box(root, Vector3(2.6, 2.2, 3.0), Vector3(sx * 8.0, 4.0, 5.5), camo, true)
+
+	# Upper Armored Command Span Over Central Tunnel + Spotting Cupola
+	_add_box(root, Vector3(26.0, 1.6, 13.0), Vector3(0.0, 6.3, 0.0), concrete, true)
+	_add_cyl(root, 2.6, 2.0, Vector3(0.0, 8.1, -1.5), steel, Vector3.ZERO, true)
+	_add_box(root, Vector3(7.5, 0.4, 0.4), Vector3(0.0, 5.3, 6.6), hazard, false)
+	_add_box(root, Vector3(7.5, 0.4, 0.4), Vector3(0.0, 5.3, -6.6), hazard, false)
+	return root
+
+
 # =============================================================================
-#  MAP SPAWNER: 30 DISTINCT STRUCTURES SPREAD ORGANICALLY WITHOUT CLUTTER
+#  MAP SPAWNER: 35 DISTINCT STRUCTURES SPREAD ORGANICALLY WITHOUT CLUTTER
 # =============================================================================
 
 static func spawn_map_military_objects(root: Node3D, map_name: String) -> void:
@@ -1289,13 +1446,13 @@ static func spawn_map_military_objects(root: Node3D, map_name: String) -> void:
 	var sp: Vector2 = site.get("spawn", Vector2(100.0, 80.0))
 	var wl: float = terrain.water_level(map_name)
 
-	# Deterministic 6x5 Grid covering the 700x700m playable space
-	var rows := 6
+	# Deterministic 7x5 Grid covering the compacted (-255..+255 m) playable space
+	var rows := 7
 	var cols := 5
-	var x_min := -340.0
-	var x_max := 340.0
-	var z_min := -320.0
-	var z_max := 320.0
+	var x_min := -255.0
+	var x_max := 255.0
+	var z_min := -245.0
+	var z_max := 245.0
 	var dx := (x_max - x_min) / float(cols)
 	var dz := (z_max - z_min) / float(rows)
 
@@ -1312,14 +1469,18 @@ static func spawn_map_military_objects(root: Node3D, map_name: String) -> void:
 			var off_z := cos(float(idx) * 2.1 + 0.8) * (dz * 0.28)
 
 			var found := false
-			for rad in [0.0, 15.0, 30.0, 45.0, 60.0, 75.0]:
+			for rad in [0.0, 14.0, 28.0, 42.0, 56.0]:
 				var steps := 1 if rad == 0.0 else 12
 				for s in range(steps):
 					var ang := (TAU * float(s)) / float(steps) if steps > 1 else 0.0
 					var px: float = cx + off_x + cos(ang) * rad
 					var pz: float = cz + off_z + sin(ang) * rad
 
-					if absf(px) > 360.0 or absf(pz) > 360.0:
+					if absf(px) > 265.0 or absf(pz) > 265.0:
+						continue
+
+					# Keep the Flight School corridor clear across every frontline map.
+					if bool(terrain.call("_tutorial_clear_zone", px, pz)):
 						continue
 
 					# Strict exclusion zone around all workshops/halls (no structures near workshops!)
@@ -1333,10 +1494,10 @@ static func spawn_map_military_objects(root: Node3D, map_name: String) -> void:
 					if Vector2(px, pz).distance_to(sp) < 50.0:
 						continue
 					# Signature POIs (water tower, substation, burnt armour,
-					# watch tower) keep a 40 m exclusion radius.
+					# watch tower) keep a 36 m exclusion radius.
 					var poi_blocked := false
 					for poi in terrain._poi_positions:
-						if Vector2(px, pz).distance_to(poi) < 40.0:
+						if Vector2(px, pz).distance_to(poi) < 36.0:
 							poi_blocked = true
 							break
 					if poi_blocked:
@@ -1346,22 +1507,22 @@ static func spawn_map_military_objects(root: Node3D, map_name: String) -> void:
 					if map_name == "wetlands" and h < wl + 0.8:
 						continue
 					if map_name == "industrial":
-						if absf(pz - (-15.0)) < 16.0: # Rail line
+						if absf(pz - (-15.0)) < 18.0: # Rail line
 							continue
-						if pz < -165.0: # Industrial bay water
+						if pz > 205.0: # Handcrafted river valley along southern boundary
 							continue
 					if map_name == "village":
 						var rx := -170.0 + 35.0 * sin(pz * 0.008)
-						if absf(px - rx) < 35.0: # River buffer
+						if absf(px - rx) < 32.0: # River buffer
 							continue
 						# Keep village road clear
 						if absf(pz - 58.0) < 18.0 and px > 20.0 and px < 190.0:
 							continue
 
-					# Check minimum clearance to all previously picked objects (>= 48m)
+					# Check minimum clearance to all previously picked objects (>= 42m)
 					var ok := true
 					for prev in picked:
-						if Vector2(px, pz).distance_to(prev) < 48.0:
+						if Vector2(px, pz).distance_to(prev) < 42.0:
 							ok = false
 							break
 					if ok:
@@ -1373,28 +1534,36 @@ static func spawn_map_military_objects(root: Node3D, map_name: String) -> void:
 
 	# Fallback if any sector was blocked
 	var fb_tries := 0
-	while picked.size() < 30 and fb_tries < 300:
+	while picked.size() < 35 and fb_tries < 420:
 		fb_tries += 1
-		var fx := sin(float(fb_tries) * 11.3) * 320.0
-		var fz := cos(float(fb_tries) * 17.7) * 300.0
-		if map_name == "industrial" and fz < -155.0:
-			fz = -155.0 + absf(fz + 155.0)
+		var fx := sin(float(fb_tries) * 11.3) * 245.0
+		var fz := cos(float(fb_tries) * 17.7) * 235.0
+		if map_name == "industrial" and fz > 205.0:
+			fz = 195.0 - absf(fz - 195.0)
 		var ok := true
-		if absf(fx - hc.x) < hhalf.x + 45.0 and absf(fz - hc.y) < hhalf.y + 45.0:
+		if bool(terrain.call("_tutorial_clear_zone", fx, fz)):
+			continue
+		if absf(fx - hc.x) < hhalf.x + 42.0 and absf(fz - hc.y) < hhalf.y + 42.0:
 			continue
 		if is_near_workshop(map_name, fx, fz):
 			continue
-		if Vector2(fx, fz).distance_to(sp) < 50.0:
+		if Vector2(fx, fz).distance_to(sp) < 46.0:
+			continue
+		if map_name == "village":
+			var rx_fb := -170.0 + 35.0 * sin(fz * 0.008)
+			if absf(fx - rx_fb) < 30.0:
+				continue
+		if map_name == "wetlands" and float(terrain.height_at(map_name, fx, fz)) < wl + 0.8:
 			continue
 		var poi_blocked_fb := false
 		for poi in terrain._poi_positions:
-			if Vector2(fx, fz).distance_to(poi) < 40.0:
+			if Vector2(fx, fz).distance_to(poi) < 36.0:
 				poi_blocked_fb = true
 				break
 		if poi_blocked_fb:
 			continue
 		for prev in picked:
-			if Vector2(fx, fz).distance_to(prev) < 42.0:
+			if Vector2(fx, fz).distance_to(prev) < 36.0:
 				ok = false
 				break
 		if ok:
@@ -1402,8 +1571,8 @@ static func spawn_map_military_objects(root: Node3D, map_name: String) -> void:
 
 	spawned_positions[map_name] = picked
 
-	# Dispatch each of the 30 distinct military trick structures
-	for i in range(mini(30, picked.size())):
+	# Dispatch each of the 35 distinct military trick structures
+	for i in range(mini(35, picked.size())):
 		var p2 := picked[i]
 		var y: float = float(terrain.footprint_surface_height(map_name, p2, 10.0, 10.0, 0.0)) - 0.15
 		var pos3 := Vector3(p2.x, y, p2.y)
@@ -1440,5 +1609,10 @@ static func spawn_map_military_objects(root: Node3D, map_name: String) -> void:
 			27: build_military_arch_portal(root, pos3, yaw)
 			28: build_scaffolding_freestyle_cube(root, pos3, yaw)
 			29: build_communication_mast_guyed(root, pos3, yaw)
+			30: build_sam_battery_gantry(root, pos3, yaw)
+			31: build_fortified_helipad_hangar(root, pos3, yaw)
+			32: build_bailey_truss_bridge(root, pos3, yaw)
+			33: build_heavy_radar_gci_complex(root, pos3, yaw)
+			34: build_artillery_bunker_complex(root, pos3, yaw)
 
-	print("[MilitaryStructures] Spawned 30 non-overlapping freestyle military structures on ", map_name)
+	print("[MilitaryStructures] Spawned %d non-overlapping freestyle military structures on %s" % [picked.size(), map_name])

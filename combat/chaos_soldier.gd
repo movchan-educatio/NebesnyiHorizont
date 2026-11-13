@@ -21,7 +21,7 @@ var _chaos_recover := 1.2
 var _chaos_aim_timer := 0.0
 var _chaos_strafe := 0.0
 var _flank_time := 0.0
-var _flank_dir := 1.0
+var _chaos_flank_dir := 1.0
 
 
 func _ready() -> void:
@@ -75,14 +75,15 @@ func _physics_process(delta: float) -> void:
 			var desired_yaw := atan2(-flat.x, -flat.z)
 			rotation.y = lerp_angle(rotation.y, desired_yaw,
 					clampf(delta * 4.0, 0.0, 1.0))
-			var forward := -global_transform.basis.z
-			forward.y = 0.0
-			if forward.length_squared() > 0.0001:
-				var fnorm := forward.normalized()
-				var step_len := walk_speed * delta
-				if _can_step(fnorm, step_len):
-					global_position += fnorm * step_len
-		_set_locomotion(delta, walk_speed)
+			if not _is_crouched_or_settling():
+				var forward := -global_transform.basis.z
+				forward.y = 0.0
+				if forward.length_squared() > 0.0001:
+					var fnorm := forward.normalized()
+					var step_len := walk_speed * delta
+					if _can_step(fnorm, step_len):
+						global_position += fnorm * step_len
+		_set_locomotion(delta, 0.0 if _is_crouched_or_settling() else walk_speed)
 		_snap_to_ground()
 		return
 	_crouching = (_reload_timer > 0.0) or (_suppress_timer > 0.0)
@@ -94,15 +95,17 @@ func _physics_process(delta: float) -> void:
 		return
 	var los := _los_to(target)
 	if not los:
+		if _is_crouched_or_settling():
+			return
 		# Trees, containers and collapsed walls block the firing line.  Hold
 		# and stare at the trunk forever and the battle stalls; instead sidestep
 		# around the obstruction until the target is visible again.
 		if _flank_time <= 0.0:
 			_flank_time = 1.1
-			_flank_dir = -_flank_dir
+			_chaos_flank_dir = -_chaos_flank_dir
 		_flank_time -= delta
 		var dir := flat.normalized()
-		var side := dir.cross(Vector3.UP) * _flank_dir
+		var side := dir.cross(Vector3.UP) * _chaos_flank_dir
 		var move := (dir * 0.55 + side).normalized()
 		rotation.y = lerp_angle(rotation.y, atan2(-move.x, -move.z),
 				clampf(delta * 5.0, 0.0, 1.0))
@@ -110,7 +113,7 @@ func _physics_process(delta: float) -> void:
 		if _can_step(move, step_len):
 			global_position += move * step_len
 		else:
-			_flank_dir = -_flank_dir
+			_chaos_flank_dir = -_chaos_flank_dir
 		_set_locomotion(delta, walk_speed)
 		_snap_to_ground()
 		return

@@ -7,7 +7,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	Global.play_mode = Global.PlayMode.COMBAT
 	Global.chain_briefing_pending = false
-	Global.drone_preset = 7
+	Global.drone_preset = 2
 	var packed := load("res://sceneries/VillageLevel.tscn") as PackedScene
 	var level: Variant = packed.instantiate()
 	get_tree().root.add_child(level)

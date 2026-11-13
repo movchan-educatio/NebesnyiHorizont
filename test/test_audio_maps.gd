@@ -21,7 +21,7 @@ func _ready() -> void:
 	if mission <= 0:
 		mission = 2
 	Global.combat_mission = mission
-	Global.drone_preset = 12
+	Global.drone_preset = 7
 	var level := scene.instantiate()
 	add_child(level)
 	await get_tree().create_timer(4.5).timeout

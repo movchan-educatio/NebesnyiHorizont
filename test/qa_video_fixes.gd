@@ -236,9 +236,9 @@ func _run() -> void:
 	var had_mobile_for_catalog := OS.has_environment("MOBILE_UI")
 	OS.unset_environment("MOBILE_UI")
 	var desktop_expected := {
-		13: {"payload": 0, "fpv_cam_pos": Vector3(0.0, 0.06, -0.56)},
-		14: {"payload": 0, "fpv_cam_pos": Vector3(0.0, 0.04, -0.42)},
-		15: {"payload": 1, "fpv_cam_pos": Vector3(0.0, 0.06, -0.78)},
+		7: {"payload": 1, "fpv_cam_pos": Vector3(0.0, 0.06, -0.56)},
+		8: {"payload": 1, "fpv_cam_pos": Vector3(0.0, 0.04, -0.42)},
+		9: {"payload": 1, "fpv_cam_pos": Vector3(0.0, 0.06, -0.78)},
 	}
 	var pc_unchanged := true
 	for preset_idx in desktop_expected:
@@ -251,7 +251,7 @@ func _run() -> void:
 	_check(pc_unchanged, "desktop fixed-wing loadout and FPV framing remain unchanged")
 	if had_mobile_for_catalog:
 		OS.set_environment("MOBILE_UI", "1")
-	for preset_idx in [13, 14, 15]:
+	for preset_idx in [7, 8, 9]:
 		Global.drone_preset = preset_idx
 		kamikaze_touch_ok = kamikaze_touch_ok \
 				and bool(DroneCatalog.preset(preset_idx).get("kamikaze", false)) \
@@ -314,7 +314,7 @@ func _run() -> void:
 		_check(int(elrs.call("get_action_channel", "deploy_payload")) == -1,
 				"dropdown disable row really unbinds")
 	var saved_preset := int(Global.drone_preset)
-	for preset_idx in [13, 14, 15]:
+	for preset_idx in [7, 8, 9]:
 		Global.drone_preset = preset_idx
 		var kamikaze_action: String = touch.call("_touch_payload_action")
 		_check(kamikaze_action == "activate_payload",
@@ -329,7 +329,7 @@ func _run() -> void:
 	var cam: Camera3D = menu.get("_hero_camera")
 	_check(cam != null and cam.global_position.distance_to(hero_box.get_center()) < 2.6,
 			"hero camera stays close to the drone")
-	for preset_idx in [13, 14, 15]:
+	for preset_idx in [7, 8, 9]:
 		await DroneCatalog.wait_for_model(preset_idx)
 		menu.call("_load_hero_model", preset_idx)
 		for i in range(6):
@@ -340,11 +340,11 @@ func _run() -> void:
 		var pivots: Array = aircraft.get_meta("prop_pivots", []) if aircraft != null else []
 		_check(source_path.ends_with("_mobile.glb"),
 				"airframe %d uses mobile-optimized mesh" % preset_idx)
-		if preset_idx in [13, 14]:
+		if preset_idx in [7, 8]:
 			_check(not pivots.is_empty(), "airframe %d pusher prop is animated" % preset_idx)
-	_check(bool(DroneCatalog.supports_payload_actions(13))
-			and bool(DroneCatalog.supports_payload_actions(14))
-			and bool(DroneCatalog.supports_payload_actions(15)),
+	_check(bool(DroneCatalog.supports_payload_actions(7))
+			and bool(DroneCatalog.supports_payload_actions(8))
+			and bool(DroneCatalog.supports_payload_actions(9)),
 			"Leleka/Furia/Chaklun integrated warhead is enabled")
 
 	# --- hangar model size after switching back -------------------------
@@ -353,7 +353,7 @@ func _run() -> void:
 		await get_tree().process_frame
 	var hangar: Node3D = menu.get("_hangar_holder")
 	var idx: int = int(menu.get("_hangar_preview_idx"))
-	menu.call("_load_hangar_model", (idx + 1) % 16)
+	menu.call("_load_hangar_model", (idx + 1) % DroneCatalog.count())
 	for i in range(10):
 		await get_tree().process_frame
 	menu.call("_load_hangar_model", idx)

@@ -181,7 +181,7 @@ func _configure_drone_visuals_for_camera(is_fpv: bool) -> void:
 	var model_root := drone.get_node_or_null("DroneModel")
 	if model_root != null:
 		var p := DroneCatalog.preset(Global.drone_preset)
-		var combat_airframe := bool(p.get("combat", false)) and not bool(p.get("is_naval", false))
+		var combat_airframe := bool(p.get("combat", false))
 		_hide_props_recursive(model_root, is_fpv, combat_airframe)
 
 

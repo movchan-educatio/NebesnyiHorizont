@@ -14,7 +14,7 @@ func _ready() -> void:
 	print("[PRESETTEST] low=", low_ok, " medium=", med_ok, " high=", high_ok,
 			" -> ", "PASS" if (low_ok and med_ok and high_ok) else "FAIL")
 	# Leave the default profile for the next normal launch.
-	Graphics.apply_quality_preset(Graphics.QualityPreset.HIGH)
+	Graphics.apply_quality_preset(Graphics.QualityPreset.LOW)
 	get_tree().quit(0 if (low_ok and med_ok and high_ok) else 1)
 
 

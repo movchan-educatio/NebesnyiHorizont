@@ -59,8 +59,6 @@ func _ready() -> void:
 	var checked := 0
 	for idx in range(DroneCatalog.count()):
 		var p := DroneCatalog.preset(idx)
-		if bool(p.get("is_naval", false)):
-			continue
 		DroneCatalog.apply_to_drone(drone, idx)
 		_measure(drone, idx, p)
 		checked += 1

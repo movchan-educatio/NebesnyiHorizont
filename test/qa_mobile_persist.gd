@@ -17,7 +17,7 @@ func _run() -> void:
 	var real_path: String = settings.get("game_settings_path")
 	settings.set("game_settings_path", "user://qa_mobile_settings.cfg")
 	settings.set("hud_config", {
-		"fps": 20, "crosshair": false, "horizon": true, "ladder": false,
+		"fps": 20, "crosshair": false, "ladder": false,
 		"speed": true, "altitude": true, "heading": true, "sticks": true,
 		"rpm": false, "osd": true, "fpv_rig": false, "weather": 0,
 		"sim_thrust": true, "infinite_battery": true, "link_limit": false,

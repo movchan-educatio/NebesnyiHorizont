@@ -25,7 +25,7 @@ fog_enabled = false
 tonemap_mode = 2
 
 [sub_resource type="BoxShape3D" id="GroundShape"]
-size = Vector3(4000, 1, 4000)
+size = Vector3(2400, 1, 2400)
 
 [sub_resource type="StandardMaterial3D" id="GroundMat"]
 albedo_color = Color(0.13, 0.12, 0.11, 1)
@@ -33,7 +33,7 @@ roughness = 1.0
 
 [sub_resource type="PlaneMesh" id="GroundMesh"]
 material = SubResource("GroundMat")
-size = Vector2(4000, 4000)
+size = Vector2(2400, 2400)
 
 [node name="CityLevel" type="Node3D"]
 script = ExtResource("1_level")
@@ -62,7 +62,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -13.75, 33, -55)
 
 [node name="City" type="Node3D" parent="."]
 script = ExtResource("4_cityenv")
-target_footprint_m = 1200.0
+target_footprint_m = 720.0
 spawn_height_m = 2.6
 
 [node name="Street" parent="City" instance=ExtResource("3_city")]
@@ -76,7 +76,7 @@ cull_mask = 1
 current = true
 fov = 110.0
 near = 0.02
-far = 4000.0
+far = 2400.0
 
 [node name="RadioController" type="Node" parent="."]
 script = ExtResource("5_radio")

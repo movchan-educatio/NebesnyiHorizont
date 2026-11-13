@@ -16,7 +16,7 @@ func _ready() -> void:
 	var packed := load("res://drone/drones/Drone1.tscn") as PackedScene
 	drone = packed.instantiate() as Drone
 	add_child(drone)
-	DroneCatalog.apply_to_drone(drone, 7)
+	DroneCatalog.apply_to_drone(drone, 2)
 	drone.global_position = Vector3(0.0, 700.0, 0.0)
 	drone.linear_velocity = Vector3.ZERO
 	drone.angular_velocity = Vector3.ZERO

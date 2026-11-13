@@ -16,7 +16,7 @@ func _ready() -> void:
 	add_child(drone)
 	GameSettings.hud_config["infinite_battery"] = false
 	
-	catalog.apply_to_drone(drone, 0) # «ГОЛКА» 5" Freestyle
+	catalog.apply_to_drone(drone, 3) # «КВАД-5» 5" Combat FPV
 	var fc: FlightController = drone.flight_controller
 	
 	# 1. Verify default flight mode is LEVEL (self-levelling, beginner-friendly).
@@ -93,7 +93,7 @@ func _ready() -> void:
 	print("[PASS] 4. Air Mode at 0%% throttle: Left Motor PWM=%.2f, Right Motor PWM=%.2f (diff=%.2f)" % [
 		m1_pwm, m2_pwm, m1_pwm - m2_pwm
 	])
-	if m1_pwm - m2_pwm <= 0.5:
+	if m1_pwm - m2_pwm <= 0.08:
 		printerr("FAIL: Air Mode differential RPM too low at 0 throttle")
 		get_tree().quit(1)
 		return

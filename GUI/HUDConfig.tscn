@@ -89,18 +89,6 @@ theme_override_constants/h_separation = 20
 pressed = true
 text = "Crosshair"
 
-[node name="CheckHorizon" type="CheckButton" parent="ScrollContainer/VBoxContainer"]
-offset_top = 437.0
-offset_right = 290.0
-offset_bottom = 490.0
-grow_horizontal = 2
-grow_vertical = 2
-size_flags_horizontal = 3
-theme = ExtResource( 1 )
-theme_override_constants/h_separation = 20
-pressed = true
-text = "Horizon"
-
 [node name="CheckLadder" type="CheckButton" parent="ScrollContainer/VBoxContainer"]
 offset_top = 494.0
 offset_right = 290.0

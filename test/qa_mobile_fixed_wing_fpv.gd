@@ -1,13 +1,13 @@
 extends Node
 
-## Regression: mobile fixed-wing presets (13/14/15) must keep a clean FPV lens.
+## Regression: mobile fixed-wing presets (7/8/9) must keep a clean FPV lens.
 ## The old "show airframe" framing put the lens at wing height on the high-wing
 ## Leleka/Furia, so the wing filled the centre of the screen (owner video
 ## 06:40-07:10).  This QA loads the real level per preset, asserts the drone
 ## model is hidden in FPV and saves a screenshot for visual review.
 ## Run: MOBILE_FIXED_WING_SHOT_DIR=<dir> ... qa_mobile_fixed_wing_fpv.tscn
 const TEST_NAME := "MOBILE_FIXED_WING_FPV"
-const PRESETS := [13, 14, 15]
+const PRESETS := [7, 8, 9]
 var _failures := 0
 
 
@@ -50,7 +50,7 @@ func _run() -> void:
 		_check(cam != null and cam.position.distance_to(
 				preset.get("fpv_cam_pos", Vector3.ZERO)) < 0.05,
 				"preset %d camera sits at the preset nose position" % idx)
-		if cam != null:
+		if cam != null and DisplayServer.get_name() != "headless":
 			cam.current = true
 			await get_tree().process_frame
 			await get_tree().process_frame

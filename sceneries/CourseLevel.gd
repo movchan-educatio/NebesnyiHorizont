@@ -13,7 +13,6 @@ func _ready() -> void:
 	use_urban_ground()
 
 	GameSettings.hud_config["crosshair"] = true
-	GameSettings.hud_config["horizon"] = true
 	GameSettings.hud_config["speed"] = false
 	GameSettings.hud_config["altitude"] = false
 	GameSettings.hud_config["heading"] = true
@@ -46,7 +45,7 @@ func _spawn_handcrafted_showcase() -> void:
 	await get_tree().physics_frame
 	var FT = load("res://scripts/util/frontline_terrain.gd")
 	FT.spawn_handcrafted_on_ground(self,
-			"res://Assets/handcrafted/farm_complex.glb", 80.0, 120.0, 0.0)
+			"res://Assets/handcrafted/farm_complex.glb", 52.0, 72.0, 0.0)
 
 	var cam := get_node_or_null("Drone/FPVCamera") as Camera3D
 	if cam != null:

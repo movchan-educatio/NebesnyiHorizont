@@ -491,6 +491,7 @@ func _payload_unit_mass(p: Dictionary) -> float:
 
 func _on_payload_exploded() -> void:
 	explosions += 1
+	Haptics.trigger_explosion(0.55)
 
 
 func _on_target_spawned(target: Node3D) -> void:
@@ -707,6 +708,7 @@ func _destroy_drone(text: String) -> void:
 	_lost = true
 	var position := _drone.global_position
 	ExplosionScript.spawn(get_parent(), position, 5.0, 0.0)
+	Haptics.trigger_explosion(0.9)
 	_drone.freeze = true
 	_drone.linear_velocity = Vector3.ZERO
 	_drone.angular_velocity = Vector3.ZERO

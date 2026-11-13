@@ -325,10 +325,6 @@ func _qa_select_preset(index: int) -> void:
 
 
 func _on_row_clicked(index: int) -> void:
-	# Always allow the preview/selection.  A civilian/recon airframe is not a
-	# valid combat loadout, so _apply_pending() switches the sortie to Free
-	# Flight instead of silently doing nothing (the old behaviour made AVATA 2
-	# look "unselectable" whenever the menu happened to be in Combat mode).
 	_pending = index
 	_apply_pending()
 	_show_model(index)
@@ -349,12 +345,9 @@ func _on_preview_gui_input(event: InputEvent) -> void:
 			accept_event()
 
 
-## Combat sorties may only use combat airframes.  Magura-X (10) is the special
-## naval case and is handled by the mission logic.
+## Combat sorties may only use combat airframes.
 func _combat_locked(index: int) -> bool:
 	if Global.play_mode != Global.PlayMode.COMBAT:
-		return false
-	if index == 10:
 		return false
 	if DroneCatalog.is_combat(index):
 		return false
@@ -392,13 +385,6 @@ func _apply_pending() -> void:
 	Global.drone_preset = _pending
 	Global.menu_settings["drone_preset"] = _pending
 	Global.save_menu_settings()
-	if _pending == 10:
-		# Magura-X is exclusively for TAC-05!
-		Global.play_mode = Global.PlayMode.COMBAT
-		Global.combat_mission = 5
-	elif Global.play_mode == Global.PlayMode.COMBAT and Global.combat_mission == 5:
-		# Aerial drones cannot execute TAC-05 (only Magura-X can!)
-		Global.combat_mission = 1
 	_refresh()
 	var preset := DroneCatalog.preset(_pending)
 	var preset_name := str(preset["name"])
@@ -407,9 +393,7 @@ func _apply_pending() -> void:
 	if _choose != null:
 		_choose.text = "SELECTED ✓" if MenuUI.is_english() else "ОБРАНО ✓"
 	if _confirm != null:
-		if _pending == 10:
-			_confirm.text = "✓ MAGURA-X is a dedicated USV.\nAvailable only for mission TAC-05 [CRIMEAN HPP]." if MenuUI.is_english() else "✓ «МАГУРА-Х» — спеціальний морський USV.\nДоступний лише для місії TAC-05 [КРИМСЬКА ГЕС]."
-		elif was_combat_locked:
+		if was_combat_locked:
 			_confirm.text = ("✓ %s selected for Free Flight (no combat payload).\nCombat sorties still require a strike / bomber drone." if MenuUI.is_english() else "✓ %s обрано для вільного польоту (без бойової БЧ).\nДля бойових місій потрібен ударний дрон або дрон зі скидом.") % preset_name
 		else:
 			_confirm.text = ("✓ %s is selected for your next sortie.\nGo back to choose a flight mode." if MenuUI.is_english() else "✓ %s — саме цей дрон злетить у наступному польоті.\nНатисніть «НАЗАД» і виберіть режим.") % preset_name
@@ -420,25 +404,19 @@ func _show_model(index: int) -> void:
 	var is_en := MenuUI.is_english()
 	_caption.text = str(p.get("name_en", MenuUI.translate_text(str(p["name"])))) if is_en else str(p["name"])
 	_tag.text = MenuUI.translate_text(str(p.get("tag", "")))
-	var ammo := int(p.get("payload", 0))
-	if bool(p.get("is_naval", false)):
-		var mass := float(p["dry"]) + float(p["batt"])
-		_specs.text = ("%.0f kg · 45-knot waterjet · length %.1f m · 320 kg HE payload" if is_en else "%.0f кг · водомет 45 вузлів (85 км/год) · довжина %.1f м · БЧ 320 кг (ОФ)") % [
-				mass, float(p["dimensions"].z)]
+	var is_combat: bool = bool(p.get("combat", false))
+	var has_drop: bool = bool(p.get("has_drop", false))
+	var ammo_count := int(p.get("payload", 0)) if is_combat else 0
+	var ammo_str: String
+	if not is_combat:
+		ammo_str = "no payload" if is_en else "без БЧ"
+	elif has_drop:
+		ammo_str = "drop: %s" % str(p.get("drop_name_en", "%d× VOG-17" % ammo_count)) if is_en else "скид: %s" % str(p.get("drop_name", "%d× ВОГ-17" % ammo_count))
 	else:
-		var is_combat: bool = bool(p.get("combat", false))
-		var has_drop: bool = bool(p.get("has_drop", false))
-		var ammo_count := int(p.get("payload", 0)) if is_combat else 0
-		var ammo_str: String
-		if not is_combat:
-			ammo_str = "no payload (sport / recon)" if is_en else "без БЧ (спорт / розвідка)"
-		elif has_drop:
-			ammo_str = "drop: %s" % str(p.get("drop_name_en", "%d× VOG-17" % ammo_count)) if is_en else "скид: %s" % str(p.get("drop_name", "%d× ВОГ-17" % ammo_count))
-		else:
-			ammo_str = "%d× kamikaze payload" % ammo_count if is_en else "%d× БЧ камікадзе" % ammo_count
-		_specs.text = ("%.2f kg · %d KV · %.1f\" propeller · %d blades · %s" if is_en else "%.2f кг · %d KV · пропелер %.1f\" · %d лопаті · %s") % [
-				float(p["dry"]) + float(p["batt"]), int(p["kv"]), float(p["prop_d"]),
-				int(p["blades"]), ammo_str]
+		ammo_str = "%d× kamikaze payload" % ammo_count if is_en else "%d× БЧ камікадзе" % ammo_count
+	_specs.text = ("%.2f kg · %d KV · %.1f\" propeller · %d blades · %s" if is_en else "%.2f кг · %d KV · пропелер %.1f\" · %d лопаті · %s") % [
+			float(p["dry"]) + float(p["batt"]), int(p["kv"]), float(p["prop_d"]),
+			int(p["blades"]), ammo_str]
 	var base_info := str(p.get("info", p.get("desc", "")))
 	_info.text = str(p.get("info_en", MenuUI.translate_text(base_info))) if is_en else base_info
 	if _holder == null:

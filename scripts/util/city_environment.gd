@@ -21,6 +21,7 @@ func _ready() -> void:
 		_fit_to_ground()
 	if generate_collision:
 		_build_collision(self)
+	_build_city_skyline_backdrop()
 	print("[CityEnvironment] fitted in %d ms, height %.1f m" % [Time.get_ticks_msec() - started, _fitted_height])
 	call_deferred("_deferred_spawn")
 
@@ -387,3 +388,54 @@ func _drone_rids() -> Array[RID]:
 	if drone is CollisionObject3D:
 		out.append((drone as CollisionObject3D).get_rid())
 	return out
+
+
+## Builds a lightweight, shadowless, collision-free distant skyscraper & urban
+## outskirts silhouette ring outside the shrunk city GLB so the skyline feels
+## expansive without taxing CPU or GPU.
+func _build_city_skyline_backdrop() -> void:
+	var level := get_parent()
+	if level == null or level.get_node_or_null("CityHorizonBackdrop") != null:
+		return
+	var bounds := _global_aabb()
+	var half_span := maxf(maxf(bounds.size.x, bounds.size.z) * 0.5, maxf(target_footprint_m * 0.5, 110.0))
+	var inner_r := half_span * 1.18
+	var outer_r := maxf(inner_r * 2.4, inner_r + 220.0)
+	var holder := Node3D.new()
+	holder.name = "CityHorizonBackdrop"
+
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 20261112
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	var box := BoxMesh.new()
+	box.size = Vector3(1.0, 1.0, 1.0)
+	mm.mesh = box
+	var count := 160
+	mm.instance_count = count
+	for i in range(count):
+		var a := (float(i) / float(count)) * TAU + rng.randf_range(-0.025, 0.025)
+		var ring_t := rng.randf()
+		var r := lerpf(inner_r, outer_r, pow(ring_t, 0.85))
+		var w := rng.randf_range(12.0, 32.0) * (0.7 + 0.6 * (half_span / 360.0))
+		var d := rng.randf_range(12.0, 32.0) * (0.7 + 0.6 * (half_span / 360.0))
+		var h := rng.randf_range(14.0, 72.0) * lerpf(1.0, 0.65, ring_t)
+		var pos := Vector3(cos(a) * r, h * 0.5 - 1.0, sin(a) * r)
+		var basis := Basis(Vector3.UP, a + rng.randf_range(-0.4, 0.4)).scaled(Vector3(w, h, d))
+		mm.set_instance_transform(i, Transform3D(basis, pos))
+		var shade := lerpf(0.24, 0.36, rng.randf())
+		var warm := lerpf(0.0, 0.06, ring_t)
+		mm.set_instance_color(i, Color(shade + warm, shade + warm * 0.4, shade + 0.02))
+
+	var mat := StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	mat.vertex_color_is_srgb = true
+	mat.roughness = 0.94
+	var mmi := MultiMeshInstance3D.new()
+	mmi.name = "DistantCityBlocks"
+	mmi.multimesh = mm
+	mmi.material_override = mat
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	holder.add_child(mmi)
+	level.add_child.call_deferred(holder)

@@ -512,7 +512,6 @@ func _vsize() -> Vector2:
 
 func _fs(px: float) -> int:
 	var scale := clampf(_vsize().y / 760.0, 1.15, 1.55)
-	scale *= float(GameSettings.hud_config.get("mobile_font_scale", 1.0))
 	return maxi(16, int(round(px * scale)))
 
 
@@ -945,7 +944,7 @@ func _build_main() -> void:
 
 	var changes := [
 		"• Оновлений тактичний термінал та темна військова тема",
-		"• 3D ангар та огляд 13 бортів на платформі",
+		"• 3D ангар та огляд 10 бойових БПЛА на платформі",
 		"• Підтримка пультів RadioMaster TX12 та ELRS Wi-Fi",
 		"• Калібрування стіків, налаштування AUX та рейт",
 		"• Оптимізація 60/120 FPS для iPhone та сенсорний ввід"
@@ -1062,15 +1061,15 @@ func _build_3d_hero() -> Control:
 	info_box.add_theme_constant_override("separation", _gap(2))
 	top_info.add_child(info_box)
 
-	_hero_drone_name = _label("«ГОЛКА»", 32, MenuUI.TEXT)
+	_hero_drone_name = _label("«ГРІМ-7»", 32, MenuUI.TEXT)
 	_hero_drone_name.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	info_box.add_child(_hero_drone_name)
 
-	_hero_drone_tag = _label("ФРІСТАЙЛ 5\"  •  БОРТ ЗА ЗАМОВЧУВАННЯМ", 14, MenuUI.FPV_AMBER)
+	_hero_drone_tag = _label("УДАРНИЙ 8–10\"  •  БОЙОВИЙ БПЛА", 14, MenuUI.FPV_AMBER)
 	_hero_drone_tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	info_box.add_child(_hero_drone_tag)
 
-	_hero_drone_specs = _label("МАСА: 600 г  •  TWR: 8.5:1  •  2500 KV", 12, MenuUI.MUTED)
+	_hero_drone_specs = _label("МАСА: 1400 г  •  TWR: 3.5:1  •  1350 KV", 12, MenuUI.MUTED)
 	_hero_drone_specs.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	info_box.add_child(_hero_drone_specs)
 
@@ -2088,9 +2087,9 @@ func _update_play_caption() -> void:
 		if int(m["id"]) == _selected_mode:
 			mode_name = str(m["name"]).to_upper()
 			break
-	var dname := "ГОЛКА"
+	var dname := "«ГРІМ-7»"
 	if Global.drone_preset < DroneCatalog.count():
-		dname = DroneCatalog.preset(Global.drone_preset).get("name", "ГОЛКА")
+		dname = DroneCatalog.preset(Global.drone_preset).get("name", "«ГРІМ-7»")
 	_play_caption.text = "ОБРАНО: %s · %s · ДРОН: %s" % [map_name, mode_name, dname]
 
 
@@ -2286,11 +2285,11 @@ func _build_drone() -> void:
 	info_v.add_theme_constant_override("separation", _gap(2))
 	info_panel.add_child(info_v)
 
-	_hangar_drone_name = _label("«ГОЛКА»", 28, MenuUI.TEXT)
+	_hangar_drone_name = _label("«ГРІМ-7»", 28, MenuUI.TEXT)
 	info_v.add_child(_hangar_drone_name)
-	_hangar_drone_tag = _label("ФРІСТАЙЛ 5\" • КЛАС: 4S", 13, MenuUI.FPV_AMBER)
+	_hangar_drone_tag = _label("УДАРНИЙ 8–10\" • БЧ КАМІКАДЗЕ", 13, MenuUI.FPV_AMBER)
 	info_v.add_child(_hangar_drone_tag)
-	_hangar_specs_lbl = _label("МАСА: 600 г • TWR: 8.5:1 • МОТОРИ: 2500 KV", 12, MenuUI.MUTED)
+	_hangar_specs_lbl = _label("МАСА: 1400 г • TWR: 3.5:1 • МОТОРИ: 1350 KV", 12, MenuUI.MUTED)
 	info_v.add_child(_hangar_specs_lbl)
 
 	ov_box.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
@@ -2725,7 +2724,6 @@ func _build_settings_tab_hud() -> void:
 	sv.add_child(grid)
 
 	var hud_items := [
-		["horizon", "Штучний горизонт"],
 		["ladder", "Шкала тангажу"],
 		["speed", "Швидкість"],
 		["altitude", "Висота"],
@@ -2784,7 +2782,7 @@ func _build_settings_tab_gfx() -> void:
 	# 3 Quality Presets Row
 	var q_row := HBoxContainer.new()
 	q_row.add_theme_constant_override("separation", _gap(10))
-	var cur_q := clampi(int(Graphics.graphics_settings.get("quality", 1)), 0, 2)
+	var cur_q := clampi(int(Graphics.graphics_settings.get("quality", 0)), 0, 2)
 	var q_labels := ["1. НИЗЬКА (120+ FPS)", "2. СЕРЕДНЯ (БАЛАНС)", "3. ВИСОКА (МАКСИМУМ)"]
 	var q_btns: Array[Button] = []
 	for q_i in range(3):
@@ -2856,7 +2854,7 @@ func _build_settings_tab_gfx() -> void:
 	var sh_items := ["Вимкнено", "Низька", "Середня", "Висока", "Ультра"]
 	for item in sh_items:
 		sh_opt.add_item(item)
-	sh_opt.selected = clampi(int(Graphics.graphics_settings.get("shadows", 2)), 0, 4)
+	sh_opt.selected = clampi(int(Graphics.graphics_settings.get("shadows", 1)), 0, 4)
 	sh_opt.item_selected.connect(func(idx: int):
 		Graphics.graphics_settings["shadows"] = idx
 		Graphics.update_shadows()
@@ -2875,7 +2873,7 @@ func _build_settings_tab_gfx() -> void:
 	var msaa_items := ["Вимкнено", "2x", "4x", "8x", "16x"]
 	for item in msaa_items:
 		msaa_opt.add_item(item)
-	msaa_opt.selected = clampi(int(Graphics.graphics_settings.get("msaa", 1)), 0, 4)
+	msaa_opt.selected = clampi(int(Graphics.graphics_settings.get("msaa", 0)), 0, 4)
 	msaa_opt.item_selected.connect(func(idx: int):
 		Graphics.graphics_settings["msaa"] = idx
 		Graphics.update_msaa()
@@ -2990,23 +2988,7 @@ func _build_settings_tab_sys() -> void:
 	vol_box.add_child(vol_slider)
 	sv.add_child(vol_box)
 
-	# 2. Intro video audio toggle
-	var vid_box := HBoxContainer.new()
-	var vid_info := VBoxContainer.new()
-	vid_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vid_info.add_child(_label("Звук у вступному відео", 20, MenuUI.TEXT))
-	vid_info.add_child(_label("Відтворювати музичну тему та радіообмін під час старту симулятора", 14, MenuUI.MUTED))
-	vid_box.add_child(vid_info)
-	var is_vid_audio: bool = bool(Global.menu_settings.get("video_audio", true))
-	var vid_sw := ToggleSwitch.new(is_vid_audio)
-	vid_sw.toggled.connect(func(on: bool):
-		Global.menu_settings["video_audio"] = on
-		Global.save_menu_settings()
-	)
-	vid_box.add_child(vid_sw)
-	sv.add_child(vid_box)
-
-	# 3. Haptics toggle
+	# 2. Haptics toggle
 	var hap_box := HBoxContainer.new()
 	var hap_info := VBoxContainer.new()
 	hap_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -3044,34 +3026,8 @@ func _build_settings_tab_sys() -> void:
 	lang_box.add_child(lang_lbl)
 	sv.add_child(lang_box)
 
-	# 6. Interface font scale (accessibility)
-	var font_box := VBoxContainer.new()
-	font_box.add_theme_constant_override("separation", _gap(6))
-	var font_hdr := HBoxContainer.new()
-	font_hdr.add_child(_label("Розмір шрифту інтерфейсу", 20, MenuUI.TEXT))
-	var font_lbl := _label("%d%%" % int(round(float(
-			GameSettings.hud_config.get("mobile_font_scale", 1.0)) * 100.0)),
-			20, MenuUI.FPV_GREEN)
-	font_lbl.custom_minimum_size.x = _fs(60)
-	font_hdr.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
-	font_hdr.add_child(font_lbl)
-	font_box.add_child(font_hdr)
-	font_box.add_child(_label("Доступність: збільшує текст меню, брифінгів та підказок HUD", 14, MenuUI.MUTED))
-	var font_slider := _slider(
-			float(GameSettings.hud_config.get("mobile_font_scale", 1.0)) * 100.0,
-			85, 145, 5, func(val: float):
-		var scale := roundf(val / 5.0) * 5.0 / 100.0
-		font_lbl.text = "%d%%" % int(round(scale * 100.0))
-		GameSettings.hud_config["mobile_font_scale"] = scale
-		GameSettings.save_hud_config()
-		call_deferred("_rebuild_screens")
-	)
-	font_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	font_box.add_child(font_slider)
-	sv.add_child(font_box)
 
-
-## Rebuild every menu screen in place after a global presentation change
+## Rebuild every menu screen in place after a layout/presentation change.
 ## (accessibility font scale).  Deferred so the triggering control is no
 ## longer in its signal callback when its subtree is freed.
 func _rebuild_screens() -> void:

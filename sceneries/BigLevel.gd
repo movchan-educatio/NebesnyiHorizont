@@ -84,9 +84,6 @@ var _mission_failed := false
 var _mission_time := 0.0
 var _score := 0
 var _ground_y := 0.0
-## Sea surface used by the TAC-05 naval mission (deep basin, not the 0.35 m
-## film that used to lie on top of the legacy valley floor).
-var _sea_y := 0.0
 var _ground_guard_timer := 0.0
 var _hud_tick := 0.0
 var _telemetry_tick := 0.0
@@ -204,7 +201,7 @@ func _ready() -> void:
 		Global.drone_preset = int(OS.get_environment("DRONE_PRESET"))
 	if OS.has_environment("DRONE_COMBAT_MISSION"):
 		Global.play_mode = Global.PlayMode.COMBAT
-		Global.combat_mission = clampi(int(OS.get_environment("DRONE_COMBAT_MISSION")), 1, 5)
+		Global.combat_mission = clampi(int(OS.get_environment("DRONE_COMBAT_MISSION")), 1, 4)
 		Global.special_mission = 0
 	if OS.has_environment("DRONE_TUTORIAL") or (OS.has_environment("DRONE_PLAY_MODE") and OS.get_environment("DRONE_PLAY_MODE").to_lower() == "tutorial"):
 		Global.play_mode = Global.PlayMode.TUTORIAL
@@ -215,15 +212,7 @@ func _ready() -> void:
 		Global.special_mission = 0
 	if OS.has_environment("DRONE_MAP"):
 		frontline_map = OS.get_environment("DRONE_MAP")
-	# Strict role enforcement: Only Magura-X for TAC-05, and Magura-X can ONLY play TAC-05!
-	if Global.play_mode == Global.PlayMode.COMBAT and Global.special_mission == 0 \
-			and Global.combat_mission == 5:
-		if Global.drone_preset != 10:
-			QuadSettings.custom_rates = false
-			DroneCatalog.apply(10)
-	elif Global.drone_preset == 10:
-		QuadSettings.custom_rates = false
-		DroneCatalog.apply(0)
+	Global.combat_mission = clampi(Global.combat_mission, 1, 4)
 
 	_apply_flight_hud_defaults()
 
@@ -244,12 +233,11 @@ func _ready() -> void:
 			d.hard_impact.connect(_on_drone_hard_impact)
 	# Combat targets get a fresh area offset every load.  The launch point is
 	# computed from the same offset so the drone always starts far away.
-	if Global.play_mode == Global.PlayMode.COMBAT and Global.combat_mission != 5:
-		_mission_offset = Vector3(randf_range(-55.0, 55.0), 0.0,
-				randf_range(-35.0, 35.0))
+	if Global.play_mode == Global.PlayMode.COMBAT:
+		_mission_offset = Vector3(randf_range(-45.0, 45.0), 0.0,
+				randf_range(-30.0, 30.0))
 	_place_drone_over_ground()
-	var is_boat: bool = bool(DroneCatalog.preset(Global.drone_preset).get("is_naval", false))
-	if d != null and not is_boat:
+	if d != null:
 		var g_cnt := int(QualityManagerScript.get_value("grass_count", 2200))
 		var g_rad := float(QualityManagerScript.get_value("grass_range", 75.0))
 		# NOTE: raw linear values passed as Vector3 uniforms, not sRGB colours.
@@ -322,10 +310,6 @@ func _ready() -> void:
 	if frontline_map == "":
 		ValleySceneBuilderScript.build_railway_loop_and_train(self, _ground_y)
 		ValleySceneBuilderScript.build_railway_station(self, Vector3(0.0, _ground_y, -228.0))
-	if Global.play_mode == Global.PlayMode.COMBAT and Global.special_mission == 0 \
-			and Global.combat_mission == 5:
-		var NavalBuilder = load("res://scripts/util/naval_scene_builder.gd")
-		NavalBuilder.build_sea_and_coast(self, _sea_y)
 	QualityManagerScript.apply_to_scene(self)
 	_tune_map_environment()
 	_setup_hud()
@@ -1005,49 +989,41 @@ func on_quality_applied() -> void:
 ## Original valley content, unchanged.  Kept separate from _ready so the four
 ## frontline maps can swap in their own terrain without touching this code.
 func _build_valley_props() -> void:
-	# TAC-05 is fought in open water.  The normal valley mountains, factory,
-	# fortifications and tree lines would sit inside the naval basin and hide
-	# the sea behind a green hillside, so the mission gets a clean horizon:
-	# only the sea, the quay, the hydroelectric dam and the corvette.
-	if Global.play_mode == Global.PlayMode.COMBAT and Global.special_mission == 0 \
-			and Global.combat_mission == 5:
-		_spawn_special_or_campaign()
-		return
 	match Global.play_mode:
 		Global.PlayMode.TUTORIAL:
-			ValleySceneBuilderScript.build_valley_mountains(self, _ground_y, 235.0, 1350.0)
+			ValleySceneBuilderScript.build_valley_mountains(self, _ground_y, 195.0, 820.0)
 			ValleySceneBuilderScript.build_industrial_complex(self, Vector3(0.0, _ground_y, -28.0))
-			_spawn_vegetation(500, 55.0, 850.0, 0.30)
+			_spawn_vegetation(300, 45.0, 510.0, 0.30)
 			var d_inst := get_node_or_null("Drone") as Drone
 			_flight_school = FlightSchool.new()
 			add_child(_flight_school)
 			_flight_school.initialize(self, d_inst, _ground_y)
 		Global.PlayMode.TRAINING:
-			ValleySceneBuilderScript.build_valley_mountains(self, _ground_y, 235.0, 1350.0)
+			ValleySceneBuilderScript.build_valley_mountains(self, _ground_y, 195.0, 820.0)
 			ValleySceneBuilderScript.build_industrial_complex(self, Vector3(0.0, _ground_y, -28.0))
 			ValleySceneBuilderScript.build_construction_crane(self, Vector3(56.0, _ground_y, -24.0), deg_to_rad(35.0))
 			ValleySceneBuilderScript.build_concrete_pipe_park(self, Vector3(-58.0, _ground_y, 16.0), deg_to_rad(15.0))
 			ValleySceneBuilderScript.build_container_freestyle_park(self, Vector3(22.0, _ground_y, 42.0), deg_to_rad(-10.0))
 			_spawn_training_rings()
-			_spawn_vegetation(680, 55.0, 900.0, 0.32)
+			_spawn_vegetation(410, 45.0, 540.0, 0.32)
 		Global.PlayMode.SPEED:
-			ValleySceneBuilderScript.build_valley_mountains(self, _ground_y, 245.0, 1380.0)
+			ValleySceneBuilderScript.build_valley_mountains(self, _ground_y, 200.0, 840.0)
 			ValleySceneBuilderScript.build_industrial_complex(self, Vector3(0.0, _ground_y, -20.0))
 			ValleySceneBuilderScript.build_construction_crane(self, Vector3(72.0, _ground_y, -28.0), deg_to_rad(20.0))
 			ValleySceneBuilderScript.build_concrete_pipe_park(self, Vector3(-65.0, _ground_y, 10.0), deg_to_rad(10.0))
 			_spawn_speed_course()
 			_spawn_boost_pads()
-			_spawn_vegetation(620, 65.0, 900.0, 0.34)
+			_spawn_vegetation(370, 50.0, 540.0, 0.34)
 		_:
 			if OS.has_environment("DRONE_COMBAT_MISSION"):
-				Global.combat_mission = clampi(int(OS.get_environment("DRONE_COMBAT_MISSION")), 1, 5)
-			ValleySceneBuilderScript.build_valley_mountains(self, _ground_y, 430.0, 1550.0)
+				Global.combat_mission = clampi(int(OS.get_environment("DRONE_COMBAT_MISSION")), 1, 4)
+			ValleySceneBuilderScript.build_valley_mountains(self, _ground_y, 260.0, 930.0)
 			ValleySceneBuilderScript.build_industrial_complex(self, Vector3(0.0, _ground_y, -60.0))
 			ValleySceneBuilderScript.build_combat_fortifications(self, Vector3(-42.0, _ground_y, -90.0), deg_to_rad(10.0))
 			ValleySceneBuilderScript.build_construction_crane(self, Vector3(68.0, _ground_y, -110.0), deg_to_rad(45.0))
 			ValleySceneBuilderScript.build_container_freestyle_park(self, Vector3(45.0, _ground_y, -65.0), deg_to_rad(25.0))
 			_spawn_special_or_campaign()
-			_spawn_vegetation(680, 65.0, 920.0, 0.35)
+			_spawn_vegetation(410, 50.0, 550.0, 0.35)
 			if OS.has_environment("DRONE_RECON_VIEW"):
 				call_deferred("_setup_recon_view")
 
@@ -1064,13 +1040,13 @@ func _build_frontline_props() -> void:
 	var d := get_node_or_null("Drone") as Drone
 	match frontline_map:
 		"steppe":
-			_spawn_vegetation(720, 70.0, 1000.0, 0.30)
+			_spawn_vegetation(450, 50.0, 265.0, 0.30)
 		"village":
-			_spawn_vegetation(540, 60.0, 820.0, 0.38)
+			_spawn_vegetation(350, 45.0, 260.0, 0.38)
 		"industrial":
-			_spawn_vegetation(260, 80.0, 700.0, 0.18)
+			_spawn_vegetation(180, 55.0, 240.0, 0.18)
 		"wetlands":
-			_spawn_vegetation(380, 90.0, 760.0, 0.26)
+			_spawn_vegetation(250, 60.0, 250.0, 0.26)
 	if Global.play_mode == Global.PlayMode.COMBAT:
 		_spawn_special_or_campaign()
 		_start_reinforcements()
@@ -1453,58 +1429,44 @@ func _map_water_level() -> float:
 	return float(FrontlineTerrainScript.water_level(frontline_map))
 
 
-## TAC-05 sea level.  The legacy valley uses a flat ground plane at y=0, so a
-## 0.35 m water film left the Magura hull scraping the floor and the mission
-## ended with a self-detonation.  A 3 m basin keeps the whole route afloat.
-func _naval_sea_level() -> float:
-	if frontline_map.is_empty():
-		return 3.0
-	return maxf(_map_water_level() + 0.8, 1.5)
-
-
-## Spiral outward from (x,z) until the analytic terrain is safely above water.
 func _find_dry_spot(x: float, z: float) -> Vector2:
 	var wl := _map_water_level()
+	if absf(x) <= 265.0 and absf(z) <= 265.0 \
+			and FrontlineTerrainScript.height_at(frontline_map, x, z) > wl + 0.9:
+		return Vector2(x, z)
 	for ring in range(1, 10):
 		var radius := 10.0 * float(ring)
 		for i in range(8):
 			var a := TAU * float(i) / 8.0 + float(ring) * 0.4
 			var px := x + cos(a) * radius
 			var pz := z + sin(a) * radius
-			if absf(px) > 470.0 or absf(pz) > 470.0:
+			if absf(px) > 265.0 or absf(pz) > 265.0:
 				continue
 			if FrontlineTerrainScript.height_at(frontline_map, px, pz) > wl + 0.9:
 				return Vector2(px, pz)
-	return Vector2(clampf(x, -400.0, 400.0), clampf(z, -400.0, 400.0))
+	return Vector2(clampf(x, -250.0, 250.0), clampf(z, -250.0, 250.0))
 
 
-## Combat launch point: 330-400 m from the mission centroid, dry open ground,
-## a new bearing on every load.  The operator has to search for the target.
+## Combat launch point: 145-195 m from the mission centroid on dry open ground
+## inside the 40% smaller frontline arena.
 func _pick_combat_spawn() -> Vector2:
-	var centre := Vector2(_mission_offset.x, 90.0 + _mission_offset.z)
+	var centre := Vector2(_mission_offset.x, 70.0 + _mission_offset.z)
 	var water := _map_water_level()
-	# Launch from the northern edge with a small jitter.  East/west bearings
-	# look straight across the whole map and cost 20-40 FPS on the Intel UHD;
-	# this bearing still puts the drone 330-400 m from the objective, and the
-	# target block itself moves every load.
 	var base_angle := PI * 0.5
 	for _attempt in range(64):
-		var angle := base_angle + randf_range(-0.26, 0.26)
-		var radius := randf_range(330.0, 400.0)
+		var angle := base_angle + randf_range(-0.30, 0.30)
+		var radius := randf_range(145.0, 195.0)
 		var p := centre + Vector2(cos(angle), sin(angle)) * radius
-		if absf(p.x) > 440.0 or absf(p.y) > 440.0:
+		if absf(p.x) > 260.0 or absf(p.y) > 260.0:
 			continue
 		var h := FrontlineTerrainScript.height_at(frontline_map, p.x, p.y)
 		if h < water + 1.2:
 			continue
-		# A physics hit far above the analytic terrain means a roof/wreck is
-		# sitting on that spot; pick open ground instead.
 		var phys := _find_ground_y(p.x, p.y)
 		if absf(phys - h) > 2.2:
 			continue
 		return p
-	# Fallback: dry ground on the home side of the map.
-	return _find_dry_spot(0.0, 330.0)
+	return _find_dry_spot(0.0, 215.0)
 
 
 var _spawn_inside_hall := false
@@ -1625,7 +1587,7 @@ func _resolve_spawn_position(origin: Vector2) -> Dictionary:
 			var angle := TAU * float(i) / 16.0 + float(ring) * 0.37
 			var px := origin.x + cos(angle) * radius
 			var pz := origin.y + sin(angle) * radius
-			if absf(px) > 445.0 or absf(pz) > 445.0:
+			if absf(px) > 265.0 or absf(pz) > 265.0:
 				continue
 			var candidate := _spawn_candidate(px, pz)
 			if candidate["valid"]:
@@ -1646,16 +1608,7 @@ func _place_drone_over_ground() -> void:
 	if d == null or respawn == null:
 		return
 	_spawn_inside_hall = false
-	var is_naval_boat: bool = (Global.drone_preset == 10 \
-			or (Global.play_mode == Global.PlayMode.COMBAT and Global.special_mission == 0 \
-			and Global.combat_mission == 5))
-	if is_naval_boat:
-		_sea_y = _naval_sea_level()
-		# Start in open water next to the quay, clear of the concrete pier and
-		# the breakwater, so the USV never spawns on a solid collider.
-		respawn.global_position = Vector3(224.0, _sea_y + 0.05, 40.0)
-		respawn.rotation = Vector3(0.0, deg_to_rad(-61.0), 0.0)
-	elif Global.play_mode == Global.PlayMode.SPEED:
+	if Global.play_mode == Global.PlayMode.SPEED:
 		var t := -0.14
 		var x := 165.0 * cos(t)
 		var z := 115.0 * sin(t)
@@ -1668,10 +1621,9 @@ func _place_drone_over_ground() -> void:
 		respawn.global_position = Vector3(10.0, respawn.global_position.y, 194.0)
 		respawn.rotation = Vector3(0.0, deg_to_rad(-5.0), 0.0)
 	elif Global.play_mode == Global.PlayMode.TUTORIAL:
-		# The flight-school strip lives on the open north field of the village
-		# map.  A fixed spawn makes the 190 m course start at the same place on
-		# every load instead of landing in a random copse of the combat sector.
-		var tut_spawn := _find_dry_spot(0.0, 462.0)
+		# The flight-school strip lives inside _tutorial_clear_zone centered at
+		# X=-48, Z=20..260 so the 180 m (-Z) approach is clear on all shrunk maps.
+		var tut_spawn := _find_dry_spot(-48.0, 200.0)
 		respawn.global_position = Vector3(tut_spawn.x, respawn.global_position.y,
 				tut_spawn.y)
 		respawn.rotation = Vector3.ZERO
@@ -1738,8 +1690,6 @@ func _place_drone_over_ground() -> void:
 		var hall_sink := float(hall_site.get("sink", 0.0))
 		_ground_y = FrontlineTerrainScript.height_at(frontline_map,
 				respawn.global_position.x, respawn.global_position.z) + 0.02 - hall_sink
-	elif is_naval_boat:
-		_ground_y = _find_ground_y(respawn.global_position.x, respawn.global_position.z)
 	else:
 		# Keep the combat launch point out of dense copses/crowns, then resolve
 		# it against the actual physics surface.
@@ -1768,13 +1718,7 @@ func _place_drone_over_ground() -> void:
 			respawn.global_position.z = dry.y
 			_ground_y = float(dry_candidate["ground"])
 	var target := respawn.global_position
-	if is_naval_boat:
-		if _launch_barrel != null and is_instance_valid(_launch_barrel):
-			_launch_barrel.queue_free()
-			_launch_barrel = null
-		target.y = _sea_y + 0.05
-		d.set("water_surface_y", _sea_y)
-	elif OS.has_environment("DRONE_WINDOW_DEMO"):
+	if OS.has_environment("DRONE_WINDOW_DEMO"):
 		target.y = _ground_y + 3.8
 	elif OS.has_environment("DRONE_CRANE_DEMO"):
 		target.y = _ground_y + 26.0
@@ -1786,7 +1730,7 @@ func _place_drone_over_ground() -> void:
 				_ground_y, respawn.global_position.z))
 		target.y = maxf(_ground_y + SPAWN_SAFE_OFFSET, _ground_y + barrel_top + 0.03)
 	respawn.global_position = target
-	if not _spawn_inside_hall and not is_naval_boat:
+	if not _spawn_inside_hall:
 		_add_spawn_pad(Vector2(target.x, target.z), _ground_y)
 	d.global_transform = respawn.global_transform
 	_drone_prev_pos = d.global_position
@@ -1965,15 +1909,9 @@ func _setup_launch_barrel(pos: Vector3) -> float:
 func _on_drone_armed(_mode: int) -> void:
 	var d := get_node_or_null("Drone") as Drone
 	if d != null:
-		var is_naval_boat: bool = (Global.drone_preset == 10 \
-				or (Global.play_mode == Global.PlayMode.COMBAT and Global.special_mission == 0 \
-				and Global.combat_mission == 5))
-		if is_naval_boat:
-			d.freeze = false
-		else:
-			# For aerial quads, unfreeze smoothly so throttle lifts off from the barrel without dropping
-			d.freeze = false
-			d.linear_velocity = Vector3.UP * 0.1
+		# Unfreeze smoothly so throttle lifts off from the barrel without dropping
+		d.freeze = false
+		d.linear_velocity = Vector3.UP * 0.1
 		if d.flight_controller != null and d.flight_controller.flight_mode == FlightController.FlightMode.AUTO:
 			d.flight_controller.select_flight_mode(FlightController.FlightMode.RATE)
 	# Once the pilot is flying, the big keyboard cheat-sheet is just clutter.
@@ -2052,18 +1990,8 @@ func _setup_mission_phases() -> void:
 			recon_base = Vector3(0.0, 0.0, 60.0)
 		3:
 			recon_base = Vector3(0.0, 0.0, 80.0)
-		4:
-			recon_base = Vector3(0.0, 0.0, 80.0)
 		_:
-			# Naval strike: no recon pass, go straight to the attack run.
-			_mission_phase = 1
-			# Extraction must be open water clear of the coast strip, the quay,
-			# the hydro plant and the warship, otherwise the USV cannot finish.
-			_extract_point = Vector3(320.0, 0.0, 80.0)
-			var sea := _sea_y if _sea_y > 0.1 else _naval_sea_level()
-			_extract_point.y = sea + 0.6
-			_set_flash("ФАЗА 1/2 · УДАР: ВИЙДІТЬ НА РУБІЖ АТАКИ")
-			return
+			recon_base = Vector3(0.0, 0.0, 80.0)
 	recon_base += _mission_offset
 	_recon_point = recon_base
 	_recon_point.y = _find_ground_y(recon_base.x, recon_base.z) + 1.6
@@ -2091,7 +2019,7 @@ func _update_mission_phases(delta: float) -> void:
 			if drone.global_position.distance_to(_extract_point) <= 42.0:
 				_mission_phase_hold += delta
 				if _mission_phase_hold >= 3.0:
-					_finish_mission("МІСІЮ %d/5 ВИКОНАНО — ОПЕРАТОР ПОВЕРНУВСЯ!" % Global.combat_mission)
+					_finish_mission("МІСІЮ %d/4 ВИКОНАНО — ОПЕРАТОР ПОВЕРНУВСЯ!" % Global.combat_mission)
 			else:
 				_mission_phase_hold = maxf(_mission_phase_hold - delta * 2.0, 0.0)
 
@@ -2200,15 +2128,13 @@ func _special_mission_hint(mission_id: int) -> String:
 func _combat_mission_banner(m_id: int) -> String:
 	match m_id:
 		1:
-			return "МІСІЯ 1/5: ЗНАЙТИ І ЗНИЩИТИ ПІХОТУ"
+			return "МІСІЯ 1/4: ЗНАЙТИ І ЗНИЩИТИ ПІХОТУ"
 		2:
-			return "МІСІЯ 2/5: ЗНАЙТИ І ЗНИЩИТИ ТАНК І БТР"
+			return "МІСІЯ 2/4: ЗНАЙТИ І ЗНИЩИТИ ТАНК І БТР"
 		3:
-			return "МІСІЯ 3/5: ЗНИЩИТИ ГЕЛІКОПТЕР"
-		4:
-			return "МІСІЯ 4/5: ПЕРЕХОПИТИ ШАХЕД"
+			return "МІСІЯ 3/4: ЗНИЩИТИ ГЕЛІКОПТЕР"
 		_:
-			return "МІСІЯ 5/5: ЗНИЩИТИ КРИМСЬКУ ГЕС"
+			return "МІСІЯ 4/4: ПЕРЕХОПИТИ ШАХЕД"
 
 
 func _finish_mission(reason: String, failed: bool = false) -> void:
@@ -2274,18 +2200,18 @@ func _show_results(reason: String) -> void:
 					var completed := Global.campaign_completed_count()
 					var stars_total := Global.campaign_stars_total()
 					if Global.campaign_is_complete():
-						campaign_line = "КАМПАНІЯ        5/5 · ★ %d/15 · ЗАВЕРШЕНО\n" % stars_total
+						campaign_line = "КАМПАНІЯ        4/4 · ★ %d/12 · ЗАВЕРШЕНО\n" % stars_total
 						if _results_title != null:
-							_results_title.text = "СПЕЦОПЕРАЦІЮ ЗАВЕРШЕНО — КАМПАНІЮ ПРОЙДЕНО!"
+							_results_title.text = "ОПЕРАЦІЮ ЗАВЕРШЕНО — КАМПАНІЮ ПРОЙДЕНО!"
 					else:
-						campaign_line = "КАМПАНІЯ        %d/5 · ★ %d/15 · ДАЛІ: TAC-0%d\n" % [
+						campaign_line = "КАМПАНІЯ        %d/4 · ★ %d/12 · ДАЛІ: TAC-0%d\n" % [
 							completed, stars_total, Global.campaign_unlocked_mission()]
 	var can_next: bool = (Global.play_mode == Global.PlayMode.COMBAT \
 			and Global.special_mission == 0 and not _mission_failed \
-			and Global.combat_mission < 5 and not Global.campaign_is_complete())
+			and Global.combat_mission < 4 and not Global.campaign_is_complete())
 	if _next_mission_btn != null:
 		_next_mission_btn.visible = can_next
-		_next_mission_btn.text = "БРИФІНГ TAC-0%d  →" % mini(Global.combat_mission + 1, 5)
+		_next_mission_btn.text = "БРИФІНГ TAC-0%d  →" % mini(Global.combat_mission + 1, 4)
 	var diff_line := "СКЛАДНІСТЬ       %s (x%.2f)\n" % [Global.get_difficulty_name(), score_mult] if Global.play_mode == Global.PlayMode.COMBAT else ""
 	var award_line := ""
 	if Global.play_mode == Global.PlayMode.TUTORIAL:
@@ -2320,7 +2246,7 @@ func _show_results(reason: String) -> void:
 
 func _on_next_mission_pressed() -> void:
 	get_tree().paused = false
-	Global.combat_mission = clampi(Global.combat_mission + 1, 1, 5)
+	Global.combat_mission = clampi(Global.combat_mission + 1, 1, 4)
 	Global.chain_briefing_pending = true
 	_show_loading_card(Global.combat_mission)
 	await get_tree().create_timer(0.30).timeout
@@ -2401,13 +2327,12 @@ func _make_ring(position: Vector3, radius: float, color: Color,
 func _training_ring_position(i: int) -> Vector3:
 	var t := float(i % 24) / 24.0
 	var angle := t * TAU
-	# Keep every ring inside the playable 1 km terrain.  The old formula reached
-	# 900 m, so most gates floated beyond the map edge.
-	var radius := 120.0 + fmod(float(i % 24) * 37.0, 300.0)
+	# Keep every ring well inside the 40% smaller terrain (80..245 m radius).
+	var radius := 80.0 + fmod(float(i % 24) * 29.0, 165.0)
 	var x := cos(angle) * radius
 	var z := sin(angle) * radius
 	var ground := _find_ground_y(x, z)
-	var y := ground + 18.0 + fmod(float(i % 24) * 11.0, 52.0)
+	var y := ground + 15.0 + fmod(float(i % 24) * 9.0, 42.0)
 	return Vector3(x, y, z)
 
 
@@ -2606,8 +2531,9 @@ func _add_mission_infantry(pos: Vector3, patrol_axis: Vector3, patrol_dist: floa
 		return null
 	if _offset_targets:
 		pos += _mission_offset
-		if not frontline_map.is_empty() \
-				and FrontlineTerrainScript.height_at(frontline_map, pos.x, pos.z) \
+	if not frontline_map.is_empty():
+		if absf(pos.x) > 255.0 or absf(pos.z) > 255.0 \
+				or FrontlineTerrainScript.height_at(frontline_map, pos.x, pos.z) \
 				< _map_water_level() + 0.4:
 			var dry := _find_dry_spot(pos.x, pos.z)
 			pos.x = dry.x
@@ -2646,30 +2572,6 @@ func _on_infantry_unit_destroyed(points: int, is_primary: bool) -> void:
 	_check_combat_mission_complete()
 
 
-func _on_naval_warship_destroyed(points: int) -> void:
-	_kills["WARSHIP"] = int(_kills.get("WARSHIP", 0)) + 1
-	_score += points
-	_mission_targets_destroyed += 1
-	var combat := get_node_or_null("CombatSystem")
-	if combat != null and combat.has_method("add_bonus_score"):
-		combat.call("add_bonus_score", points, "КОРВЕТ ЗНИЩЕНО (1/1)")
-	_set_flash("КОРВЕТ «СЕРГІЙ КОТОВ» ЗНИЩЕНО!  +1000")
-	_play_radio_callout("ЦІЛЬ УРАЖЕНО — КОРВЕТ", true)
-	_check_combat_mission_complete()
-
-
-func _on_hydro_plant_destroyed(points: int) -> void:
-	_kills["HYDRO_PLANT"] = int(_kills.get("HYDRO_PLANT", 0)) + 1
-	_score += points
-	_mission_targets_destroyed += 1
-	var combat := get_node_or_null("CombatSystem")
-	if combat != null and combat.has_method("add_bonus_score"):
-		combat.call("add_bonus_score", points, "ГІДРОЕЛЕКТРОСТАНЦІЮ ЗНИЩЕНО (1/1)")
-	_set_flash("«ГІДРОЕЛЕКТРОСТАНЦІЮ ЗНИЩЕНО!» ТАРАН МАГУРИ-Х УСПІШНИЙ!  +2500")
-	_play_radio_callout("ЦІЛЬ УРАЖЕНО — ГЕС", true)
-	_check_combat_mission_complete()
-
-
 func _check_combat_mission_complete() -> void:
 	if _mission_finished or _mission_targets_total <= 0:
 		return
@@ -2682,9 +2584,9 @@ func _check_combat_mission_complete() -> void:
 			if Global.special_mission > 0:
 				_enter_special_extraction()
 				return
-			var msg := "МІСІЮ %d/5 ВИКОНАНО!" % Global.combat_mission
-			if Global.combat_mission >= 5:
-				msg = "СПЕЦОПЕРАЦІЮ ПОВНІСТЮ ВИКОНАНО! КРИМСЬКУ ГЕС ЗНИЩЕНО!"
+			var msg := "МІСІЮ %d/4 ВИКОНАНО!" % Global.combat_mission
+			if Global.combat_mission >= 4:
+				msg = "БОЙОВУ КАМПАНІЮ 4/4 ПОВНІСТЮ ВИКОНАНО!"
 			await get_tree().create_timer(1.2).timeout
 			_finish_mission(msg, false)
 
@@ -3022,18 +2924,18 @@ func _spawn_vehicles() -> void:
 	# civilian traffic circling the start area
 	for i in range(2 if lowspec else 6):
 		var kind: int = [Vehicle.Kind.TRUCK, Vehicle.Kind.APC, Vehicle.Kind.TANK][i % 3]
-		var points := _loop_waypoints(0.0, 0.0, 150.0 + i * 45.0, 5,
+		var points := _loop_waypoints(0.0, 0.0, 110.0 + i * 24.0, 5,
 				float(i) * 0.9)
 		_add_vehicle(kind, points, 8.0 + i, false, false)
 	# a few extras: BMPs and two sightseeing helicopters
 	for i in range(1 if lowspec else 2):
 		_add_vehicle(Vehicle.Kind.BMP,
-				_loop_waypoints(0.0, 0.0, 320.0 + i * 60.0, 6, 0.5 + float(i)),
+				_loop_waypoints(0.0, 0.0, 190.0 + i * 30.0, 6, 0.5 + float(i)),
 				7.0, false, false)
 	if not lowspec:
 		for i in range(2):
 			_add_vehicle(Vehicle.Kind.HELI,
-					_loop_waypoints(0.0, 0.0, 260.0 + i * 80.0, 6, float(i) * 1.5),
+					_loop_waypoints(0.0, 0.0, 165.0 + i * 45.0, 6, float(i) * 1.5),
 					11.0, false, false, 55.0 + i * 15.0)
 
 
@@ -3433,7 +3335,7 @@ func _spawn_combat_mission(mission_id: int) -> void:
 	randomize()
 	# Dynamic operational deployment zones on every mission launch so enemy positions are unique
 	_offset_targets = mission_id >= 1 and mission_id <= 4
-	_mission_offset = Vector3(randf_range(-85.0, 85.0), 0.0, randf_range(-55.0, 55.0))
+	_mission_offset = Vector3(randf_range(-45.0, 45.0), 0.0, randf_range(-30.0, 30.0))
 
 	match mission_id:
 		1:
@@ -3489,7 +3391,7 @@ func _spawn_combat_mission(mission_id: int) -> void:
 			# МІСІЯ 3: Гелікоптер (Важка складність — повітряна ціль + мобільна ППО)
 			var h_center_x := randf_range(-35.0, 35.0) + _mission_offset.x
 			var h_center_z := randf_range(25.0, 55.0) + _mission_offset.z
-			var h_radius := randf_range(110.0, 140.0)
+			var h_radius := randf_range(80.0, 105.0)
 			var h_height := randf_range(30.0, 42.0)
 			var heli_pts := _loop_waypoints(h_center_x, h_center_z, h_radius, 8, 0.2)
 			_add_vehicle(Vehicle.Kind.HELI, heli_pts, randf_range(12.0, 13.8), true, true, h_height)
@@ -3511,19 +3413,19 @@ func _spawn_combat_mission(mission_id: int) -> void:
 			var sh2_alt := randf_range(44.0, 54.0)
 			var ang := randf_range(-0.25, 0.25)
 			var p_pts1 := [
-				Vector3(-190.0, 0.0, 85.0).rotated(Vector3.UP, ang) + _mission_offset,
-				Vector3(190.0, 0.0, 85.0).rotated(Vector3.UP, ang) + _mission_offset,
-				Vector3(190.0, 0.0, -35.0).rotated(Vector3.UP, ang) + _mission_offset,
-				Vector3(-190.0, 0.0, -35.0).rotated(Vector3.UP, ang) + _mission_offset,
+				Vector3(-135.0, 0.0, 75.0).rotated(Vector3.UP, ang) + _mission_offset,
+				Vector3(135.0, 0.0, 75.0).rotated(Vector3.UP, ang) + _mission_offset,
+				Vector3(135.0, 0.0, -30.0).rotated(Vector3.UP, ang) + _mission_offset,
+				Vector3(-135.0, 0.0, -30.0).rotated(Vector3.UP, ang) + _mission_offset,
 			]
 			_add_vehicle(Vehicle.Kind.SHAHED, p_pts1, randf_range(23.0, 25.5), true, false, sh1_alt)
 			_mission_targets_total += 1
 
 			var p_pts2 := [
-				Vector3(195.0, 0.0, 35.0).rotated(Vector3.UP, -ang) + _mission_offset,
-				Vector3(-195.0, 0.0, 35.0).rotated(Vector3.UP, -ang) + _mission_offset,
-				Vector3(-195.0, 0.0, 115.0).rotated(Vector3.UP, -ang) + _mission_offset,
-				Vector3(195.0, 0.0, 115.0).rotated(Vector3.UP, -ang) + _mission_offset,
+				Vector3(140.0, 0.0, 30.0).rotated(Vector3.UP, -ang) + _mission_offset,
+				Vector3(-140.0, 0.0, 30.0).rotated(Vector3.UP, -ang) + _mission_offset,
+				Vector3(-140.0, 0.0, 100.0).rotated(Vector3.UP, -ang) + _mission_offset,
+				Vector3(140.0, 0.0, 100.0).rotated(Vector3.UP, -ang) + _mission_offset,
 			]
 			_add_vehicle(Vehicle.Kind.SHAHED, p_pts2, randf_range(25.0, 28.0), true, false, sh2_alt)
 			_mission_targets_total += 1
@@ -3540,19 +3442,11 @@ func _spawn_combat_mission(mission_id: int) -> void:
 			], 9.2, true, true)
 			_mission_targets_total += 1
 
-		_:
-			# МІСІЯ 5: ЗНИЩИТИ ГІДРОЕЛЕКТРОСТАНЦІЮ (Морський удар дроном Магура-Х)
-			var NavalBuilder = load("res://scripts/util/naval_scene_builder.gd")
-			NavalBuilder.spawn_hydroelectric_power_station(self, Vector3(380.0, _sea_y - 0.5, -50.0), _on_hydro_plant_destroyed)
-			# Enemy Corvette patrolling in the outer bay waters
-			NavalBuilder.spawn_enemy_warship(self, Vector3(450.0, _sea_y, 110.0), _on_naval_warship_destroyed)
-			_mission_targets_total = 1
-
 	_offset_targets = false
-	if frontline_map != "" and mission_id <= 4:
+	if frontline_map != "":
 		_spawn_frontline_bonus_targets()
 
-	print("[BigLevel] spawned Combat Mission %d/5 with %d required targets" % [
+	print("[BigLevel] spawned Combat Mission %d/4 with %d required targets" % [
 		mission_id, _mission_targets_total
 	])
 
@@ -3564,8 +3458,7 @@ var _reinforcement_wave := 0
 
 
 func _start_reinforcements() -> void:
-	if Global.play_mode != Global.PlayMode.COMBAT or Global.combat_mission == 5 \
-			or Global.special_mission > 0:
+	if Global.play_mode != Global.PlayMode.COMBAT or Global.special_mission > 0:
 		return
 	var timer := Timer.new()
 	timer.name = "ReinforcementTimer"
@@ -3603,7 +3496,7 @@ func _spawn_frontline_bonus_targets() -> void:
 			spots = [
 				[Vector3(-210.0, 0.0, 112.0), Vector3(1.0, 0.0, 0.0), 14.0],
 				[Vector3(28.0, 0.0, 208.0), Vector3(0.0, 0.0, -1.0), 12.0],
-				[Vector3(-165.0, 0.0, 52.0), Vector3(0.6, 0.0, 1.0), 16.0],
+				[Vector3(-120.0, 0.0, 52.0), Vector3(0.6, 0.0, 1.0), 16.0],
 			]
 		"industrial":
 			spots = [
@@ -3634,12 +3527,12 @@ func _spawn_speed_traffic() -> void:
 	# diagonals so none of them blocks the grid at the moment of launch.
 	for i in range(4):
 		var t := (float(i) + 0.5) / 4.0 * TAU
-		var px := cos(t) * 700.0
-		var pz := sin(t) * 380.0
-		var normal := Vector3(-sin(t) * 380.0, 0.0, cos(t) * 700.0).normalized()
+		var px := cos(t) * 165.0
+		var pz := sin(t) * 115.0
+		var normal := Vector3(-sin(t) * 115.0, 0.0, cos(t) * 165.0).normalized()
 		var points := [
-			Vector3(px, 0.0, pz) - normal * 60.0,
-			Vector3(px, 0.0, pz) + normal * 60.0,
+			Vector3(px, 0.0, pz) - normal * 35.0,
+			Vector3(px, 0.0, pz) + normal * 35.0,
 		]
 		_add_vehicle(Vehicle.Kind.TRUCK, points, 12.0, false, false)
 
@@ -3929,7 +3822,7 @@ func _spawn_destructible_buildings(count: int, radius_min: float,
 			var radius := randf_range(radius_min, radius_max)
 			x = centre.x + cos(angle) * radius
 			z = centre.y + sin(angle) * radius
-			if absf(x) > 430.0 or absf(z) > 430.0:
+			if absf(x) > 255.0 or absf(z) > 255.0:
 				continue
 			var h := FrontlineTerrainScript.height_at(frontline_map, x, z)
 			if h < water + 1.2:
@@ -4220,7 +4113,6 @@ func _update_telemetry(delta: float) -> void:
 		if input_arr is Array and input_arr.size() > 0:
 			throttle = clampf(input_arr[0], 0.0, 1.0)
 	var p := DroneCatalog.preset(Global.drone_preset)
-	var is_boat: bool = bool(p.get("is_naval", false))
 	var current := 0.4
 	var cell_v := _battery / 6.0
 	if armed:
@@ -4627,7 +4519,7 @@ func _attach_fpv_rig() -> void:
 		var mode_label := builtin_hud.get_node_or_null("MarginContainer/FlightMode") as CanvasItem
 		if mode_label != null:
 			mode_label.visible = false
-	_rig_visible = bool(p.get("combat", false)) and not bool(p.get("is_naval", false))
+	_rig_visible = bool(p.get("combat", false))
 	_apply_fpv_rig()
 
 
@@ -5148,12 +5040,12 @@ func _activate_fpv_payload() -> void:
 		return
 	_payload_dropped = true
 	var at := drone.global_position
-	var naval := bool(p.get("is_naval", false))
-	var blast := 34.0 if naval else 14.0
-	var dmg := 9000.0 if naval else 2600.0
+	var blast := 14.0
+	var dmg := 2600.0
 	ExplosionScript.spawn(self, at + Vector3.UP * 0.4, blast, dmg)
 	CombatSfxScript.play_boom(self, at, 2.0)
-	_set_flash("БЧ АКТИВОВАНО — ЦІЛЬ УРАЖЕНО" if naval else "БЧ АКТИВОВАНО")
+	Haptics.trigger_explosion(1.15)
+	_set_flash("БЧ АКТИВОВАНО")
 	# Take the drone out of the simulation without triggering a crash message.
 	drone.visible = false
 	drone.freeze = true
@@ -5405,7 +5297,7 @@ func _build_chain_briefing() -> void:
 	box.add_child(phases)
 
 	var progress := Label.new()
-	progress.text = "КАМПАНІЯ %d/5 · ★ %d/15 · СКЛАДНІСТЬ: %s · ЛІМІТ: %s" % [
+	progress.text = "КАМПАНІЯ %d/4 · ★ %d/12 · СКЛАДНІСТЬ: %s · ЛІМІТ: %s" % [
 		Global.campaign_completed_count(), Global.campaign_stars_total(),
 		Global.get_difficulty_name(), _format_countdown(Global.get_difficulty_time_limit())]
 	progress.add_theme_font_size_override("font_size", 12)
@@ -5441,15 +5333,11 @@ func _mission_chain_tasks(mission_id: int) -> String:
 			return "ЗАВДАННЯ: знищити танк Т-72 та БТР-90, що маневрують біля заводу.\nЦІЛІ: 2 одиниці бронетехніки + піхота прикриття."
 		3:
 			return "ЗАВДАННЯ: перехопити ударний гелікоптер і знищити мобільну ППО.\nЦІЛІ: гелікоптер, ЗРК, прикриття."
-		4:
-			return "ЗАВДАННЯ: перехопити два «Шахеди-136» на маршруті.\nЦІЛІ: 2 БПЛА, ЗРК і БМП прикриття."
 		_:
-			return "ЗАВДАННЯ: прорвати бонові загородження та уразити машинний зал Кримської ГЕС.\nБОРТ: USV «МАГУРА-Х» · один удар вирішує операцію."
+			return "ЗАВДАННЯ: перехопити два «Шахеди-136» на маршруті.\nЦІЛІ: 2 БПЛА, ЗРК і БМП прикриття."
 
 
-func _mission_phase_plan_text(mission_id: int) -> String:
-	if mission_id >= 5:
-		return "ФАЗИ: УДАР (вийти на рубіж атаки) → ВИХІД (покинути зону ураження)."
+func _mission_phase_plan_text(_mission_id: int) -> String:
 	return "ФАЗИ: РОЗВІДКА (підлетіти до зони та утримати 3 с) → УДАР (знищити цілі) → ВИХІД (повернутися в зону евакуації)."
 
 
@@ -6283,8 +6171,7 @@ func _setup_warhead_sensor() -> void:
 		old.queue_free()
 	var p := DroneCatalog.preset(Global.drone_preset)
 	var strike := bool(p.get("kamikaze", false)) and bool(p.get("combat", false)) \
-			and not bool(p.get("has_drop", false)) \
-			and not bool(p.get("is_naval", false))
+			and not bool(p.get("has_drop", false))
 	if not strike:
 		return
 	var area := Area3D.new()
@@ -6323,8 +6210,7 @@ func try_strike_warhead_contact(_body: Node, speed: float) -> bool:
 		return false
 	var p := DroneCatalog.preset(Global.drone_preset)
 	var strike := bool(p.get("kamikaze", false)) and bool(p.get("combat", false)) \
-			and not bool(p.get("has_drop", false)) \
-			and not bool(p.get("is_naval", false))
+			and not bool(p.get("has_drop", false))
 	if not strike or speed < 7.0:
 		return false
 	_try_kamikaze_impact(speed)
@@ -6379,7 +6265,6 @@ func _try_kamikaze_impact(impact_speed: float) -> void:
 	if not strike:
 		strike = bool(p.get("combat", false)) \
 				and not bool(p.get("has_drop", false)) \
-				and not bool(p.get("is_naval", false)) \
 				and int(p.get("payload", 0)) > 0
 	if not strike:
 		return
@@ -6482,14 +6367,11 @@ func _refresh_model_visibility() -> void:
 	if _model_root == null or not is_instance_valid(_model_root):
 		return
 	var p := DroneCatalog.preset(Global.drone_preset)
-	var is_boat: bool = bool(p.get("is_naval", false))
 	var third_person := camera != null and camera.name != "FPVCamera"
 	if not third_person:
-		# Sport/recon drones keep a clean lens.  Combat airframes show the
-		# warhead at the bottom edge — the reference FPV look — with the camera
+		# Combat airframes show the warhead at the bottom edge with the camera
 		# lifted just above the frame so the body no longer fills the centre.
-		var combat_airframe := bool(p.get("combat", false)) \
-				and not bool(p.get("is_naval", false))
+		var combat_airframe := bool(p.get("combat", false))
 		var show_airframe := bool(p.get("fpv_show_airframe", false))
 		var hide_model := bool(p.get("fpv_hide_model", false))
 		if show_airframe:
@@ -6555,7 +6437,6 @@ func _apply_flight_hud_defaults() -> void:
 		return
 	GameSettings.hud_config["crosshair"] = true
 	GameSettings.hud_config["status"] = false
-	GameSettings.hud_config["horizon"] = false
 	GameSettings.hud_config["speed"] = false
 	GameSettings.hud_config["altitude"] = false
 	GameSettings.hud_config["heading"] = false

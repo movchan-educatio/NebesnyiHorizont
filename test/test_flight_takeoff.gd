@@ -12,8 +12,6 @@ func _ready() -> void:
 	
 	for i in range(DroneCatalog.count()):
 		var p = DroneCatalog.preset(i)
-		if bool(p.get("is_naval", false)):
-			continue
 		DroneCatalog.apply_to_drone(drone, i)
 		var weight := drone.mass * 9.81
 		
@@ -50,8 +48,8 @@ func _ready() -> void:
 		assert(float(p.get("twr", 0.0)) >= 2.2, "Maximum TWR must be at least 2.2:1 for every drone!")
 		assert(max_twr > 1.0, "Full stick must demand more thrust than the drone's weight!")
 	
-	print("\n--- Testing dynamic flight climb on Freestyle 5\" («ГОЛКА») ---")
-	DroneCatalog.apply_to_drone(drone, 0)
+	print("\n--- Testing dynamic flight climb on Combat 5\" («КВАД-5») ---")
+	DroneCatalog.apply_to_drone(drone, 3)
 	drone.global_position = Vector3(0, 5, 0)
 	drone.linear_velocity = Vector3.ZERO
 	drone.angular_velocity = Vector3.ZERO
@@ -71,7 +69,7 @@ func _ready() -> void:
 	assert(drone.linear_velocity.y > 2.0, "Vertical climb rate must be positive!")
 	
 	print("\n--- Testing dynamic flight climb on Heavy Combat («СТРІЛА-8», 3.0kg) ---")
-	DroneCatalog.apply_to_drone(drone, 7)
+	DroneCatalog.apply_to_drone(drone, 2)
 	drone.global_position = Vector3(0, 5, 0)
 	drone.linear_velocity = Vector3.ZERO
 	drone.angular_velocity = Vector3.ZERO

@@ -82,7 +82,7 @@ func _build() -> void:
 		("3. HIGH" if MenuUI.is_english() else "3. ВИСОКА"),
 	]
 	_quality_buttons.clear()
-	var current_q := clampi(int(Graphics.graphics_settings.get("quality", 2)), 0, 2)
+	var current_q := clampi(int(Graphics.graphics_settings.get("quality", 0)), 0, 2)
 	for q_idx in range(3):
 		var q_btn := MenuUI.button(preset_labels[q_idx], 46)
 		q_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -287,12 +287,12 @@ func _on_fps_changed(index: int) -> void:
 
 
 func _on_reset_pressed() -> void:
-	Graphics.graphics_settings["quality"] = Graphics.QualityPreset.HIGH
+	Graphics.graphics_settings["quality"] = Graphics.QualityPreset.LOW
 	Graphics.graphics_settings["window_mode"] = Graphics.WindowMode.FULLSCREEN
 	Graphics.graphics_settings["resolution"] = 100
 	Graphics.graphics_settings["msaa"] = Graphics.GameMSAA.OFF
-	Graphics.graphics_settings["af"] = Graphics.GameAF.X4
-	Graphics.graphics_settings["shadows"] = Graphics.Shadows.HIGH
+	Graphics.graphics_settings["af"] = Graphics.GameAF.X2
+	Graphics.graphics_settings["shadows"] = Graphics.Shadows.LOW
 	Graphics.graphics_settings["fisheye_mode"] = Graphics.FisheyeMode.OFF
 	Graphics.graphics_settings["fisheye_resolution"] = Graphics.FisheyeResolution.FISHEYE_720P
 	Graphics.graphics_settings["fisheye_msaa"] = Graphics.FisheyeMSAA.OFF

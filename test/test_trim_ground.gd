@@ -15,7 +15,7 @@ func _ready() -> void:
 	var packed := load("res://drone/drones/Drone1.tscn") as PackedScene
 	drone = packed.instantiate() as Drone
 	add_child(drone)
-	DroneCatalog.apply_to_drone(drone, 7)
+	DroneCatalog.apply_to_drone(drone, 2)
 
 	var body := StaticBody3D.new()
 	var col := CollisionShape3D.new()

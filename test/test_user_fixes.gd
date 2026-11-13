@@ -43,16 +43,16 @@ func _ready() -> void:
 	assert(listener != null, "Drone must have AudioListener3D for audible motor sound")
 	print("[PASS] 3. AudioListener3D exists on Drone: ", listener != null)
 	
-	# Test 4: Drone Preset Selection & Replacement (DJI Avata 2, index 2)
-	Global.drone_preset = 2
-	DroneCatalog.apply_to_drone(drone, 2)
+	# Test 4: Drone Preset Selection & Replacement («КВАД-5», index 3)
+	Global.drone_preset = 3
+	DroneCatalog.apply_to_drone(drone, 3)
 	await get_tree().physics_frame
-	var p2 := DroneCatalog.preset(2)
-	assert(drone.mass < 0.50, "DJI Avata 2 mass should be ~0.41 kg")
+	var p3 := DroneCatalog.preset(3)
+	assert(drone.mass < 0.90, "Quad-5 mass should be ~0.83 kg (%s)" % p3.get("name"))
 	var model := drone.get_node_or_null("DroneModel")
 	assert(model != null, "DroneModel must not be null after attach_model")
 	assert(model.name == "DroneModel", "DroneModel node name must remain exact")
-	print("[PASS] 4. Applied DJI Avata 2: mass=", drone.mass, " model=", model.name)
+	print("[PASS] 4. Applied «КВАД-5»: mass=", drone.mass, " model=", model.name)
 	
 	# Test 5: Propeller Visual Cleanup in FPV mode
 	var level: Node = LevelScript.new()

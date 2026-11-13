@@ -2,9 +2,8 @@ extends Node
 
 ## Regression test: combat missions 1-4 complete end-to-end on the real
 ## BigLevel with the legacy maps (recon hold -> strike -> all targets down ->
-## extraction hold -> results screen).  Mission 5 (naval) is covered by
-## qa_mobile_naval_mission.  Campaign records are snapshotted and restored so
-## the QA run never unlocks missions on the developer machine.
+## extraction hold -> results screen).  Campaign records are snapshotted and
+## restored so the QA run never unlocks missions on the developer machine.
 const TEST_NAME := "MOBILE_MISSION_COMPLETION"
 var _failures := 0
 var _saved_records: Dictionary = {}

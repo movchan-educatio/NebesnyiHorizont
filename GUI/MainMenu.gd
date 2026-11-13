@@ -216,33 +216,6 @@ const BRIEFINGS := {
 			"★★ Срібна відзнака: Час < 6:00 або рівень «Оператор»",
 			"★ Бронзова відзнака: Перехоплення та знищення Shahed-136"
 		]
-	},
-	5: {
-		"code": "TAC-05",
-		"name": "КРИМСЬКА ГЕС",
-		"op_name": "ОПЕРАЦІЯ «ЧОРНЕ МОРЕ: ШТОРМ»",
-		"sector": "Акваторія прибережного рейду · Кримська ГЕС",
-		"time": "20:00 хв",
-		"diff": "СПЕЦ",
-		"desc": "Морський удар безпілотним надводним катером «МАГУРА-Х».",
-		"intel": "Стратегічна гідроелектростанція на тимчасово окупованому узбережжі забезпечує енергією вузлові бази окупантів. Об'єкт прикритий береговою артилерією, зенітними установками та боновими сітками. Удар завдається важким морським дроном «МАГУРА-Х».",
-		"tasks": [
-			"Пілотувати USV «МАГУРА-Х» через бонові сітки та хвилі",
-			"Прорвати вогневу завісу берегової охорони та зенітних гармат",
-			"Уразити машинний зал турбін прямим ударом 320 кг бойової частини"
-		],
-		"threats": [
-			"Берегова зенітна артилерія та кулемети",
-			"Бонові загородження та мінні банки",
-			"Морське хвилювання та бризки на оптиці"
-		],
-		"drone": "Морський ударний дрон USV «МАГУРА-Х» (водомет, 320 кг БЧ)",
-		"weather": "Шторм 3 бали, висота хвилі до 1.2м, бічний прибій",
-		"rewards": [
-			"★★★ Золотий Хрест (Ас): Час < 6:00 або рівень «Ас»",
-			"★★ Срібна відзнака: Час < 10:00 або рівень «Оператор»",
-			"★ Бронзова відзнака: Знищення машинного залу Кримської ГЕС"
-		]
 	}
 }
 
@@ -290,17 +263,6 @@ const BRIEFINGS_EN := {
 		"drone": "7-inch FPV interceptor with extreme thrust-to-weight ratio (10:1)",
 		"weather": "Twilight · Light crosswind",
 		"rewards": ["★★★ Gold Cross (Ace): under 3:00 or complete on Ace", "★★ Silver award: under 6:00 or complete on Operator", "★ Bronze award: intercept the Shahed-136"]
-	},
-	5: {
-		"name": "CRIMEAN HYDROELECTRIC PLANT",
-		"op_name": "OPERATION \"BLACK SEA: STORM\"",
-		"sector": "Coastal approach · Crimean hydroelectric plant",
-		"intel": "The strategic hydroelectric facility is protected by coastal artillery, anti-aircraft positions, and boom barriers. Approach by sea using the MAGURA-X unmanned surface vessel.",
-		"tasks": ["Pilot MAGURA-X through the boom barriers and rough water", "Penetrate the coastal defensive fire", "Strike the turbine hall with the 320 kg payload"],
-		"threats": ["Coastal anti-aircraft guns and machine guns", "Boom barriers and minefields", "Waves and spray obscuring optics"],
-		"drone": "MAGURA-X unmanned surface vessel · waterjet · 320 kg payload",
-		"weather": "Sea state 3 · Waves up to 1.2 m · Cross-swell",
-		"rewards": ["★★★ Gold Cross (Ace): under 6:00 or complete on Ace", "★★ Silver award: under 10:00 or complete on Operator", "★ Bronze award: destroy the turbine hall"]
 	}
 }
 
@@ -458,27 +420,6 @@ class _TacticalMapCanvas extends Control:
 			_draw_map_text(font, sh_pos + Vector2(11, 7), "185 км/год · КУРС 240°", 10, tgt_red)
 			_draw_map_text(font, Vector2(center.x - 20, sz.y - 6), "ШВИДКІСНИЙ ПЕРЕХОПЛЮВАЧ", 11, tgt_red, HORIZONTAL_ALIGNMENT_CENTER)
 
-		elif mission_id == 5:
-			# TAC-05: NAVAL COMBAT (МАГУРА-Х vs ГІДРОЕЛЕКТРОСТАНЦІЯ / ГЕС)
-			var dam_pos := center + Vector2(70, -18)
-			var sea_rect := Rect2(center.x + 10, 6, sz.x - center.x - 15, sz.y - 12)
-			draw_rect(sea_rect, Color(0.08, 0.28, 0.38, 0.35), true)
-			_draw_map_text(font, Vector2(center.x + 16, sz.y - 20), "АКВАТОРІЯ ГЕС", 10, Color(0.3, 0.7, 0.9, 0.8))
-			# Dam wall line
-			draw_line(dam_pos + Vector2(0, -32), dam_pos + Vector2(0, 32), Color(0.7, 0.72, 0.7), 4.0)
-			# Machine Hall target box
-			draw_rect(Rect2(dam_pos + Vector2(-16, -10), Vector2(16, 20)), tgt_red, true)
-			# Sluice gates
-			for g in range(-2, 3):
-				draw_line(dam_pos + Vector2(2, g * 9), dam_pos + Vector2(8, g * 9), Color(0.9, 0.3, 0.2), 2.0)
-			var dam_label := MenuUI.translate_text("КРИМСЬКА ГЕС")
-			var hall_label := MenuUI.translate_text("МАШИННИЙ ЗАЛ")
-			var tw_hes := font.get_string_size(dam_label, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
-			var tw_hall := font.get_string_size(hall_label, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x
-			_draw_map_text(font, Vector2(dam_pos.x - 22 - tw_hes, dam_pos.y - 4), "КРИМСЬКА ГЕС", 11, tgt_red)
-			_draw_map_text(font, Vector2(dam_pos.x - 22 - tw_hall, dam_pos.y + 10), "МАШИННИЙ ЗАЛ", 10, amber)
-			_draw_map_text(font, Vector2(center.x - 20, sz.y - 6), "УРАЗИТИ МАШИННИЙ ЗАЛ КРИМСЬКОЇ ГЕС", 11, amber, HORIZONTAL_ALIGNMENT_CENTER)
-
 	func _draw_training_recon(sz: Vector2, center: Vector2, base_pos: Vector2, font: Font) -> void:
 		var green := Color(0.4, 0.85, 0.35, 0.85)
 		var box_rect := Rect2(center - Vector2(sz.x * 0.25, sz.y * 0.32), Vector2(sz.x * 0.62, sz.y * 0.64))
@@ -593,21 +534,14 @@ func _ready() -> void:
 	Global.special_mission = _selected_special
 	if _selected_mode == Global.PlayMode.COMBAT and not OS.has_environment("DRONE_COMBAT_MISSION"):
 		_selected_mission = mini(_selected_mission, Global.campaign_unlocked_mission())
-	if _selected_mode == Global.PlayMode.COMBAT and _selected_special == 0 \
-			and _selected_mission == 5:
-		Global.drone_preset = 10
-		DroneCatalog.apply(10)
-	elif Global.drone_preset == 10 and (_selected_mode != Global.PlayMode.COMBAT \
-			or _selected_special > 0 or _selected_mission != 5):
-		Global.drone_preset = 0
-		DroneCatalog.apply(0)
+	_selected_mission = clampi(_selected_mission, 1, 4)
 	_build()
 	_update_selection_ui()
 	MenuUI.localize_tree(self)
 	if OS.has_environment("DRONE_LOADING_TEST"):
 		call_deferred("_qa_loading_test")
 	if OS.has_environment("DRONE_MENU_CYCLE_TEST"):
-		call_deferred("_qa_cycle_to_avata")
+		call_deferred("_qa_cycle_to_preset")
 
 
 func _qa_loading_test() -> void:
@@ -615,14 +549,15 @@ func _qa_loading_test() -> void:
 	_begin_loading("res://sceneries/VillageLevel.tscn")
 
 
-func _qa_cycle_to_avata() -> void:
+func _qa_cycle_to_preset() -> void:
 	await get_tree().process_frame
 	var guard := 0
-	while Global.drone_preset != 2 and guard < DroneCatalog.count():
+	var target_idx := mini(1, maxi(DroneCatalog.count() - 1, 0))
+	while Global.drone_preset != target_idx and guard < DroneCatalog.count():
 		_cycle_drone(1)
 		guard += 1
-	var ok := Global.drone_preset == 2 \
-			and _selected_mode == Global.PlayMode.TRAINING
+	var ok := Global.drone_preset == target_idx \
+			and DroneCatalog.is_combat(Global.drone_preset)
 	print("[MENU-TEST] selected=", Global.drone_preset,
 			" mode=", _selected_mode, " result=", "PASS" if ok else "FAIL")
 	get_tree().quit(0 if ok else 1)
@@ -733,7 +668,6 @@ func _build() -> void:
 		{"id": 2, "code": "TAC-02", "name": "2. Колона бронетехніки", "desc": "Ураження танка Т-72Б та БТР-82А", "diff": "Середня", "col": MenuUI.FPV_AMBER},
 		{"id": 3, "code": "TAC-03", "name": "3. Гелікоптер у русі", "desc": "Перехоплення низьковисотної авіації", "diff": "Важка", "col": MenuUI.FPV_AMBER},
 		{"id": 4, "code": "TAC-04", "name": "4. БПЛА «Шахед-136»", "desc": "Швидкісне знищення камікадзе", "diff": "Екстрим", "col": MenuUI.FPV_RED},
-		{"id": 5, "code": "TAC-05", "name": "5. Кримська ГЕС", "desc": "Морський удар катером «МАГУРА-Х»", "diff": "Спец", "col": MenuUI.FPV_CYAN},
 	]
 	for md in m_defs:
 		var m_btn := _build_mission_btn(md)
@@ -1154,14 +1088,13 @@ func _select_mode(mode: int) -> void:
 			if b != null and is_instance_valid(b):
 				b.button_pressed = (str(key) == "industrial")
 	if _selected_mode != Global.PlayMode.COMBAT:
-		if Global.drone_preset == 10:
-			QuadSettings.custom_rates = false
-			DroneCatalog.apply(0)
-			_load_drone_model()
+		_update_selection_ui()
+		return
 	_update_selection_ui()
 
 
 func _select_mission(m_id: int) -> void:
+	m_id = clampi(m_id, 1, 4)
 	if not Global.is_mission_unlocked(m_id):
 		_update_selection_ui()
 		return
@@ -1174,17 +1107,6 @@ func _select_mission(m_id: int) -> void:
 	Global.menu_settings["selected_mission"] = m_id
 	Global.menu_settings["selected_special"] = 0
 	Global.save_menu_settings()
-	if m_id == 5:
-		var magura_idx := 10
-		if magura_idx < DroneCatalog.count():
-			QuadSettings.custom_rates = false
-			DroneCatalog.apply(magura_idx)
-			_load_drone_model()
-	else:
-		if Global.drone_preset == 10:
-			QuadSettings.custom_rates = false
-			DroneCatalog.apply(0)
-			_load_drone_model()
 	_update_selection_ui()
 
 
@@ -1198,7 +1120,7 @@ func _select_special_mission(mission_id: int) -> void:
 	Global.menu_settings["selected_mode"] = Global.PlayMode.COMBAT
 	Global.menu_settings["selected_special"] = mission_id
 	Global.save_menu_settings()
-	if Global.drone_preset == 10 or not DroneCatalog.is_combat(Global.drone_preset):
+	if not DroneCatalog.is_combat(Global.drone_preset):
 		QuadSettings.custom_rates = false
 		DroneCatalog.apply(DroneCatalog.first_combat_index())
 		_load_drone_model()
@@ -1399,11 +1321,6 @@ func _update_selection_ui() -> void:
 				_map_obj_lbl.text = "Intercept incoming high-speed Shahed-136 suicide drone." if is_en else "Лобове/наздоганяюче перехоплення швидкісного БПЛА «Шахед-136»."
 				_map_stats_lbl.text = ("Target: Shahed-136 (185 km/h)  ·  Time: %s  ·  Difficulty: %s" if is_en else "Ціль: Шахед-136 (185 км/год)  ·  Час: %s  ·  Складність: %s") % [t_limit_str, diff_str]
 				_launch_btn.text = "▶  START MISSION: TAC-04" if is_en else "▶  ПОЧАТИ ВИЛІТ: TAC-04"
-			5:
-				_map_title_lbl.text = "TAC-05: CRIMEAN HPP · NAVAL STRIKE" if is_en else "TAC-05: Кримська ГЕС · Морський удар"
-				_map_obj_lbl.text = "Breach boom barriers and eliminate Crimean HPP generator hall with MAGURA-X USV direct strike!" if is_en else "Прорвати бонові загородження та знищити машинний зал ГЕС ударом катера «МАГУРА-Х»!"
-				_map_stats_lbl.text = ("Craft: USV «MAGURA-X»  ·  Time: %s  ·  Diff: %s" if is_en else "Борт: тільки USV «МАГУРА-Х»  ·  Час: %s  ·  Складність: %s") % [t_limit_str, diff_str]
-				_launch_btn.text = "▶  START MISSION: TAC-05" if is_en else "▶  ПОЧАТИ ВИЛІТ: TAC-05"
 	if _launch_btn != null:
 		match _selected_mode:
 			Global.PlayMode.TUTORIAL:
@@ -1467,12 +1384,12 @@ func _update_selection_ui() -> void:
 					else "СПЕЦОПЕРАЦІЯ · %s · КАМПАНІЯ НЕ ЗМІНЮЄТЬСЯ") % Global.get_special_mission_name(_selected_special)
 			_campaign_progress_lbl.add_theme_color_override("font_color", MenuUI.FPV_AMBER)
 		elif Global.campaign_is_complete():
-			_campaign_progress_lbl.text = ("CAMPAIGN COMPLETE · %d/5 · ★ %d/15" if is_en_campaign
-					else "КАМПАНІЮ ЗАВЕРШЕНО · %d/5 · ★ %d/15") % [completed, stars_total]
+			_campaign_progress_lbl.text = ("CAMPAIGN COMPLETE · %d/4 · ★ %d/12" if is_en_campaign
+					else "КАМПАНІЮ ЗАВЕРШЕНО · %d/4 · ★ %d/12") % [completed, stars_total]
 			_campaign_progress_lbl.add_theme_color_override("font_color", MenuUI.ACCENT)
 		else:
-			_campaign_progress_lbl.text = ("CAMPAIGN %d/5 · NEXT: TAC-0%d · ★ %d/15" if is_en_campaign
-					else "КАМПАНІЯ %d/5 · ДАЛІ: TAC-0%d · ★ %d/15") % [completed, unlocked_mission, stars_total]
+			_campaign_progress_lbl.text = ("CAMPAIGN %d/4 · NEXT: TAC-0%d · ★ %d/12" if is_en_campaign
+					else "КАМПАНІЯ %d/4 · ДАЛІ: TAC-0%d · ★ %d/12") % [completed, unlocked_mission, stars_total]
 			_campaign_progress_lbl.add_theme_color_override("font_color", MenuUI.FPV_CYAN)
 	if _continue_campaign_btn != null:
 		_continue_campaign_btn.visible = (_selected_mode == Global.PlayMode.COMBAT \
@@ -1694,36 +1611,19 @@ func _launch_current_selection() -> void:
 		if _selected_special > 0:
 			Global.special_mission = _selected_special
 			Global.chain_briefing_pending = false
-			# Special operations use the combat sandbox but never touch the
-			# campaign's mission records or TAC-05 naval restriction.
-			if Global.drone_preset == 10 or not DroneCatalog.is_combat(Global.drone_preset):
+			if not DroneCatalog.is_combat(Global.drone_preset):
 				QuadSettings.custom_rates = false
 				DroneCatalog.apply(DroneCatalog.first_combat_index())
 		else:
 			Global.special_mission = 0
 			if not Global.is_mission_unlocked(_selected_mission):
 				_selected_mission = Global.campaign_unlocked_mission()
-			Global.combat_mission = _selected_mission
-			# Combat sorties accept combat airframes only.  A sport/recon drone
-			# selected in the hangar must not quietly fly an armed mission.
-			if _selected_mission != 5 and not DroneCatalog.is_combat(Global.drone_preset):
+			Global.combat_mission = clampi(_selected_mission, 1, 4)
+			if not DroneCatalog.is_combat(Global.drone_preset):
 				QuadSettings.custom_rates = false
 				DroneCatalog.apply(DroneCatalog.first_combat_index())
-			if _selected_mission == 5:
-				if Global.drone_preset != 10:
-					QuadSettings.custom_rates = false
-					DroneCatalog.apply(10)
-			else:
-				if Global.drone_preset == 10:
-					QuadSettings.custom_rates = false
-					DroneCatalog.apply(0)
 	else:
 		Global.special_mission = 0
-		if Global.drone_preset == 10:
-			QuadSettings.custom_rates = false
-			DroneCatalog.apply(0)
-	# TAC-05 is the naval Magura mission, which only exists on the original
-	# valley map.  Every other launch uses the selected frontline scene.
 	var map_id := _selected_map
 	if _selected_mode == Global.PlayMode.CHAOS:
 		# Chaos is authored specifically around the industrial complex.
@@ -1731,9 +1631,6 @@ func _launch_current_selection() -> void:
 		if not DroneCatalog.is_combat(Global.drone_preset):
 			QuadSettings.custom_rates = false
 			DroneCatalog.apply(DroneCatalog.first_combat_index())
-	if _selected_mode == Global.PlayMode.COMBAT and _selected_special == 0 \
-			and _selected_mission == 5:
-		map_id = "valley"
 	var scene_path: String = FRONTLINE_LEVELS.get(map_id, LEVEL)
 	# The flight school has a fixed training strip on the north field of the
 	# village map; the selected combat map must not move the course into water
@@ -2111,12 +2008,8 @@ func _cycle_drone(dir: int) -> void:
 	var total := DroneCatalog.count()
 	if total <= 0:
 		return
-	# Cycle through every hangar airframe.  Non-combat (cinematic/recon)
-	# drones are valid in Free Flight, so selecting one from the big menu
-	# preview auto-switches the sortie mode instead of silently skipping
-	# AVATA 2 forever in Combat mode.
 	var new_idx := (Global.drone_preset + dir + total) % total
-	if new_idx != 10 and _selected_mode == Global.PlayMode.COMBAT \
+	if _selected_mode == Global.PlayMode.COMBAT \
 			and not DroneCatalog.is_combat(new_idx):
 		_selected_mode = Global.PlayMode.TRAINING
 		_selected_special = 0
@@ -2128,13 +2021,6 @@ func _cycle_drone(dir: int) -> void:
 	DroneCatalog.apply(new_idx)
 	Global.menu_settings["drone_preset"] = new_idx
 	Global.save_menu_settings()
-	if new_idx == 10:
-		# Magura-X can ONLY execute TAC-05!
-		_selected_mode = Global.PlayMode.COMBAT
-		_selected_mission = 5
-	elif _selected_mode == Global.PlayMode.COMBAT and _selected_mission == 5:
-		# Aerial drones cannot execute TAC-05 (only Magura-X can!)
-		_selected_mission = 1
 	_update_drone_intel()
 	_load_drone_model()
 	_update_selection_ui()
@@ -2157,28 +2043,25 @@ func _update_drone_intel() -> void:
 	else:
 		_drone_title_lbl.text = "АКТИВНИЙ ДРОН [%d/%d]:  %s  [%s]" % [idx + 1, total, drone_preset_name, drone_tag]
 
-	if bool(p.get("is_naval", false)):
-		_drone_sub_lbl.text = "MASS: 1000 kg  •  WATERJET: 45 KTS (85 KM/H)  •  WARHEAD: 320 KG (HE)  [SPECIAL OPERATION: TAC-05 CRIMEAN HPP]" if is_en else "МАСА: 1000 кг  •  ВОДОМЕТ: 45 ВУЗЛІВ (85 КМ/ГОД)  •  БЧ: 320 кг (ОФ)  [СПЕЦОПЕРАЦІЯ: ЛИШЕ МІСІЯ TAC-05 «КРИМСЬКА ГЕС»]"
+	var total_mass: float = float(p.get("dry", 0.4)) + float(p.get("batt", 0.2)) + float(p.get("payload_mass", 0.0))
+	var is_combat: bool = bool(p.get("combat", false))
+	var has_drop: bool = bool(p.get("has_drop", false))
+	var ammo: int = int(p.get("payload", 0)) if is_combat else 0
+	var ammo_text: String
+	if not is_combat:
+		ammo_text = "NONE" if is_en else "ВІДСУТНІЙ"
+	elif has_drop:
+		ammo_text = "%s [DROP]" % str(p.get("drop_name", "%dx VOG-17" % ammo)) if is_en else "%s [СКИД]" % str(p.get("drop_name", "%dх ВОГ-17" % ammo))
 	else:
-		var total_mass: float = float(p.get("dry", 0.4)) + float(p.get("batt", 0.2)) + float(p.get("payload_mass", 0.0))
-		var is_combat: bool = bool(p.get("combat", false))
-		var has_drop: bool = bool(p.get("has_drop", false))
-		var ammo: int = int(p.get("payload", 0)) if is_combat else 0
-		var ammo_text: String
-		if not is_combat:
-			ammo_text = "NONE (CIVILIAN)" if is_en else "ВІДСУТНІЙ"
-		elif has_drop:
-			ammo_text = "%s [DROP]" % str(p.get("drop_name", "%dx VOG-17" % ammo)) if is_en else "%s [СКИД]" % str(p.get("drop_name", "%dх ВОГ-17" % ammo))
-		else:
-			ammo_text = "%dx KAMIKAZE" % ammo if is_en else "%dх БЧ КАМІКАДЗЕ" % ammo
-		if is_en:
-			_drone_sub_lbl.text = "⚖️ MASS: %.2f kg  ·  ⚡ MOTORS: %d KV  ·  🚀 TWR: %.1f:1  ·  💣 %s" % [
-				total_mass, int(p.get("kv", 2200)), float(p.get("twr", 6.0)), ammo_text
-			]
-		else:
-			_drone_sub_lbl.text = "⚖️ Маса: %.2f кг  ·  ⚡ Мотори: %d KV  ·  🚀 Тяга: %.1f:1  ·  💣 %s" % [
-				total_mass, int(p.get("kv", 2200)), float(p.get("twr", 6.0)), ammo_text
-			]
+		ammo_text = "%dx KAMIKAZE" % ammo if is_en else "%dх БЧ КАМІКАДЗЕ" % ammo
+	if is_en:
+		_drone_sub_lbl.text = "⚖️ MASS: %.2f kg  ·  ⚡ MOTORS: %d KV  ·  🚀 TWR: %.1f:1  ·  💣 %s" % [
+			total_mass, int(p.get("kv", 2200)), float(p.get("twr", 6.0)), ammo_text
+		]
+	else:
+		_drone_sub_lbl.text = "⚖️ Маса: %.2f кг  ·  ⚡ Мотори: %d KV  ·  🚀 Тяга: %.1f:1  ·  💣 %s" % [
+			total_mass, int(p.get("kv", 2200)), float(p.get("twr", 6.0)), ammo_text
+		]
 
 
 func _build_3d_drone_card() -> Control:
@@ -2385,10 +2268,10 @@ func _load_drone_model() -> void:
 	var actual := _preview_world_aabb(model)
 	if actual.size.length_squared() > 0.000001:
 		var extra_lift := 0.0
-		match Global.drone_preset:
-			3:
+		match str(DroneCatalog.preset(Global.drone_preset).get("id", "")):
+			"pisun_vtol":
 				extra_lift = 0.10
-			5, 6:
+			"grim7", "grim7m":
 				extra_lift = 0.03
 		model.position.y += (target_bottom - actual.position.y) + extra_lift
 		model.force_update_transform()

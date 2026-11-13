@@ -18,26 +18,26 @@ func _ready() -> void:
 		var m: Node3D = drone.motors[i]
 		print(" Motor %d pos: %s, CW: %s" % [i + 1, m.transform.origin, m.clockwise])
 	
-	# Test 1: Freestyle 5" («ГОЛКА») - high TWR (8:1 - 10:1)
-	catalog.apply_to_drone(drone, 0)
-	var holka_mass: float = drone.mass
-	var holka_weight: float = holka_mass * 9.81
+	# Test 1: Light combat 5" («КВАД-5») - high TWR (>= 5.0:1)
+	catalog.apply_to_drone(drone, 3)
+	var light_mass: float = drone.mass
+	var light_weight: float = light_mass * 9.81
 	
 	# Set 100% throttle on all 4 motors
-	var total_max_thrust_holka := 0.0
+	var total_max_thrust_light := 0.0
 	for m in drone.motors:
 		m.set_rpm(m.MAX_RPM)
 		m.propeller.update_forces()
-		total_max_thrust_holka += m.propeller.forces[0].y
+		total_max_thrust_light += m.propeller.forces[0].y
 	
-	var twr_holka := total_max_thrust_holka / holka_weight
-	print("[TEST] «ГОЛКА» (0.60kg): Weight = %.2f N, Total Max Thrust = %.2f N, TWR = %.2f:1" % [
-		holka_weight, total_max_thrust_holka, twr_holka
+	var twr_light := total_max_thrust_light / light_weight
+	print("[TEST] «КВАД-5» (0.83kg): Weight = %.2f N, Total Max Thrust = %.2f N, TWR = %.2f:1" % [
+		light_weight, total_max_thrust_light, twr_light
 	])
-	assert(twr_holka >= 7.5 and twr_holka <= 10.5, "Holka TWR must be between 7.5:1 and 10.5:1")
+	assert(twr_light >= 5.0 and twr_light <= 10.5, "Quad-5 TWR must be between 5.0:1 and 10.5:1")
 	
 	# Test 2: Heavy Combat 8.5" («СТРІЛА-8» with 1.4kg payload = 3.0kg) - combat TWR (~2.7:1)
-	catalog.apply_to_drone(drone, 7)
+	catalog.apply_to_drone(drone, 2)
 	var strila_mass: float = drone.mass
 	var strila_weight: float = strila_mass * 9.81
 	

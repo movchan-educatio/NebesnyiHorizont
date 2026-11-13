@@ -69,8 +69,8 @@ func _build_cases() -> void:
 		_cases.append({"tag": "special_%d_%s" % [s, smap],
 				"mode": Global.PlayMode.COMBAT,
 				"map": smap, "mission": 1, "special": s})
-	for m in range(2, 6):
-		var map := "valley" if m == 5 else "industrial"
+	for m in range(2, 5):
+		var map := "industrial"
 		_cases.append({"tag": "campaign_m%d_%s" % [m, map],
 				"mode": Global.PlayMode.COMBAT,
 				"map": map, "mission": m, "special": 0})
@@ -181,7 +181,7 @@ func _validate_case(tag: String, c: Dictionary, level: Node) -> void:
 			if level.get_node_or_null("ChaosBattle") == null:
 				_fail(tag, "no ChaosBattle")
 		Global.PlayMode.COMBAT:
-			if special == 0 and mission != 5:
+			if special == 0:
 				if int(level.get("_mission_targets_total")) <= 0:
 					_fail(tag, "no mission targets")
 			elif special > 0:
@@ -205,9 +205,8 @@ func _validate_case(tag: String, c: Dictionary, level: Node) -> void:
 					drone.global_position + Vector3(0.0, 0.35, 0.0))
 			if not space.intersect_shape(q, 1).is_empty():
 				_fail(tag, "spawn overlaps geometry")
-	# Automated take-off (skip the boat and the school, which owns the sticks).
-	var naval := int(Global.drone_preset) == 10
-	if not naval and mode != Global.PlayMode.TUTORIAL:
+	# Automated take-off (skip the school, which owns the sticks).
+	if mode != Global.PlayMode.TUTORIAL:
 		await _test_takeoff(tag, level, drone)
 
 

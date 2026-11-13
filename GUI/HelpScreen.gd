@@ -63,12 +63,11 @@ The screen rotates with the device and respects the camera notch.
 [b]CONTROLLERS[/b]
 RadioMaster TX12 / Pocket / Zorro, BetaFPV, Xbox, PlayStation."""
 
-const MODES_TEXT := """[b]БОЙОВІ МІСІЇ (КАМПАНІЯ 1–5)[/b]
+const MODES_TEXT := """[b]БОЙОВІ МІСІЇ (КАМПАНІЯ 1–4)[/b]
 • TAC-01: Піхота (виявлення та ліквідація живої сили)
 • TAC-02: Танк і БТР (знищення броньованої колони)
 • TAC-03: Гелікоптер (перехоплення низьковисотної авіації)
 • TAC-04: Шахед-136 (перехоплення швидкісного дрона-камікадзе)
-• TAC-05: Кримська ГЕС (лише морський дрон «МАГУРА-Х»; таран машинного залу)
 Місії відкриваються послідовно: наступна — лише після завершення
 попередньої. Брифінг → виліт → дебрифінг ідуть безперервно, а кнопка
 «ПРОДОВЖИТИ КАМПАНІЮ» веде до першої незавершеної місії.
@@ -77,7 +76,6 @@ const MODES_TEXT := """[b]БОЙОВІ МІСІЇ (КАМПАНІЯ 1–5)[/b]
 1/3 РОЗВІДКА — підлетіти до зони й утримати 3 секунди.
 2/3 УДАР — знищити всі цілі, позначені маркерами.
 3/3 ВИХІД — повернутися в зону евакуації та утримати 3 секунди.
-Для TAC-05 фази коротші: удар → вихід із зони ураження.
 Маркер фази показує відстань і відсоток утримання зони.
 
 [b]ЕФЕКТИ ВЛУЧАНЬ[/b]
@@ -103,7 +101,7 @@ const MODES_TEXT := """[b]БОЙОВІ МІСІЇ (КАМПАНІЯ 1–5)[/b]
 4 карти без супротивника: село, промзона, степ, плавні. Практика стіків, воріт, низьких прольотів і посадок.
 
 [b]ЗЛІТ[/b]
-Повітряні дрони стартують з тактичної пускової бочки; Магура-Х — з води.
+Бойові БПЛА стартують з тактичної пускової бочки.
 
 [b]ВИБІР ДРОНА[/b]
 Стрілки ◄ / ►, ангар або миша. Один клік мишею перемикає рівно на один борт.
@@ -146,12 +144,11 @@ PlayStation controllers are supported with axis calibration.
 In Controls, the row “Activate warhead / instant detonation”
 can be bound to any transmitter switch with the “Auto” button."""
 
-const MODES_TEXT_EN := """[b]COMBAT CAMPAIGN 1–5[/b]
+const MODES_TEXT_EN := """[b]COMBAT CAMPAIGN 1–4[/b]
 • TAC-01: infantry
 • TAC-02: tank and APC
 • TAC-03: helicopter
 • TAC-04: Shahed-136
-• TAC-05: Crimean HPP (MAGURA-X only)
 Missions unlock sequentially. The next sortie opens only after the previous
 one is completed. Briefing → mission → debriefing flows continuously, and
 “CONTINUE CAMPAIGN” jumps to the first unfinished mission.
@@ -160,7 +157,6 @@ one is completed. Briefing → mission → debriefing flows continuously, and
 1/3 RECON — reach the zone and hold it for 3 seconds.
 2/3 STRIKE — destroy every primary target.
 3/3 EXTRACT — return to the evacuation zone and hold it for 3 seconds.
-TAC-05 is shorter: strike → leave the blast area.
 The phase marker shows distance and hold percentage.
 
 [b]HIT EFFECTS[/b]
@@ -186,7 +182,7 @@ Gamepad: B — retry module, Start — help.
 Four maps without opponents: village, industrial, steppe and wetlands. Practise sticks, gates, low passes and landings.
 
 [b]TAKEOFF[/b]
-Air drones launch from a field tube; MAGURA-X starts from the water.
+Combat drones launch from a field tube.
 
 [b]AIRCRAFT SELECTION[/b]
 ◄ / ►, the Hangar or the mouse. One mouse click now moves exactly one aircraft.
@@ -321,9 +317,6 @@ func _build() -> void:
 
 func _launch_tutorial() -> void:
 	Global.play_mode = Global.PlayMode.TUTORIAL
-	if Global.drone_preset == 10:
-		QuadSettings.custom_rates = false
-		DroneCatalog.apply(0)
 	# Same persistent loading card as the main menu, including the authored
 	# battlefield photograph, so the tutorial does not flash a black screen.
 	var overlay: Dictionary = LoadingScreen.build(Global.PlayMode.TUTORIAL, 0,

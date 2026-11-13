@@ -414,6 +414,7 @@ func _update_mode_button() -> void:
 
 
 func _on_mode_pressed() -> void:
+	Haptics.trigger_ui_tap()
 	if touch_mode:
 		touch_mode = false
 		_reset_sticks()
@@ -446,7 +447,10 @@ func _on_arm_pressed() -> void:
 		else:
 			var armed := bool(fc.call("request_arm", true))
 			_show_toast("АРМ" if armed else "АРМ НЕ ДОЗВОЛЕНО")
+			if not armed:
+				Haptics.trigger_ui_tap()
 		return
+	Haptics.trigger_ui_tap()
 	# Menu / calibration preview has no flight controller: keep the synthetic
 	# action path for any listener that still wants the edge.
 	_dispatch_action("toggle_arm")
@@ -457,10 +461,12 @@ func _on_pause_pressed() -> void:
 
 
 func _on_flight_pressed() -> void:
+	Haptics.trigger_ui_tap()
 	_dispatch_action("cycle_flight_modes")
 
 
 func _on_action_pressed(action: String) -> void:
+	Haptics.trigger_ui_tap()
 	if action == "deploy_payload":
 		var actual_action := _touch_payload_action()
 		if not _payload_available(actual_action):

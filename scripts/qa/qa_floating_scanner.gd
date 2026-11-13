@@ -141,8 +141,8 @@ static func _support_height(terrain, map_name: String, hall: Dictionary,
 static func _skip_multimesh(name_l: String) -> bool:
 	for w in ["grass", "leaf", "leaves", "foliage", "bush", "scrub", "canopy",
 			"impostor", "reed", "flower", "tuft", "weeds", "crop", "pebble",
-			"rubble", "debris", "smoke", "cloud", "batch", "hud", "sprite",
-			"glass", "water", "train", "rail"]:
+			"rubble", "debris", "smoke", "plume", "roof", "blade", "cloud",
+			"batch", "hud", "sprite", "glass", "water", "train", "rail"]:
 		if name_l.contains(w):
 			return true
 	return false

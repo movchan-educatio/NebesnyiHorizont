@@ -2,7 +2,7 @@ extends Control
 class_name HUD
 
 
-enum Component {CROSSHAIR, STATUS, HEADING, SPEED, ALTITUDE, LADDER, HORIZON, STICKS, RPM}
+enum Component {CROSSHAIR, STATUS, HEADING, SPEED, ALTITUDE, LADDER, STICKS, RPM}
 
 # HUD components
 @onready var ladder := $VBoxContainer/HBoxLadder/HUDLadder
@@ -73,9 +73,6 @@ func show_component(component: int, show: bool = true) -> void:
 		Component.LADDER:
 			for marker in ladder.pitch_markers:
 				hud_component.append(marker)
-		Component.HORIZON:
-			hud_component.append(ladder.horizon)
-			self_only = true
 		Component.STICKS:
 			hud_component.append(stick_left)
 			hud_component.append(stick_right)

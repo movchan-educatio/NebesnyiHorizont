@@ -5,7 +5,6 @@
 ## the same grid at 720p, 1080p, 1440p and ultrawide resolutions.
 extends Control
 
-const VIDEO_PATH := "res://Assets/video/start_loop.ogv"
 const MAIN_MENU := "res://GUI/MainMenu.tscn"
 const MOBILE_MENU := "res://GUI/mobile/MobileMenu.tscn"
 const DRONE_HANGAR := "res://GUI/DroneSelectScreen.tscn"
@@ -21,15 +20,12 @@ const QA_ENV := ["DRONE_AUTOTEST", "DRONE_AUTOTEST_COMBAT", "DRONE_AUTOTEST_INFA
 		"DRONE_INFANTRY_DEMO", "DRONE_RESTART_TEST", "DRONE_WALK_DEMO",
 		"DRONE_FPS_BENCH", "DRONE_FLYTEST", "DRONE_PREWARM_TEST", "DRONE_SHOT_TEST"]
 
-var _video: VideoStreamPlayer = null
-var _video_holder: Control = null
-var _sound_toggle: CheckButton = null
 var _menu_music: AudioStreamPlayer = null
 var _brand_project: Label = null
 var _brand_title: Label = null
 var _brand_subtitle: Label = null
 var _status_label: Label = null
-var _video_tag: Label = null
+var _mode_prompt: Label = null
 var _ui_layer: Control = null
 var _design_root: Control = null
 var _nav_entries: Array[Dictionary] = []
@@ -136,24 +132,6 @@ func _initialize_settings() -> void:
 func _build() -> void:
 	add_child(MenuUI.background(MenuUI.FPV_BG, false))
 
-	# The supplied intro video is the full-screen hero background.  The source
-	# is a 1920x1080 clip with a baked 21:9 letterbox at the top, so it is
-	# overscanned inside a clipping holder: the empty band is pushed above the
-	# viewport and the actual footage fills the screen edge to edge.
-	_video_holder = Control.new()
-	_video_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_video_holder.clip_contents = true
-	MenuUI.full_rect(_video_holder)
-	add_child(_video_holder)
-
-	_video = VideoStreamPlayer.new()
-	_video.expand = true
-	_video.loop = true
-	_video.volume_db = 0.0 if bool(Global.menu_settings["video_audio"]) else -80.0
-	_video.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_video_holder.add_child(_video)
-	_start_video()
-
 	var tint := ColorRect.new()
 	tint.color = Color(0.008, 0.018, 0.012, 0.40)
 	tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -210,17 +188,6 @@ func _build_home_overlay() -> void:
 	_place(_brand_subtitle, Rect2(460, 136, 1000, 22))
 	_design_root.add_child(_brand_subtitle)
 
-	# --- Intro-audio toggle --------------------------------------------------
-	_sound_toggle = CheckButton.new()
-	_sound_toggle.custom_minimum_size = Vector2(208, 52)
-	_sound_toggle.text = "ЗВУК ВІДЕО"
-	_sound_toggle.tooltip_text = "Звук заставки"
-	_sound_toggle.button_pressed = bool(Global.menu_settings.get("video_audio", true))
-	_sound_toggle.add_theme_font_size_override("font_size", 17)
-	_sound_toggle.toggled.connect(_on_sound_toggled)
-	_place(_sound_toggle, Rect2(1674, 24, 208, 52))
-	_design_root.add_child(_sound_toggle)
-
 	# --- Left navigation rail ------------------------------------------------
 	var nav_panel := PanelContainer.new()
 	nav_panel.add_theme_stylebox_override("panel",
@@ -272,11 +239,11 @@ func _build_home_overlay() -> void:
 		nav_box.add_child(entry["button"])
 
 	# --- Mode selector, news, action and contacts ---------------------------
-	_video_tag = Label.new()
-	_video_tag.add_theme_font_size_override("font_size", 14)
-	_video_tag.add_theme_color_override("font_color", Color(0.68, 0.74, 0.70))
-	_place(_video_tag, Rect2(580, 184, 900, 22))
-	_design_root.add_child(_video_tag)
+	_mode_prompt = Label.new()
+	_mode_prompt.add_theme_font_size_override("font_size", 14)
+	_mode_prompt.add_theme_color_override("font_color", Color(0.68, 0.74, 0.70))
+	_place(_mode_prompt, Rect2(580, 184, 900, 22))
+	_design_root.add_child(_mode_prompt)
 
 	_build_home_mode_bar()
 	_build_news_panel()
@@ -543,9 +510,6 @@ func _refresh_home_language() -> void:
 		_brand_title.text = "НЕБЕСНИЙ ГОРИЗОНТ"
 	if _brand_subtitle != null:
 		_brand_subtitle.text = "ПОЛІТ · ТРЕНУВАННЯ · БОЙОВІ МІСІЇ"
-	if _sound_toggle != null:
-		_sound_toggle.text = "ЗВУК ВІДЕО"
-		_sound_toggle.tooltip_text = "Звук заставки"
 	for entry in _nav_entries:
 		(entry["title"] as Label).text = entry["uk_title"]
 		(entry["detail"] as Label).text = entry["uk_desc"]
@@ -553,11 +517,11 @@ func _refresh_home_language() -> void:
 		var campaign_done := Global.campaign_completed_count()
 		var campaign_stars := Global.campaign_stars_total()
 		if MenuUI.is_english():
-			_status_label.text = "FPV SIMULATOR · VERSION 1.6.0-test · UKRAINE · CAMPAIGN %d/5 · ★ %d/15" % [campaign_done, campaign_stars]
+			_status_label.text = "FPV SIMULATOR · VERSION 1.6.0-test · UKRAINE · CAMPAIGN %d/4 · ★ %d/12" % [campaign_done, campaign_stars]
 		else:
-			_status_label.text = "FPV-СИМУЛЯТОР · ВЕРСІЯ 1.6.0-test · УКРАЇНА · КАМПАНІЯ %d/5 · ★ %d/15" % [campaign_done, campaign_stars]
-	if _video_tag != null:
-		_video_tag.text = "ОБЕРІТЬ РЕЖИМ ПОЛЬОТУ"
+			_status_label.text = "FPV-СИМУЛЯТОР · ВЕРСІЯ 1.6.0-test · УКРАЇНА · КАМПАНІЯ %d/4 · ★ %d/12" % [campaign_done, campaign_stars]
+	if _mode_prompt != null:
+		_mode_prompt.text = "ОБЕРІТЬ РЕЖИМ ПОЛЬОТУ"
 	_refresh_home_mode()
 
 
@@ -573,18 +537,6 @@ func _layout_design() -> void:
 	var s := minf(vp.x / DESIGN_SIZE.x, vp.y / DESIGN_SIZE.y)
 	_design_root.scale = Vector2(s, s)
 	_design_root.position = (vp - DESIGN_SIZE * s) * 0.5
-	_fit_video(vp)
-
-
-## Push the baked top letterbox of the intro clip out of view.  27% of the
-## frame is empty, so the video is scaled to 1/0.729 and anchored top-left.
-func _fit_video(vp: Vector2) -> void:
-	if _video == null or _video_holder == null:
-		return
-	var k := 1.372
-	_video.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	_video.size = vp * k
-	_video.position = Vector2(-(vp.x * (k - 1.0)) * 0.5, -vp.y * 0.3716)
 
 
 func _open_hangar() -> void:
@@ -625,20 +577,6 @@ func _start_menu_music() -> void:
 	Audio.play_menu_music()
 
 
-func _start_video() -> void:
-	if DisplayServer.get_name() == "headless":
-		return
-	if not ResourceLoader.exists(VIDEO_PATH):
-		print("[StartScreen] intro video not found: ", VIDEO_PATH)
-		return
-	var stream := load(VIDEO_PATH)
-	if stream is VideoStream:
-		_video.stream = stream
-		_video.play()
-	else:
-		print("[StartScreen] intro video is not a VideoStream")
-
-
 func _make_fade() -> GradientTexture2D:
 	var gradient := Gradient.new()
 	gradient.set_color(0, Color(0, 0, 0, 0))
@@ -663,13 +601,6 @@ func _make_horizontal_fade() -> GradientTexture2D:
 	texture.fill_from = Vector2(0.0, 0.5)
 	texture.fill_to = Vector2(1.0, 0.5)
 	return texture
-
-
-func _on_sound_toggled(pressed: bool) -> void:
-	Global.menu_settings["video_audio"] = pressed
-	Global.save_menu_settings()
-	if _video != null:
-		_video.volume_db = 0.0 if pressed else -80.0
 
 
 func _on_start_pressed() -> void:

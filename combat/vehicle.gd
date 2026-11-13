@@ -1283,6 +1283,14 @@ func _move_along_route(delta: float) -> void:
 		global_position -= forward * effective_speed * 0.62 * delta
 	elif not blocked:
 		global_position += forward * _step
+	var fmap := _frontline_map()
+	if not fmap.is_empty():
+		var lim := 285.0
+		if absf(global_position.x) > lim or absf(global_position.z) > lim:
+			global_position.x = clampf(global_position.x, -lim, lim)
+			global_position.z = clampf(global_position.z, -lim, lim)
+			if _waypoints.size() > 1:
+				_wp_index = (_wp_index + 1) % _waypoints.size()
 
 
 func _is_path_blocked(forward: Vector3, dist: float) -> bool:

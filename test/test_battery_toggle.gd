@@ -7,7 +7,7 @@ func _ready() -> void:
 	var drone := scene.instantiate() as Drone
 	add_child(drone)
 	GameSettings.hud_config["infinite_battery"] = false
-	DroneCatalog.apply_to_drone(drone, 12)
+	DroneCatalog.apply_to_drone(drone, 7)
 	for motor in drone.motors:
 		motor.set_rpm(motor.MAX_RPM)
 	drone.update_voltage_sag(0.1)

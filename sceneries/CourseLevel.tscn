@@ -30,7 +30,7 @@ ambient_light_energy = 1.2
 tonemap_mode = 2
 
 [sub_resource type="BoxShape3D" id="GroundShape"]
-size = Vector3(4000, 1, 4000)
+size = Vector3(2400, 1, 2400)
 
 [sub_resource type="StandardMaterial3D" id="GroundMat"]
 albedo_color = Color(0.13, 0.12, 0.11, 1)
@@ -38,7 +38,7 @@ roughness = 1.0
 
 [sub_resource type="PlaneMesh" id="GroundMesh"]
 material = SubResource("GroundMat")
-size = Vector2(4000, 4000)
+size = Vector2(2400, 2400)
 
 [node name="CourseLevel" type="Node3D"]
 script = ExtResource("1_level")
@@ -67,7 +67,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10.5, 33, -42)
 
 [node name="City" type="Node3D" parent="."]
 script = ExtResource("4_cityenv")
-target_footprint_m = 400.0
+target_footprint_m = 240.0
 
 [node name="Street" parent="City" instance=ExtResource("3_city")]
 
@@ -78,10 +78,11 @@ laps = 1
 [node name="Course" type="Node3D" parent="."]
 script = ExtResource("7_course")
 gate_count = 7
-gate_spacing = 26.0
+gate_spacing = 20.0
 gate_height = 3.2
 inner_radius = 2.5
 outer_radius = 3.1
+max_course_radius = 95.0
 
 [node name="Drone" parent="." instance=ExtResource("2_drone")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10.5, 33, -42)
@@ -92,7 +93,7 @@ cull_mask = 1
 current = true
 fov = 110.0
 near = 0.02
-far = 4000.0
+far = 2400.0
 
 [node name="RadioController" type="Node" parent="."]
 script = ExtResource("5_radio")

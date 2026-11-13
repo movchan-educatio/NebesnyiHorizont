@@ -6,7 +6,7 @@ extends Node
 
 var drone: Drone = null
 var elapsed := 0.0
-var preset := 7
+var preset := 2
 
 
 func _ready() -> void:

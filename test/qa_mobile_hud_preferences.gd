@@ -26,7 +26,7 @@ func _run() -> void:
 	settings.game_settings_path = path
 	var config := ConfigFile.new()
 	var expected := {
-		"crosshair": true, "status": true, "horizon": true,
+		"crosshair": true, "status": true,
 		"speed": true, "altitude": true, "heading": true,
 		"sticks": false, "osd": false,
 	}

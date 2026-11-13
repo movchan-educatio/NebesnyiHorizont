@@ -25,13 +25,13 @@ enum FisheyeMSAA {OFF, X2, X4, X8, X16, SAME_AS_GAME}
 
 var graphics_settings_path := "%s/Graphics.cfg" % Global.config_dir
 
-var graphics_settings := {"quality": QualityPreset.HIGH,
+var graphics_settings := {"quality": QualityPreset.LOW,
 		"window_mode": WindowMode.FULLSCREEN,
-		"defaults_version": 6,
+		"defaults_version": 8,
 		"resolution": "100",
-		"msaa": GameMSAA.X2,
-		"af": GameAF.X8,
-		"shadows": Shadows.HIGH,
+		"msaa": GameMSAA.OFF,
+		"af": GameAF.X2,
+		"shadows": Shadows.LOW,
 		"fisheye_mode": FisheyeMode.OFF,
 		"fisheye_resolution": FisheyeResolution.FISHEYE_720P,
 		"fisheye_msaa": FisheyeMSAA.OFF,
@@ -84,9 +84,11 @@ func load_graphics_settings() -> String:
 			if config.has_section_key("graphics", key):
 				graphics_settings[key] = config.get_value("graphics", key)
 		if not has_quality or bool(graphics_settings.get("vsync", false)):
-			graphics_settings["quality"] = QualityPreset.MEDIUM if _is_mobile_platform() \
-					else int(graphics_settings.get("quality", QualityPreset.MEDIUM))
+			graphics_settings["quality"] = QualityPreset.LOW if not has_quality \
+					else int(graphics_settings.get("quality", QualityPreset.LOW))
 			graphics_settings["msaa"] = GameMSAA.OFF
+			graphics_settings["af"] = GameAF.X2
+			graphics_settings["shadows"] = Shadows.LOW
 			graphics_settings["fisheye_mode"] = FisheyeMode.OFF
 			graphics_settings["vsync"] = false
 			if _is_mobile_platform():
@@ -100,9 +102,9 @@ func load_graphics_settings() -> String:
 		if defaults_version < 3:
 			graphics_settings["window_mode"] = WindowMode.FULLSCREEN
 			graphics_settings["resolution"] = "100"
-			graphics_settings["msaa"] = GameMSAA.X2
-			graphics_settings["af"] = GameAF.X8
-			graphics_settings["shadows"] = Shadows.HIGH
+			graphics_settings["msaa"] = GameMSAA.OFF
+			graphics_settings["af"] = GameAF.X2
+			graphics_settings["shadows"] = Shadows.LOW
 			graphics_settings["fisheye_mode"] = FisheyeMode.OFF
 			graphics_settings["fisheye_msaa"] = FisheyeMSAA.OFF
 			graphics_settings["fpv_video_mode"] = FpvVideoMode.ANALOG_58
@@ -111,23 +113,30 @@ func load_graphics_settings() -> String:
 		# Version 6: the seven-preset list collapsed to LOW / MEDIUM / HIGH.
 		# Old UFDS (3) maps to HIGH; the 120/SMOOTH/LOWSPEC profiles map to LOW.
 		if defaults_version < 6:
-			var q := int(graphics_settings.get("quality", QualityPreset.HIGH))
+			var q := int(graphics_settings.get("quality", QualityPreset.LOW))
 			if q > QualityPreset.HIGH:
 				q = QualityPreset.HIGH if q == 3 else QualityPreset.LOW
 			graphics_settings["quality"] = q
 			if _is_weak_gpu() and q == QualityPreset.HIGH:
-				graphics_settings["quality"] = QualityPreset.MEDIUM
+				graphics_settings["quality"] = QualityPreset.LOW
 				graphics_settings["msaa"] = GameMSAA.OFF
 				graphics_settings["fps_limit"] = 60
 			graphics_settings["defaults_version"] = 6
 			save_graphics_settings()
-		# v7: cap mobile rendering to the physical display refresh.  Keep an
-		# explicit saved quality selection intact; the mobile QualityManager
-		# profile applies safe adaptive scale/foliage/shadow budgets at runtime.
+		# v7: cap mobile rendering to the physical display refresh.
 		if _is_mobile_platform() and defaults_version < 7:
 			graphics_settings["fps_limit"] = _mobile_refresh_cap(
 					int(graphics_settings.get("fps_limit", 120)))
 			graphics_settings["defaults_version"] = 7
+			save_graphics_settings()
+		# v8: Low quality is the new global default preset across desktop & mobile
+		# to minimize CPU/GPU frame load unless the user switches presets afterward.
+		if defaults_version < 8:
+			graphics_settings["quality"] = QualityPreset.LOW
+			graphics_settings["msaa"] = GameMSAA.OFF
+			graphics_settings["af"] = GameAF.X2
+			graphics_settings["shadows"] = Shadows.LOW
+			graphics_settings["defaults_version"] = 8
 			save_graphics_settings()
 		update_window_mode()
 		update_resolution()
@@ -150,22 +159,19 @@ func load_graphics_settings() -> String:
 		text = "Could not open graphics configuration file."
 		text = "%s\nThe defaut settings will be loaded." % err
 	else:
-		# Fresh install: pick a preset the GPU can actually run.  UHD handles
-		# MEDIUM (0.8x, shadows, textures); older HD gets LOW.
-		graphics_settings["defaults_version"] = 7 if _is_mobile_platform() else 6
+		# Fresh install defaults to Low quality for responsive frame times across
+		# desktop and mobile GPUs; players can raise it anytime in Settings.
+		graphics_settings["defaults_version"] = 8
+		graphics_settings["quality"] = QualityPreset.LOW
+		graphics_settings["msaa"] = GameMSAA.OFF
+		graphics_settings["af"] = GameAF.X2
+		graphics_settings["shadows"] = Shadows.LOW
 		if _is_weak_gpu():
-			if _is_very_weak_gpu():
-				graphics_settings["quality"] = QualityPreset.LOW
-			else:
-				graphics_settings["quality"] = QualityPreset.MEDIUM
-			graphics_settings["msaa"] = GameMSAA.OFF
 			graphics_settings["fps_limit"] = 60
-		else:
-			graphics_settings["quality"] = QualityPreset.MEDIUM if _is_mobile_platform() \
-					else QualityPreset.HIGH
-		if _is_mobile_platform():
+		elif _is_mobile_platform():
 			graphics_settings["fps_limit"] = _mobile_refresh_cap(120)
 		update_msaa()
+		update_af()
 		update_shadows()
 		update_fps_limit()
 		update_quality()
@@ -328,7 +334,7 @@ func update_fps_limit() -> void:
 
 
 func update_quality() -> void:
-	var lvl := clampi(int(graphics_settings.get("quality", QualityPreset.HIGH)), 0,
+	var lvl := clampi(int(graphics_settings.get("quality", QualityPreset.LOW)), 0,
 			QualityPreset.HIGH)
 	graphics_settings["quality"] = lvl
 	var current_scene := get_tree().current_scene

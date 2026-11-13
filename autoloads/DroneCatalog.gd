@@ -28,54 +28,110 @@ var _model_prefetch_failed: Dictionary = {}
 
 const PRESETS := [
 	{
-		"name": "«ГОЛКА»",
-		"tag": "ФРІСТАЙЛ 5\"",
-		"desc": "Легкий фрістайл, миттєвий відгук",
-		"info": "Легка каркасна X-рама з відкритими пропелерами та високою «грибковою» антеною на задній частині. Мінімальна злітна вага й жвава реакція на стіки — для тренувань, фрістайлу та точного калібрування пульта.",
-		"dry": 0.38, "batt": 0.22, "kv": 2500, "torque": 1300.0, "rpm": 35000.0,
-		"prop_d": 5.1, "prop_p": 4.9, "blades": 3, "rate": 900, "motor_size": 2207,
-		"payload": 0, "payload_mass": 0.0, "combat": false, "has_drop": false,
-		"twr": 8.5,
-		"cog_offset": Vector3(0.0, 0.0, 0.0),
-		"dimensions": Vector3(0.22, 0.06, 0.22),
+		"id": "grim7",
+		"parts_profile": 5,
+		"audio_kind": 6,
+		"prop_tint": Color(0.17, 0.18, 0.20),
+		"motor_tint": Color(0.14, 0.15, 0.17),
+		"body_prop_tint": Color(0.20, 0.20, 0.22),
+		"name": "«ГРІМ-7»",
+		"tag": "УДАРНИЙ 8–10\"",
+		"desc": "Важкий ударний дальньої дії",
+		"info": "Важкий квадрокоптер-камікадзе дальньої дії, рама 8–10 дюймів. Потужна батарея на верхній деці та видовжений боєприпас із хвостовим оперенням під днищем зміщують центр мас: дрон інертний у віражах і потребує точного розрахунку на заході на ціль.",
+		"dry": 0.90, "batt": 0.50, "kv": 1350, "torque": 2800.0, "rpm": 23000.0,
+		"prop_d": 8.0, "prop_p": 4.5, "blades": 3, "rate": 600, "motor_size": 2808,
+		"payload": 3, "payload_mass": 1.30, "combat": true, "has_drop": false,
+		"kamikaze": true,
+		"twr": 3.5,
+		"battery_chemistry": 1, "battery_mah": 5000.0,
+		"battery_resistance": 0.065, "battery_max_current": 90.0,
+		"cog_offset": Vector3(0.0, -0.055, -0.015),
+		"dimensions": Vector3(0.36, 0.14, 0.36),
+		"drag_area": Vector3(0.032, 0.035, 0.020),
+		"model": "res://Assets/Drones/ua_norm/grim7.glb",
+		"model_size": 0.391, "model_fit": false,
+		"fpv_cam_pos": Vector3(-0.0146, 0.007, -0.095), "fpv_cam_pitch": -14.0,
+	},
+	{
+		"id": "grim7m",
+		"parts_profile": 6,
+		"audio_kind": 6,
+		"prop_tint": Color(0.17, 0.18, 0.20),
+		"motor_tint": Color(0.14, 0.15, 0.17),
+		"body_prop_tint": Color(0.20, 0.20, 0.22),
+		"name": "«ГРІМ-7М»",
+		"tag": "УДАРНИЙ + СКИД",
+		"desc": "Ударний із системою скидання",
+		"info": "Модифікована повна комплектація: велика акумуляторна збірка зверху з ременем, видимий силовід і XT60, виносна антена VTX та нижня захисна дуга-лижа. Система скидання й важка бойова частина під рамою.",
+		"dry": 0.88, "batt": 0.48, "kv": 1400, "torque": 2600.0, "rpm": 20500.0,
+		"prop_d": 8.0, "prop_p": 4.3, "blades": 3, "rate": 620, "motor_size": 2808,
+		"payload": 4, "payload_mass": 0.80, "combat": true, "has_drop": true,
+		"drop_name": "2x ВОГ-17 (800г)",
+		"twr": 3.5,
+		"battery_chemistry": 1, "battery_mah": 5000.0,
+		"battery_resistance": 0.065, "battery_max_current": 90.0,
+		"cog_offset": Vector3(0.0, -0.048, 0.0),
+		"dimensions": Vector3(0.36, 0.14, 0.36),
+		"drag_area": Vector3(0.030, 0.032, 0.018),
+		"model": "res://Assets/Drones/ua_norm/grim7m.glb",
+		"model_size": 0.420, "model_fit": false,
+		"fpv_cam_pos": Vector3(0.0, 0.002, -0.120), "fpv_cam_pitch": -14.0,
+	},
+	{
+		"id": "strila8",
+		"parts_profile": 7,
+		"audio_kind": 6,
+		"prop_tint": Color(0.68, 0.19, 0.02),
+		"motor_tint": Color(0.20, 0.16, 0.12),
+		"body_prop_tint": Color(0.22, 0.23, 0.25),
+		"name": "«СТРІЛА-8»",
+		"tag": "КАМІКАДЗЕ",
+		"desc": "Важкий камікадзе з виносним підвісом",
+		"info": "Важкий ударний дрон із унікальною системою підвісу та детонації. Під днищем — бойовий елемент видовженої форми з детонаційним шнуром-петлею попереду, зверху вертикально орієнтований акумулятор. Високий момент інерції по вертикальній осі.",
+		"dry": 1.00, "batt": 0.60, "kv": 1100, "torque": 4200.0, "rpm": 23500.0,
+		"prop_d": 8.5, "prop_p": 4.6, "blades": 3, "rate": 580, "motor_size": 3115,
+		"payload": 4, "payload_mass": 1.40, "combat": true, "has_drop": false,
+		"kamikaze": true,
+		"twr": 4.2,
+		"battery_chemistry": 1, "battery_mah": 5000.0,
+		"battery_resistance": 0.065, "battery_max_current": 90.0,
+		"cog_offset": Vector3(0.0, -0.060, -0.025),
+		"dimensions": Vector3(0.38, 0.15, 0.38),
+		"drag_area": Vector3(0.034, 0.038, 0.022),
+		"model": "res://Assets/Drones/ua_norm/strila8.glb",
+		"model_size": 0.376, "model_fit": false,
+		"fpv_cam_pos": Vector3(0.0, 0.004, -0.053), "fpv_cam_pitch": -10.0,
+	},
+	{
+		"id": "quad5",
+		"parts_profile": 9,
+		"audio_kind": 0,
+		"prop_tint": Color(0.10, 0.48, 0.24),
+		"motor_tint": Color(0.10, 0.18, 0.12),
+		"body_prop_tint": Color(0.20, 0.22, 0.24),
+		"name": "«КВАД-5»",
+		"tag": "ШТУРМОВИЙ FPV 5\"",
+		"desc": "Штурмовий 5\" FPV-камікадзе на карбоновій X-рамі",
+		"info": "Швидкісний 5-дюймовий бойовий FPV-дрон на посиленій карбоновій рамі Mark4. Збалансований центр ваги, верхнє розташування LiPo 6S, осколково-фугасна БЧ, миттєвий відгук на стіки та тяга 6.5:1 для перехоплення й точних ударів.",
+		"dry": 0.41, "batt": 0.24, "kv": 2450, "torque": 1450.0, "rpm": 34000.0,
+		"prop_d": 5.0, "prop_p": 4.5, "blades": 4, "rate": 800, "motor_size": 2207,
+		"payload": 1, "payload_mass": 0.18, "combat": true, "has_drop": false,
+		"kamikaze": true,
+		"twr": 6.5,
+		"cog_offset": Vector3(0.0, 0.008, 0.0),
+		"dimensions": Vector3(0.22, 0.08, 0.22),
 		"drag_area": Vector3(0.012, 0.014, 0.006),
-		"model": "res://Assets/Drones/ua_norm/holka.glb",
-		"model_size": 0.260, "model_fit": false,
-		"fpv_cam_pos": Vector3(0.0, -0.012, -0.068), "fpv_cam_pitch": -6.0,
+		"model": "res://Assets/Drones/ua_norm/quad5_custom.glb",
+		"model_size": 0.225, "model_fit": false, "model_yaw": PI * 0.5,
+		"fpv_cam_pos": Vector3(0.0, 0.038, -0.115), "fpv_cam_pitch": -6.0,
 	},
 	{
-		"name": "PinaPipe",
-		"tag": "ФРІСТАЙЛ 5\"",
-		"desc": "Класична 5\" рама, відкриті пропелери",
-		"info": "Готовий FPV-квадрокоптер: рама з відкритими пропелерами та верхнім розташуванням акумулятора й навантаження. Легка модель на ~28 тис. трикутників — мінімальне навантаження на систему.",
-		"dry": 0.42, "batt": 0.24, "kv": 1950, "torque": 1250.0, "rpm": 30000.0,
-		"prop_d": 5.1, "prop_p": 4.3, "blades": 3, "rate": 667, "motor_size": 2207,
-		"payload": 0, "payload_mass": 0.0, "combat": false, "has_drop": false,
-		"twr": 5.5,
-		"cog_offset": Vector3(0.0, 0.006, 0.0),
-		"dimensions": Vector3(0.22, 0.07, 0.22),
-		"drag_area": Vector3(0.013, 0.015, 0.007),
-		"model": "res://Assets/Drones/ua_norm/pinapipe.glb",
-		"model_size": 0.218, "model_fit": false,
-		"fpv_cam_pos": Vector3(0.0, 0.005, -0.024), "fpv_cam_pitch": -6.0,
-	},
-	{
-		"name": "DJI AVATA 2",
-		"tag": "КІНОДРОН 3\"",
-		"desc": "Кінодрон із захистом пропелерів",
-		"info": "Кінодрон для польотів у приміщеннях і плавних кадрів. Габарити 212 × 184 × 64 мм, захисні дуги, підвіс камери та фірмові помаранчеві акценти. Плавний і стабільний.",
-		"dry": 0.26, "batt": 0.15, "kv": 1600, "torque": 700.0, "rpm": 34000.0,
-		"prop_d": 3.2, "prop_p": 3.0, "blades": 3, "rate": 500, "motor_size": 1404,
-		"payload": 0, "payload_mass": 0.0, "combat": false, "has_drop": false,
-		"twr": 2.4,
-		"cog_offset": Vector3(0.0, 0.002, 0.0),
-		"dimensions": Vector3(0.18, 0.06, 0.18),
-		"drag_area": Vector3(0.018, 0.020, 0.010),
-		"model": "res://Assets/Drones/ua_norm/avata2.glb",
-		"model_size": 0.212, "model_fit": false,
-		"fpv_cam_pos": Vector3(0.0, 0.011, -0.083), "fpv_cam_pitch": -4.0,
-	},
-	{
+		"id": "pisun_vtol",
+		"parts_profile": 3,
+		"audio_kind": 1,
+		"prop_tint": Color(0.18, 0.25, 0.16),
+		"motor_tint": Color(0.18, 0.22, 0.16),
+		"body_prop_tint": Color(0.22, 0.28, 0.22),
 		"name": "«ПІСЮН» VTOL",
 		"tag": "VTOL 7\"",
 		"desc": "Вертикальний зліт, ударний камікадзе",
@@ -96,129 +152,12 @@ const PRESETS := [
 		"fpv_cam_pos": Vector3(0.0, 0.088, -0.060), "fpv_cam_pitch": -12.0,
 	},
 	{
-		"name": "«ПЕЛЕНГ»",
-		"tag": "РОЗВІДКА 5\"",
-		"desc": "Розвідник із панельною антеною",
-		"info": "Розвідувальний FPV-квадрокоптер із посиленим комплексом зв'язку: спрямована панельна антена та кругова антена на задній виносній штанзі. Виносні елементи створюють додаткову парусність на швидкості — тренування точного пілотування.",
-		"dry": 0.46, "batt": 0.26, "kv": 1800, "torque": 1200.0, "rpm": 35000.0,
-		"prop_d": 5.1, "prop_p": 4.3, "blades": 2, "rate": 700, "motor_size": 2207,
-		"payload": 0, "payload_mass": 0.16, "combat": false, "has_drop": false,
-		"twr": 4.5,
-		"cog_offset": Vector3(0.0, 0.015, 0.025),
-		"dimensions": Vector3(0.24, 0.10, 0.26),
-		"drag_area": Vector3(0.020, 0.022, 0.012),
-		"model": "res://Assets/Drones/ua_norm/peleng.glb",
-		"model_size": 0.300, "model_fit": false,
-		"fpv_cam_pos": Vector3(0.0, 0.014, -0.072), "fpv_cam_pitch": -6.0,
-	},
-	{
-		"name": "«ГРІМ-7»",
-		"tag": "УДАРНИЙ 8–10\"",
-		"desc": "Важкий ударний дальньої дії",
-		"info": "Важкий квадрокоптер-камікадзе дальньої дії, рама 8–10 дюймів. Потужна батарея на верхній деці та видовжений боєприпас із хвостовим оперенням під днищем зміщують центр мас: дрон інертний у віражах і потребує точного розрахунку на заході на ціль.",
-		"dry": 0.90, "batt": 0.50, "kv": 1350, "torque": 2800.0, "rpm": 23000.0,
-		"prop_d": 8.0, "prop_p": 4.5, "blades": 3, "rate": 600, "motor_size": 2808,
-		"payload": 3, "payload_mass": 1.30, "combat": true, "has_drop": false,
-		"kamikaze": true,
-		"twr": 3.5,
-		"battery_chemistry": 1, "battery_mah": 5000.0,
-		"battery_resistance": 0.065, "battery_max_current": 90.0,
-		"cog_offset": Vector3(0.0, -0.055, -0.015),
-		"dimensions": Vector3(0.36, 0.14, 0.36),
-		"drag_area": Vector3(0.032, 0.035, 0.020),
-		"model": "res://Assets/Drones/ua_norm/grim7.glb",
-		"model_size": 0.391, "model_fit": false,
-		"fpv_cam_pos": Vector3(-0.0146, 0.007, -0.095), "fpv_cam_pitch": -14.0,
-	},
-	{
-		"name": "«ГРІМ-7М»",
-		"tag": "УДАРНИЙ + СКИД",
-		"desc": "Ударний із системою скидання",
-		"info": "Модифікована повна комплектація: велика акумуляторна збірка зверху з ременем, видимий силовід і XT60, виносна антена VTX та нижня захисна дуга-лижа. Система скидання й важка бойова частина під рамою.",
-		"dry": 0.88, "batt": 0.48, "kv": 1400, "torque": 2600.0, "rpm": 20500.0,
-		"prop_d": 8.0, "prop_p": 4.3, "blades": 3, "rate": 620, "motor_size": 2808,
-		"payload": 4, "payload_mass": 0.80, "combat": true, "has_drop": true,
-		"drop_name": "2x ВОГ-17 (800г)",
-		"twr": 3.5,
-		"battery_chemistry": 1, "battery_mah": 5000.0,
-		"battery_resistance": 0.065, "battery_max_current": 90.0,
-		"cog_offset": Vector3(0.0, -0.048, 0.0),
-		"dimensions": Vector3(0.36, 0.14, 0.36),
-		"drag_area": Vector3(0.030, 0.032, 0.018),
-		"model": "res://Assets/Drones/ua_norm/grim7m.glb",
-		"model_size": 0.420, "model_fit": false,
-		"fpv_cam_pos": Vector3(0.0, 0.002, -0.120), "fpv_cam_pitch": -14.0,
-	},
-	{
-		"name": "«СТРІЛА-8»",
-		"tag": "КАМІКАДЗЕ",
-		"desc": "Важкий камікадзе з виносним підвісом",
-		"info": "Важкий ударний дрон із унікальною системою підвісу та детонації. Під днищем — бойовий елемент видовженої форми з детонаційним шнуром-петлею попереду, зверху вертикально орієнтований акумулятор. Високий момент інерції по вертикальній осі.",
-		"dry": 1.00, "batt": 0.60, "kv": 1100, "torque": 4200.0, "rpm": 23500.0,
-		"prop_d": 8.5, "prop_p": 4.6, "blades": 3, "rate": 580, "motor_size": 3115,
-		"payload": 4, "payload_mass": 1.40, "combat": true, "has_drop": false,
-		"kamikaze": true,
-		"twr": 4.2,
-		"battery_chemistry": 1, "battery_mah": 5000.0,
-		"battery_resistance": 0.065, "battery_max_current": 90.0,
-		"cog_offset": Vector3(0.0, -0.060, -0.025),
-		"dimensions": Vector3(0.38, 0.15, 0.38),
-		"drag_area": Vector3(0.034, 0.038, 0.022),
-		"model": "res://Assets/Drones/ua_norm/strila8.glb",
-		"model_size": 0.376, "model_fit": false,
-		"fpv_cam_pos": Vector3(0.0, 0.004, -0.053), "fpv_cam_pitch": -10.0,
-	},
-	{
-		"name": "«FALCON-X» DIGITAL",
-		"tag": "ЦИФРОВИЙ FPV",
-		"desc": "Цифровий швидкісний FPV, обтічний фюзеляж",
-		"info": "Швидкісний цифровий FPV-дрон з аеродинамічним обтічним фюзеляжем. Розгін 0–100 км/год за 2.0 секунди, максимальна швидкість 140 км/год (39 м/с). Політна вага 795 г створює стабільну інерцію на віражах, а низький опір повітря забезпечує стрімкий політ.",
-		"dry": 0.50, "batt": 0.295, "kv": 2000, "torque": 1800.0, "rpm": 28000.0,
-		"prop_d": 5.1, "prop_p": 4.8, "blades": 4, "rate": 650, "motor_size": 2207,
-		"payload": 0, "payload_mass": 0.0, "combat": false, "has_drop": false,
-		"twr": 4.9,
-		"cog_offset": Vector3(0.0, 0.005, 0.0),
-		"dimensions": Vector3(0.24, 0.12, 0.24),
-		"drag_area": Vector3(0.010, 0.012, 0.005),
-		"model": "res://Assets/Drones/ua_norm/falcon_x.glb",
-		"model_size": 0.240, "model_fit": false, "model_yaw": PI,
-		"fpv_cam_pos": Vector3(0.0, 0.024, -0.068), "fpv_cam_pitch": -8.0,
-	},
-	{
-		"name": "«КВАД-5»",
-		"tag": "ФРІСТАЙЛ 5\"",
-		"desc": "Готовий квадрокоптер на карбоновій X-рамі 225 мм",
-		"info": "Готовий 5-дюймовий FPV-квадрокоптер на посиленій карбоновій рамі Mark4. Збалансований центр ваги, верхнє розташування LiPo 6S, миттєвий відгук на стіки та тяга 6.5:1 для фрістайлу й тренувальних місій.",
-		"dry": 0.41, "batt": 0.24, "kv": 2450, "torque": 1450.0, "rpm": 34000.0,
-		"prop_d": 5.0, "prop_p": 4.5, "blades": 4, "rate": 800, "motor_size": 2207,
-		"payload": 1, "payload_mass": 0.18, "combat": true, "has_drop": false,
-		"kamikaze": true,
-		"twr": 6.5,
-		"cog_offset": Vector3(0.0, 0.008, 0.0),
-		"dimensions": Vector3(0.22, 0.08, 0.22),
-		"drag_area": Vector3(0.012, 0.014, 0.006),
-		"model": "res://Assets/Drones/ua_norm/quad5_custom.glb",
-		"model_size": 0.225, "model_fit": false, "model_yaw": PI * 0.5,
-		"fpv_cam_pos": Vector3(0.0, 0.038, -0.115), "fpv_cam_pitch": -6.0,
-	},
-	{
-		"name": "USV «МАГУРА-Х»",
-		"tag": "МОРСЬКИЙ ДРОН",
-		"desc": "Швидкісний морський ударний дрон-камікадзе",
-		"info": "Швидкісний маневрений безпілотний катер з глісерним корпусом, призначений для ураження ворожих надводних цілей у відкритому морі та прибережній зоні. Водометний рушій, швидкість до 45–50 вузлів (85 км/г), низький профіль радіолокаційної помітності та потужна 320-кг бойова частина.",
-		"dry": 680.0, "batt": 320.0, "kv": 1200, "torque": 8500.0, "rpm": 6000.0,
-		"prop_d": 0.0, "prop_p": 0.0, "blades": 0, "rate": 350, "motor_size": 5010,
-		"payload": 1, "payload_mass": 320.0, "combat": true, "has_drop": false,
-		"is_naval": true,
-		"twr": 3.8,
-		"cog_offset": Vector3(0.0, -0.15, -0.2),
-		"dimensions": Vector3(1.60, 1.04, 5.50),
-		"drag_area": Vector3(0.18, 0.45, 0.08),
-		"model": "res://Assets/Drones/ua_norm/magura_x.glb",
-		"model_size": 5.50, "model_fit": false,
-		"fpv_cam_pos": Vector3(0.0, 0.70, -0.15), "fpv_cam_pitch": -3.0,
-	},
-	{
+		"id": "military_fpv",
+		"parts_profile": 11,
+		"audio_kind": 6,
+		"prop_tint": Color(0.22, 0.24, 0.16),
+		"motor_tint": Color(0.16, 0.18, 0.14),
+		"no_ukraine_mark": true,
 		"name": "Військовий дрон (Камікадзе / Скид)",
 		"tag": "ВІЙСЬКОВИЙ БПЛА 8–10″",
 		"desc": "Важкий ударний дрон із бойовою частиною",
@@ -238,6 +177,12 @@ const PRESETS := [
 		"fpv_cam_pos": Vector3(0.0, 0.004, -0.090), "fpv_cam_pitch": -14.0,
 	},
 	{
+		"id": "baba_yaga",
+		"parts_profile": 12,
+		"audio_kind": 5,
+		"prop_tint": Color(0.10, 0.12, 0.09),
+		"motor_tint": Color(0.12, 0.14, 0.11),
+		"no_ukraine_mark": true,
 		"name": "«БАБА ЯГА»",
 		"name_en": "BABA YAGA",
 		"tag": "ВАЖКИЙ БОМБЕР 6×",
@@ -261,15 +206,23 @@ const PRESETS := [
 		"bomb_cam_pos": Vector3(0.0, 0.82, 0.10), "bomb_cam_pitch": -78.0,
 	},
 	{
+		"id": "leleka100",
+		"parts_profile": 13,
+		"audio_kind": 3,
+		"prop_tint": Color(0.72, 0.74, 0.72),
+		"motor_tint": Color(0.22, 0.23, 0.24),
+		"pusher": true,
+		"composite_base": true,
+		"no_ukraine_mark": true,
 		"name": "«ЛЕЛЕКА-100»",
 		"name_en": "LELEKA-100",
-		"tag": "РОЗВІДНИК 2 м",
-		"desc": "Оперативно-тактичний БАК, день/ніч",
-		"info": "Український розвідувальний БАК оперативно-тактичного рівня: високоплан із двома хвостовими балками, штовхаючим гвинтом, гіростабілізованою денною/тепловізійною оптикою, захищеними каналами зв’язку та GNSS. Радіус до 50 км, маршрут до 100 км, до 2,5 годин у повітрі, крейсерська швидкість 60–70 км/год, стеля 1500 м.",
-		"dry": 4.6, "batt": 1.2, "kv": 380, "torque": 2200.0, "rpm": 7000.0,
+		"tag": "УДАРНИЙ БПЛА 2 м",
+		"desc": "Оперативно-тактичний ударний БАК, день/ніч",
+		"info": "Український оперативно-тактичний безпілотник: високоплан із двома хвостовими балками, штовхаючим гвинтом, гіростабілізованою денною/тепловізійною оптикою, інтегрованою БЧ 1.5 кг та захищеними каналами зв’язку й GNSS. Крейсерська швидкість 65–80 км/год.",
+		"dry": 4.6, "batt": 1.2, "kv": 380, "torque": 2200.0, "rpm": 7500.0,
 		"prop_d": 14.0, "prop_p": 8.0, "blades": 2, "rate": 260, "motor_size": 2814,
-		"payload": 0, "payload_mass": 0.0, "combat": true, "has_drop": false,
-		"fixed_wing": true,
+		"payload": 1, "payload_mass": 1.5, "combat": true, "has_drop": false,
+		"kamikaze": true, "fixed_wing": true,
 		"max_speed_loaded": 18.1, "max_speed_empty": 22.2,
 		"twr": 2.2,
 		"battery_chemistry": 1, "battery_mah": 6000.0,
@@ -283,15 +236,23 @@ const PRESETS := [
 		"fpv_cam_pos": Vector3(0.0, 0.06, -0.56), "fpv_cam_pitch": -7.0,
 	},
 	{
+		"id": "furia",
+		"parts_profile": 14,
+		"audio_kind": 3,
+		"prop_tint": Color(0.42, 0.45, 0.46),
+		"motor_tint": Color(0.20, 0.21, 0.22),
+		"pusher": true,
+		"composite_base": true,
+		"no_ukraine_mark": true,
 		"name": "«ФУРІЯ» A1-СМ",
 		"name_en": "FURIA A1-SM",
-		"tag": "РОЗВІДНИК-КРИЛО 2 м",
-		"desc": "Літаюче крило, 3–4 години в повітрі",
-		"info": "Український комплекс «Атлон Авіа»: літаюче крило розмахом 2 м, довжина 0,9 м, злітна маса 5,5–6 кг, електродвигун із штовхаючим гвинтом, денні та нічні модулі, радіус до 50 км. Крейсерська 65 км/год, максимальна 130 км/год, до 3–4 годин польоту, стеля 2500 м.",
-		"dry": 4.2, "batt": 1.3, "kv": 420, "torque": 2000.0, "rpm": 7200.0,
+		"tag": "УДАРНЕ КРИЛО 2 м",
+		"desc": "Ударне літаюче крило, 130 км/год",
+		"info": "Український комплекс «Атлон Авіа»: ударне літаюче крило розмахом 2 м із бойовою частиною 1.2 кг, штовхаючим гвинтом та денною/нічною оптикою наведення. Крейсерська 65 км/год, максимальна до 130 км/год.",
+		"dry": 4.2, "batt": 1.3, "kv": 420, "torque": 2000.0, "rpm": 7950.0,
 		"prop_d": 13.0, "prop_p": 7.0, "blades": 2, "rate": 250, "motor_size": 2812,
-		"payload": 0, "payload_mass": 0.0, "combat": true, "has_drop": false,
-		"fixed_wing": true,
+		"payload": 1, "payload_mass": 1.2, "combat": true, "has_drop": false,
+		"kamikaze": true, "fixed_wing": true,
 		"max_speed_loaded": 18.1, "max_speed_empty": 36.1,
 		"twr": 2.3,
 		"battery_chemistry": 1, "battery_mah": 7000.0,
@@ -305,6 +266,13 @@ const PRESETS := [
 		"fpv_cam_pos": Vector3(0.0, 0.04, -0.42), "fpv_cam_pitch": -8.0,
 	},
 	{
+		"id": "chaklun_jet",
+		"parts_profile": 15,
+		"audio_kind": 4,
+		"prop_tint": Color(0.10, 0.11, 0.12),
+		"motor_tint": Color(0.10, 0.11, 0.12),
+		"composite_base": true,
+		"no_ukraine_mark": true,
 		"name": "«ЧАКЛУН JET»",
 		"name_en": "CHAKLUN JET",
 		"tag": "РЕАКТИВНИЙ ПЕРЕХОПЛЮВАЧ",
@@ -333,31 +301,22 @@ func preset(index: int) -> Dictionary:
 	var idx := clampi(index, 0, PRESETS.size() - 1)
 	var result: Dictionary = custom_presets[index] \
 			if custom_presets.has(index) else PRESETS[idx]
-	if _is_mobile_platform() and idx in [13, 14, 15]:
-		# iOS-only FPV framing and integrated warheads. Keep desktop presets,
-		# loadout mass and clean reconnaissance lens unchanged.
+	var preset_id := str(result.get("id", ""))
+	if _is_mobile_platform() and preset_id in ["leleka100", "furia", "chaklun_jet"]:
+		# iOS-only FPV framing so the wing does not fill the centre of the screen.
 		result = result.duplicate(true)
-		# The old "show airframe" framing put the lens at wing height on the
-		# high-wing Leleka/Furia, so the wing filled the centre of the screen
-		# and blocked the course.  Keep a clean recon lens on mobile; the
-		# warhead is still simulated and the БЧ button still works.
 		result["fpv_hide_model"] = true
 		result.erase("fpv_show_airframe")
-		if idx == 13:
-			result["payload"] = 1
-			result["payload_mass"] = 1.5
-			result["kamikaze"] = true
-			result["fpv_cam_pos"] = Vector3(0.0, 0.06, -0.72)
-			result["fpv_cam_pitch"] = -5.0
-		elif idx == 14:
-			result["payload"] = 1
-			result["payload_mass"] = 1.2
-			result["kamikaze"] = true
-			result["fpv_cam_pos"] = Vector3(0.0, 0.04, -0.55)
-			result["fpv_cam_pitch"] = -5.0
-		else:
-			result["fpv_cam_pos"] = Vector3(0.0, 0.10, -0.48)
-			result["fpv_cam_pitch"] = -10.0
+		match preset_id:
+			"leleka100":
+				result["fpv_cam_pos"] = Vector3(0.0, 0.06, -0.72)
+				result["fpv_cam_pitch"] = -5.0
+			"furia":
+				result["fpv_cam_pos"] = Vector3(0.0, 0.04, -0.55)
+				result["fpv_cam_pitch"] = -5.0
+			_:
+				result["fpv_cam_pos"] = Vector3(0.0, 0.10, -0.48)
+				result["fpv_cam_pitch"] = -10.0
 	return result
 
 
@@ -366,27 +325,33 @@ func _is_mobile_platform() -> bool:
 			or OS.has_environment("MOBILE_UI")
 
 
-## True when the preset is a combat airframe (armed, non-naval).
+## True when the preset is a combat strike airframe.
 func is_combat(index: int) -> bool:
 	var p := preset(index)
-	return bool(p.get("combat", false)) and not bool(p.get("is_naval", false))
+	return bool(p.get("combat", false))
 
 
 ## Combat-ready payload activation: detachable stores and integrated kamikaze
-## warheads share the in-flight action, but naval hulls use their own rules.
+## warheads share the in-flight action.
 func supports_payload_actions(index: int) -> bool:
 	var p := preset(index)
 	return bool(p.get("combat", false)) \
-			and not bool(p.get("is_naval", false)) \
 			and (int(p.get("payload", 0)) > 0 or bool(p.get("has_drop", false)) \
-				or (_is_mobile_platform() and bool(p.get("kamikaze", false))))
+				or bool(p.get("kamikaze", false)))
 
 
-## First usable combat airframe, used as the fallback when a sport/recon drone
-## is somehow selected for a combat sortie.
+## First usable combat airframe (index 0).
 func first_combat_index() -> int:
 	for i in range(PRESETS.size()):
 		if is_combat(i):
+			return i
+	return 0
+
+
+## Preset index hosting custom modular builder assemblies ("quad5").
+func custom_preset_index() -> int:
+	for i in range(PRESETS.size()):
+		if str(PRESETS[i].get("id", "")) == "quad5":
 			return i
 	return 0
 
@@ -457,6 +422,7 @@ func _load_saved_builder_preset() -> void:
 			"cog_offset": Vector3(0.0, 0.005, 0.0),
 			"dimensions": Vector3(0.25, 0.08, 0.25),
 			"drag_area": Vector3(0.015, 0.018, 0.008),
+			"parts_profile": 9,
 			"model_builder_config": cfg,
 			"is_builder_custom": true,
 			"model": str(frame.get("mesh_path", "")),
@@ -465,8 +431,9 @@ func _load_saved_builder_preset() -> void:
 			"fpv_cam_pos": Vector3(0.0, 0.025, -0.075),
 			"fpv_cam_pitch": -8.0
 		}
-		set_custom_preset(9, p)
-		print("[DroneCatalog] Loaded custom builder drone into preset 9")
+		var slot := custom_preset_index()
+		set_custom_preset(slot, p)
+		print("[DroneCatalog] Loaded custom builder drone into preset ", slot)
 
 
 func count() -> int:
@@ -818,7 +785,8 @@ static var _composite_normal: NoiseTexture2D = null
 ## cardboard under the hangar lights.  Authored dark parts (cameras, props,
 ## nozzles, flag, stencils) are left untouched.
 func _apply_composite_detail(model: Node3D, index: int) -> void:
-	if index < 13 or index > 15:
+	var p := preset(index)
+	if not bool(p.get("composite_base", false)):
 		return
 	if _composite_normal == null:
 		var noise := FastNoiseLite.new()
@@ -884,12 +852,8 @@ static var _ukraine_texture: ImageTexture = null
 ## runtime decal placed on a real broad top surface found by CPU raycasts.
 ## The old version used the merged AABB top, which put flags on antenna tips or
 ## left them hovering above a wing; the decal is now seated on geometry.
-func _attach_ukraine_mark(model: Node3D, p: Dictionary, index: int) -> void:
-	if model == null or bool(p.get("is_naval", false)):
-		return
-	# Only genuine Ukrainian airframes carry the marking.  Preset 2 is a DJI
-	# Avata and preset 11 is the Shahed-136, so they stay clean.
-	if index == 2 or index == 11:
+func _attach_ukraine_mark(model: Node3D, p: Dictionary, _index: int) -> void:
+	if model == null or bool(p.get("no_ukraine_mark", false)):
 		return
 	var preset_name := str(p.get("name", ""))
 	if preset_name.contains("ЛЕЛЕКА") or preset_name.contains("ФУРІЯ") \

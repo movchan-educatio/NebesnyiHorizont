@@ -4,11 +4,11 @@
 extends Node3D
 
 @export var gate_count := 7
-@export var gate_spacing := 26.0
+@export var gate_spacing := 20.0
 @export var gate_height := 3.2
 @export var inner_radius := 2.5
 @export var outer_radius := 3.1
-@export var max_course_radius := 150.0
+@export var max_course_radius := 95.0
 
 var track: Track = null
 

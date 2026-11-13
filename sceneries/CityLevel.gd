@@ -9,7 +9,6 @@ func _ready() -> void:
 	use_urban_ground()
 
 	GameSettings.hud_config["crosshair"] = true
-	GameSettings.hud_config["horizon"] = true
 	GameSettings.hud_config["speed"] = true
 	GameSettings.hud_config["altitude"] = true
 	GameSettings.hud_config["heading"] = true
@@ -42,7 +41,7 @@ func _spawn_handcrafted_showcase() -> void:
 	await get_tree().physics_frame
 	var FT = load("res://scripts/util/frontline_terrain.gd")
 	FT.spawn_handcrafted_on_ground(self,
-			"res://Assets/handcrafted/village_house.glb", -120.0, 60.0, 0.4)
+			"res://Assets/handcrafted/village_house.glb", -72.0, 36.0, 0.4)
 
 
 ## One-shot diagnostics: 6 rays from the hover point (kept for map swaps).

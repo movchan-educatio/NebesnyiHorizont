@@ -73,7 +73,7 @@ func _ready() -> void:
 		if path.ends_with("BigLevel.tscn"):
 			var drone_node := scene.get_node_or_null("Drone")
 			assert(drone_node != null, "Drone node must exist in BigLevel")
-			DroneCatalog.apply_to_drone(drone_node, 7)
+			DroneCatalog.apply_to_drone(drone_node, 2)
 			scene.call("_attach_fpv_rig")
 			scene.call("_setup_fpv_camera_for_preset")
 			var model_root := drone_node.get_node_or_null("DroneModel") as Node3D
@@ -81,7 +81,7 @@ func _ready() -> void:
 			assert(cam.get_node_or_null("FPVRig") == null, "No procedural FPVRig cylinders should be attached to FPVCamera")
 			assert(cam.near <= 0.051, "FPVCamera near clip plane must be <= 0.05")
 			print("  ✓ Real 3D DroneModel ('%s') visible in FPV, cam pos=%s, pitch=%.1f deg" % [
-				DroneCatalog.preset(7)["name"], str(cam.position), cam.rotation_degrees.x
+				DroneCatalog.preset(2)["name"], str(cam.position), cam.rotation_degrees.x
 			])
 		
 		# Clean teardown of instantiated scene without adding to tree

@@ -150,8 +150,8 @@ static func _make_spots(root: Node3D, map_name: String, count: int,
 	var tries := 0
 	while centers.size() < 20 and tries < 300:
 		tries += 1
-		var p := Vector2(_rng.randf_range(-420.0, 420.0),
-				_rng.randf_range(-420.0, 420.0))
+		var p := Vector2(_rng.randf_range(-252.0, 252.0),
+				_rng.randf_range(-252.0, 252.0))
 		if _center_ok(p, centers, reserved):
 			centers.append(p)
 	var spots: Array = []
@@ -173,8 +173,8 @@ static func _make_spots(root: Node3D, map_name: String, count: int,
 	tries = 0
 	while spots.size() < count and tries < count * 30:
 		tries += 1
-		var p := Vector2(_rng.randf_range(-430.0, 430.0),
-				_rng.randf_range(-430.0, 430.0))
+		var p := Vector2(_rng.randf_range(-255.0, 255.0),
+				_rng.randf_range(-255.0, 255.0))
 		if _ok(p, spots, reserved, 7.0):
 			spots.append(p)
 	return spots
@@ -199,7 +199,7 @@ static func _depot_center(site: Dictionary, centers: Array,
 
 
 static func _center_ok(p: Vector2, centers: Array, reserved: Array) -> bool:
-	if absf(p.x) > 430.0 or absf(p.y) > 430.0:
+	if absf(p.x) > 260.0 or absf(p.y) > 260.0:
 		return false
 	var y: float = FT.height_at(_map, p.x, p.y)
 	if y < FT.water_level(_map) + 0.35:
@@ -222,7 +222,7 @@ static func _center_ok(p: Vector2, centers: Array, reserved: Array) -> bool:
 
 static func _ok(p: Vector2, spots: Array, reserved: Array,
 		min_sep: float = 7.0) -> bool:
-	if absf(p.x) > 440.0 or absf(p.y) > 440.0:
+	if absf(p.x) > 265.0 or absf(p.y) > 265.0:
 		return false
 	var y: float = FT.height_at(_map, p.x, p.y)
 	if y < FT.water_level(_map) + 0.35:

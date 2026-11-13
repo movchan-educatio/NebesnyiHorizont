@@ -6,7 +6,6 @@ extends Control
 const MAIN_MENU := "res://GUI/MainMenu.tscn"
 
 const HUD_TOGGLES := [
-	["horizon", "Штучний горизонт"],
 	["ladder", "Шкала тангажу"],
 	["speed", "Швидкість"],
 	["altitude", "Висота"],
@@ -120,12 +119,6 @@ func _build() -> void:
 	_volume_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	volume_row.add_child(_volume_label)
 	box.add_child(volume_row)
-
-	var video_audio := CheckButton.new()
-	video_audio.text = "Звук у вступному відео"
-	video_audio.button_pressed = bool(Global.menu_settings["video_audio"])
-	video_audio.toggled.connect(_on_video_audio_toggled)
-	box.add_child(video_audio)
 
 	box.add_child(MenuUI.hline())
 	box.add_child(MenuUI.section("ТРЕНАЖЕР / СИМУЛЯЦІЯ"))
@@ -296,11 +289,6 @@ func _build_mobile() -> void:
 	_volume_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	volume_row.add_child(_volume_label)
 	sound_box.add_child(volume_row)
-	var video_audio := CheckButton.new()
-	video_audio.text = "Звук у вступному відео"
-	video_audio.button_pressed = bool(Global.menu_settings["video_audio"])
-	video_audio.toggled.connect(_on_video_audio_toggled)
-	sound_box.add_child(video_audio)
 
 	# --- realism card -----------------------------------------------------
 	var sim_card := _mobile_card(content)
@@ -399,11 +387,6 @@ func _on_volume_changed(value: float) -> void:
 	Audio.save_audio_settings()
 
 
-func _on_video_audio_toggled(pressed: bool) -> void:
-	Global.menu_settings["video_audio"] = pressed
-	Global.save_menu_settings()
-
-
 func _on_fps_toggled(pressed: bool) -> void:
 	GameSettings.hud_config["fps"] = int(_fps_slider.value) if pressed else 0
 	GameSettings.save_hud_config()
@@ -482,7 +465,7 @@ func _refresh_sim_controls() -> void:
 
 func _on_reset_hud() -> void:
 	GameSettings.hud_config["fps"] = 20
-	for key in ["crosshair", "horizon", "speed", "altitude", "heading", "osd"]:
+	for key in ["crosshair", "speed", "altitude", "heading", "osd"]:
 		GameSettings.hud_config[key] = true
 	for key in ["ladder", "sticks", "rpm", "fpv_rig"]:
 		GameSettings.hud_config[key] = false

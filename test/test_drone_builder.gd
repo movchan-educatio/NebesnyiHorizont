@@ -163,18 +163,19 @@ func _ready() -> void:
 	
 	# Reload into DroneCatalog
 	DroneCatalog._load_saved_builder_preset()
-	var p9 := DroneCatalog.preset(9)
-	assert(p9.get("is_builder_custom", false) == true, "Preset 9 should be marked as builder custom")
-	assert(p9.get("combat", false) == true, "Preset 9 should have combat=true")
-	print("  ✓ Preset 9 name: %s, tag: %s, dry: %.3fkg, batt: %.3fkg" % [
-		p9.get("name"), p9.get("tag"), p9.get("dry"), p9.get("batt")
+	var custom_idx := DroneCatalog.custom_preset_index()
+	var p_custom := DroneCatalog.preset(custom_idx)
+	assert(p_custom.get("is_builder_custom", false) == true, "Custom slot should be marked as builder custom")
+	assert(p_custom.get("combat", false) == true, "Custom slot should have combat=true")
+	print("  ✓ Custom preset[%d] name: %s, tag: %s, dry: %.3fkg, batt: %.3fkg" % [
+		custom_idx, p_custom.get("name"), p_custom.get("tag"), p_custom.get("dry"), p_custom.get("batt")
 	])
 	
 	# Test attach_model on a dummy Node3D
 	var dummy_drone := Node3D.new()
 	add_child(dummy_drone)
-	var attached := DroneCatalog.attach_model(dummy_drone, 9)
-	assert(attached != null, "attach_model must succeed for custom preset 9")
+	var attached := DroneCatalog.attach_model(dummy_drone, custom_idx)
+	assert(attached != null, "attach_model must succeed for custom preset")
 	assert(attached.name == "DroneModel", "Attached model root must be named DroneModel")
 	assert(attached.find_child("PayloadMesh", true, false) != null, "Attached model must include custom payload")
 	print("  ✓ Custom 3D model attached to drone body with %d children" % attached.get_child_count())

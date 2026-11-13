@@ -71,16 +71,16 @@ func _build(spawn: Transform3D) -> void:
 	# Sector D: Eastern Convoy Road (310-440m, right flank)
 	# Sector E: Deep Rear Command Sector (500-580m)
 	var specs := [
-		{"d": 220.0, "side": -1.0, "off": 65.0, "kind": CombatTargetScript.Kind.TRUCK},
-		{"d": 255.0, "side": 1.0, "off": 85.0, "kind": CombatTargetScript.Kind.INFANTRY},
-		{"d": 310.0, "side": -1.0, "off": 145.0, "kind": CombatTargetScript.Kind.TANK},
-		{"d": 340.0, "side": 1.0, "off": 155.0, "kind": CombatTargetScript.Kind.TRUCK},
-		{"d": 385.0, "side": -1.0, "off": 52.0, "kind": CombatTargetScript.Kind.TANK},
-		{"d": 415.0, "side": 1.0, "off": 48.0, "kind": CombatTargetScript.Kind.BUNKER},
-		{"d": 435.0, "side": -1.0, "off": 120.0, "kind": CombatTargetScript.Kind.INFANTRY},
-		{"d": 470.0, "side": 1.0, "off": 135.0, "kind": CombatTargetScript.Kind.TANK},
-		{"d": 515.0, "side": -1.0, "off": 80.0, "kind": CombatTargetScript.Kind.INFANTRY},
-		{"d": 555.0, "side": 1.0, "off": 95.0, "kind": CombatTargetScript.Kind.TRUCK},
+		{"d": 135.0, "side": -1.0, "off": 38.0, "kind": CombatTargetScript.Kind.TRUCK},
+		{"d": 150.0, "side": 1.0, "off": 48.0, "kind": CombatTargetScript.Kind.INFANTRY},
+		{"d": 175.0, "side": -1.0, "off": 78.0, "kind": CombatTargetScript.Kind.TANK},
+		{"d": 190.0, "side": 1.0, "off": 84.0, "kind": CombatTargetScript.Kind.TRUCK},
+		{"d": 205.0, "side": -1.0, "off": 32.0, "kind": CombatTargetScript.Kind.TANK},
+		{"d": 220.0, "side": 1.0, "off": 30.0, "kind": CombatTargetScript.Kind.BUNKER},
+		{"d": 230.0, "side": -1.0, "off": 68.0, "kind": CombatTargetScript.Kind.INFANTRY},
+		{"d": 240.0, "side": 1.0, "off": 74.0, "kind": CombatTargetScript.Kind.TANK},
+		{"d": 250.0, "side": -1.0, "off": 46.0, "kind": CombatTargetScript.Kind.INFANTRY},
+		{"d": 265.0, "side": 1.0, "off": 52.0, "kind": CombatTargetScript.Kind.TRUCK},
 	]
 
 	for spec in specs:
@@ -94,8 +94,8 @@ func _build(spawn: Transform3D) -> void:
 			target_spawned.emit(placed)
 
 	var aa_specs := [
-		{"d": 350.0, "side": -1.0, "off": 95.0},
-		{"d": 455.0, "side": 1.0, "off": 75.0},
+		{"d": 185.0, "side": -1.0, "off": 55.0},
+		{"d": 235.0, "side": 1.0, "off": 44.0},
 	]
 	for spec in aa_specs:
 		var gun := _try_place_aa(spawn, forward, right, space, exclude, spec)

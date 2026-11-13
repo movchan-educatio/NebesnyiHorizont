@@ -5,7 +5,7 @@ extends Node
 
 var drone: Drone = null
 var elapsed := 0.0
-var preset := 7
+var preset := 2
 var last_log := -1.0
 var max_tilt := 0.0
 var max_ang := 0.0

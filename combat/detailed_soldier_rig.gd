@@ -11,6 +11,9 @@ extends Node3D
 const MODEL_PATH := "res://Assets/combat/soldier_detailed_merged.glb"
 const HEIGHT := 1.88
 const EnemyMarkingsScript = preload("res://combat/enemy_markings.gd")
+const WEAPON_BONE_NAME := "Line01_028"
+
+static var _stripped_mesh_cache: Dictionary = {}
 
 var model: Node3D = null
 var skeleton: Skeleton3D = null
@@ -46,7 +49,10 @@ var _run_blend := 0.0
 var _breath_phase := 0.0
 var _sway_phase := 0.0
 var _crouch_target := 0.0
+var _crouch_t := 0.0
 var _crouch := 0.0
+var _rest_foot_y := 0.0
+var _rest_spine3_y := 0.0
 var _reload_time := 0.0
 var _reload_duration := 1.8
 var _hit_flinch := 0.0
@@ -107,6 +113,7 @@ func setup_rig(team_id: int = -1) -> bool:
 	_cache_bones()
 	_apply_base_pose()
 	_build_rifle_prop()
+	_capture_rest_heights()
 	if team_id == 0:
 		_build_team_patch(team_id)
 	elif QualityManager.get_active_level() != QualityManager.Level.LOW:
@@ -182,6 +189,7 @@ func _build_rifle_prop() -> void:
 		muzzle.position = RIFLE_LONG.normalized() * RIFLE_MUZZLE_OFFSET
 		copy.add_child(muzzle)
 	else:
+		_strip_baked_weapon_mesh(model, skeleton, WEAPON_BONE_NAME)
 		_build_procedural_rifle()
 
 
@@ -265,6 +273,10 @@ func set_crouch(crouching: bool) -> void:
 	_crouch_target = 1.0 if crouching else 0.0
 
 
+func is_crouching_blend() -> float:
+	return _crouch
+
+
 func set_aim_pitch(pitch: float) -> void:
 	_aim_pitch = clampf(pitch, -0.5, 0.9)
 
@@ -309,8 +321,13 @@ func play_death(variant: int = -1) -> void:
 func set_mobile_animation_lod(distance: float) -> void:
 	var next_hz := 30.0 if distance < 95.0 else (15.0 if distance < 260.0 else 0.0)
 	if not is_equal_approx(next_hz, _mobile_animation_hz):
+		var was_suspended := is_zero_approx(_mobile_animation_hz)
 		_mobile_animation_hz = next_hz
 		_mobile_animation_accumulator = 0.0
+		if was_suspended and next_hz > 0.0 and _ready_ok:
+			_crouch_t = _crouch_target
+			_crouch = _crouch_t * _crouch_t * (3.0 - 2.0 * _crouch_t)
+			_update_pose(0.0)
 
 
 ## Reference/preview clips baked from the procedural poses. Gameplay stays
@@ -364,7 +381,8 @@ func _process(delta: float) -> void:
 	_sway_phase += pose_delta * (0.9 + _walk_stride * 0.5)
 	_aim_smooth = lerpf(_aim_smooth, _aim_pitch, 1.0 - exp(-pose_delta / 0.09))
 	_look_yaw_smooth = lerpf(_look_yaw_smooth, _look_yaw, 1.0 - exp(-pose_delta / 0.12))
-	_crouch = move_toward(_crouch, _crouch_target, pose_delta * 3.8)
+	_crouch_t = move_toward(_crouch_t, _crouch_target, pose_delta * 3.8)
+	_crouch = _crouch_t * _crouch_t * (3.0 - 2.0 * _crouch_t)
 	_kick = move_toward(_kick, 0.0, pose_delta * 5.0)
 	_hit_flinch = move_toward(_hit_flinch, 0.0, pose_delta * 4.2)
 	if _reload_time > 0.0:
@@ -381,15 +399,16 @@ func _update_pose(_delta: float) -> void:
 		_apply_death_pose()
 		return
 	var swing := sin(_walk_phase)
-	var amp := (0.55 + 0.16 * _run_blend) * _walk_stride * (1.0 - _crouch * 0.28)
-	var crouch_hip := 0.58 * _crouch
-	var crouch_knee := 0.95 * _crouch
+	var walk_w := _walk_stride * (1.0 - _crouch * 0.9)
+	var amp := (0.55 + 0.16 * _run_blend) * walk_w
+	var crouch_hip := 0.72 * _crouch
+	var crouch_knee := 1.25 * _crouch
+	var crouch_foot := crouch_hip - crouch_knee
 	# Heel-toe roll: the stance foot rocks from heel strike (toe up, phase=PI)
 	# through a flat plant to toe-off (toe down, phase=0/TAU).  The legs are
 	# anti-phased, so the right foot uses the mirrored sign.  Amplitude fades
 	# out when crouching or standing still.
-	var heel_toe := 0.15 * cos(_walk_phase) * clampf(_walk_stride, 0.0, 1.0) \
-			* (1.0 - 0.35 * _crouch)
+	var heel_toe := 0.15 * cos(_walk_phase) * clampf(walk_w, 0.0, 1.0)
 	if _b_thigh_l >= 0:
 		skeleton.set_bone_pose_rotation(_b_thigh_l,
 				Quaternion(Vector3.FORWARD, swing * amp + crouch_hip) * _rest[_b_thigh_l])
@@ -398,20 +417,20 @@ func _update_pose(_delta: float) -> void:
 				Quaternion(Vector3.FORWARD, -swing * amp + crouch_hip) * _rest[_b_thigh_r])
 	if _b_calf_l >= 0:
 		skeleton.set_bone_pose_rotation(_b_calf_l,
-				Quaternion(Vector3.BACK,
-				maxf(0.0, -swing) * 0.85 * _walk_stride + crouch_knee) * _rest[_b_calf_l])
+				Quaternion(Vector3.FORWARD,
+				maxf(0.0, -swing) * 0.85 * walk_w + crouch_knee) * _rest[_b_calf_l])
 	if _b_calf_r >= 0:
 		skeleton.set_bone_pose_rotation(_b_calf_r,
-				Quaternion(Vector3.BACK,
-				maxf(0.0, swing) * 0.85 * _walk_stride + crouch_knee) * _rest[_b_calf_r])
+				Quaternion(Vector3.FORWARD,
+				maxf(0.0, swing) * 0.85 * walk_w + crouch_knee) * _rest[_b_calf_r])
 	if _b_foot_l >= 0:
 		skeleton.set_bone_pose_rotation(_b_foot_l,
-				Quaternion(Vector3.BACK, -swing * 0.22 * _walk_stride
-				+ heel_toe + 0.32 * _crouch) * _rest[_b_foot_l])
+				Quaternion(Vector3.FORWARD, swing * 0.22 * walk_w
+				- heel_toe + crouch_foot) * _rest[_b_foot_l])
 	if _b_foot_r >= 0:
 		skeleton.set_bone_pose_rotation(_b_foot_r,
-				Quaternion(Vector3.BACK, swing * 0.22 * _walk_stride
-				- heel_toe + 0.32 * _crouch) * _rest[_b_foot_r])
+				Quaternion(Vector3.FORWARD, -swing * 0.22 * walk_w
+				+ heel_toe + crouch_foot) * _rest[_b_foot_r])
 
 	var breath := sin(_breath_phase) * 0.025
 	var flinch_pitch := _hit_flinch * 0.28
@@ -445,11 +464,21 @@ func _update_pose(_delta: float) -> void:
 		skeleton.set_bone_pose_rotation(_b_support,
 				Quaternion(Vector3.UP, sup_yaw) * Quaternion(Vector3.RIGHT, sup_pitch))
 
+	var foot_correction := 0.0
+	var chest_dy := -0.28 * _crouch
 	if model != null:
 		var bob := absf(sin(_walk_phase)) * (0.038 + 0.022 * _run_blend) \
-				* _walk_stride * (1.0 - _crouch * 0.45)
-		model.position = _base_model_pos + Vector3(0.0, -0.34 * _crouch + bob, 0.0)
+				* _walk_stride * (1.0 - _crouch)
+		model.position = _base_model_pos
 		model.rotation = _base_model_rot
+		if _b_foot_l >= 0 or _b_foot_r >= 0:
+			skeleton.force_update_all_bone_transforms()
+			var foot_y := _lowest_foot_rig_y()
+			foot_correction = _rest_foot_y - foot_y
+			var chest_bone := _b_spine3 if _b_spine3 >= 0 else _b_pelvis
+			if chest_bone >= 0:
+				chest_dy = (_rig_local_bone_y(chest_bone) + foot_correction) - _rest_spine3_y
+		model.position = _base_model_pos + Vector3(0.0, foot_correction + bob, 0.0)
 
 	# Idle weapon sway: a slow, low-amplitude drift that dies down while the
 	# soldier walks, aims or crouches, so steady aiming stays steady.
@@ -466,7 +495,7 @@ func _update_pose(_delta: float) -> void:
 	if rifle_pivot != null:
 		rifle_pivot.position = _rifle_rest + Vector3(
 				0.04 * reload_blend,
-				-0.012 * _kick - 0.28 * _crouch - 0.06 * reload_blend + breath * 0.35,
+				chest_dy - 0.012 * _kick - 0.06 * reload_blend + breath * 0.35,
 				0.055 * _kick + 0.04 * reload_blend) + sway_pos
 		var aim_tilt := -_aim_smooth * 0.55 + 0.035 * _kick + 0.42 * reload_blend
 		var roll_tilt := 0.48 * reload_blend
@@ -488,10 +517,10 @@ func _apply_death_pose() -> void:
 				Quaternion(Vector3.FORWARD, hip_fold * 0.82) * _rest[_b_thigh_r])
 	if _b_calf_l >= 0:
 		skeleton.set_bone_pose_rotation(_b_calf_l,
-				Quaternion(Vector3.BACK, knee_buckle) * _rest[_b_calf_l])
+				Quaternion(Vector3.FORWARD, knee_buckle) * _rest[_b_calf_l])
 	if _b_calf_r >= 0:
 		skeleton.set_bone_pose_rotation(_b_calf_r,
-				Quaternion(Vector3.BACK, knee_buckle * 0.88) * _rest[_b_calf_r])
+				Quaternion(Vector3.FORWARD, knee_buckle * 0.88) * _rest[_b_calf_r])
 	if _b_spine2 >= 0:
 		var sp_pitch := (0.42 if _death_variant == 0 else -0.28) * k
 		skeleton.set_bone_pose_rotation(_b_spine2,
@@ -580,3 +609,172 @@ func _bounds(node: Node3D, relative_to: Node3D = null) -> AABB:
 		box = b if first else box.merge(b)
 		first = false
 	return box
+
+
+func _capture_rest_heights() -> void:
+	if skeleton == null or model == null:
+		return
+	model.position = _base_model_pos
+	model.rotation = _base_model_rot
+	skeleton.force_update_all_bone_transforms()
+	_rest_foot_y = _lowest_foot_rig_y()
+	var chest_bone := _b_spine3 if _b_spine3 >= 0 else _b_pelvis
+	if chest_bone >= 0:
+		_rest_spine3_y = _rig_local_bone_y(chest_bone)
+
+
+func _lowest_foot_rig_y() -> float:
+	if _b_foot_l >= 0 and _b_foot_r >= 0:
+		return minf(_rig_local_bone_y(_b_foot_l), _rig_local_bone_y(_b_foot_r))
+	if _b_foot_l >= 0:
+		return _rig_local_bone_y(_b_foot_l)
+	if _b_foot_r >= 0:
+		return _rig_local_bone_y(_b_foot_r)
+	return 0.0
+
+
+func _rig_local_bone_y(bone_idx: int) -> float:
+	if bone_idx < 0 or skeleton == null:
+		return 0.0
+	var pos := skeleton.get_bone_global_pose(bone_idx).origin
+	var n: Node = skeleton
+	while n != null and n != self:
+		if n is Node3D:
+			pos = (n as Node3D).transform * pos
+		n = n.get_parent()
+	return pos.y
+
+
+## Removes triangles skinned predominantly to `bone_name` (such as the baked M4
+## weapon inside soldier_detailed_merged.glb) so procedural RiflePivot is sole gun.
+func _strip_baked_weapon_mesh(root: Node, sk: Skeleton3D, bone_name: String) -> void:
+	if root == null or sk == null:
+		return
+	var bone_idx := sk.find_bone(bone_name)
+	if bone_idx < 0:
+		bone_idx = _bone(bone_name)
+	if bone_idx < 0:
+		return
+	for n in root.find_children("*", "MeshInstance3D", true, false):
+		var mi := n as MeshInstance3D
+		if mi == null or mi.mesh == null:
+			continue
+		var cache_key := "%d:%d" % [mi.mesh.get_rid().get_id(), bone_idx]
+		if _stripped_mesh_cache.has(cache_key):
+			mi.mesh = _stripped_mesh_cache[cache_key] as Mesh
+			continue
+		var stripped := _build_stripped_mesh(mi.mesh, bone_idx)
+		_stripped_mesh_cache[cache_key] = stripped
+		mi.mesh = stripped
+
+
+static func _build_stripped_mesh(src_mesh: Mesh, weapon_bone: int) -> Mesh:
+	var any_removed := false
+	var rebuilt := ArrayMesh.new()
+	for s in range(src_mesh.get_surface_count()):
+		var arrays := src_mesh.surface_get_arrays(s)
+		var mat := src_mesh.surface_get_material(s)
+		var prim := Mesh.PRIMITIVE_TRIANGLES
+		if src_mesh is ArrayMesh:
+			prim = (src_mesh as ArrayMesh).surface_get_primitive_type(s)
+		var stripped_arrays: Array = []
+		var flags := 0
+		if prim == Mesh.PRIMITIVE_TRIANGLES and not arrays.is_empty():
+			var verts = arrays[Mesh.ARRAY_VERTEX]
+			var bones = arrays[Mesh.ARRAY_BONES]
+			var weights = arrays[Mesh.ARRAY_WEIGHTS]
+			if verts is PackedVector3Array and bones is PackedInt32Array \
+					and weights is PackedFloat32Array and verts.size() > 0:
+				var vert_count := (verts as PackedVector3Array).size()
+				var stride := (bones as PackedInt32Array).size() / vert_count
+				if stride > 0 and (weights as PackedFloat32Array).size() == vert_count * stride:
+					var is_weapon := PackedByteArray()
+					is_weapon.resize(vert_count)
+					var has_weapon := false
+					for v in range(vert_count):
+						var w_sum := 0.0
+						var base := v * stride
+						for k in range(stride):
+							if bones[base + k] == weapon_bone:
+								w_sum += weights[base + k]
+						if w_sum > 0.5:
+							is_weapon[v] = 1
+							has_weapon = true
+					if has_weapon:
+						var orig_indices = arrays[Mesh.ARRAY_INDEX]
+						var kept_indices := PackedInt32Array()
+						if orig_indices is PackedInt32Array and (orig_indices as PackedInt32Array).size() >= 3:
+							var src_idx := orig_indices as PackedInt32Array
+							for ti in range(0, src_idx.size() - 2, 3):
+								var ia := src_idx[ti]
+								var ib := src_idx[ti + 1]
+								var ic := src_idx[ti + 2]
+								if is_weapon[ia] == 0 and is_weapon[ib] == 0 and is_weapon[ic] == 0:
+									kept_indices.append(ia)
+									kept_indices.append(ib)
+									kept_indices.append(ic)
+								else:
+									any_removed = true
+						else:
+							for ti in range(0, vert_count - 2, 3):
+								if is_weapon[ti] == 0 and is_weapon[ti + 1] == 0 and is_weapon[ti + 2] == 0:
+									kept_indices.append(ti)
+									kept_indices.append(ti + 1)
+									kept_indices.append(ti + 2)
+								else:
+									any_removed = true
+						var used := PackedByteArray()
+						used.resize(vert_count)
+						for idx_val in kept_indices:
+							used[idx_val] = 1
+						var remap := PackedInt32Array()
+						remap.resize(vert_count)
+						remap.fill(-1)
+						var kept_verts := PackedInt32Array()
+						for v in range(vert_count):
+							if used[v] != 0:
+								remap[v] = kept_verts.size()
+								kept_verts.append(v)
+						if not kept_verts.is_empty():
+							stripped_arrays.resize(Mesh.ARRAY_MAX)
+							for ai in range(Mesh.ARRAY_MAX):
+								if ai == Mesh.ARRAY_INDEX:
+									var new_idx := PackedInt32Array()
+									new_idx.resize(kept_indices.size())
+									for k in range(kept_indices.size()):
+										new_idx[k] = remap[kept_indices[k]]
+									stripped_arrays[ai] = new_idx
+									continue
+								var src_arr = arrays[ai]
+								if src_arr == null:
+									continue
+								var elem_stride: int = src_arr.size() / vert_count
+								if elem_stride <= 0 or elem_stride * vert_count != src_arr.size():
+									continue
+								var dst_arr = src_arr.duplicate()
+								dst_arr.resize(kept_verts.size() * elem_stride)
+								for nv in range(kept_verts.size()):
+									var ov := kept_verts[nv]
+									var s_off := ov * elem_stride
+									var d_off := nv * elem_stride
+									for j in range(elem_stride):
+										dst_arr[d_off + j] = src_arr[s_off + j]
+								stripped_arrays[ai] = dst_arr
+							if stride == 8:
+								flags |= Mesh.ARRAY_FLAG_USE_8_BONE_WEIGHTS
+		if not stripped_arrays.is_empty():
+			rebuilt.add_surface_from_arrays(prim, stripped_arrays, [], {}, flags)
+		else:
+			if prim == Mesh.PRIMITIVE_TRIANGLES and not arrays.is_empty():
+				var fallback_bones = arrays[Mesh.ARRAY_BONES]
+				var fallback_verts = arrays[Mesh.ARRAY_VERTEX]
+				if fallback_bones is PackedInt32Array and fallback_verts is PackedVector3Array and fallback_verts.size() > 0:
+					if (fallback_bones as PackedInt32Array).size() / (fallback_verts as PackedVector3Array).size() == 8:
+						flags |= Mesh.ARRAY_FLAG_USE_8_BONE_WEIGHTS
+			rebuilt.add_surface_from_arrays(prim, arrays, [], {}, flags)
+		var out_s := rebuilt.get_surface_count() - 1
+		if mat != null:
+			rebuilt.surface_set_material(out_s, mat)
+		if src_mesh is ArrayMesh:
+			rebuilt.surface_set_name(out_s, (src_mesh as ArrayMesh).surface_get_name(s))
+	return rebuilt if any_removed and rebuilt.get_surface_count() > 0 else src_mesh

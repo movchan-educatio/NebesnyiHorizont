@@ -99,7 +99,7 @@ static func level() -> int:
 			if q > Level.HIGH:
 				q = Level.HIGH if q == 3 else Level.LOW
 			return clampi(q, Level.LOW, Level.HIGH)
-	return Level.HIGH
+	return Level.LOW
 
 
 static func get_active_level() -> int:

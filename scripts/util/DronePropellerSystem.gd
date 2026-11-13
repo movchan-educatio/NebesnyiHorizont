@@ -78,9 +78,11 @@ static func setup_propellers(model: Node3D, preset_index: int, prop_d: float = 5
 
 	var pivots: Array[Node3D] = []
 
+	var p := DroneCatalog.preset(preset_index)
+
 	# Fixed-wing pusher drones: one native rear propeller authored in Blender.
 	# The shaft points along the glTF -Z / Godot Z axis.
-	if preset_index == 13 or preset_index == 14:
+	if bool(p.get("pusher", false)):
 		var pusher := model.find_child("propeller_rear", true, false) as Node3D
 		if pusher != null:
 			pusher.set_meta("spin_dir", 1.0)
@@ -98,14 +100,14 @@ static func setup_propellers(model: Node3D, preset_index: int, prop_d: float = 5
 			print("[PROP-PUSHER] MISSING preset=", preset_index,
 					" props=", model.find_children("*prop*", "", true, false))
 	# The jet has no propeller; its turbine is static visual geometry.
-	if preset_index == 15:
+	if bool(p.get("is_jet", false)):
 		model.set_meta("prop_pivots", [])
 		return []
 
 	# Baba Yaga: six native propellers authored as empties in the GLB.  Keep
 	# the detailed carbon blades instead of replacing them with the generic
 	# 2/3/4-blade library mesh; the animation only rotates the pivots.
-	if preset_index == 12:
+	if bool(p.get("heavy_bomber", false)):
 		for i in range(6):
 			var hex_prop := model.find_child("propeller_%d" % i, true, false) as Node3D
 			if hex_prop == null:
@@ -124,51 +126,41 @@ static func setup_propellers(model: Node3D, preset_index: int, prop_d: float = 5
 			return pivots
 		pivots.clear()
 
-	if preset_index == 10:
-		# Preset 10 is USV "MAGURA-X" (Maritime surface drone / boat).
-		# It uses waterjet propulsion and has no quadcopter propellers.
-		model.set_meta("prop_pivots", [])
-		return []
-	
-	if preset_index != 10:
-		# Every aerial preset (including 11, the 8-10" military airframe) has
-		# parented motors and propellers:
-		# motor_FL -> propeller_FL, motor_FR -> propeller_FR, motor_BR -> propeller_BR, motor_BL -> propeller_BL
-		var corners := ["FL", "FR", "BR", "BL"]
-		for i in range(corners.size()):
-			var c: String = corners[i]
-			var motor_node: Node3D = model.find_child("motor_" + c, true, false)
-			var prop_node: Node3D = model.find_child("propeller_" + c, true, false)
-			if OS.has_environment("PROP_DEBUG"):
-				print("[PROP-NODE] ", c, " motor=", motor_node, " prop=", prop_node)
+	# Every quadcopter preset has parented motors and propellers:
+	# motor_FL -> propeller_FL, motor_FR -> propeller_FR, motor_BR -> propeller_BR, motor_BL -> propeller_BL
+	var corners := ["FL", "FR", "BR", "BL"]
+	for i in range(corners.size()):
+		var c: String = corners[i]
+		var motor_node: Node3D = model.find_child("motor_" + c, true, false)
+		var prop_node: Node3D = model.find_child("propeller_" + c, true, false)
+		if OS.has_environment("PROP_DEBUG"):
+			print("[PROP-NODE] ", c, " motor=", motor_node, " prop=", prop_node)
+		
+		# Pivot target is the motor (parent), which spins both motor bell and propeller child.
+		# If motor node is absent, falls back to rotating propeller directly.
+		var target_node: Node3D = motor_node if motor_node != null else prop_node
+		if target_node != null:
+			var dir: float = 1.0 if (i % 2 == 0) else -1.0
+			target_node.set_meta("spin_dir", dir)
+			# Spin around the pivot's local up axis.
+			var axis: Vector3 = Vector3.UP
+			target_node.set_meta("spin_axis", axis)
+			target_node.add_to_group("drone_prop_pivot")
+			pivots.append(target_node)
 			
-			# Pivot target is the motor (parent), which spins both motor bell and propeller child.
-			# If motor node is absent, falls back to rotating propeller directly.
-			var target_node: Node3D = motor_node if motor_node != null else prop_node
-			if target_node != null:
-				var dir: float = 1.0 if (i % 2 == 0) else -1.0
-				target_node.set_meta("spin_dir", dir)
-				# Spin around the pivot's local up axis. For Falcon-X, the pivot
-				# itself is tilted to match each nacelle, so this local axis follows
-				# the angled motor shaft; other presets stay vertically aligned.
-				var axis: Vector3 = Vector3.UP
-				target_node.set_meta("spin_axis", axis)
-				target_node.add_to_group("drone_prop_pivot")
-				pivots.append(target_node)
-				
-			var spin_rot := Vector3.ZERO
-			if prop_node != null:
-				spin_rot = _flat_rotation(prop_node)
-				if _parts_available():
-					_replace_prop(prop_node, preset_index, prop_d, blades, spin_rot)
-				else:
-					_normalise_prop_size(prop_node, prop_d)
-					_apply_prop_tint(prop_node, preset_index)
-			if motor_node != null:
-				if _parts_available():
-					_replace_motor(motor_node, prop_node, preset_index, spin_rot)
-				else:
-					_apply_motor_tint(motor_node, prop_node, preset_index)
+		var spin_rot := Vector3.ZERO
+		if prop_node != null:
+			spin_rot = _flat_rotation(prop_node)
+			if _parts_available():
+				_replace_prop(prop_node, preset_index, prop_d, blades, spin_rot)
+			else:
+				_normalise_prop_size(prop_node, prop_d)
+				_apply_prop_tint(prop_node, preset_index)
+		if motor_node != null:
+			if _parts_available():
+				_replace_motor(motor_node, prop_node, preset_index, spin_rot)
+			else:
+				_apply_motor_tint(motor_node, prop_node, preset_index)
 
 	model.set_meta("prop_pivots", pivots)
 	model.set_meta("preset_index", preset_index)
@@ -285,12 +277,17 @@ static func _flat_rotation(prop_node: Node3D) -> Vector3:
 			return Vector3.ZERO
 
 
+static func _profile_index_for(p: Dictionary, preset_index: int) -> int:
+	return clampi(int(p.get("parts_profile", preset_index)), 0, PROP_BLADES.size() - 1)
+
+
 static func _replace_prop(prop_node: Node3D, preset_index: int, prop_d: float,
 		blades: int, spin_rot: Vector3) -> void:
 	if prop_node.has_meta("new_prop"):
 		return
 	prop_node.set_meta("new_prop", true)
-	var idx := clampi(preset_index, 0, PROP_BLADES.size() - 1)
+	var p := DroneCatalog.preset(preset_index)
+	var idx := _profile_index_for(p, preset_index)
 	var wanted := clampi(blades, 2, 4)
 	var mesh: ArrayMesh = null
 	# A preset profile is authoritative only when its blade count matches the
@@ -313,7 +310,7 @@ static func _replace_prop(prop_node: Node3D, preset_index: int, prop_d: float,
 	# the airframe in the hangar / chase view.
 	mi.scale = Vector3.ONE * maxf(prop_d * 0.0254 * 0.72, 0.02)
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var tint: Color = PROP_TINTS[preset_index % PROP_TINTS.size()]
+	var tint: Color = p.get("prop_tint", PROP_TINTS[idx % PROP_TINTS.size()])
 	mi.material_override = _paint(tint, 0.30, 0.18)
 	prop_node.add_child(mi)
 
@@ -325,6 +322,7 @@ static func _replace_motor(motor_node: Node3D, prop_node: Node3D,
 	motor_node.set_meta("new_motor", true)
 	_strip_meshes_except(motor_node, prop_node)
 	var p := DroneCatalog.preset(preset_index)
+	var idx := _profile_index_for(p, preset_index)
 	var stator_mm := float(int(p.get("motor_size", 2207)) / 100)
 	if stator_mm < 5.0:
 		stator_mm = 22.0
@@ -335,7 +333,7 @@ static func _replace_motor(motor_node: Node3D, prop_node: Node3D,
 	mi.rotation = spin_rot
 	mi.scale = Vector3.ONE * bell_d
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var tint: Color = MOTOR_TINTS[preset_index % MOTOR_TINTS.size()]
+	var tint: Color = p.get("motor_tint", MOTOR_TINTS[idx % MOTOR_TINTS.size()])
 	mi.material_override = _paint(tint, 0.42, 0.62)
 	motor_node.add_child(mi)
 
@@ -397,7 +395,9 @@ static func _prop_meshes(node: Node) -> Array[MeshInstance3D]:
 
 static func _apply_prop_tint(node: Node, preset_index: int) -> void:
 	var mat := StandardMaterial3D.new()
-	var tint: Color = PROP_TINTS[preset_index % PROP_TINTS.size()]
+	var p := DroneCatalog.preset(preset_index)
+	var idx := _profile_index_for(p, preset_index)
+	var tint: Color = p.get("prop_tint", PROP_TINTS[idx % PROP_TINTS.size()])
 	mat.albedo_color = tint
 	mat.roughness = 0.38
 	mat.metallic = 0.05
@@ -410,7 +410,9 @@ static func _apply_prop_tint(node: Node, preset_index: int) -> void:
 
 static func _apply_motor_tint(motor: Node, prop: Node, preset_index: int) -> void:
 	var mat := StandardMaterial3D.new()
-	var tint: Color = MOTOR_TINTS[preset_index % MOTOR_TINTS.size()]
+	var p := DroneCatalog.preset(preset_index)
+	var idx := _profile_index_for(p, preset_index)
+	var tint: Color = p.get("motor_tint", MOTOR_TINTS[idx % MOTOR_TINTS.size()])
 	mat.albedo_color = tint
 	mat.roughness = 0.42
 	mat.metallic = 0.62
@@ -439,29 +441,8 @@ static func _apply_body_matching_prop_material(node: Node, preset_index: int) ->
 	mat.clearcoat = 0.4
 	mat.clearcoat_roughness = 0.2
 	
-	match preset_index:
-		0: # Golka
-			mat.albedo_color = Color(0.20, 0.22, 0.24)
-		1: # PinaPipe
-			mat.albedo_color = Color(0.22, 0.22, 0.25)
-		2: # Avata 2 (sleek dark graphite with crisp specular highlight)
-			mat.albedo_color = Color(0.28, 0.30, 0.32)
-		3: # Pisun VTOL (tactical olive tint)
-			mat.albedo_color = Color(0.22, 0.28, 0.22)
-		4: # Peleng
-			mat.albedo_color = Color(0.22, 0.24, 0.22)
-		5: # Grim-7
-			mat.albedo_color = Color(0.20, 0.20, 0.22)
-		6: # Grim-7M
-			mat.albedo_color = Color(0.20, 0.20, 0.22)
-		7: # Strila-8
-			mat.albedo_color = Color(0.22, 0.23, 0.25)
-		8: # Falcon-X Digital (sleek smoke tint with reflections)
-			mat.albedo_color = Color(0.25, 0.27, 0.30)
-		9: # Quad-5 Custom
-			mat.albedo_color = Color(0.20, 0.22, 0.24)
-		_:
-			mat.albedo_color = Color(0.22, 0.22, 0.22)
+	var p := DroneCatalog.preset(preset_index)
+	mat.albedo_color = p.get("body_prop_tint", Color(0.22, 0.22, 0.22))
 
 	_apply_material_recursive(node, mat)
 

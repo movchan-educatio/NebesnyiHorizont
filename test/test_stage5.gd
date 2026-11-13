@@ -15,7 +15,7 @@ func _ready() -> void:
 	# ----------------------------------------------------
 	# 1. Combat Payload Drop Test («ГРІМ-7М» - 2x VOG drop)
 	# ----------------------------------------------------
-	catalog.apply_to_drone(drone, 6) # Preset 6: «ГРІМ-7М»
+	catalog.apply_to_drone(drone, 1) # Preset 1: «ГРІМ-7М»
 	print("[TEST] Armed «ГРІМ-7М»: Mass=%.2f kg, CoG=%s, Payloads=%d" % [
 		drone.mass, drone.center_of_mass, drone.payload_count
 	])
@@ -47,7 +47,7 @@ func _ready() -> void:
 	# 2. Battery Voltage Sag Test
 	# ----------------------------------------------------
 	# A) Heavy 3.0kg combat drone («СТРІЛА-8»)
-	catalog.apply_to_drone(drone, 7)
+	catalog.apply_to_drone(drone, 2)
 	print("[TEST] Resting voltage: %.2f V, Sag Factor: %.2f" % [
 		drone.battery_cell_voltage, drone.battery_sag_factor
 	])
@@ -69,17 +69,17 @@ func _ready() -> void:
 	assert(heavy_sag < 0.85, "Heavy combat drone must experience significant voltage sag (<0.85)")
 	assert(heavy_volts < 3.6, "Cell voltage must sag below 3.6V under heavy punch-out")
 	
-	# B) Freestyle light drone («ГОЛКА» 0.60kg) comparison
-	catalog.apply_to_drone(drone, 0)
+	# B) Light 5" drone («КВАД-5» 0.83kg) comparison
+	catalog.apply_to_drone(drone, 3)
 	for m in drone.motors:
 		m.set_rpm(m.MAX_RPM)
 	for step in range(20):
 		drone.update_voltage_sag(0.1)
 	var light_sag: float = drone.battery_sag_factor
-	print("[TEST] «ГОЛКА» Full Throttle Sag: Factor=%.2f, Cell Voltage=%.2f V" % [
+	print("[TEST] «КВАД-5» Full Throttle Sag: Factor=%.2f, Cell Voltage=%.2f V" % [
 		light_sag, drone.battery_cell_voltage
 	])
-	assert(light_sag > heavy_sag, "Light freestyle drone must experience LESS sag than heavy combat drone")
+	assert(light_sag > heavy_sag, "Light combat drone must experience LESS sag than heavy combat drone")
 	
 	# C) Battery recovery when throttle eased off to idle
 	for m in drone.motors:

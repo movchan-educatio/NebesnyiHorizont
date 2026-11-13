@@ -123,7 +123,7 @@ static func _b2(b: Basis, v: Vector3) -> Vector2:
 
 
 static func _free(x: float, z: float, pad: float = 2.0) -> bool:
-	if x < -450.0 or z < -450.0 or x > 450.0 or z > 450.0:
+	if x < -268.0 or z < -268.0 or x > 268.0 or z > 268.0:
 		return false
 	if _h(x, z) < FT.water_level(_map) + 0.35:
 		return false
@@ -1779,18 +1779,18 @@ static func _dress_fields(root: Node3D, map_name: String, factor: float) -> void
 	var fields: Array = []
 	if map_name == "steppe":
 		fields = [
-			[Vector2(0.0, 300.0), 180.0, 95.0, 0.0, "wheat"],
-			[Vector2(250.0, 250.0), 120.0, 90.0, 0.10, "stubble"],
-			[Vector2(270.0, 120.0), 110.0, 80.0, -0.12, "plowed"],
-			[Vector2(-230.0, -70.0), 150.0, 90.0, 0.22, "wheat"],
-			[Vector2(-60.0, 30.0), 110.0, 70.0, -0.35, "stubble"],
+			[Vector2(0.0, 205.0), 130.0, 75.0, 0.0, "wheat"],
+			[Vector2(180.0, 180.0), 100.0, 70.0, 0.10, "stubble"],
+			[Vector2(195.0, 90.0), 95.0, 65.0, -0.12, "plowed"],
+			[Vector2(-175.0, -55.0), 120.0, 75.0, 0.22, "wheat"],
+			[Vector2(-50.0, 25.0), 90.0, 60.0, -0.35, "stubble"],
 		]
 	else:
 		fields = [
-			[Vector2(-30.0, 260.0), 150.0, 90.0, 0.15, "wheat"],
-			[Vector2(240.0, 270.0), 130.0, 80.0, -0.20, "stubble"],
-			[Vector2(-250.0, -30.0), 140.0, 80.0, 0.40, "plowed"],
-			[Vector2(80.0, -160.0), 120.0, 90.0, 0.0, "orchard"],
+			[Vector2(-25.0, 195.0), 115.0, 75.0, 0.15, "wheat"],
+			[Vector2(175.0, 195.0), 105.0, 65.0, -0.20, "stubble"],
+			[Vector2(-185.0, -25.0), 110.0, 65.0, 0.40, "plowed"],
+			[Vector2(65.0, -120.0), 100.0, 70.0, 0.0, "orchard"],
 		]
 	for i in range(fields.size()):
 		if factor < 0.6 and i > 2:
@@ -2052,8 +2052,8 @@ static func _orchard_rows(root: Node3D, center: Vector2, w: float, d: float,
 static func _dress_steppe(root: Node3D, map_name: String, factor: float) -> void:
 	# A wind pump and a water tower give the horizon vertical landmarks and a
 	# readable farm scale from the air.
-	_wind_pump(root, Vector2(-284.0, 118.0))
-	_water_tower(root, Vector2(118.0, 246.0))
+	_wind_pump(root, Vector2(-215.0, 92.0))
+	_water_tower(root, Vector2(98.0, 195.0))
 	# Fence line along the farm track.
 	var wood := FT._pbr("wood", Color(0.46, 0.37, 0.25), 0.45)
 	for i in range(int(maxf(10.0, 26.0 * factor))):
@@ -2126,7 +2126,7 @@ static func _dress_industrial(root: Node3D, map_name: String, factor: float) -> 
 		# Pipe bridge between the hero hall and the nearest warehouse.
 		_pipe_bridge(root, Vector2(50.0, 80.0), Vector2(168.0, 86.0))
 		# Cooling tower far from the hero hall: a huge industrial silhouette.
-		_cooling_tower(root, Vector2(-300.0, 160.0))
+		_cooling_tower(root, Vector2(-215.0, 118.0))
 		# Silo relocated to standalone open area
 		pass
 	# Container stacks in the yard.
@@ -2621,20 +2621,19 @@ static func _scatter_procedural(root: Node3D, map_name: String, factor: float) -
 	# Floor the density: at factor 0.34 (LOW) the old 22*factor gave 7 sites over
 	# 870x870 m, which read as an empty field.  Props are batched in
 	# _flush_pending, so the extra sites cost very few draw calls.
-	var count := int(maxf(26.0, round(52.0 * maxf(factor, 0.62))))
+	var count := int(maxf(16.0, round(32.0 * maxf(factor, 0.55))))
 	var max_attempts := count * 60
 	var placed := 0
 	while placed < count and max_attempts > 0:
 		max_attempts -= 1
-		var p := Vector2(_rng.randf_range(-435.0, 435.0),
-				_rng.randf_range(-435.0, 435.0))
+		var p := Vector2(_rng.randf_range(-250.0, 250.0),
+				_rng.randf_range(-250.0, 250.0))
 		if not _free(p.x, p.y, 8.0):
 			continue
 		var kind: String = kinds[_rng.randi_range(0, kinds.size() - 1)]
-		# Wide berth: a 140 m field has a 70 m half-extent, so even a 100 m
-		# centre clearance can overlap the hero yard and paint a green
-		# rectangle across the concrete.  Fields need a full 160 m.
-		var clearance := 120.0 if kind == "field" or kind == "orchard" else 48.0
+		# Wide berth: a 115 m field has a 58 m half-extent, so keep clear of
+		# hero yards while fitting the 40% smaller arena.
+		var clearance := 105.0 if kind == "field" or kind == "orchard" else 40.0
 		if _too_close(p, clearance):
 			continue
 		# Keep fields and camps off the drivable road ribbons.
@@ -2749,7 +2748,7 @@ static func _dress_ground_litter(root: Node3D, map_name: String, factor: float) 
 	match map_name:
 		"steppe":
 			centers.append_array([Vector2(40, 146), Vector2(66, 70), Vector2(-210, 40),
-					Vector2(280, -40), Vector2(24, 206), Vector2(-154, 72)])
+					Vector2(225, -40), Vector2(24, 206), Vector2(-154, 72)])
 		"village":
 			centers.append_array([Vector2(90, 70), Vector2(30, 46), Vector2(130, 96),
 					Vector2(-210, 90), Vector2(-112, 188), Vector2(12, 16)])
@@ -2759,10 +2758,10 @@ static func _dress_ground_litter(root: Node3D, map_name: String, factor: float) 
 		"wetlands":
 			centers.append_array([Vector2(30, 60), Vector2(52, 106), Vector2(-84, 30),
 					Vector2(202, 132), Vector2(-230, 20)])
-	for i in range(int(maxf(5.0, 12.0 * factor))):
-		centers.append(Vector2(_rng.randf_range(-360.0, 360.0),
-				_rng.randf_range(-360.0, 360.0)))
-	var litter := int(maxf(18.0, 44.0 * factor))
+	for i in range(int(maxf(4.0, 8.0 * factor))):
+		centers.append(Vector2(_rng.randf_range(-245.0, 245.0),
+				_rng.randf_range(-245.0, 245.0)))
+	var litter := int(maxf(12.0, 30.0 * factor))
 	for c in centers:
 		var cp: Vector2 = c
 		if not _free(cp.x, cp.y, 0.0):

@@ -10,7 +10,7 @@ func _ready() -> void:
 	assert(drone_scene != null, "Drone1.tscn must load")
 	var drone := drone_scene.instantiate() as Drone
 	add_child(drone)
-	catalog.apply_to_drone(drone, 0)
+	catalog.apply_to_drone(drone, 3)
 	
 	# 1. Quadratic Drag Test (v vs 2v -> 4x force)
 	var v1 := Vector3(0, 0, -10.0) # 10 m/s forward

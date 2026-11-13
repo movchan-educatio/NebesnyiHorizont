@@ -5,7 +5,6 @@ const MenuUI = preload("res://GUI/ui/MenuUI.gd")
 
 @onready var fps := $ScrollContainer/VBoxContainer/HBoxContainer/SpinBoxRefreshRate
 @onready var check_crosshair := $ScrollContainer/VBoxContainer/CheckCrosshair
-@onready var check_horizon := $ScrollContainer/VBoxContainer/CheckHorizon
 @onready var check_ladder := $ScrollContainer/VBoxContainer/CheckLadder
 @onready var check_speed := $ScrollContainer/VBoxContainer/CheckSpeed
 @onready var check_altitude := $ScrollContainer/VBoxContainer/CheckAltitude
@@ -20,7 +19,7 @@ func _ready() -> void:
 	GameSettings.load_hud_config()
 	var _discard = fps.connect("value_changed", Callable(self, "_on_hud_fps_changed"))
 	fps.value = GameSettings.hud_config["fps"]
-	var buttons := [check_crosshair, check_horizon, check_ladder, check_speed,
+	var buttons := [check_crosshair, check_ladder, check_speed,
 			check_altitude, check_heading, check_sticks, check_rpm]
 	for button in buttons:
 		button.connect("toggled", Callable(self, "_on_button_toggled").bind(button))
@@ -28,9 +27,6 @@ func _ready() -> void:
 			check_crosshair:
 				button.button_pressed = GameSettings.hud_config["crosshair"]
 				hud.show_component(HUD.Component.CROSSHAIR, button.pressed)
-			check_horizon:
-				button.button_pressed = GameSettings.hud_config["horizon"]
-				hud.show_component(HUD.Component.HORIZON, button.pressed)
 			check_ladder:
 				button.button_pressed = GameSettings.hud_config["ladder"]
 				hud.show_component(HUD.Component.LADDER, button.pressed)
@@ -66,9 +62,6 @@ func _on_button_toggled(button_pressed: bool, button: CheckButton) -> void:
 		check_crosshair:
 			component = HUD.Component.CROSSHAIR
 			key = "crosshair"
-		check_horizon:
-			component = HUD.Component.HORIZON
-			key = "horizon"
 		check_ladder:
 			component = HUD.Component.LADDER
 			key = "ladder"

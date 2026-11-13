@@ -50,6 +50,7 @@ var _distance := 999.0
 ## Low-end presets tick distant AI at 1/3 rate.
 var _ai_low := false
 var _ai_tick := 0
+var _ai_accum := 0.0
 var _los_timer := 0.0
 var _burst_left := 0
 var _shot_cd := 0.0
@@ -472,7 +473,10 @@ func _physics_process(delta: float) -> void:
 		var step := 5 if dist_sq > 90000.0 else 3
 		_ai_tick += 1
 		if _ai_tick % step != 0:
+			_ai_accum = minf(_ai_accum + delta, 0.25)
 			return
+	delta = minf(delta + _ai_accum, 0.25)
+	_ai_accum = 0.0
 
 	_apply_recoil(delta)
 	if _reload_timer > 0.0:
@@ -505,13 +509,14 @@ func _physics_process(delta: float) -> void:
 		_set_locomotion(delta, 0.0)
 		return
 	var aligned := _aim_at_drone(delta)
+	var crouched := _is_crouched_or_settling()
 	if not aligned:
-		_set_locomotion(delta, 1.2)
+		_set_locomotion(delta, 0.0 if crouched else 1.2)
 		return
 
 	if _burst_left > 0:
 		_set_locomotion(delta, 0.0)
-		if _mobile_visual_lod_enabled():
+		if _mobile_visual_lod_enabled() and not crouched:
 			# Mobile flanking: while a burst is being walked onto the drone,
 			# the shooter sidesteps along a random flank direction so squads
 			# spread out instead of bunching on one firing line.
@@ -548,7 +553,7 @@ func _physics_process(delta: float) -> void:
 				if _anim != null and _anim.get_animation_list().has("Walk"):
 					_anim.play("Walk")
 	else:
-		if _strafe_timer > 0.0 and not _tactical_knee and not _demo_visual:
+		if _strafe_timer > 0.0 and not crouched and not _demo_visual:
 			_strafe_timer -= delta
 			var side := global_transform.basis.x * _strafe_dir
 			side.y = 0.0
@@ -650,6 +655,10 @@ func _advance_on_drone(delta: float) -> bool:
 
 
 func _patrol_step(delta: float) -> void:
+	if _is_crouched_or_settling():
+		_set_locomotion(delta, 0.0)
+		_snap_to_ground()
+		return
 	if not _patrol_active or _demo_visual:
 		_scan_phase += delta * 0.85
 		if _detailed_rig != null:
@@ -741,18 +750,22 @@ func _panic_step(delta: float) -> void:
 		elif _pitch != null:
 			_pitch.rotation.x = lerp_angle(_pitch.rotation.x, 0.0,
 					clampf(delta * 4.0, 0.0, 1.0))
-		if yaw_diff < 0.45:
-			var forward := -global_transform.basis.z
-			forward.y = 0.0
-			if forward.length_squared() > 0.0001:
-				forward = forward.normalized()
-			var step_dist := scatter_speed * delta
-			if _can_step(forward, step_dist):
-				global_position += forward * step_dist
-			else:
-				_panic_dir = _panic_dir.rotated(Vector3.UP, PI * 0.65)
-		_snap_to_ground()
-		_set_locomotion(delta, scatter_speed)
+		if _is_crouched_or_settling():
+			_snap_to_ground()
+			_set_locomotion(delta, 0.0)
+		else:
+			if yaw_diff < 0.45:
+				var forward := -global_transform.basis.z
+				forward.y = 0.0
+				if forward.length_squared() > 0.0001:
+					forward = forward.normalized()
+				var step_dist := scatter_speed * delta
+				if _can_step(forward, step_dist):
+					global_position += forward * step_dist
+				else:
+					_panic_dir = _panic_dir.rotated(Vector3.UP, PI * 0.65)
+			_snap_to_ground()
+			_set_locomotion(delta, scatter_speed)
 		if _panic_timer <= 0.0:
 			_panic_state = 2
 			_panic_timer = randf_range(3.0, 6.0)
@@ -775,6 +788,13 @@ func _snap_to_ground() -> void:
 	if scene != null and scene.get("frontline_map") != null:
 		var map := String(scene.get("frontline_map"))
 		if not map.is_empty():
+			var lim := 285.0
+			if absf(global_position.x) > lim or absf(global_position.z) > lim:
+				global_position.x = clampf(global_position.x, -lim, lim)
+				global_position.z = clampf(global_position.z, -lim, lim)
+				_patrol_dir = -_patrol_dir
+				_strafe_dir = -_strafe_dir
+				_panic_dir = -_panic_dir
 			global_position.y = FrontlineTerrainScript.height_at(map,
 					global_position.x, global_position.z)
 			return
@@ -798,6 +818,12 @@ func _snap_to_ground() -> void:
 		global_position.y = (hit["position"] as Vector3).y
 
 
+func _is_crouched_or_settling() -> bool:
+	if _crouching or _prone_pose > 0.08:
+		return true
+	return _detailed_rig != null and _detailed_rig.is_crouching_blend() > 0.08
+
+
 func _update_pose(delta: float) -> void:
 	var target := 1.0 if _crouching else 0.0
 	_prone_pose = move_toward(_prone_pose, target, delta * 3.5)
@@ -813,7 +839,8 @@ func _set_locomotion(delta: float, speed: float) -> void:
 	if _mobile_visual_lod_enabled() and (_using_proxy \
 			or (_distance > 125.0 and _model != null and not _model.visible)):
 		return
-	_walk_phase += delta * (2.0 + speed * 3.2)
+	if _stride > 0.01 or target_stride > 0.01:
+		_walk_phase += delta * (2.0 + speed * 3.2)
 	if _detailed_rig != null and not _using_proxy:
 		_detailed_rig.set_walk(_walk_phase, _stride)
 		return

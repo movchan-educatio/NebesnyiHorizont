@@ -55,9 +55,6 @@ var frame_dimensions: Vector3 = Vector3(0.22, 0.06, 0.22)
 var current_preset_index: int = 0
 var payload_count: int = 0
 var max_payload_count: int = 0
-var is_naval: bool = false
-var water_surface_y: float = 0.0
-var _wave_time: float = 0.0
 
 ## Battery Voltage Sag Simulation
 var battery_cells: int = 6
@@ -197,6 +194,7 @@ func _ready() -> void:
 	var _discard = flight_controller.connect("armed", Callable(hud.status, "_on_armed"))
 	_discard = flight_controller.connect("disarmed", Callable(hud.status, "_on_disarmed"))
 	_discard = flight_controller.connect("armed", _on_armed_signal)
+	_discard = flight_controller.connect("disarmed", _on_disarmed_signal)
 	_discard = flight_controller.connect("flight_mode_changed", Callable(hud.status, "_on_mode_changed"))
 	_discard = flight_controller.connect("arm_failed", Callable(hud.status, "_on_arm_failed"))
 	
@@ -313,6 +311,17 @@ func _physics_process(delta: float) -> void:
 		var drag: Vector3 = get_drag(linear_velocity, angular_velocity, drone_basis)[0]
 		debug_geom.draw_debug_arrow(0.01, drone_pos, drag.normalized(), drag.length() / 10)
 	_update_motor_audio(delta)
+	var motors_armed: bool = flight_controller != null and flight_controller.state_armed \
+			and visible and not freeze
+	var avg_rpm := 0.0
+	var max_rpm := 1.0
+	if not motors.is_empty():
+		for m in motors:
+			if m != null:
+				avg_rpm += absf(float(m.rpm))
+				max_rpm = maxf(max_rpm, float(m.MAX_RPM))
+		avg_rpm /= float(motors.size())
+	Haptics.update_motor_feedback(motors_armed, throttle_input, avg_rpm, max_rpm, delta)
 
 
 func _setup_motor_audio() -> void:
@@ -339,23 +348,9 @@ func _setup_motor_audio() -> void:
 func refresh_motor_audio() -> void:
 	if _motor_audio == null:
 		return
-	var kind := 0
 	var preset := int(Global.drone_preset)
-	match preset:
-		10:
-			kind = 2
-		12:
-			kind = 5
-		13, 14:
-			kind = 3
-		15:
-			kind = 4
-		5, 6, 7, 11:
-			kind = 6
-		_:
-			kind = 1 if mass >= 1.5 else 0
-	if is_naval:
-		kind = 2
+	var p := DroneCatalog.preset(preset)
+	var kind := int(p.get("audio_kind", 1 if mass >= 1.5 else 0))
 	_motor_audio.stream = CombatSfx.drone_motor_stream(kind)
 	_motor_audio.volume_db = -45.0
 	_motor_audio.pitch_scale = 0.70
@@ -407,115 +402,7 @@ func _update_motor_audio(delta: float) -> void:
 	_motor_audio.volume_db = clampf(_motor_audio_vol, -45.0, -3.5)
 
 
-func _integrate_naval_forces(state: PhysicsDirectBodyState3D) -> void:
-	sleeping = false
-	var dt := state.step
-	_wave_time += dt
-	
-	var xform := global_transform.orthonormalized()
-	var pos := xform.origin
-	var basis := xform.basis
-	var lin_vel := state.linear_velocity
-	var ang_vel := state.angular_velocity
-	
-	var throttle_cmd: float = 0.0
-	var steer_yaw: float = 0.0
-	var steer_roll: float = 0.0
-	if flight_controller != null and not flight_controller.input.is_empty():
-		throttle_cmd = clampf(float(flight_controller.input[0]), 0.0, 1.0)
-		steer_yaw = float(flight_controller.input[1])
-		steer_roll = float(flight_controller.input[2])
-	
-	var steer_input: float = clampf(steer_yaw + steer_roll, -1.0, 1.0)
-	
-	var vec_force := Vector3.ZERO
-	var vec_torque := Vector3.ZERO
-	
-	# 1. Multi-point Hydrodynamic Buoyancy (Bow, Stern, Port, Starboard)
-	var hull_half_w: float = frame_dimensions.x * 0.45
-	var hull_half_l: float = frame_dimensions.z * 0.45
-	var probes := [
-		Vector3(0.0, -0.22, -hull_half_l), # Bow
-		Vector3(0.0, -0.22, hull_half_l),  # Stern
-		Vector3(-hull_half_w, -0.22, 0.0), # Port
-		Vector3(hull_half_w, -0.22, 0.0),  # Starboard
-	]
-	
-	for p_loc in probes:
-		var p_world: Vector3 = xform * p_loc
-		var wave_h: float = water_surface_y + sin(p_world.x * 0.06 + _wave_time * 1.5) * 0.16 + cos(p_world.z * 0.05 + _wave_time * 1.1) * 0.12
-		var depth: float = wave_h - p_world.y
-		if depth > 0.0:
-			var p_arm: Vector3 = p_world - pos
-			var p_vel: Vector3 = lin_vel + ang_vel.cross(p_arm)
-			var f_spring: float = depth * (mass * 9.81 * 1.35)
-			var f_damp: float = -p_vel.y * (mass * 4.0)
-			var probe_force: Vector3 = Vector3.UP * maxf(f_spring + f_damp, 0.0)
-			vec_force += probe_force
-			vec_torque += p_arm.cross(probe_force)
-	
-	# 2. Metacentric self-righting stability (prevents capsizing)
-	var up_err: Vector3 = basis.y.cross(Vector3.UP)
-	vec_torque += up_err * (mass * 18.0)
-	vec_torque.x -= ang_vel.x * (mass * 4.5)
-	vec_torque.z -= ang_vel.z * (mass * 4.5)
-	
-	# 3. Waterjet Propulsion (Along -basis.z)
-	var forward_dir := -basis.z
-	var fwd_speed: float = lin_vel.dot(forward_dir)
-	var max_thrust: float = mass * 24.5 # Capable of reaching 24 m/s (~86 km/h)
-	
-	if flight_controller != null and flight_controller.state_armed:
-		var thrust: float = throttle_cmd * max_thrust
-		vec_force += forward_dir * thrust
-		# Planing trim: bow rises slightly when accelerating onto plane
-		var speed_ratio: float = clampf(maxf(fwd_speed, 0.0) / 22.0, 0.0, 1.0)
-		vec_torque += basis.x * (speed_ratio * mass * 1.8)
-	
-	# 4. Hydrodynamic Resistance (Planing Hull Drag & Keel Lateral Grip)
-	var speed_ratio: float = clampf(maxf(fwd_speed, 0.0) / 22.0, 0.0, 1.0)
-	var c_fwd: float = lerpf(42.0, 26.0, speed_ratio)
-	var fwd_drag: float = fwd_speed * absf(fwd_speed) * c_fwd
-	vec_force -= forward_dir * fwd_drag
-	
-	# High lateral grip (keel): USV cannot slide sideways on water
-	var lat_speed: float = lin_vel.dot(basis.x)
-	vec_force -= basis.x * (lat_speed * mass * 8.5)
-	
-	# Vertical heave damping
-	vec_force.y -= lin_vel.y * (mass * 2.5)
-	
-	# 5. Rudder / Jet Steering & Inward Turn Roll Banking
-	var steer_pwr: float = lerpf(mass * 4.8, mass * 3.2, speed_ratio)
-	vec_torque.y -= steer_input * steer_pwr
-	# Natural inward roll bank during high-speed turn
-	vec_torque -= basis.z * (steer_input * speed_ratio * mass * 2.8)
-	vec_torque.y -= ang_vel.y * (mass * 3.0) # Yaw damping
-	
-	# External forces (explosions, shockwaves)
-	vec_force += external_force
-	external_force = Vector3.ZERO
-	
-	# Gravity
-	vec_force += Vector3(0.0, -mass * 9.81, 0.0)
-	
-	# Integrate state
-	var a: Vector3 = vec_force * state.inverse_mass
-	lin_vel += a * dt
-	
-	var local_torque: Vector3 = basis.inverse() * vec_torque
-	var local_ang_a: Vector3 = local_torque * state.inverse_inertia
-	var ang_a: Vector3 = basis * local_ang_a
-	ang_vel += ang_a * dt
-	
-	state.linear_velocity = lin_vel
-	state.angular_velocity = ang_vel
-
-
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
-	if is_naval:
-		_integrate_naval_forces(state)
-		return
 	sleeping = false
 	# 8 substeps at 120 Hz physics = 960 Hz flight-controller loop, inside the
 	# 500-1000 Hz band used by Betaflight 4.4/4.5 on real FPV hardware.
@@ -542,7 +429,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	# bypassed while this assist is active.
 	var landing_assist := false
 	var support_dist := 999.0
-	if flight_controller.state_armed and throttle_cmd < 0.25 and not is_naval:
+	if flight_controller.state_armed and throttle_cmd < 0.25:
 		var space := get_world_3d().direct_space_state
 		if space != null:
 			var span := clampf(maxf(frame_dimensions.x, frame_dimensions.z),
@@ -616,6 +503,9 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 					_trigger_crash("INVERTED_ON_GROUND")
 			else:
 				_inverted_ground_timer = 0.0
+				var min_impact := 2.8 if landing_assist else 1.8
+				if impact_speed > min_impact and visible and not freeze:
+					Haptics.trigger_collision(impact_speed)
 				# A gentle touchdown at idle becomes a stable parked state:
 				# disarm, zero the airframe and freeze it so it cannot slide or
 				# tip over on a roof, slope, container or vehicle.  Arming
@@ -798,7 +688,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	# Heavy-lift speed envelope.  This is a soft physical limiter rather than a
 	# teleport: excess horizontal velocity is bled off by the airframe drag and
 	# capped just above the documented cruise speed.
-	if speed_limit_ms > 0.0 and not is_naval:
+	if speed_limit_ms > 0.0:
 		var hv := Vector3(lin_vel.x, 0.0, lin_vel.z)
 		if hv.length() > speed_limit_ms:
 			hv = hv.normalized() * speed_limit_ms
@@ -1122,7 +1012,6 @@ func _physics_class_for_prop(prop_d: float) -> String:
 
 
 func apply_preset_physics(p: Dictionary) -> void:
-	is_naval = bool(p.get("is_naval", false))
 	dry_mass = float(p.get("dry", 0.42))
 	battery_mass = float(p.get("batt", 0.18))
 	payload_mass = float(p.get("payload_mass", 0.0))
@@ -1248,6 +1137,11 @@ func _on_armed_signal(_mode: int = 0) -> void:
 		angular_velocity = Vector3.ZERO
 	_landing_timer = 0.0
 	_was_airborne = false
+	Haptics.trigger_arm_toggle(true)
+
+
+func _on_disarmed_signal() -> void:
+	Haptics.trigger_arm_toggle(false)
 
 
 func _park_on_surface() -> void:
@@ -1266,6 +1160,7 @@ func _apply_park_freeze() -> void:
 func _trigger_crash(reason: String) -> void:
 	if not flight_controller.state_armed:
 		return
+	Haptics.trigger_crash()
 	emit_signal("crashed", reason)
 	flight_controller.request_disarm()
 	for motor in motors:
@@ -1279,7 +1174,6 @@ func _on_hud_config_updated() -> void:
 	hud.hud_timer = 1.0 / GameSettings.hud_config["fps"]
 	hud.show_component(HUD.Component.CROSSHAIR, false)
 	hud.show_component(HUD.Component.STATUS, bool(GameSettings.hud_config.get("status", true)))
-	hud.show_component(HUD.Component.HORIZON, GameSettings.hud_config["horizon"])
 	hud.show_component(HUD.Component.LADDER, GameSettings.hud_config["ladder"])
 	hud.show_component(HUD.Component.SPEED, GameSettings.hud_config["speed"])
 	hud.show_component(HUD.Component.ALTITUDE, GameSettings.hud_config["altitude"])

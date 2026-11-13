@@ -10,7 +10,7 @@ func _ready() -> void:
 	drone = packed.instantiate() as Drone
 	add_child(drone)
 	GameSettings.hud_config["infinite_battery"] = false
-	DroneCatalog.apply_to_drone(drone, 0)
+	DroneCatalog.apply_to_drone(drone, 3)
 	drone.global_position = Vector3(0.0, 100.0, 0.0)
 	drone.linear_velocity = Vector3.ZERO
 	drone.angular_velocity = Vector3.ZERO

@@ -7,7 +7,7 @@ func _ready() -> void:
 	var ok := true
 	Global.play_mode = Global.PlayMode.COMBAT
 	Global.chain_briefing_pending = false
-	Global.drone_preset = 7
+	Global.drone_preset = 2
 	for mission_id in [1, 2, 3, 4, 5, 6]:
 		Global.special_mission = mission_id
 		Global.combat_mission = 1

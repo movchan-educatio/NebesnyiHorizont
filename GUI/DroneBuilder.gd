@@ -218,6 +218,7 @@ func _apply_to_catalog() -> void:
 		"cog_offset": Vector3(0.0, 0.005, 0.0),
 		"dimensions": Vector3(0.25, 0.08, 0.25),
 		"drag_area": Vector3(0.015, 0.018, 0.008),
+		"parts_profile": 9,
 		"model_builder_config": _current_build.duplicate(),
 		"is_builder_custom": true,
 		"model": str(frame.get("mesh_path", "")),
@@ -227,14 +228,15 @@ func _apply_to_catalog() -> void:
 		"fpv_cam_pitch": -8.0
 	}
 
-	# Update preset 9 in DroneCatalog
-	DroneCatalog.set_custom_preset(9, catalog_preset)
+	var slot := DroneCatalog.custom_preset_index()
+	DroneCatalog.set_custom_preset(slot, catalog_preset)
 
 
 func _launch_test_flight() -> void:
 	_save_current_build()
-	Global.drone_preset = 9
-	DroneCatalog.apply(9)
+	var slot := DroneCatalog.custom_preset_index()
+	Global.drone_preset = slot
+	DroneCatalog.apply(slot)
 	get_tree().change_scene_to_file(BIG_LEVEL)
 
 
