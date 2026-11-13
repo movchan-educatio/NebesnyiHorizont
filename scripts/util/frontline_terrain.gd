@@ -1798,12 +1798,14 @@ static func _add_mobile_ground_patches(root: Node3D, map_name: String) -> void:
 	var placed := 0
 	for i in range(plans.get(map_name, []).size()):
 		var base: Vector2 = plans[map_name][i]
-		if _hall_clear_zone(map_name, base.x, base.y) \
-				or _structure_clear_zone(map_name, base.x, base.y):
+		# Authored landmarks, reserved stunt zones and water can swallow a
+		# planned patch.  Spiral to nearby dry ground instead of dropping the
+		# patch outright, otherwise a map can end up with two tints and lose
+		# the large-scale ground variation entirely.
+		var site := _patch_site(map_name, base)
+		if site == Vector2.INF:
 			continue
-		var gy := mesh_surface_height(map_name, base.x, base.y)
-		if gy <= water_level(map_name) + 0.25:
-			continue
+		var gy := mesh_surface_height(map_name, site.x, site.y)
 		var quad := QuadMesh.new()
 		quad.size = Vector2(randf_range(38.0, 74.0), randf_range(30.0, 56.0))
 		var mat := StandardMaterial3D.new()
@@ -1815,13 +1817,32 @@ static func _add_mobile_ground_patches(root: Node3D, map_name: String) -> void:
 		mi.name = "MobileGroundPatch%d" % placed
 		mi.mesh = quad
 		mi.material_override = mat
-		mi.position = Vector3(base.x, gy + 0.06, base.y)
+		mi.position = Vector3(site.x, gy + 0.06, site.y)
 		mi.rotation.x = -PI * 0.5
 		mi.rotation.z = randf_range(0.0, TAU)
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(mi)
 		placed += 1
 	print("[MobilePatches] ", map_name, " placed=", placed)
+
+
+static func _patch_site(map_name: String, base: Vector2) -> Vector2:
+	var water := water_level(map_name)
+	for ring in range(0, 8):
+		var ring_r := 20.0 * float(ring)
+		var steps := 1 if ring == 0 else 10
+		for i in range(steps):
+			var a := TAU * float(i) / float(steps) + float(ring) * 0.6
+			var c := base + Vector2(cos(a), sin(a)) * ring_r
+			if absf(c.x) > 248.0 or absf(c.y) > 248.0:
+				continue
+			if _hall_clear_zone(map_name, c.x, c.y) \
+					or _structure_clear_zone(map_name, c.x, c.y):
+				continue
+			if mesh_surface_height(map_name, c.x, c.y) <= water + 0.25:
+				continue
+			return c
+	return Vector2.INF
 
 
 static func _add_wall_decals(root: Node3D, map_name: String) -> void:
@@ -2109,9 +2130,12 @@ static func _build_mobile_hero_landmarks(root: Node3D, map_name: String) -> void
 			["water_cistern", Vector2(-240.0, 125.0)],
 		],
 		"wetlands": [
-			["lighthouse", Vector2(240.0, 130.0)],
-			["boathouse", Vector2(-220.0, 205.0)],
-			["pier_house", Vector2(200.0, -220.0)],
+			# The old edge coordinates sat in open water after the marsh
+			# shoreline pass.  Keep the same three silhouettes but start them
+			# on the nearest dry shelf so the hero layer cannot vanish.
+			["lighthouse", Vector2(215.0, 175.0)],
+			["boathouse", Vector2(-200.0, 180.0)],
+			["pier_house", Vector2(-120.0, -100.0)],
 		],
 	}
 	var list: Array = specs.get(map_name, [])

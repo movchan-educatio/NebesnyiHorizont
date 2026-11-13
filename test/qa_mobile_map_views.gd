@@ -73,12 +73,14 @@ func _run() -> void:
 		push_warning("[MOBILE_MAP_VIEWS] %d ground tint patches on %s" % [patches.size(), map_name])
 	else:
 		print("[MOBILE_MAP_VIEWS] ", map_name, " ground patches=", patches.size())
-	# Curated Blender pack: 20 small props + 5 large landmarks.  Verify spacing,
-	# ground contact (no floating/sinking) and colliders on every object.
+	# Curated Blender pack: 20 small props + 10 forge assets + 5 large
+	# landmarks.  Verify spacing, ground contact (no floating/sinking) and
+	# colliders on every object.
 	var prop_pack := terrain.get_node_or_null("MobilePropPack") if terrain != null else null
 	var placed_props := int(prop_pack.get_meta("placed", 0)) if prop_pack != null else 0
+	var forge_props := int(prop_pack.get_meta("forge", 0)) if prop_pack != null else 0
 	var footprints: Array = prop_pack.get_meta("footprints", []) if prop_pack != null else []
-	var pack_ok := placed_props >= 24
+	var pack_ok := placed_props >= 24 and forge_props >= 8
 	var spacing_bad := 0
 	for a in range(footprints.size()):
 		for b in range(a + 1, footprints.size()):
@@ -116,12 +118,13 @@ func _run() -> void:
 				% [map_name, float_bad, collider_bad, large_count])
 	if not pack_ok:
 		_failures += 1
-		push_warning("[MOBILE_MAP_VIEWS] prop pack on %s: placed=%d"
-				% [map_name, placed_props])
+		push_warning("[MOBILE_MAP_VIEWS] prop pack on %s: placed=%d forge=%d"
+				% [map_name, placed_props, forge_props])
 	else:
 		print("[MOBILE_MAP_VIEWS] ", map_name, " props=", placed_props,
-				" large=", large_count, " spacing_overlaps=", spacing_bad,
-				" float_bad=", float_bad, " collider_bad=", collider_bad)
+				" forge=", forge_props, " large=", large_count,
+				" spacing_overlaps=", spacing_bad, " float_bad=", float_bad,
+				" collider_bad=", collider_bad)
 	var drone := level.get_node_or_null("Drone") as RigidBody3D
 	var fpv := level.get_node_or_null("Drone/FPVCamera") as Camera3D
 	if drone == null or fpv == null:
@@ -141,6 +144,31 @@ func _run() -> void:
 		{"name": "overview", "at": center + Vector2(-110, 150), "height": 45.0, "target": center},
 		{"name": "card", "at": center + Vector2(120, 185), "height": 28.0, "target": center + Vector2(0, 18)},
 	]
+	# One close-up of the new forge layer so a visual regression (missing
+	# baked texture, wrong scale, floating plinth) is visible in the audit.
+	# Pick the widest forge object: it is usually a bridge, hangar or tower
+	# with a clear silhouette instead of a small hut hidden by trees.
+	var forge_node: Node3D = null
+	var forge_radius := 0.0
+	if prop_pack != null:
+		for child in prop_pack.get_children():
+			var candidate := child as Node3D
+			if candidate == null or not bool(candidate.get_meta("pack_forge", false)):
+				continue
+			var r := float(candidate.get_meta("pack_radius", 0.0))
+			if r > forge_radius:
+				forge_radius = r
+				forge_node = candidate
+	if forge_node != null:
+		var fp := Vector2(forge_node.position.x, forge_node.position.z)
+		var height := float(forge_node.get_meta("pack_height", 12.0))
+		var dist := clampf(maxf(forge_radius * 2.1, height * 1.35), 22.0, 50.0)
+		var aim := minf(height * 0.5, 13.0)
+		var cam_h := maxf(aim + 6.0, 22.0)
+		print("[MOBILE_MAP_VIEWS] forge close-up ", forge_node.name,
+				" dist=", snappedf(dist, 0.1), " aim=", snappedf(aim, 0.1))
+		positions.append({"name": "forge", "at": fp + Vector2(0, dist),
+				"height": cam_h, "target": fp, "aim": aim})
 	drone.freeze = true
 	for view in positions:
 		var at: Vector2 = view["at"]
@@ -148,6 +176,9 @@ func _run() -> void:
 		var y := TERRAIN.height_at(map_name, at.x, at.y) + float(view["height"])
 		drone.global_position = Vector3(at.x, y, at.y)
 		var look := Vector3(target.x, y, target.y)
+		if view.has("aim"):
+			look.y = TERRAIN.height_at(map_name, target.x, target.y) \
+					+ float(view["aim"])
 		if not drone.global_position.is_equal_approx(look):
 			drone.look_at(look, Vector3.UP)
 		drone.linear_velocity = Vector3.ZERO

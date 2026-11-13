@@ -3,7 +3,8 @@ extends RefCounted
 
 ## Curated low-poly prop pack + five large landmarks for the four frontline
 ## maps.  Small props come from tools/build_map_props.py, landmarks from
-## tools/build_map_landmarks.py.
+## tools/build_map_landmarks.py.  A third layer adds ten hand-sculpted
+## war-wear GLBs per map from tools/asset_forge (baked albedo, two LOD steps).
 ##
 ## Placement guarantees (also re-checked by qa_mobile_map_views):
 ##   * every object sits on the terrain height (no floating, no sinking),
@@ -13,6 +14,7 @@ extends RefCounted
 ##   * low draw-call cost: one vertex-colour material per asset + distance LOD.
 const PROP_ROOT := "res://Assets/handcrafted/props_lowpoly/"
 const LANDMARK_ROOT := "res://Assets/handcrafted/landmarks/"
+const FORGE_ROOT := "res://Assets/handcrafted/forge/"
 
 const LOD_END := {
 	"watchtower": 900.0, "water_tower_small": 900.0, "antenna_mast": 950.0,
@@ -151,6 +153,72 @@ const LARGE_SITES := {
 	],
 }
 
+## Ten hand-sculpted war-wear GLBs per map.  These are larger than the small
+## prop kit, so they sit in the open middle ring and double as stunt openings;
+## the baked albedo material is kept as-is (no vertex-colour override).
+## [glb, Vector2(x, z), yaw degrees]
+const FORGE_SITES := {
+	"steppe": [
+		["steppe_01_lep_pylon_leaning", Vector2(-60, 55), 20.0],
+		["steppe_03_lep_collapsed_arch", Vector2(60, -40), 15.0],
+		["steppe_09_harvester_skeleton", Vector2(-130, -60), 30.0],
+		["steppe_12_bunker_dot_breached", Vector2(140, 30), 0.0],
+		["steppe_13_pillbox_trench_bridge", Vector2(30, 20), 10.0],
+		["steppe_14_radar_revetment_wall", Vector2(-150, 115), 0.0],
+		["steppe_15_watchtower_steppe", Vector2(90, 150), 0.0],
+		["steppe_18_gully_bridge_broken", Vector2(-40, 180), 0.0],
+		["steppe_23_rozhnovsky_tower_standing", Vector2(60, 100), 0.0],
+		["steppe_29_concrete_slab_fort", Vector2(-160, -140), 45.0],
+	],
+	"village": [
+		["village_01_khata_breached_roof", Vector2(-80, 130), 10.0],
+		["village_02_brick_house_split", Vector2(30, 150), 0.0],
+		["village_04_kolkhoz_hangar_holed", Vector2(-130, -80), 75.0],
+		["village_07_silo_twin_bridge", Vector2(60, -120), 0.0],
+		["village_10_house_of_culture_portico", Vector2(-90, 0), 90.0],
+		["village_13_brick_church_belfry", Vector2(60, 140), 0.0],
+		["village_15_river_bridge_wooden", Vector2(-40, -160), 15.0],
+		["village_17_azs_canopy_wreck", Vector2(130, 170), 200.0],
+		["village_19_cowbarn_rafters_slalom", Vector2(-150, 100), 0.0],
+		["village_27_windmill_timber_frame", Vector2(120, -60), 0.0],
+	],
+	"industrial": [
+		["industrial_03_smokestack_breached_flue", Vector2(-100, 30), 0.0],
+		["industrial_04_gantry_crane_portal", Vector2(150, -60), 45.0],
+		["industrial_07_unfinished_workshop_3f", Vector2(-150, -60), 0.0],
+		["industrial_10_pipe_rack_overpass", Vector2(0, -80), 90.0],
+		["industrial_13_cooling_tower_breached", Vector2(-170, 120), 0.0],
+		["industrial_17_workshop_truss_roof", Vector2(100, 160), 0.0],
+		["industrial_19_loading_ramp_canopy", Vector2(160, 100), 180.0],
+		["industrial_23_hangar_rib_tunnel", Vector2(-60, -160), 0.0],
+		["industrial_24_blast_furnace_shell", Vector2(100, -160), 0.0],
+		["industrial_27_transformer_yard_portal", Vector2(-140, 190), 180.0],
+	],
+	"wetlands": [
+		["swamp_01_flooded_pumping_station", Vector2(-60, 150), 0.0],
+		["swamp_03_half_sunk_river_barge", Vector2(-120, -60), 15.0],
+		["swamp_04_wooden_trestle_causeway", Vector2(30, -160), 0.0],
+		["swamp_07_flooded_bunker_stilts", Vector2(-160, 40), 0.0],
+		["swamp_09_rotting_watchtower_marsh", Vector2(130, -60), 0.0],
+		["swamp_11_flooded_power_pylon", Vector2(160, 150), 0.0],
+		["swamp_15_abandoned_hydro_lock", Vector2(-80, -120), 0.0],
+		["swamp_18_camo_radar_mound_marsh", Vector2(60, 190), 0.0],
+		["swamp_22_marsh_boardwalk_tower", Vector2(0, 0), 45.0],
+		["swamp_27_military_bailey_truss_span", Vector2(-210, -60), 90.0],
+	],
+}
+
+## Long, open assets where the drone must be able to punch through a portal
+## or under a deck.  They get a low base collider instead of a solid box.
+const FORGE_OPEN_HINTS := [
+	"arch", "bridge", "portal", "gate", "span", "tunnel", "overpass",
+	"gantry", "canopy", "hangar", "trestle", "viaduct", "pipe_rack",
+	"conveyor", "gallery", "causeway", "lock", "spillway", "stairwell",
+	"frame", "skeleton", "truss", "boom", "pergola", "arcade", "portico",
+	"belfry", "tower", "breached", "holed", "split", "collapsed", "ruined",
+	"wreck", "slalom", "open",
+]
+
 static var _scenes := {}
 static var _materials := {}
 static var _radii := {}
@@ -166,15 +234,22 @@ static func build(root: Node3D, map_name: String) -> Node3D:
 	var placed: Array[Dictionary] = []
 	for entry in SITES[map_name]:
 		_place(root, pack, terrain, map_name, entry, placed, false)
+	var forge_count := 0
+	for entry in FORGE_SITES.get(map_name, []):
+		if _place_forge(root, pack, terrain, map_name, entry, placed):
+			forge_count += 1
+	# Landmarks go last: their far-edge berths have priority over the new
+	# middle-ring forge layer.
 	for entry in LARGE_SITES.get(map_name, []):
 		_place(root, pack, terrain, map_name, entry, placed, true)
 	pack.set_meta("placed", placed.size())
 	pack.set_meta("small", SITES[map_name].size())
 	pack.set_meta("large", LARGE_SITES.get(map_name, []).size())
+	pack.set_meta("forge", forge_count)
 	pack.set_meta("footprints", placed)
 	print("[MobilePropPack] ", map_name, " placed=", placed.size(),
-			" (small ", SITES[map_name].size(), ", large ",
-			LARGE_SITES.get(map_name, []).size(), ")")
+			" (small ", SITES[map_name].size(), ", forge ", forge_count,
+			", large ", LARGE_SITES.get(map_name, []).size(), ")")
 	return pack
 
 
@@ -228,6 +303,104 @@ static func _place(root: Node3D, pack: Node3D, terrain, map_name: String,
 	inst.set_meta("pack_floating", floating)
 	placed.append({"pos": site, "radius": radius, "name": prop_name,
 			"large": large})
+
+
+## Forge layer: hand-sculpted GLBs keep their baked albedo material, so this
+## path deliberately skips _apply_material().  Tall towers and portal assets
+## get a low base collider; compact solid ruins get a full box.
+static func _place_forge(root: Node3D, pack: Node3D, terrain, map_name: String,
+		entry: Array, placed: Array[Dictionary]) -> bool:
+	var prop_name := String(entry[0])
+	var base: Vector2 = entry[1]
+	var yaw := deg_to_rad(float(entry[2]))
+	var scl := float(entry[3]) if entry.size() > 3 else 1.0
+	var scene := _forge_scene(prop_name)
+	if scene == null:
+		return false
+	var radius := _forge_radius(prop_name) * scl
+	# The half-sunk barge belongs in the river, like the cargo-ship landmark.
+	var floating := prop_name.contains("barge")
+	var site := Vector2.ZERO
+	if floating:
+		site = _find_water_site(terrain, map_name, base, radius, yaw, placed)
+		if site == Vector2.INF:
+			push_warning("[MobilePropPack] no water site for " + prop_name)
+			return false
+	else:
+		site = _find_ground_site(terrain, map_name, base, radius, placed, root)
+		if site == Vector2.INF:
+			push_warning("[MobilePropPack] no clear site for " + prop_name)
+			return false
+	var ground: float = terrain.call("mesh_surface_height", map_name, site.x, site.y)
+	var base_y := ground + 0.02
+	if floating:
+		# Sink the hull two metres below the waterline so it reads as a wreck
+		# instead of a boat resting on the surface.
+		base_y = float(terrain.call("water_level", map_name)) - 2.0
+	var inst := scene.instantiate() as Node3D
+	if inst == null:
+		return false
+	inst.name = "Forge_" + prop_name + "_%d" % placed.size()
+	pack.add_child(inst)
+	inst.position = Vector3(site.x, base_y, site.y)
+	inst.rotation.y = yaw
+	inst.scale = Vector3.ONE * scl
+	inst.force_update_transform()
+	var box := _local_aabb(inst)
+	var lod := clampf(650.0 + box.size.y * 12.0, 650.0, 1200.0)
+	for child in inst.find_children("*", "MeshInstance3D", true, false):
+		var mi := child as MeshInstance3D
+		mi.visibility_range_end = lod
+		mi.visibility_range_end_margin = 40.0
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	if _forge_has_opening(prop_name) or box.size.y > 14.0:
+		_add_base_collider(inst, box)
+	else:
+		_add_box_collider(inst, box)
+	inst.set_meta("pack_radius", radius)
+	inst.set_meta("pack_height", box.size.y)
+	inst.set_meta("pack_ground", ground)
+	inst.set_meta("pack_large", false)
+	inst.set_meta("pack_floating", floating)
+	inst.set_meta("pack_forge", true)
+	placed.append({"pos": site, "radius": radius, "name": prop_name,
+			"large": false, "forge": true})
+	return true
+
+
+static func _forge_scene(prop_name: String) -> PackedScene:
+	var key := "F:" + prop_name
+	if _scenes.has(key):
+		return _scenes[key]
+	var path := FORGE_ROOT + prop_name + ".glb"
+	if not ResourceLoader.exists(path):
+		push_warning("[MobilePropPack] missing " + path)
+		_scenes[key] = null
+		return null
+	_scenes[key] = load(path) as PackedScene
+	return _scenes[key]
+
+
+static func _forge_radius(prop_name: String) -> float:
+	var key := "F:" + prop_name
+	if _radii.has(key):
+		return _radii[key]
+	var scene := _forge_scene(prop_name)
+	if scene == null:
+		return 2.0
+	var dummy := scene.instantiate() as Node3D
+	var box := _local_aabb(dummy)
+	dummy.free()
+	var r := maxf(box.size.x, box.size.z) * 0.5
+	_radii[key] = maxf(r, 1.0)
+	return _radii[key]
+
+
+static func _forge_has_opening(prop_name: String) -> bool:
+	for hint in FORGE_OPEN_HINTS:
+		if prop_name.contains(String(hint)):
+			return true
+	return false
 
 
 ## Spiral search for a site that is on dry land, outside halls/POIs and at a
@@ -357,6 +530,15 @@ static func _local_aabb(node: Node3D) -> AABB:
 		box = b if first else box.merge(b)
 		first = false
 	return box
+
+
+## A low plinth keeps the asset solid at ground level while leaving portals,
+## decks and broken upper floors open for FPV passes.
+static func _add_base_collider(node: Node3D, box: AABB) -> void:
+	var height := minf(box.size.y, 2.8)
+	var base := AABB(box.position,
+			Vector3(box.size.x, maxf(height, 0.2), box.size.z))
+	_add_box_collider(node, base)
 
 
 static func _add_box_collider(node: Node3D, box: AABB) -> void:
