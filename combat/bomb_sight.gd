@@ -113,18 +113,6 @@ func _draw() -> void:
 		draw_circle(center, 4.0, col)
 		draw_arc(center, 54.0, 0.0, TAU, 48, Color(col, 0.55), 1.5)
 
-	# Short ballistic drop line between screen centre and CCIP pipper
-	var drop_vec := p - center
-	var drop_len := drop_vec.length()
-	if drop_len > 18.0:
-		var dir := drop_vec / drop_len
-		var line_start := center + dir * minf(16.0, drop_len * 0.25)
-		var line_end := p - dir * (24.0 if bomb_view else 15.0)
-		if (line_end - line_start).dot(dir) > 2.0:
-			draw_line(line_start, line_end, Color(col, 0.52), 1.6)
-	else:
-		draw_line(p + Vector2(0, -44), p + Vector2(0, -16), Color(col, 0.52), 1.6)
-
 	# CCIP pipper
 	draw_arc(p, 22.0 if bomb_view else 13.0, 0.0, TAU, 36, col, 2.0)
 	if ready:

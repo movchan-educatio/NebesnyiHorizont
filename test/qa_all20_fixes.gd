@@ -422,9 +422,17 @@ func _run() -> void:
 						"#8 First primary kill during Phase 0 auto-advances to Strike (phase 1)",
 						"phase=%s" % str(lvl.get("_mission_phase")))
 	await get_tree().process_frame
-	_check(int(lvl.get("_mission_targets_destroyed")) == 6 and int(lvl.get("_mission_phase")) == 2,
-			"#8 Killing all 6 primary infantry increments destroyed=6/6 and advances to Extract",
-			"destroyed=%s phase=%s" % [str(lvl.get("_mission_targets_destroyed")), str(lvl.get("_mission_phase"))])
+	var extract_cleared := not bool(lvl.get("_mission_phase_active"))
+	await get_tree().create_timer(1.0).timeout
+	get_tree().paused = false
+	var pinfo_done: Dictionary = lvl.call("get_mission_phase_info")
+	_check(int(lvl.get("_mission_targets_destroyed")) == 6 and extract_cleared \
+			and bool(lvl.get("_mission_finished")) and pinfo_done.is_empty(),
+			"#8 Killing all 6 primary infantry completes mission directly with no Extract marker",
+			"destroyed=%s finished=%s phase_active=%s" % [
+				str(lvl.get("_mission_targets_destroyed")),
+				str(lvl.get("_mission_finished")),
+				str(lvl.get("_mission_phase_active"))])
 
 	lvl.set("_payload_drops", 7)
 	lvl.set("_payload_hits", 6)

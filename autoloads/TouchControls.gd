@@ -223,6 +223,84 @@ func _should_enable() -> bool:
 			or DisplayServer.is_touchscreen_available()
 
 
+func _configured_input_mode() -> String:
+	var g := get_node_or_null("/root/Global")
+	if g != null and g.get("menu_settings") is Dictionary:
+		var m := str((g.get("menu_settings") as Dictionary).get("touch_input_mode", "auto")).to_lower()
+		if m in ["auto", "controller", "touch"]:
+			return m
+	return "auto"
+
+
+func _set_configured_input_mode(mode: String) -> void:
+	var clean := mode.to_lower()
+	if not (clean in ["auto", "controller", "touch"]):
+		clean = "auto"
+	var g := get_node_or_null("/root/Global")
+	if g != null and g.get("menu_settings") is Dictionary:
+		g.menu_settings["touch_input_mode"] = clean
+		if g.has_method("save_menu_settings"):
+			g.save_menu_settings()
+
+
+func _has_active_controller() -> bool:
+	var elrs := get_node_or_null("/root/ElrsWifiInput")
+	if elrs != null:
+		if bool(elrs.get("valid")):
+			return true
+		if elrs.has_method("was_recently_active") and bool(elrs.call("was_recently_active", 20000)):
+			return true
+	return false
+
+
+func is_controller_locked() -> bool:
+	return _configured_input_mode() == "controller"
+
+
+func set_controller_only(controller_only: bool) -> void:
+	if controller_only:
+		_set_configured_input_mode("controller")
+		touch_mode = false
+		_reset_sticks()
+	else:
+		# When no radio is connected, return to "auto" so sticks work right
+		# away and still yield cleanly if an ELRS link comes online later.
+		_set_configured_input_mode("touch" if _has_active_controller() else "auto")
+		if enabled:
+			touch_mode = true
+			_reset_sticks()
+	_update_mode_button()
+	if _drawer != null:
+		_drawer.queue_redraw()
+	mode_changed.emit(touch_mode)
+
+
+func toggle_touch_sticks_preference() -> bool:
+	var currently_touch := (not is_controller_locked()) and (touch_mode or not _has_active_controller())
+	set_controller_only(currently_touch)
+	return touch_mode
+
+
+func _any_modal_menu_open() -> bool:
+	var scene := get_tree().current_scene if get_tree() != null else null
+	if scene == null:
+		return false
+	for node_name in ["PauseMenu", "pause_menu", "OptionsMenu", "QuadSettingsMenu", "MobileMenu"]:
+		var n := scene.get_node_or_null(node_name)
+		if n is CanvasItem and (n as CanvasItem).visible:
+			return true
+	var pause_node = scene.get("pause_menu")
+	if pause_node is CanvasItem and (pause_node as CanvasItem).visible:
+		return true
+	var brief = scene.get("_chain_brief")
+	if brief is CanvasItem and (brief as CanvasItem).visible:
+		return true
+	var results = scene.get("_results")
+	if results is CanvasItem and (results as CanvasItem).visible:
+		return true
+	return false
+
+
 func set_enabled(value: bool) -> void:
 	enabled = value
 	visible = value
@@ -230,12 +308,13 @@ func set_enabled(value: bool) -> void:
 	if value:
 		refresh_touch_settings()
 		_layout()
-		# Default to touch only when there is no live ELRS stream; a pilot
-		# with the radio already connected keeps the radio as primary and can
-		# switch with the MODE button.
-		var elrs := get_node_or_null("/root/ElrsWifiInput")
-		var stream_valid: bool = elrs != null and bool(elrs.get("valid"))
-		touch_mode = not stream_valid
+		var cfg_mode := _configured_input_mode()
+		if cfg_mode == "controller":
+			touch_mode = false
+		elif cfg_mode == "touch":
+			touch_mode = true
+		else:
+			touch_mode = not _has_active_controller()
 		var gs := get_node_or_null("/root/GameSettings")
 		if gs != null:
 			invert_roll = bool(gs.hud_config.get("touch_invert_roll", false))
@@ -530,13 +609,16 @@ func _layout() -> void:
 		_left_center = _left_anchor
 	if _right_index == NO_TOUCH:
 		_right_center = _right_anchor
-	# In-flight compact menu/options anchor at top-left, keeping the thumb zones
-	# and center HUD clear; tapping the options icon opens the touch drawer.
+	# In-flight compact menu/options anchor at top-left, placed cleanly below
+	# telemetry & 3-line mission badge HUD rows (bottom ~158) while leaving
+	# the left thumb stick clear.
 	var side_x := 18.0 + notch.x
-	var side_y := notch.y + 74.0
 	var menu_w := 132.0
 	var menu_h := 54.0
 	var more_h := 48.0
+	var min_side_y := notch.y + 178.0
+	var max_side_y := maxf(min_side_y, _left_anchor.y - _radius - menu_h - more_h - 14.0)
+	var side_y := clampf(min_side_y, min_side_y, max_side_y)
 	if _pause_button != null and _more_button != null:
 		_pause_button.position = Vector2(side_x, side_y)
 		_pause_button.size = Vector2(menu_w, menu_h)
@@ -544,8 +626,9 @@ func _layout() -> void:
 		_more_button.size = Vector2(menu_w, more_h)
 	if _more_panel != null:
 		var panel_w := clampf(344.0, 240.0, maxf(240.0, vs.x - side_x - menu_w - notch.z - 22.0))
+		var panel_h := minf(276.0, maxf(190.0, vs.y - side_y - notch.w - 16.0))
 		_more_panel.position = Vector2(side_x + menu_w + 10.0, side_y)
-		_more_panel.size = Vector2(panel_w, 276.0)
+		_more_panel.size = Vector2(panel_w, panel_h)
 	_apply_top_bar_visibility()
 	var arm_w := 220.0
 	var arm_x := clampf(vs.x * 0.5 - arm_w * 0.5, notch.x + 12.0, vs.x - notch.z - arm_w - 12.0)
@@ -623,15 +706,8 @@ func _update_mode_button() -> void:
 
 func _on_mode_pressed() -> void:
 	Haptics.trigger_ui_tap()
-	if touch_mode:
-		touch_mode = false
-		_reset_sticks()
-	else:
-		touch_mode = true
-		_reset_sticks()
-	_update_mode_button()
-	_drawer.queue_redraw()
-	mode_changed.emit(touch_mode)
+	set_controller_only(touch_mode)
+	_show_toast("ВВІД: %s" % ("СЕНСОР" if touch_mode else "ПУЛЬТ"))
 
 
 func _on_arm_pressed() -> void:
@@ -740,6 +816,15 @@ func _process(delta: float) -> void:
 	if _mode_refresh <= 0.0:
 		_mode_refresh = 0.35
 		_sync_flight_mode_label()
+		if enabled and not _preview:
+			var elrs := get_node_or_null("/root/ElrsWifiInput")
+			var live_elrs: bool = elrs != null and bool(elrs.get("valid"))
+			if touch_mode and live_elrs and _configured_input_mode() == "auto":
+				touch_mode = false
+				_reset_sticks()
+				_update_mode_button()
+				_drawer.queue_redraw()
+				mode_changed.emit(false)
 	if _drawer != null and _touch_floating_sticks and touch_mode:
 		var moved := false
 		var k := minf(1.0, delta * 14.0)
@@ -1026,13 +1111,29 @@ func _update_setup_channels() -> void:
 
 
 func _input(event: InputEvent) -> void:
-	if not enabled or (get_tree().paused and not _preview):
+	if not enabled or (get_tree().paused and not _preview) or (not _preview and _any_modal_menu_open()):
 		return
 	if event is InputEventScreenTouch and not touch_mode:
-		touch_mode = true
-		_reset_sticks()
-		_update_mode_button()
-		mode_changed.emit(touch_mode)
+		var t_ev := event as InputEventScreenTouch
+		if _preview:
+			if t_ev.pressed:
+				touch_mode = true
+				_reset_sticks()
+				_update_mode_button()
+				mode_changed.emit(touch_mode)
+		elif t_ev.pressed and _configured_input_mode() == "auto" and not _has_active_controller() \
+				and not _point_hits_ui(t_ev.position):
+			# Only activate touch sticks on a genuine flight-area touch when no
+			# physical controller is active and the user has not locked controller mode.
+			var vp := get_viewport()
+			var vs := vp.get_visible_rect().size if vp != null else Vector2(1280, 720)
+			if t_ev.position.y >= vs.y * 0.45:
+				touch_mode = true
+				_reset_sticks()
+				_update_mode_button()
+				mode_changed.emit(touch_mode)
+		else:
+			return
 	if not touch_mode:
 		return
 	if event is InputEventScreenTouch:
@@ -1075,9 +1176,12 @@ func _point_hits_ui(pos: Vector2) -> bool:
 
 
 func _apply_axis_curve(raw_val: float, deadzone: float, use_sensitivity: bool) -> float:
-	if absf(raw_val) < deadzone:
+	var mag := absf(raw_val)
+	if mag < deadzone:
 		return 0.0
 	var s := clampf(raw_val, -1.0, 1.0)
+	if deadzone > 0.0 and deadzone < 0.9:
+		s = signf(s) * ((absf(s) - deadzone) / (1.0 - deadzone))
 	var curved := (1.0 - _touch_expo) * s + _touch_expo * (s * s * s)
 	if use_sensitivity:
 		curved *= _touch_sensitivity
@@ -1152,18 +1256,28 @@ func _drag_touch(index: int, pos: Vector2) -> bool:
 func _update_stick(left: bool, pos: Vector2) -> void:
 	var deadzone := Controls.stick_deadzone if Controls != null else 0.02
 	var center := _left_center if left else _right_center
-	var offset := (pos - center).limit_length(_radius)
+	var raw_offset := pos - center
+	# Clamp pitch/roll/yaw/throttle axes independently inside [-radius, radius]
+	# (square gimbal travel matching real RC gimbals) instead of circular
+	# limit_length(), so full Yaw + full Throttle or diagonal roll+pitch
+	# corners don't cap each other at ~70%.
+	var offset := Vector2(
+			clampf(raw_offset.x, -_radius, _radius),
+			clampf(raw_offset.y, -_radius, _radius))
 	if left:
 		if _touch_left_spring:
 			var y_norm := clampf((_left_center.y - pos.y) / _radius, -1.0, 1.0)
 			var y_curved := _apply_axis_curve(y_norm, deadzone, false)
 			throttle = clampf(0.5 + y_curved * 0.5, 0.0, 1.0)
 		else:
-			# Relative throttle: dragging up from the grab point raises it, so the
-			# value starts at the current throttle instead of snapping to wherever
-			# the finger first lands (the old absolute mapping jumped 0% -> 50%).
-			throttle = clampf(_throttle_grab_value
-					+ (_throttle_grab_y - pos.y) / _radius, 0.0, 1.0)
+			# Directional relative throttle: uses the available upward/downward
+			# gimbal headroom (at least 0.70 * _radius) so any initial grab point
+			# cleanly reaches [0.0 .. 1.0] while tracking 1:1 with the thumb knob.
+			var dy := _throttle_grab_y - pos.y
+			var up_span := maxf(_radius * 0.70, _throttle_grab_y - (_left_center.y - _radius))
+			var down_span := maxf(_radius * 0.70, (_left_center.y + _radius) - _throttle_grab_y)
+			var span := up_span if dy >= 0.0 else down_span
+			throttle = clampf(_throttle_grab_value + dy / span, 0.0, 1.0)
 		_left_knob = Vector2(offset.x, (0.5 - throttle) * 2.0 * _radius)
 		var x := offset.x / _radius
 		yaw = _apply_axis_curve(x, deadzone, true)

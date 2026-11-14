@@ -584,6 +584,12 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 			if lin_vel.length() < 0.15 and ang_vel.length() < 0.15:
 				lin_vel = Vector3.ZERO
 				ang_vel = Vector3.ZERO
+		elif on_ground and flight_controller.flight_mode == FlightController.FlightMode.LEVEL and throttle_cmd < 0.28:
+			# In ANGLE mode, prevent right-stick ground deflections at sub-hover
+			# throttle from digging a skid into the terrain and flipping over.
+			ground_torque_scale = clampf((throttle_cmd - 0.08) / 0.20, 0.0, 1.0)
+			ang_vel.x = move_toward(ang_vel.x, 0.0, 12.0 * dt * (1.0 - ground_torque_scale))
+			ang_vel.z = move_toward(ang_vel.z, 0.0, 12.0 * dt * (1.0 - ground_torque_scale))
 		
 		if sim_thrust_mode:
 			# P1-1 Realistic motor RPM & propeller aerodynamics
@@ -608,7 +614,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 					vec_torque += basis * prop.forces[3] * 0.5
 					vec_torque += basis * prop.forces[4] * 0.5
 				
-				vec_torque += motor.get_torque() * basis.y * battery_sag_factor * ground_torque_scale
+				vec_torque += motor.get_torque() * basis.y * battery_sag_factor * ground_torque_scale * ground_torque_scale
 		else:
 			# 1. Primary collective lift applied cleanly through center of mass along body normal
 			vec_force += basis.y * demanded_thrust
@@ -622,7 +628,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 					prop.update_forces()
 					var prop_drag: Vector3 = basis * prop.forces[1]
 					vec_force += prop_drag
-				vec_torque += motor.get_torque() * basis.y * battery_sag_factor
+				vec_torque += motor.get_torque() * basis.y * battery_sag_factor * ground_torque_scale
 			
 			# 3. Control torques from flight controller PID mixer around CoG (Air Mode)
 			var pitch_roll_thrust_cap: float = max_t * 0.40 * battery_sag_factor * ground_torque_scale

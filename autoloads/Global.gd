@@ -62,6 +62,7 @@ var menu_settings := {"haptics_enabled": true, "drone_preset": 0,
 		"selected_mode": PlayMode.TUTORIAL, "selected_mission": 1, "selected_special": 0,
 		"selected_map": "village", "difficulty": 1,
 		"touch_floating_sticks": false, "touch_left_spring": false,
+		"touch_input_mode": "auto",
 		"touch_sensitivity": 1.0, "touch_expo": 0.2,
 		"career_xp": 0, "career_kills_armor": 0, "career_kills_aa": 0,
 		"career_kills_infantry": 0, "career_kills_air": 0,
@@ -224,6 +225,8 @@ func load_menu_settings() -> void:
 	difficulty = clampi(int(menu_settings.get("difficulty", difficulty)), 0, 2)
 	menu_settings["touch_floating_sticks"] = bool(menu_settings.get("touch_floating_sticks", false))
 	menu_settings["touch_left_spring"] = bool(menu_settings.get("touch_left_spring", false))
+	var raw_tim := str(menu_settings.get("touch_input_mode", "auto")).to_lower()
+	menu_settings["touch_input_mode"] = raw_tim if raw_tim in ["auto", "controller", "touch"] else "auto"
 	menu_settings["touch_sensitivity"] = clampf(float(menu_settings.get("touch_sensitivity", 1.0)), 0.4, 1.6)
 	menu_settings["touch_expo"] = clampf(float(menu_settings.get("touch_expo", 0.2)), 0.0, 0.7)
 	menu_settings["career_xp"] = maxi(0, int(menu_settings.get("career_xp", 0)))

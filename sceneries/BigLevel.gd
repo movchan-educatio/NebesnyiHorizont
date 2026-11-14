@@ -174,8 +174,9 @@ var _rain: GPUParticles3D = null
 var _dust: GPUParticles3D = null
 var _kill_cam: ReconKillCamScript = null
 var _kill_cam_triggered := false
+var _kill_cam_last_ms := -10000
 var _pending_combat_complete := false
-var _airflow_particles: GPUParticles3D = null
+var _pending_kamikaze_respawn := false
 var _base_fpv_fov := 110.0
 var _top_banner_stack: VBoxContainer = null
 var _wind_row: HBoxContainer = null
@@ -372,7 +373,6 @@ func _ready() -> void:
 		cam.current = true
 	_attach_fpv_rig()
 	_setup_fpv_camera_for_preset()
-	_setup_airflow_fx()
 	_setup_multi_cameras()
 	_setup_warhead_sensor()
 	# Apply the combat-FPV camera lift after the preset has placed the lens.
@@ -2021,6 +2021,8 @@ func _on_arm_failed(reason) -> void:
 
 
 func _on_respawned() -> void:
+	_kill_cam_triggered = false
+	_pending_kamikaze_respawn = false
 	_place_drone_over_ground()
 	_payload_ammo_left = int(DroneCatalog.preset(Global.drone_preset).get(
 			"payload", 0))
@@ -2318,6 +2320,12 @@ func _finish_mission(reason: String, failed: bool = false) -> void:
 		return
 	_mission_finished = true
 	_mission_failed = failed
+	_mission_phase_active = false
+	_special_extract_active = false
+	_pending_combat_complete = false
+	_pending_kamikaze_respawn = false
+	if _special_extract_beacon != null and is_instance_valid(_special_extract_beacon):
+		_special_extract_beacon.visible = false
 	_show_results(reason)
 
 
@@ -2850,8 +2858,12 @@ func _add_vehicle(kind: int, waypoints: Array, speed: float, hostile: bool,
 
 
 func _maybe_trigger_kill_cam(impact_pos: Vector3, is_key_target: bool) -> bool:
-	if _kill_cam_triggered or not is_key_target or _kill_cam == null \
-			or not is_instance_valid(_kill_cam):
+	if not is_key_target or _kill_cam == null or not is_instance_valid(_kill_cam):
+		return false
+	if _kill_cam.is_active():
+		return false
+	var now_ms := Time.get_ticks_msec()
+	if _kill_cam_triggered and (now_ms - _kill_cam_last_ms) < 450:
 		return false
 	if (OS.has_environment("DRONE_FULLTEST") or OS.has_environment("DRONE_AUTOTEST") \
 			or OS.has_environment("DRONE_RETRY_TEST")) and not OS.has_environment("DRONE_KILLCAM_TEST"):
@@ -2862,6 +2874,7 @@ func _maybe_trigger_kill_cam(impact_pos: Vector3, is_key_target: bool) -> bool:
 	var drone_pos := drone.global_position if drone != null else impact_pos + Vector3(0.0, 20.0, 45.0)
 	var prev_cam := camera if camera != null else get_node_or_null("Drone/FPVCamera") as Camera3D
 	_kill_cam_triggered = true
+	_kill_cam_last_ms = now_ms
 	var ok: bool = _kill_cam.trigger(self, impact_pos, drone_pos, prev_cam, Callable(self, "_on_kill_cam_finished"))
 	if not ok:
 		_kill_cam_triggered = false
@@ -2869,9 +2882,15 @@ func _maybe_trigger_kill_cam(impact_pos: Vector3, is_key_target: bool) -> bool:
 
 
 func _on_kill_cam_finished() -> void:
+	_kill_cam_triggered = false
 	if _pending_combat_complete:
 		_pending_combat_complete = false
 		_check_combat_mission_complete()
+	if _pending_kamikaze_respawn and not _mission_finished and not _pending_combat_complete:
+		_pending_kamikaze_respawn = false
+		call_deferred("_execute_kamikaze_respawn")
+	else:
+		_pending_kamikaze_respawn = false
 
 
 func _on_vehicle_destroyed(points: int, kind: int, vehicle: Vehicle = null) -> void:
@@ -2908,9 +2927,10 @@ func _on_vehicle_destroyed(points: int, kind: int, vehicle: Vehicle = null) -> v
 		var drone := get_node_or_null("Drone") as Node3D
 		var impact_pos := vehicle.global_position if (vehicle != null and is_instance_valid(vehicle)) \
 				else (drone.global_position if drone != null else Vector3.ZERO)
-		var is_key: bool = (is_primary_target and _mission_targets_destroyed >= _mission_targets_total) \
-				or kind in [Vehicle.Kind.TANK, Vehicle.Kind.HELI, Vehicle.Kind.SHAHED, Vehicle.Kind.SAM]
+		var is_key: bool = is_primary_target \
+				or kind in [Vehicle.Kind.TANK, Vehicle.Kind.BMP, Vehicle.Kind.APC, Vehicle.Kind.HELI, Vehicle.Kind.SHAHED, Vehicle.Kind.SAM]
 		var kc_started := _maybe_trigger_kill_cam(impact_pos, is_key)
+		var kc_active := kc_started or (_kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active())
 		if is_primary_target and not _radio_beat_03_sent:
 			_radio_beat_03_sent = true
 			_play_radio_callout(
@@ -2920,7 +2940,7 @@ func _on_vehicle_destroyed(points: int, kind: int, vehicle: Vehicle = null) -> v
 		elif is_primary_target:
 			_play_radio_callout("%s — %s" % [_txt("ЦІЛЬ УРАЖЕНО", "TARGET HIT"), _kind_name(kind)])
 		CombatSfxScript.play_hitmarker(self, true)
-		_advance_phase_after_kill(is_primary_target, kc_started and _mission_targets_destroyed >= _mission_targets_total)
+		_advance_phase_after_kill(is_primary_target, kc_active and _mission_targets_destroyed >= _mission_targets_total)
 	else:
 		CombatSfxScript.play_hitmarker(self, true)
 		_set_flash("%s +%d" % [_kind_name(kind), points])
@@ -2988,11 +3008,12 @@ func _on_infantry_unit_destroyed(points: int, is_primary: bool, unit: Node3D = n
 		combat.call("add_bonus_score", points, flash_msg)
 	_set_flash(flash_msg)
 	var kc_started := false
-	if is_primary and _mission_targets_total > 0 and _mission_targets_destroyed >= _mission_targets_total:
+	if is_primary:
 		var drone := get_node_or_null("Drone") as Node3D
 		var impact_pos := unit.global_position if (unit != null and is_instance_valid(unit)) \
 				else (drone.global_position if drone != null else Vector3.ZERO)
 		kc_started = _maybe_trigger_kill_cam(impact_pos, true)
+	var kc_active := kc_started or (_kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active())
 	if is_primary:
 		if not _radio_beat_03_sent and _mission_targets_destroyed >= _mission_targets_total:
 			_radio_beat_03_sent = true
@@ -3003,7 +3024,7 @@ func _on_infantry_unit_destroyed(points: int, is_primary: bool, unit: Node3D = n
 		else:
 			_play_radio_callout(_txt("ЦІЛЬ УРАЖЕНО — ПІХОТА", "TARGET HIT — INFANTRY"))
 	CombatSfxScript.play_hitmarker(self, true)
-	_advance_phase_after_kill(is_primary, kc_started)
+	_advance_phase_after_kill(is_primary, kc_active and _mission_targets_destroyed >= _mission_targets_total)
 
 
 func _advance_phase_after_kill(is_primary: bool, defer_for_kill_cam: bool) -> void:
@@ -3023,21 +3044,23 @@ func _check_combat_mission_complete() -> void:
 		_pending_combat_complete = true
 		return
 	if _mission_targets_destroyed >= _mission_targets_total:
-		# All primary targets are down.  The mission is not over until the
-		# operator reaches the extraction zone (phase 3/3).
-		if _mission_phase_active:
-			_enter_extract_phase()
-		else:
-			if Global.special_mission > 0:
-				_enter_special_extraction()
-				return
-			var msg := _txt("МІСІЮ %d/4 ВИКОНАНО!" % Global.combat_mission,
-					"MISSION %d/4 COMPLETE!" % Global.combat_mission)
-			if Global.combat_mission >= 4:
-				msg = _txt("БОЙОВУ КАМПАНІЮ 4/4 ПОВНІСТЮ ВИКОНАНО!",
-						"COMBAT CAMPAIGN 4/4 FULLY COMPLETED!")
-			await get_tree().create_timer(1.2).timeout
-			_finish_mission(msg, false)
+		# All primary targets (infantry + armor/air) are destroyed: complete
+		# directly without leaving a lingering blue extraction marker.
+		_mission_phase_active = false
+		_mission_phase = 1
+		_special_extract_active = false
+		if _special_extract_beacon != null and is_instance_valid(_special_extract_beacon):
+			_special_extract_beacon.visible = false
+		if Global.special_mission > 0:
+			_finish_special_success()
+			return
+		var msg := _txt("МІСІЮ %d/4 ВИКОНАНО!" % Global.combat_mission,
+				"MISSION %d/4 COMPLETE!" % Global.combat_mission)
+		if Global.combat_mission >= 4:
+			msg = _txt("БОЙОВУ КАМПАНІЮ 4/4 ПОВНІСТЮ ВИКОНАНО!",
+					"COMBAT CAMPAIGN 4/4 FULLY COMPLETED!")
+		await get_tree().create_timer(0.8).timeout
+		_finish_mission(msg, false)
 
 
 func _make_weather_particles(color: Color, direction: Vector3, speed: float,
@@ -4329,6 +4352,8 @@ func _setup_hud() -> void:
 			and bool(_touch_controls.get("touch_mode")))
 	if not GameSettings.hud_config_updated.is_connected(_apply_stick_overlay):
 		GameSettings.hud_config_updated.connect(_apply_stick_overlay)
+	if not GameSettings.hud_config_updated.is_connected(_on_hud_config_rig_updated):
+		GameSettings.hud_config_updated.connect(_on_hud_config_rig_updated)
 	var safe := _get_hud_safe_insets()
 	var safe_l := float(safe["left"])
 	var safe_r := float(safe["right"])
@@ -4920,43 +4945,6 @@ func _setup_fpv_camera_for_preset() -> void:
 	cam.set_meta("base_rot", cam.rotation_degrees)
 
 
-func _setup_airflow_fx() -> void:
-	var cam := get_node_or_null("Drone/FPVCamera") as Camera3D
-	if cam == null or _airflow_particles != null:
-		return
-	var p := GPUParticles3D.new()
-	p.name = "AirflowParticles"
-	p.amount = 22
-	p.lifetime = 0.40
-	p.local_coords = true
-	p.emitting = false
-	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var pm := ParticleProcessMaterial.new()
-	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
-	pm.emission_box_extents = Vector3(2.8, 1.8, 0.6)
-	pm.direction = Vector3(0.0, 0.0, 1.0)
-	pm.spread = 8.0
-	pm.initial_velocity_min = 12.0
-	pm.initial_velocity_max = 18.0
-	pm.gravity = Vector3.ZERO
-	pm.scale_min = 0.7
-	pm.scale_max = 1.2
-	pm.color = Color(0.88, 0.96, 1.0, 0.24)
-	p.process_material = pm
-	var streak := BoxMesh.new()
-	streak.size = Vector3(0.012, 0.012, 0.42)
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = Color(0.88, 0.96, 1.0, 0.28)
-	mat.no_depth_test = false
-	streak.material = mat
-	p.draw_pass_1 = streak
-	p.position = Vector3(0.0, 0.0, -4.5)
-	cam.add_child(p)
-	_airflow_particles = p
-
-
 func _update_fpv_camera_fx(delta: float) -> void:
 	var drone := get_node_or_null("Drone") as Drone
 	var cam := get_node_or_null("Drone/FPVCamera") as Camera3D
@@ -4964,12 +4952,6 @@ func _update_fpv_camera_fx(delta: float) -> void:
 		return
 	var speed := drone.linear_velocity.length()
 	var armed: bool = drone.flight_controller != null and drone.flight_controller.state_armed
-	if _airflow_particles != null and is_instance_valid(_airflow_particles):
-		var show_air: bool = armed and speed > 10.0 and cam.current \
-				and (_kill_cam == null or not _kill_cam.is_active())
-		_airflow_particles.emitting = show_air
-		if show_air:
-			_airflow_particles.speed_scale = clampf(speed / 18.0, 0.8, 2.4)
 	if not cam.current:
 		return
 	var target_fov := _base_fpv_fov
@@ -5040,17 +5022,19 @@ func _setup_recon_view() -> void:
 
 
 func _attach_fpv_rig() -> void:
-	# Uses the real 3D drone model (DroneModel in res://Assets/Drones/ua_norm/)
-	# instead of procedurally generating cylinders or wires.
+	# Rebuilds the procedural lower-frame FPV combat rig (warhead nose + wire
+	# contact whiskers) attached directly to FPVCamera so it frames consistently
+	# in first-person regardless of model mesh variation, alongside the GLB
+	# DroneModel used for third-person / recon aircraft.
 	var cam := get_node_or_null("Drone/FPVCamera") as Camera3D
 	if cam != null:
 		var old := cam.get_node_or_null("FPVRig")
 		if old != null:
+			old.name = "FPVRig_Old"
 			old.queue_free()
 	var drone := get_node_or_null("Drone")
 	if drone != null:
 		_model_root = drone.get_node_or_null("DroneModel") as Node3D
-	_fpv_rig = _model_root
 	var p := DroneCatalog.preset(Global.drone_preset)
 	_heavy_bomber = bool(p.get("heavy_bomber", false))
 	_payload_ammo_left = int(p.get("payload", 0))
@@ -5064,17 +5048,164 @@ func _attach_fpv_rig() -> void:
 				_bomb_nodes.append(child as Node3D)
 	var is_combat: bool = bool(p.get("combat", false))
 	_payload_enabled = is_combat and DroneCatalog.supports_payload_actions(Global.drone_preset)
+	var show_cam_rig := is_combat \
+			and not bool(p.get("fpv_show_airframe", false)) \
+			and not _heavy_bomber
+	if cam != null and show_cam_rig:
+		_fpv_rig = _build_fpv_rig_node(cam)
+	else:
+		_fpv_rig = _model_root
 	if not _payload_enabled:
 		_fpv_payload = null
-		return
 
 	var builtin_hud := get_node_or_null("Drone/HUD")
 	if builtin_hud != null:
 		var mode_label := builtin_hud.get_node_or_null("MarginContainer/FlightMode") as CanvasItem
 		if mode_label != null:
 			mode_label.visible = false
-	_rig_visible = bool(p.get("combat", false))
+	_rig_visible = bool(GameSettings.hud_config.get("fpv_rig", true)) if GameSettings != null else true
 	_apply_fpv_rig()
+
+
+func _add_rig_segment(parent: Node3D, p0: Vector3, p1: Vector3, radius: float,
+		mat: StandardMaterial3D) -> void:
+	var diff := p1 - p0
+	var length := diff.length()
+	if length < 0.0005:
+		return
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = radius
+	mesh.bottom_radius = radius
+	mesh.height = length
+	mesh.radial_segments = 8
+	mesh.rings = 1
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var y_ax := diff / length
+	var ref := Vector3.FORWARD if absf(y_ax.dot(Vector3.FORWARD)) < 0.94 else Vector3.RIGHT
+	var x_ax := y_ax.cross(ref).normalized()
+	var z_ax := x_ax.cross(y_ax).normalized()
+	mi.basis = Basis(x_ax, y_ax, z_ax)
+	mi.position = (p0 + p1) * 0.5
+	parent.add_child(mi)
+
+
+func _build_fpv_rig_node(cam: Camera3D) -> Node3D:
+	var rig := Node3D.new()
+	rig.name = "FPVRig"
+	cam.add_child(rig)
+
+	var warhead_mat := StandardMaterial3D.new()
+	warhead_mat.albedo_color = Color(0.52, 0.50, 0.41)
+	warhead_mat.roughness = 0.62
+	warhead_mat.metallic = 0.22
+
+	var tape_mat := StandardMaterial3D.new()
+	tape_mat.albedo_color = Color(0.32, 0.34, 0.36)
+	tape_mat.roughness = 0.45
+	tape_mat.metallic = 0.50
+
+	var steel_mat := StandardMaterial3D.new()
+	steel_mat.albedo_color = Color(0.22, 0.23, 0.25)
+	steel_mat.roughness = 0.34
+	steel_mat.metallic = 0.85
+
+	var wire_mat := StandardMaterial3D.new()
+	wire_mat.albedo_color = Color(0.76, 0.79, 0.82)
+	wire_mat.roughness = 0.26
+	wire_mat.metallic = 0.88
+
+	# Central warhead ogive poking cleanly into the lower ~22% of frame.
+	var warhead := Node3D.new()
+	warhead.name = "WarheadNose"
+	warhead.position = Vector3(0.0, -0.34, -0.28)
+	warhead.rotation_degrees = Vector3(24.0, 0.0, 0.0)
+	rig.add_child(warhead)
+
+	var body := MeshInstance3D.new()
+	var body_mesh := CylinderMesh.new()
+	body_mesh.top_radius = 0.044
+	body_mesh.bottom_radius = 0.048
+	body_mesh.height = 0.22
+	body_mesh.radial_segments = 16
+	body.mesh = body_mesh
+	body.material_override = warhead_mat
+	body.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	warhead.add_child(body)
+
+	var tape := MeshInstance3D.new()
+	var tape_mesh := CylinderMesh.new()
+	tape_mesh.top_radius = 0.049
+	tape_mesh.bottom_radius = 0.050
+	tape_mesh.height = 0.046
+	tape_mesh.radial_segments = 16
+	tape.mesh = tape_mesh
+	tape.material_override = tape_mat
+	tape.position = Vector3(0.0, -0.025, 0.0)
+	tape.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	warhead.add_child(tape)
+
+	var dome := MeshInstance3D.new()
+	var dome_mesh := SphereMesh.new()
+	dome_mesh.radius = 0.044
+	dome_mesh.height = 0.082
+	dome_mesh.radial_segments = 16
+	dome_mesh.rings = 8
+	dome.mesh = dome_mesh
+	dome.material_override = warhead_mat
+	dome.position = Vector3(0.0, 0.105, 0.0)
+	dome.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	warhead.add_child(dome)
+
+	var fuze := MeshInstance3D.new()
+	var fuze_mesh := CylinderMesh.new()
+	fuze_mesh.top_radius = 0.011
+	fuze_mesh.bottom_radius = 0.015
+	fuze_mesh.height = 0.036
+	fuze_mesh.radial_segments = 12
+	fuze.mesh = fuze_mesh
+	fuze.material_override = steel_mat
+	fuze.position = Vector3(0.0, 0.152, 0.0)
+	fuze.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	warhead.add_child(fuze)
+
+	# Dual symmetric wire contact whiskers with spring coils at lower edges.
+	for side in [-1.0, 1.0]:
+		var sx: float = float(side)
+		for ring_i in range(4):
+			var torus := MeshInstance3D.new()
+			var t_mesh := TorusMesh.new()
+			t_mesh.inner_radius = 0.0075
+			t_mesh.outer_radius = 0.0115
+			t_mesh.rings = 10
+			t_mesh.ring_segments = 6
+			torus.mesh = t_mesh
+			torus.material_override = wire_mat
+			torus.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			torus.position = Vector3(sx * (0.056 + float(ring_i) * 0.008),
+					-0.34 + float(ring_i) * 0.006, -0.275)
+			torus.rotation_degrees = Vector3(14.0, sx * 12.0, sx * 54.0)
+			rig.add_child(torus)
+
+		var pts := [
+			Vector3(sx * 0.056, -0.34, -0.275),
+			Vector3(sx * 0.115, -0.295, -0.285),
+			Vector3(sx * 0.190, -0.240, -0.295),
+			Vector3(sx * 0.258, -0.192, -0.290),
+			Vector3(sx * 0.305, -0.172, -0.280),
+		]
+		for i in range(pts.size() - 1):
+			_add_rig_segment(rig, pts[i], pts[i + 1], 0.0028, wire_mat)
+
+	return rig
+
+
+func _on_hud_config_rig_updated() -> void:
+	if GameSettings != null:
+		_rig_visible = bool(GameSettings.hud_config.get("fpv_rig", true))
+		_apply_fpv_rig()
 
 
 ## Removes the persistent loading card created by MainMenu/HelpScreen once the
@@ -5600,24 +5731,42 @@ func _activate_fpv_payload() -> void:
 	CombatSfxScript.play_boom(self, at, 2.0)
 	Haptics.trigger_explosion(1.15)
 	_set_flash("БЧ АКТИВОВАНО")
+	var kc_active_now := _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active()
 	if (_payload_hits > hits_before or _mission_targets_destroyed >= _mission_targets_total) \
-			and not _kill_cam_triggered:
-		if _maybe_trigger_kill_cam(at, true) and _mission_targets_destroyed >= _mission_targets_total:
-			_pending_combat_complete = true
+			and not kc_active_now:
+		_maybe_trigger_kill_cam(at, true)
+		kc_active_now = _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active()
+	if kc_active_now and _mission_targets_destroyed >= _mission_targets_total:
+		_pending_combat_complete = true
 	# Take the drone out of the simulation without triggering a crash message.
 	drone.visible = false
 	drone.freeze = true
 	drone.linear_velocity = Vector3.ZERO
 	drone.angular_velocity = Vector3.ZERO
-	var timer := get_tree().create_timer(3.0)
-	timer.timeout.connect(func() -> void:
-		if not is_instance_valid(drone) or _mission_finished:
-			return
-		drone.visible = true
-		drone.freeze = false
-		_payload_dropped = false
-		_reset_fpv_payload()
-		_respawn_and_rearm())
+	_refresh_model_visibility()
+	if kc_active_now:
+		_pending_kamikaze_respawn = true
+	else:
+		var timer := get_tree().create_timer(2.4)
+		timer.timeout.connect(func() -> void:
+			if _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active():
+				_pending_kamikaze_respawn = true
+				return
+			_execute_kamikaze_respawn())
+
+
+func _execute_kamikaze_respawn() -> void:
+	if _mission_finished:
+		return
+	var drone := get_node_or_null("Drone") as Drone
+	if drone == null or not is_instance_valid(drone):
+		return
+	drone.visible = true
+	drone.freeze = false
+	_payload_dropped = false
+	_reset_fpv_payload()
+	_refresh_model_visibility()
+	_respawn_and_rearm()
 
 
 func _reset_fpv_payload() -> void:
@@ -5652,7 +5801,14 @@ func _apply_fpv_rig() -> void:
 		var root := drone.get_node_or_null("DroneModel") as Node3D
 		if root != null:
 			_model_root = root
-			_fpv_rig = root
+	var cam := get_node_or_null("Drone/FPVCamera") as Camera3D
+	var cam_rig := cam.get_node_or_null("FPVRig") as Node3D if cam != null else null
+	if cam_rig != null:
+		_fpv_rig = cam_rig
+	elif _model_root != null:
+		_fpv_rig = _model_root
+	if _fpv_rig != null and is_instance_valid(_fpv_rig):
+		_fpv_rig.visible = _rig_visible
 	_refresh_model_visibility()
 
 
@@ -6573,6 +6729,14 @@ func _input(event: InputEvent) -> void:
 			GameSettings.hud_config["weather"] = _weather
 			GameSettings.save_hud_config()
 			_apply_weather()
+		elif event.keycode == KEY_J:
+			_rig_visible = not _rig_visible
+			if GameSettings != null:
+				GameSettings.hud_config["fpv_rig"] = _rig_visible
+				GameSettings.save_hud_config()
+			_apply_fpv_rig()
+			_set_flash(_txt("FPV-ОБВІС: УВІМК" if _rig_visible else "FPV-ОБВІС: ВИМК",
+					"FPV RIG: ON" if _rig_visible else "FPV RIG: OFF"))
 	if event.is_action_pressed("toggle_osd"):
 		_osd_visible = not _osd_visible
 		GameSettings.hud_config["osd"] = _osd_visible
@@ -7004,10 +7168,17 @@ func _update_wind_simulation(delta: float) -> void:
 
 
 func _refresh_model_visibility() -> void:
+	var cam_rig_root := get_node_or_null("Drone/FPVCamera") as Camera3D
+	var cam_rig := cam_rig_root.get_node_or_null("FPVRig") as Node3D if cam_rig_root != null else null
+	var drone_for_rig := get_node_or_null("Drone") as Node3D
+	var third_person := camera != null and camera.name != "FPVCamera"
+	if cam_rig != null and is_instance_valid(cam_rig):
+		var drone_alive := drone_for_rig == null or drone_for_rig.visible
+		var kc_on := _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active()
+		cam_rig.visible = _rig_visible and (not third_person) and drone_alive and not kc_on
 	if _model_root == null or not is_instance_valid(_model_root):
 		return
 	var p := DroneCatalog.preset(Global.drone_preset)
-	var third_person := camera != null and camera.name != "FPVCamera"
 	if not third_person:
 		# Combat airframes show the warhead at the bottom edge with the camera
 		# lifted just above the frame so the body no longer fills the centre.

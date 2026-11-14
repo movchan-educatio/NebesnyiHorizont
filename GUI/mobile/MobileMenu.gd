@@ -504,8 +504,7 @@ func _find_skeleton(node: Node) -> Skeleton3D:
 func _load_radio_model() -> Node3D:
 	for glb_path in [
 		"res://Assets/Drones/ua_norm/radiomaster_tx12_rig.glb",
-		"res://Assets/Drones/ua_norm/radiomaster_tx12.glb",
-		"res://Assets/Drones/ua/radiomaster_tx12.glb"
+		"res://Assets/Drones/ua_norm/radiomaster_tx12.glb"
 	]:
 		if ResourceLoader.exists(glb_path):
 			var packed = load(glb_path)
@@ -2804,6 +2803,24 @@ func _build_settings_tab_sim() -> void:
 		)
 		trow.add_child(tsw)
 		touch_grid.add_child(trow)
+
+	var ctrl_row := HBoxContainer.new()
+	ctrl_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var ctrl_lbl := _label("Режим пульта (вимкнути сенсорні стіки)", 18, MenuUI.TEXT)
+	ctrl_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ctrl_row.add_child(ctrl_lbl)
+	var is_ctrl_locked := str(Global.menu_settings.get("touch_input_mode", "auto")).to_lower() == "controller"
+	var ctrl_sw := ToggleSwitch.new(is_ctrl_locked)
+	ctrl_sw.toggled.connect(func(on: bool):
+		var tc := get_node_or_null("/root/TouchControls")
+		if tc != null and tc.has_method("set_controller_only"):
+			tc.call("set_controller_only", on)
+		else:
+			Global.menu_settings["touch_input_mode"] = "controller" if on else "auto"
+			Global.save_menu_settings()
+	)
+	ctrl_row.add_child(ctrl_sw)
+	sv.add_child(ctrl_row)
 
 	var sens_row := HBoxContainer.new()
 	sens_row.add_theme_constant_override("separation", _gap(12))

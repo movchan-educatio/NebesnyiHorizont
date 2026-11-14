@@ -60,17 +60,18 @@ func _run_mission(mission: int) -> void:
 		level.call("_update_mission_phases", 1.0)
 	_check(int(level.get("_mission_phase")) == 1,
 			"mission %d recon hold advances to the strike phase" % mission)
-	# Phase 2/3: every primary target is destroyed.
+	# Phase 2/2: every primary target is destroyed -> direct mission completion
+	# with no lingering extraction marker.
 	level.set("_mission_targets_destroyed", targets_total)
 	level.call("_check_combat_mission_complete")
-	_check(int(level.get("_mission_phase")) == 2,
-			"mission %d enters extraction after all targets fall" % mission)
-	# Phase 3/3: hold the extraction zone for 3 s and finish.
-	var extract: Vector3 = level.get("_extract_point")
-	drone.global_position = extract
-	for i in range(4):
-		level.call("_update_mission_phases", 1.0)
+	_check(not bool(level.get("_mission_phase_active")),
+			"mission %d deactivates phase extraction immediately after all targets fall" % mission)
+	await get_tree().create_timer(1.0).timeout
+	get_tree().paused = false
+	var phase_info: Dictionary = level.call("get_mission_phase_info")
 	_check(bool(level.get("_mission_finished")),
-			"mission %d completes after holding the extraction zone" % mission)
+			"mission %d completes directly after all targets are destroyed" % mission)
+	_check(phase_info.is_empty(),
+			"mission %d leaves no blue exit marker after completion" % mission)
 	level.queue_free()
 	await get_tree().process_frame

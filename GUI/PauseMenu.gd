@@ -15,6 +15,7 @@ const MenuIcons = preload("res://GUI/ui/MenuIcons.gd")
 @onready var btn_options := $PanelContainer/VBoxContainer/ButtonOptions
 @onready var btn_main_menu := $PanelContainer/VBoxContainer/ButtonMainMenu
 var btn_controls: Button
+var btn_touch_sticks: Button
 var btn_quit: Button
 
 var quad_settings: Control = preload("res://GUI/QuadSettingsMenu.tscn").instantiate()
@@ -38,6 +39,7 @@ func _ready() -> void:
 
 	_bind_button(btn_resume, Callable(self, "_on_resume_pressed"))
 	_bind_button(btn_controls, Callable(self, "_on_controls_pressed"))
+	_bind_button(btn_touch_sticks, Callable(self, "_on_touch_sticks_toggled"))
 	_bind_button(btn_quad, Callable(self, "_on_quad_pressed"))
 	if btn_help != null:
 		btn_help.visible = false
@@ -116,17 +118,21 @@ func _apply_military_styling() -> void:
 		title_lbl.add_theme_color_override("font_color", MenuUI.FPV_AMBER)
 		title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
-	# Create Dedicated Controls Button
+	# Create Dedicated Controls & Touch Toggle Buttons
 	btn_controls = Button.new()
 	btn_controls.name = "ButtonControls"
 	vbox.add_child(btn_controls)
+
+	btn_touch_sticks = Button.new()
+	btn_touch_sticks.name = "ButtonTouchSticks"
+	vbox.add_child(btn_touch_sticks)
 
 	btn_quit = Button.new()
 	btn_quit.name = "ButtonQuit"
 	vbox.add_child(btn_quit)
 
-	# Ensure clean order: header -> title -> resume -> controls -> quad -> options -> main_menu -> quit
-	var desired_order := [header, title_lbl, btn_resume, btn_controls, btn_quad, btn_options, btn_main_menu, btn_quit]
+	# Ensure clean order: header -> title -> resume -> controls -> touch_sticks -> quad -> options -> main_menu -> quit
+	var desired_order := [header, title_lbl, btn_resume, btn_controls, btn_touch_sticks, btn_quad, btn_options, btn_main_menu, btn_quit]
 	var order_idx := 0
 	for el in desired_order:
 		if el != null and el.get_parent() == vbox:
@@ -134,7 +140,7 @@ func _apply_military_styling() -> void:
 			order_idx += 1
 
 	var pause_btn_height := 84.0 if mobile_ui else 46.0
-	var btn_list := [btn_resume, btn_controls, btn_quad, btn_options, btn_main_menu, btn_quit]
+	var btn_list := [btn_resume, btn_controls, btn_touch_sticks, btn_quad, btn_options, btn_main_menu, btn_quit]
 
 	for b in btn_list:
 		if b != null:
@@ -151,6 +157,8 @@ func _apply_military_styling() -> void:
 	btn_controls.text = "  ПУЛЬТ ТА КАЛІБРУВАННЯ"
 	btn_controls.icon = MenuIcons.icon_radio(Color(0.85, 0.95, 0.88))
 	btn_controls.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+
+	_sync_touch_sticks_button()
 
 	btn_quad.text = "  РЕЙТИ ТА ЕКСПО БОРТУ"
 	btn_quad.icon = MenuIcons.icon_rates(Color(0.85, 0.95, 0.88))
@@ -196,7 +204,7 @@ func _apply_military_styling() -> void:
 			Color(0.32, 0.48, 0.38, 0.6), 1, 12, 16, 8)
 	var def_hover := MenuUI.feel_style(Color(0.08, 0.15, 0.11, 0.96),
 			Color(0.45, 0.65, 0.50, 0.85), 1, 12, 16, 8)
-	for b in [btn_controls, btn_quad, btn_options, btn_main_menu]:
+	for b in [btn_controls, btn_touch_sticks, btn_quad, btn_options, btn_main_menu]:
 		b.add_theme_stylebox_override("normal", def_style)
 		b.add_theme_stylebox_override("hover", def_hover)
 		b.add_theme_stylebox_override("focus", def_hover)
@@ -327,8 +335,37 @@ func _input(event: InputEvent) -> void:
 func show_menu(show_flag: bool) -> void:
 	visible = show_flag
 	if visible:
+		_sync_touch_sticks_button()
 		_set_flight_hud_suppressed(true)
 		btn_resume.grab_focus()
+
+
+func _sync_touch_sticks_button() -> void:
+	if btn_touch_sticks == null:
+		return
+	var show_toggle := MenuUI.is_mobile_ui() or OS.get_name() == "iOS" \
+			or OS.has_environment("TOUCH_CONTROLS") or DisplayServer.is_touchscreen_available()
+	btn_touch_sticks.visible = show_toggle
+	if not show_toggle:
+		return
+	var tc := get_node_or_null("/root/TouchControls")
+	var locked := tc != null and tc.has_method("is_controller_locked") and bool(tc.call("is_controller_locked"))
+	var active := tc != null and bool(tc.get("touch_mode"))
+	var sticks_on := active and not locked
+	btn_touch_sticks.text = "  СЕНСОРНІ СТІКИ: УВІМК (НАТИСНИ ЩОБ ВИМК.)" if sticks_on \
+			else "  СЕНСОРНІ СТІКИ: ВИМК (РЕЖИМ ПУЛЬТА)"
+	btn_touch_sticks.icon = MenuIcons.icon_radio(
+			Color(0.95, 0.82, 0.45) if sticks_on else Color(0.55, 0.95, 0.68))
+	btn_touch_sticks.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+
+
+func _on_touch_sticks_toggled() -> void:
+	var tc := get_node_or_null("/root/TouchControls")
+	if tc != null and tc.has_method("set_controller_only"):
+		var locked := tc.has_method("is_controller_locked") and bool(tc.call("is_controller_locked"))
+		var currently_on := bool(tc.get("touch_mode")) and not locked
+		tc.call("set_controller_only", currently_on)
+	_sync_touch_sticks_button()
 
 
 func _on_resume_pressed() -> void:

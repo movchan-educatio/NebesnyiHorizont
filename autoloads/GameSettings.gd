@@ -24,7 +24,7 @@ func _ready() -> void:
 
 var hud_config := {"fps": 20, "crosshair": false, "ladder": false,
 		"speed": true, "altitude": true, "heading": true, "sticks": true, "rpm": false,
-		"osd": true, "fpv_rig": false, "weather": 0, "sim_thrust": true,
+		"osd": true, "fpv_rig": true, "weather": 0, "sim_thrust": true,
 		"infinite_battery": true,
 		# Simulator aids.  Kept in the same persisted dictionary so older
 		# GameSettings.cfg files keep working (missing keys use these defaults).
@@ -64,7 +64,8 @@ var hud_config := {"fps": 20, "crosshair": false, "ladder": false,
 		"controller_preset": "",
 		"rc_expo": 0.20,
 		"rc_super_rate": 0.70,
-		"rc_deadzone": 0.02}
+		"rc_deadzone": 0.02,
+		"fpv_rig_v2_migrated": true}
 
 
 func load_hud_config() -> void:
@@ -75,11 +76,14 @@ func load_hud_config() -> void:
 		var hud_section := "hud_config"
 		var has_reb_zones := false
 		var has_profile := false
+		var has_fpv_rig_v2 := false
 		if config.has_section(hud_section):
 			for key in config.get_section_keys(hud_section):
 				var value = config.get_value(hud_section, key)
 				if key == "reb_zones":
 					has_reb_zones = true
+				elif key == "fpv_rig_v2_migrated":
+					has_fpv_rig_v2 = bool(value)
 				if hud_config.has(key):
 					if key == "fps" and (value is int or value is float):
 						hud_config[key] = clamp(int(value), 5, 60)
@@ -130,6 +134,12 @@ func load_hud_config() -> void:
 		# Migration for settings files written before the realism profile
 		# existed.  REB used to be bundled into "link_limit", so keep that
 		# behaviour for an existing player, then infer the closest preset.
+		if not has_fpv_rig_v2:
+			hud_config["fpv_rig"] = true
+			hud_config["fpv_rig_v2_migrated"] = true
+			config.set_value(hud_section, "fpv_rig", true)
+			config.set_value(hud_section, "fpv_rig_v2_migrated", true)
+			var _discard = config.save(game_settings_path)
 		if not has_reb_zones:
 			hud_config["reb_zones"] = bool(hud_config.get("link_limit", false))
 		if not has_profile:

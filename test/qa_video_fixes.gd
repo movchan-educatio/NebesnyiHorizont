@@ -131,11 +131,11 @@ func _run() -> void:
 	var left_center: Vector2 = touch.get("_left_center")
 	var radius := float(touch.get("_radius"))
 	Controls.set("stick_deadzone", 0.10)
-	touch.call("_update_stick", true, left_center + Vector2(radius * 0.05, 0.0))
+	touch.call("_update_stick", true, left_center + Vector2(radius * 0.07, 0.0))
 	_check(is_zero_approx(float(touch.get("yaw"))),
 			"touch stick deadzone slider is applied")
 	Controls.set("stick_deadzone", 0.01)
-	touch.call("_update_stick", true, left_center + Vector2(radius * 0.05, 0.0))
+	touch.call("_update_stick", true, left_center + Vector2(radius * 0.07, 0.0))
 	_check(absf(float(touch.get("yaw"))) > 0.04,
 			"touch stick response follows deadzone slider")
 	Controls.set("stick_deadzone", saved_deadzone)

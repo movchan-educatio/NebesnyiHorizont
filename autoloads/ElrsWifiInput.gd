@@ -23,7 +23,7 @@ const UDP_PORT := 11000
 const CHANNEL_COUNT := 16
 const NO_DATA := 62058
 const ACTIVATE_INTERVAL := 4.0
-const STALE_MS := 3000
+const STALE_MS := 8000
 const CENTER := 16384.0
 const MOBILE_FORMAT_UNKNOWN := 0
 const MOBILE_FORMAT_15BIT := 1
@@ -86,6 +86,7 @@ var _http: HTTPRequest = null
 var _http_busy := false
 var _pending_ip := ""
 var _last_frame_ms := 0
+var _last_valid_ms := 0
 var _last_activate_ms := 0
 var _switch_state := {}
 var _switch_ready := false
@@ -122,9 +123,15 @@ func _start() -> void:
 	status_text = "ELRS: ПОШУК"
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	# Absorb main-thread hitches during scene/level loading so an active Wi-Fi TX
+	# session is not falsely marked stale before UDP packets are polled again.
+	if valid and delta > 0.35:
+		_last_frame_ms += int(minf(delta - 0.05, 12.0) * 1000.0)
 	_poll_udp()
 	var now := Time.get_ticks_msec()
+	if valid:
+		_last_valid_ms = now
 	if valid and now - _last_frame_ms > STALE_MS:
 		valid = false
 		if OS.get_name() == "iOS" or OS.has_feature("mobile") \
@@ -138,6 +145,14 @@ func _process(_delta: float) -> void:
 	# to prevent continuous socket timeouts / micro-stutters on standard home Wi-Fi
 	if not valid and not module_ip.is_empty() and now - _last_activate_ms >= int(ACTIVATE_INTERVAL * 1000.0):
 		_try_activate(module_ip)
+
+
+func was_recently_active(window_ms: int = 20000) -> bool:
+	if valid:
+		return true
+	if _last_valid_ms <= 0:
+		return false
+	return (Time.get_ticks_msec() - _last_valid_ms) <= window_ms
 
 
 func scan_now() -> void:

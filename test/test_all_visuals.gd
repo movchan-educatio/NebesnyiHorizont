@@ -78,9 +78,13 @@ func _ready() -> void:
 			scene.call("_setup_fpv_camera_for_preset")
 			var model_root := drone_node.get_node_or_null("DroneModel") as Node3D
 			assert(model_root != null, "Real 3D DroneModel must be attached")
-			assert(cam.get_node_or_null("FPVRig") == null, "No procedural FPVRig cylinders should be attached to FPVCamera")
+			var fpv_rig := cam.get_node_or_null("FPVRig") as Node3D
+			assert(fpv_rig != null, "FPVRig (warhead + whiskers) must be attached to FPVCamera on combat quad")
+			assert(fpv_rig.get_node_or_null("WarheadNose") != null, "FPVRig must include WarheadNose")
+			assert(fpv_rig.visible == bool(GameSettings.hud_config.get("fpv_rig", true)),
+					"FPVRig visibility must match GameSettings.hud_config['fpv_rig']")
 			assert(cam.near <= 0.051, "FPVCamera near clip plane must be <= 0.05")
-			print("  ✓ Real 3D DroneModel ('%s') visible in FPV, cam pos=%s, pitch=%.1f deg" % [
+			print("  ✓ Real 3D DroneModel ('%s') + FPVRig visible in FPV, cam pos=%s, pitch=%.1f deg" % [
 				DroneCatalog.preset(2)["name"], str(cam.position), cam.rotation_degrees.x
 			])
 		

@@ -1,4 +1,4 @@
-## QA: recon -> strike -> extract mission state machine.
+## QA: recon -> strike -> direct mission completion (no lingering extract phase).
 extends Node
 
 func _ready() -> void:
@@ -24,10 +24,11 @@ func _run() -> void:
 	assert(int(level.get("_mission_phase")) == 1, "recon hold must enter strike")
 	level.set("_mission_targets_destroyed", int(level.get("_mission_targets_total")))
 	level.call("_check_combat_mission_complete")
-	assert(int(level.get("_mission_phase")) == 2, "all targets must enter extract")
-	var extract: Vector3 = level.get("_extract_point")
-	drone.global_position = extract
-	level.call("_update_mission_phases", 3.1)
-	assert(bool(level.get("_mission_finished")), "extract hold must finish the mission")
-	print("[PHASEQA] PASS · recon -> strike -> extract -> debrief")
+	assert(not bool(level.get("_mission_phase_active")), "all targets must clear extract phase")
+	await get_tree().create_timer(1.0).timeout
+	get_tree().paused = false
+	assert(bool(level.get("_mission_finished")), "all targets down must finish mission directly")
+	var phase_info: Dictionary = level.call("get_mission_phase_info")
+	assert(phase_info.is_empty(), "finished mission must have empty mission phase info")
+	print("[PHASEQA] PASS · recon -> strike -> direct completion -> debrief")
 	get_tree().quit(0)

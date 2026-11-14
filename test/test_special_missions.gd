@@ -47,23 +47,20 @@ func _ready() -> void:
 					ok = false
 				else:
 					print("[SPECIAL] PASS night strike targets=2 weather=3")
-				# Strike targets are down: the mission now requires extraction.
+				# Strike targets are down: mission completes directly with no lingering exit marker.
 				level.call("_start_mission")
-				level.call("_enter_special_extraction")
-				var strike_drone := level.get_node_or_null("Drone") as Drone
-				if strike_drone == null or not bool(level.get("_special_extract_active")):
-					printerr("[SPECIAL] FAIL strike extraction did not activate")
+				level.set("_mission_targets_destroyed", int(level.get("_mission_targets_total")))
+				level.call("_check_combat_mission_complete")
+				await get_tree().process_frame
+				get_tree().paused = false
+				var beacon := level.get("_special_extract_beacon") as Node3D
+				if bool(level.get("_special_extract_active")) \
+						or (beacon != null and beacon.visible) \
+						or not bool(level.get("_mission_finished")):
+					printerr("[SPECIAL] FAIL strike direct completion failed or left extract marker")
 					ok = false
 				else:
-					var extract: Vector3 = level.get("_special_extract_point")
-					strike_drone.global_position = extract + Vector3.UP * 3.0
-					await get_tree().create_timer(3.5).timeout
-					get_tree().paused = false
-					if not bool(level.get("_mission_finished")):
-						printerr("[SPECIAL] FAIL strike extraction did not complete")
-						ok = false
-					else:
-						print("[SPECIAL] PASS strike extraction -> mission complete")
+					print("[SPECIAL] PASS night strike completes directly with no exit marker")
 			6:
 				var reb: RebSystem = level.get("_reb")
 				if int(level.get("_mission_targets_total")) < 2 \
