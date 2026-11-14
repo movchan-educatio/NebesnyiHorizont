@@ -20,6 +20,8 @@ const MODEL_PATHS := {
 	Kind.SHAHED: "res://Assets/Drones/shahed-136.glb",
 }
 const MOBILE_HELI_MODEL := "res://Assets/vehicles/apache_hecu_half-life_mobile.glb"
+const VEHICLE_GROUND_BOUND := 152.0
+const VEHICLE_AIR_BOUND := 168.0
 const MODEL_SIZE := {
 	Kind.TANK: 9.2,
 	Kind.BMP: 7.2,
@@ -212,7 +214,7 @@ func _ready() -> void:
 	if halt_interval > 0.0:
 		_halt_cd = randf_range(halt_interval * 0.4, halt_interval)
 	_weave_phase = randf() * TAU
-	var cur_scene := get_tree().current_scene if get_tree() != null else null
+	var cur_scene := _find_level_scene()
 	_drone = cur_scene.get_node_or_null("Drone") as Node3D if cur_scene != null else null
 	_ai_low = QualityManager.get_active_level() == QualityManager.Level.LOW
 
@@ -1161,9 +1163,13 @@ func _update_engine_audio(delta: float) -> void:
 
 # ------------------------------------------------------------------ driving
 func set_waypoints(points: Array) -> void:
+	var lim := _arena_limit()
 	_waypoints = PackedVector3Array()
 	for p in points:
-		_waypoints.append(p)
+		var v: Vector3 = p
+		v.x = clampf(v.x, -lim, lim)
+		v.z = clampf(v.z, -lim, lim)
+		_waypoints.append(v)
 	_wp_index = 0
 	var info := _sample_ground(global_position.x, global_position.z)
 	_ground = info["y"]
@@ -1221,6 +1227,7 @@ func _physics_process(delta: float) -> void:
 		_move_along_route(delta)
 	else:
 		_step = 0.0
+	_enforce_map_bounds()
 	_update_height(delta)
 	_engine_speed = _step / maxf(delta, 0.0001)
 	_animate(delta)
@@ -1259,6 +1266,19 @@ func _move_along_route(delta: float) -> void:
 	if meander_amplitude > 0.0 and not _engaging and kind != Kind.HELI and kind != Kind.SHAHED:
 		_weave_phase += delta * (0.75 if kind == Kind.TANK else 1.25)
 		desired_yaw += sin(_weave_phase) * meander_amplitude
+	if _is_air():
+		var lim := _arena_limit()
+		var margin := 14.0
+		if absf(global_position.x) > lim - margin or absf(global_position.z) > lim - margin:
+			var fwd_desired := Vector3(-sin(desired_yaw), 0.0, -cos(desired_yaw))
+			var moving_out := (global_position.x > lim - margin and fwd_desired.x > 0.0) \
+					or (global_position.x < -(lim - margin) and fwd_desired.x < 0.0) \
+					or (global_position.z > lim - margin and fwd_desired.z > 0.0) \
+					or (global_position.z < -(lim - margin) and fwd_desired.z < 0.0)
+			if moving_out:
+				var inward := Vector3(-global_position.x, 0.0, -global_position.z)
+				if inward.length_squared() > 0.01:
+					desired_yaw = lerp_angle(desired_yaw, atan2(-inward.x, -inward.z), 0.72)
 
 	var prev_yaw := rotation.y
 	var yaw_diff := angle_difference(rotation.y, desired_yaw)
@@ -1326,18 +1346,24 @@ func _move_along_route(delta: float) -> void:
 		# backward step below applies only to ground vehicles.
 		_reverse_left = maxf(0.0, _reverse_left - delta)
 
+	var lim := _arena_limit()
 	if _reverse_left > 0.0 and kind != Kind.HELI and kind != Kind.SHAHED:
-		global_position -= forward * effective_speed * 0.62 * delta
+		var rev_pos := global_position - forward * effective_speed * 0.62 * delta
+		if absf(rev_pos.x) <= lim and absf(rev_pos.z) <= lim \
+				and not _is_water_hazard(rev_pos.x, rev_pos.z):
+			global_position = rev_pos
+		else:
+			_reverse_left = 0.0
 	elif not blocked:
-		global_position += forward * _step
-	var fmap := _frontline_map()
-	if not fmap.is_empty():
-		var lim := minf(FrontlineTerrainScript.OUTER_SIZE * 0.45, 175.0)
-		if absf(global_position.x) > lim or absf(global_position.z) > lim:
-			global_position.x = clampf(global_position.x, -lim, lim)
-			global_position.z = clampf(global_position.z, -lim, lim)
+		var next_pos := global_position + forward * _step
+		if _is_air() or not _is_water_hazard(next_pos.x, next_pos.z):
+			global_position = next_pos
+		else:
+			_step = 0.0
+			rotation.y += clampf(delta * 2.5, 0.05, 0.35)
 			if _waypoints.size() > 1:
 				_wp_index = (_wp_index + 1) % _waypoints.size()
+	_enforce_map_bounds()
 
 
 func _is_path_blocked(forward: Vector3, dist: float) -> bool:
@@ -1547,6 +1573,10 @@ func _combat_engage(delta: float) -> void:
 		return
 	_fire_cd -= delta
 	if _drone == null or not is_instance_valid(_drone):
+		var lvl := _find_level_scene()
+		if lvl != null:
+			_drone = lvl.get_node_or_null("Drone") as Node3D
+	if _drone == null or not is_instance_valid(_drone):
 		return
 	var fc = _drone.get("flight_controller")
 	if fc == null or not bool(fc.state_armed):
@@ -1571,11 +1601,15 @@ func _combat_engage(delta: float) -> void:
 				if away.length_squared() < 0.01:
 					away = -global_transform.basis.z
 				var dir := away.normalized()
-				if not _is_path_blocked(dir, 2.0):
+				var step_pos := global_position + dir * move_speed * 0.55 * delta
+				var lim := _arena_limit()
+				if absf(step_pos.x) <= lim and absf(step_pos.z) <= lim \
+						and not _is_water_hazard(step_pos.x, step_pos.z) \
+						and not _is_path_blocked(dir, 2.0):
 					_retreating = true
 					rotation.y = lerp_angle(rotation.y, atan2(-dir.x, -dir.z),
 							clampf(delta * 3.0, 0.0, 1.0))
-					global_position += dir * move_speed * 0.55 * delta
+					global_position = step_pos
 		elif kind == Kind.HELI:
 			_orbit_phase += delta * 0.55
 			var flat := Vector3(to.x, 0.0, to.z)
@@ -1584,6 +1618,15 @@ func _combat_engage(delta: float) -> void:
 				var toward := -flat.normalized()
 				var strafe_dir := Vector3(-toward.z, 0.0, toward.x) * sin(_orbit_phase) * 0.8
 				var hold_pos := _drone.global_position + toward * ring_radius + strafe_dir * 10.0
+				var lim := _arena_limit() - 6.0
+				var pinned := absf(hold_pos.x) > lim or absf(hold_pos.z) > lim
+				hold_pos.x = clampf(hold_pos.x, -lim, lim)
+				hold_pos.z = clampf(hold_pos.z, -lim, lim)
+				if pinned:
+					hold_pos = hold_pos.lerp(
+							Vector3(0.0, hold_pos.y, 0.0) + strafe_dir * 28.0, 0.35)
+					hold_pos.x = clampf(hold_pos.x, -lim, lim)
+					hold_pos.z = clampf(hold_pos.z, -lim, lim)
 				hold_pos.y = global_position.y
 				global_position = global_position.lerp(hold_pos, clampf(delta * 0.5, 0.0, 1.0))
 	var space := get_world_3d().direct_space_state
@@ -1752,8 +1795,55 @@ func _combat_disabled() -> bool:
 	return false
 
 
+func _find_level_scene() -> Node:
+	var cur := get_parent()
+	while cur != null:
+		if cur.get("frontline_map") != null or cur.get_node_or_null("Drone") != null:
+			return cur
+		cur = cur.get_parent()
+	var tree := get_tree()
+	if tree != null and tree.current_scene != null:
+		return tree.current_scene
+	return null
+
+
+func _is_air() -> bool:
+	return kind == Kind.HELI or kind == Kind.SHAHED
+
+
+func _arena_limit() -> float:
+	return VEHICLE_AIR_BOUND if _is_air() else VEHICLE_GROUND_BOUND
+
+
+func _is_water_hazard(x: float, z: float) -> bool:
+	if _is_air():
+		return false
+	var fmap := _frontline_map()
+	if fmap.is_empty():
+		return false
+	var wl := FrontlineTerrainScript.water_level(fmap)
+	if wl < -100.0:
+		return false
+	return FrontlineTerrainScript.height_at(fmap, x, z) < wl + 0.35
+
+
+func _enforce_map_bounds() -> void:
+	var lim := _arena_limit()
+	var oob := absf(global_position.x) > lim or absf(global_position.z) > lim
+	if not oob:
+		return
+	global_position.x = clampf(global_position.x, -lim, lim)
+	global_position.z = clampf(global_position.z, -lim, lim)
+	var inward := Vector3(-global_position.x, 0.0, -global_position.z)
+	if inward.length_squared() > 0.001:
+		inward = inward.normalized()
+		rotation.y = lerp_angle(rotation.y, atan2(-inward.x, -inward.z), 0.35)
+	if _waypoints.size() > 1:
+		_wp_index = (_wp_index + 1) % _waypoints.size()
+
+
 func _frontline_map() -> String:
-	var scene := get_tree().current_scene
+	var scene := _find_level_scene()
 	if scene == null:
 		return ""
 	return String(scene.get("frontline_map")) if scene.get("frontline_map") != null else ""

@@ -44,11 +44,38 @@ uniform float throttle : hint_range(0.0, 1.0) = 0.0;
 uniform float tear_amount : hint_range(0.0, 1.0) = 0.0;
 uniform float interference : hint_range(0.0, 1.0) = 0.0;
 
+// ---- upscaling edge-aware RCAS sharpen (bilinear scale_3d < 1.0 fix) ------
+uniform float render_scale_3d : hint_range(0.25, 1.0) = 1.0;
+uniform float sharpen_strength : hint_range(0.0, 1.0) = 0.58;
+uniform bool clean_sharpen_only = false;
+
 // ---- thermal ---------------------------------------------------------------
 uniform float thermal_contrast : hint_range(0.5, 4.0) = 1.7;
 uniform float thermal_sensitivity : hint_range(0.5, 3.0) = 1.0;
 uniform float thermal_noise : hint_range(0.0, 0.3) = 0.045;
 uniform float thermal_scanlines : hint_range(0.0, 1.0) = 0.18;
+
+vec3 rcas_sharpen(vec2 uv, vec3 center, vec2 inv_size, float strength) {
+	if (strength <= 0.001) {
+		return center;
+	}
+	vec3 n = texture(screen_texture, uv + vec2(0.0, -inv_size.y)).rgb;
+	vec3 s = texture(screen_texture, uv + vec2(0.0,  inv_size.y)).rgb;
+	vec3 w = texture(screen_texture, uv + vec2(-inv_size.x, 0.0)).rgb;
+	vec3 e = texture(screen_texture, uv + vec2( inv_size.x, 0.0)).rgb;
+	float nc = dot(center, vec3(0.299, 0.587, 0.114));
+	float nn = dot(n, vec3(0.299, 0.587, 0.114));
+	float ns = dot(s, vec3(0.299, 0.587, 0.114));
+	float nw = dot(w, vec3(0.299, 0.587, 0.114));
+	float ne = dot(e, vec3(0.299, 0.587, 0.114));
+	float min_l = min(min(min(nn, ns), min(nw, ne)), nc);
+	float max_l = max(max(max(nn, ns), max(nw, ne)), nc);
+	float hit_min = min_l / max(4.0 * max_l, 0.0001);
+	float hit_max = (1.0 - max_l) / min(4.0 * min_l - 4.0, -0.0001);
+	float lobe = max(-hit_min, hit_max);
+	float w_rcas = clamp(lobe, -0.1875, 0.0) * strength;
+	return clamp((center + (n + s + w + e) * w_rcas) / (1.0 + 4.0 * w_rcas), 0.0, 1.0);
+}
 
 float hash12(vec2 p) {
 	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -215,27 +242,40 @@ vec3 thermal_pass(vec2 uv, vec3 base, bool black_hot) {
 void fragment() {
 	vec2 uv = SCREEN_UV;
 	vec2 size = screen_size;
+	float upscale_boost = clamp((0.98 - render_scale_3d) * 1.8, 0.28, 1.0);
+	vec2 rcas_px = 1.0 / max(size * mix(render_scale_3d, 1.0, 0.35), vec2(1.0));
 
-	// Lens: barrel distortion + chromatic aberration, shared by all modes.
-	vec2 warped = barrel_warp(uv, barrel);
-	float chroma = max(chromatic_aberration, aberration);
-	vec3 base = sample_screen(warped, chroma);
-
-	vec3 col;
-	if (video_mode == 0) {
-		col = analog_pass(uv, base);
-	} else if (video_mode == 1) {
-		col = digital_pass(warped, base);
+	if (clean_sharpen_only) {
+		vec3 base_clean = texture(screen_texture, uv).rgb;
+		vec3 sharp_clean = rcas_sharpen(uv, base_clean, rcas_px,
+				sharpen_strength * upscale_boost);
+		COLOR = vec4(sharp_clean, 1.0);
 	} else {
-		col = thermal_pass(warped, base, video_mode == 3);
+		// Lens: barrel distortion + chromatic aberration, shared by all modes.
+		vec2 warped = barrel_warp(uv, barrel);
+		float chroma = max(chromatic_aberration, aberration);
+		vec3 base = sample_screen(warped, chroma);
+		if (render_scale_3d < 0.95) {
+			base = rcas_sharpen(warped, base, rcas_px,
+					sharpen_strength * upscale_boost * 0.70);
+		}
+
+		vec3 col;
+		if (video_mode == 0) {
+			col = analog_pass(uv, base);
+		} else if (video_mode == 1) {
+			col = digital_pass(warped, base);
+		} else {
+			col = thermal_pass(warped, base, video_mode == 3);
+		}
+
+		// Common lens falloff and sensor character.
+		vec2 centered = uv - 0.5;
+		float vig = 1.0 - dot(centered, centered) * (vignette_amount + vignette_intensity * 0.5);
+		col *= clamp(vig, 0.0, 1.0);
+		col *= tint;
+		col *= 1.0 + sin(TIME * 47.0) * flicker * 0.5;
+
+		COLOR = vec4(clamp(col, 0.0, 1.0), 1.0);
 	}
-
-	// Common lens falloff and sensor character.
-	vec2 centered = uv - 0.5;
-	float vig = 1.0 - dot(centered, centered) * (vignette_amount + vignette_intensity * 0.5);
-	col *= clamp(vig, 0.0, 1.0);
-	col *= tint;
-	col *= 1.0 + sin(TIME * 47.0) * flicker * 0.5;
-
-	COLOR = vec4(clamp(col, 0.0, 1.0), 1.0);
 }

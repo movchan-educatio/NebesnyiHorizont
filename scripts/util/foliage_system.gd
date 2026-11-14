@@ -15,6 +15,9 @@ static func make_wind_material(tint: Color = Color.WHITE) -> ShaderMaterial:
 	var mat := ShaderMaterial.new()
 	mat.shader = TREE_WIND_SHADER
 	mat.set_shader_parameter("tint", Vector3(tint.r, tint.g, tint.b))
+	mat.set_shader_parameter("leaf_detail", 0.22)
+	mat.set_shader_parameter("backlight_strength", 0.34)
+	mat.set_shader_parameter("crown_ao", 0.58)
 	return mat
 
 

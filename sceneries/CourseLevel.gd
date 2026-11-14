@@ -87,6 +87,11 @@ func _batch_city_static() -> void:
 	# The gate course builds from the same spawn_ready signal; give it a beat
 	# to finish creating its torus gates before the static merge walks the tree.
 	await get_tree().create_timer(1.0).timeout
+	var gmi := get_node_or_null("Ground/MeshInstance3D") as MeshInstance3D
+	if gmi != null:
+		gmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		# City plaza slabs sit only ~5 mm above y=0 at 1/3 scale; drop the backdrop Ground plane 6 cm to avoid Z-fighting.
+		gmi.position.y = -0.06
 	var ft = load("res://scripts/util/frontline_terrain.gd")
 	if ft == null:
 		return
@@ -96,6 +101,10 @@ func _batch_city_static() -> void:
 			if path == "City":
 				ft.prepare_city(node)
 			ft.batch_static_fast(node)
+			if path == "City" and not OS.has_environment("QA_NO_MATERIAL_UPGRADE"):
+				var upgrader = load("res://scripts/util/material_upgrader.gd")
+				if upgrader != null:
+					upgrader.apply_arch_weathering(node, "course", null, 300.0, 0.0, true)
 
 
 func _place_drone_at_respawn() -> void:

@@ -68,7 +68,12 @@ func _ready() -> void:
 		
 		var overlay := scene.get_node_or_null("FPVOverlay")
 		assert(overlay != null, "FPVOverlay node must be present in level")
-		print("  ✓ FPVOverlay: Analog CRT/FPV post-processing filter present")
+		var ov_rect := overlay.get_node_or_null("Overlay") as ColorRect
+		assert(ov_rect != null and ov_rect.material is ShaderMaterial, "FPVOverlay/Overlay must use ShaderMaterial")
+		var ov_shader := (ov_rect.material as ShaderMaterial).shader
+		assert(ov_shader != null and ov_shader.code.find("rcas_sharpen") != -1,
+				"FPV composite shader must expose rcas_sharpen for mobile bilinear upscale")
+		print("  ✓ FPVOverlay: Analog CRT/FPV + RCAS upscale sharpen filter present")
 		
 		if path.ends_with("BigLevel.tscn"):
 			var prev_preset: int = Global.drone_preset
@@ -92,6 +97,19 @@ func _ready() -> void:
 		
 		# Clean teardown of instantiated scene without adding to tree
 		scene.free()
+
+	# Verify photoreal mobile shaders remain depth/screen-copy free where required
+	var water_code := FileAccess.get_file_as_string("res://Assets/water.gdshader")
+	for wline in water_code.split("\n"):
+		var code_part := wline.split("//")[0]
+		assert(code_part.find("hint_depth_texture") == -1,
+				"Assets/water.gdshader must NOT sample hint_depth_texture")
+	assert(FileAccess.get_file_as_string("res://shaders/terrain_pbr_lite.gdshader").find("COLOR.a") != -1,
+			"terrain_pbr_lite.gdshader must consume baked vertex COLOR.a cavity AO")
+	assert(FileAccess.get_file_as_string("res://Assets/tree_wind.gdshader").find("BACKLIGHT") != -1,
+			"tree_wind.gdshader must provide cheap BACKLIGHT leaf transmission")
+	assert(ResourceLoader.exists("res://shaders/arch_weathering.gdshader"),
+			"arch_weathering.gdshader must exist")
 	
 	print("\n==========================================================")
 	print("=== ALL VISUAL TESTS PASSED ACROSS ALL SIMULATOR MAPS! ===")

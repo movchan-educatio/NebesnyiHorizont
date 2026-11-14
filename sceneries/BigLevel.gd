@@ -35,6 +35,8 @@ const MOBILE_MENU := "res://GUI/mobile/MobileMenu.tscn"
 const MAP_FLIGHT_BOUND := 182.0
 const MAP_GROUND_SAFE := 152.0
 const MAP_AIR_SAFE := 172.0
+const MIN_ENEMY_SPAWN_DIST_GROUND := 80.0
+const MIN_ENEMY_SPAWN_DIST_AIR := 95.0
 
 var _map_root: Node3D = null
 var _triggers: Node3D = null
@@ -217,6 +219,61 @@ func _clamp_air_vec3(v: Vector3) -> Vector3:
 			clampf(v.z, -MAP_AIR_SAFE, MAP_AIR_SAFE))
 
 
+func _player_spawn_xz() -> Vector2:
+	var d := get_node_or_null("Drone") as Node3D
+	if d != null:
+		return Vector2(d.global_position.x, d.global_position.z)
+	var respawn := get_node_or_null("Respawn") as Node3D
+	if respawn != null:
+		return Vector2(respawn.global_position.x, respawn.global_position.z)
+	return Vector2.ZERO
+
+
+func _is_safe_enemy_xz(p: Vector2, min_dist: float, bound: float, is_air: bool) -> bool:
+	if absf(p.x) > bound or absf(p.y) > bound:
+		return false
+	if p.distance_to(_player_spawn_xz()) < min_dist:
+		return false
+	if not is_air and not frontline_map.is_empty():
+		var h := FrontlineTerrainScript.height_at(frontline_map, p.x, p.y)
+		if h < _map_water_level() + 0.4:
+			return false
+	return true
+
+
+func _ensure_enemy_xz_clearance(pos: Vector2, min_dist: float, bound: float,
+		is_air: bool) -> Vector2:
+	var sp := _player_spawn_xz()
+	var clamped := Vector2(clampf(pos.x, -bound, bound), clampf(pos.y, -bound, bound))
+	if _is_safe_enemy_xz(clamped, min_dist, bound, is_air):
+		return clamped
+	var away := clamped - sp
+	if away.length_squared() < 0.01:
+		away = -sp
+	if away.length_squared() < 0.01:
+		away = Vector2(0.0, -1.0)
+	var base_ang := atan2(away.y, away.x)
+	for extra in [6.0, 22.0, 44.0, 72.0]:
+		var r: float = min_dist + float(extra)
+		for step_i in range(16):
+			var sign_dir := 1.0 if (step_i % 2 == 0) else -1.0
+			var mag := float((step_i + 1) / 2) * (TAU / 16.0)
+			var ang := base_ang + sign_dir * mag
+			var cand: Vector2 = sp + Vector2(cos(ang), sin(ang)) * r
+			cand.x = clampf(cand.x, -bound, bound)
+			cand.y = clampf(cand.y, -bound, bound)
+			if _is_safe_enemy_xz(cand, min_dist, bound, is_air):
+				return cand
+	var opp := Vector2(
+			-signf(sp.x if absf(sp.x) > 1.0 else 1.0) * minf(bound - 10.0, 95.0),
+			-signf(sp.y if absf(sp.y) > 1.0 else 1.0) * minf(bound - 10.0, 95.0))
+	if not is_air and not frontline_map.is_empty():
+		var dry := _find_dry_spot(opp.x, opp.y)
+		if _is_safe_enemy_xz(dry, min_dist, bound, false):
+			return dry
+	return opp
+
+
 func _route_last_sfx_bus(bus_name: StringName) -> void:
 	var count := get_child_count()
 	if count <= 0:
@@ -395,6 +452,13 @@ func _ready() -> void:
 	if frontline_map == "":
 		ValleySceneBuilderScript.build_railway_loop_and_train(self, _ground_y)
 		ValleySceneBuilderScript.build_railway_station(self, Vector3(0.0, _ground_y, -152.0))
+		if not OS.has_environment("QA_NO_MATERIAL_UPGRADE"):
+			var valley_upgrader = load("res://scripts/util/material_upgrader.gd")
+			if valley_upgrader != null:
+				for node_name in ["IndustrialComplex", "ConcretePipePark", "CombatFortifications", "RailwayStation"]:
+					var target_node := get_node_or_null(node_name) as Node3D
+					if target_node != null:
+						valley_upgrader.apply_arch_weathering(target_node, "legacy", null, 400.0, _ground_y, true)
 	QualityManagerScript.apply_to_scene(self)
 	_tune_map_environment()
 	_setup_hud()
@@ -963,106 +1027,155 @@ func _upgrade_environment() -> void:
 ## look like the same weather.  Runs after QualityManager so the profile's
 ## volumetric/shadow settings stay authoritative.
 func _tune_map_environment() -> void:
-	if frontline_map.is_empty():
-		return
 	var we := get_node_or_null("WorldEnvironment") as WorldEnvironment
 	if we == null or we.environment == null:
 		return
 	var env := we.environment
 	var sun := get_node_or_null("Sun") as DirectionalLight3D
-	# Subtle global grade: the mobile palette read washed out in the owner's
-	# recording.  Skipped on the LOW preset so the cheapest tier keeps its
-	# frame budget.
+	if sun == null:
+		sun = get_node_or_null("DirectionalLight3D") as DirectionalLight3D
 	if QualityManager.get_active_level() != QualityManager.Level.LOW:
 		env.adjustment_enabled = true
 		env.adjustment_brightness = 1.0
-		env.adjustment_contrast = 1.04
-		env.adjustment_saturation = 1.06
+		env.adjustment_contrast = 1.06
+		env.adjustment_saturation = 1.08
+
+	if frontline_map.is_empty():
+		# Legacy Valley map: preserve authored sky/sun while sharpening terrain silhouette
+		# readability with a cool opposing fill and soft valley height fog.
+		env.fog_enabled = true
+		env.fog_height = _ground_y + 18.0
+		env.fog_height_density = 0.0065
+		env.fog_aerial_perspective = maxf(env.fog_aerial_perspective, 0.35)
+		if OS.get_name() == "iOS" or OS.has_feature("mobile") or OS.has_environment("MOBILE_UI"):
+			env.glow_enabled = false
+		var v_fill := get_node_or_null("FillLight") as DirectionalLight3D
+		if v_fill == null:
+			v_fill = DirectionalLight3D.new()
+			v_fill.name = "FillLight"
+			add_child(v_fill)
+		var v_yaw := sun.rotation_degrees.y - 165.0 if sun != null else -140.0
+		v_fill.rotation_degrees = Vector3(-48.0, v_yaw, 0.0)
+		v_fill.light_color = Color(0.56, 0.69, 0.89)
+		v_fill.light_energy = 0.28
+		v_fill.shadow_enabled = false
+		v_fill.light_volumetric_fog_energy = 0.0
+		return
+
+	var fog_h := _ground_y + 16.0
+	var fog_h_dens := 0.0085
+	var fill_col := Color(0.57, 0.70, 0.89)
+	var fill_energy := 0.28
 	match frontline_map:
 		"industrial":
-			env.fog_light_color = Color(0.62, 0.68, 0.74)
+			env.fog_light_color = Color(0.62, 0.68, 0.75)
 			env.fog_light_energy = 0.50
 			env.fog_density = 0.00022
-			env.fog_aerial_perspective = 0.28
+			env.fog_aerial_perspective = 0.42
 			env.volumetric_fog_density = 0.0011
-			env.ambient_light_energy = 0.68
-			env.ambient_light_sky_contribution = 0.58
-			env.tonemap_exposure = 0.98
+			env.ambient_light_energy = 0.60
+			env.ambient_light_sky_contribution = 0.78
+			env.tonemap_exposure = 0.99
 			env.glow_intensity = 0.22
+			fog_h = _ground_y + 15.0
+			fog_h_dens = 0.009
+			fill_col = Color(0.56, 0.68, 0.88)
+			fill_energy = 0.30
 			if sun != null:
-				sun.rotation_degrees = Vector3(-22.0, 68.0, 0.0)
-				sun.light_energy = 2.6
-				sun.light_color = Color(1.0, 0.79, 0.56)
+				sun.rotation_degrees = Vector3(-24.0, 68.0, 0.0)
+				sun.light_energy = 2.35
+				sun.light_color = Color(1.0, 0.84, 0.68)
 				sun.light_volumetric_fog_energy = 3.4
 		"village":
-			env.fog_light_color = Color(0.78, 0.74, 0.64)
+			env.fog_light_color = Color(0.78, 0.75, 0.66)
 			env.fog_light_energy = 0.52
-			env.fog_density = 0.00014
+			env.fog_density = 0.00016
+			env.fog_aerial_perspective = 0.36
 			env.volumetric_fog_density = 0.0010
-			env.ambient_light_energy = 0.72
-			env.ambient_light_sky_contribution = 0.60
-			env.tonemap_exposure = 1.08
+			env.ambient_light_energy = 0.62
+			env.ambient_light_sky_contribution = 0.76
+			env.tonemap_exposure = 1.03
+			fog_h = _ground_y + 17.0
+			fog_h_dens = 0.0075
+			fill_col = Color(0.58, 0.70, 0.90)
+			fill_energy = 0.28
 			if sun != null:
-				sun.rotation_degrees = Vector3(-26.0, 42.0, 0.0)
-				sun.light_energy = 3.1
-				sun.light_color = Color(1.0, 0.85, 0.67)
+				sun.rotation_degrees = Vector3(-27.0, 42.0, 0.0)
+				sun.light_energy = 2.50
+				sun.light_color = Color(1.0, 0.87, 0.68)
 				sun.light_volumetric_fog_energy = 3.2
 		"steppe":
-			env.fog_light_color = Color(0.84, 0.78, 0.64)
-			env.fog_light_energy = 0.56
-			env.fog_density = 0.00016
+			env.fog_light_color = Color(0.84, 0.79, 0.66)
+			env.fog_light_energy = 0.55
+			env.fog_density = 0.00015
+			env.fog_aerial_perspective = 0.34
 			env.volumetric_fog_density = 0.0011
-			env.ambient_light_energy = 0.76
-			env.ambient_light_sky_contribution = 0.62
-			env.tonemap_exposure = 1.10
+			env.ambient_light_energy = 0.60
+			env.ambient_light_sky_contribution = 0.75
+			env.tonemap_exposure = 1.04
+			fog_h = _ground_y + 14.0
+			fog_h_dens = 0.0065
+			fill_col = Color(0.56, 0.69, 0.90)
+			fill_energy = 0.26
 			if sun != null:
-				sun.rotation_degrees = Vector3(-26.0, 45.0, 0.0)
-				sun.light_energy = 3.2
-				sun.light_color = Color(1.0, 0.86, 0.69)
+				sun.rotation_degrees = Vector3(-25.0, 48.0, 0.0)
+				sun.light_energy = 2.55
+				sun.light_color = Color(1.0, 0.88, 0.70)
 				sun.light_volumetric_fog_energy = 3.5
 		"wetlands":
-			env.fog_light_color = Color(0.66, 0.74, 0.78)
-			env.fog_light_energy = 0.60
-			env.fog_density = 0.00035
+			env.fog_light_color = Color(0.65, 0.74, 0.79)
+			env.fog_light_energy = 0.58
+			env.fog_density = 0.00028
+			env.fog_aerial_perspective = 0.50
 			env.volumetric_fog_density = 0.0016
-			env.ambient_light_energy = 0.68
-			env.ambient_light_sky_contribution = 0.58
-			env.tonemap_exposure = 1.02
+			env.ambient_light_energy = 0.58
+			env.ambient_light_sky_contribution = 0.80
+			env.tonemap_exposure = 1.00
+			fog_h = _ground_y + 12.5
+			fog_h_dens = 0.0135
+			fill_col = Color(0.54, 0.68, 0.86)
+			fill_energy = 0.32
 			if sun != null:
-				sun.rotation_degrees = Vector3(-20.0, 28.0, 0.0)
-				sun.light_energy = 1.8
-				sun.light_color = Color(0.92, 0.86, 0.72)
+				sun.rotation_degrees = Vector3(-20.0, 30.0, 0.0)
+				sun.light_energy = 2.20
+				sun.light_color = Color(0.96, 0.87, 0.70)
 				sun.light_volumetric_fog_energy = 3.5
-	# Unified ACES grade + Height Fog: crisp tactical silhouette readability
-	# with low-cost aerial perspective and saturation boost (1.07 / 1.10).
+	# Unified ACES grade + per-map Height Fog: high key-to-fill separation keeps
+	# armour, trenches and bunkers sharp against grass and mud at FPV altitude.
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = clampf(env.tonemap_exposure, 0.96, 1.04)
-	env.tonemap_white = 1.6
+	env.tonemap_exposure = clampf(env.tonemap_exposure, 0.96, 1.05)
+	env.tonemap_white = 1.65
 	env.fog_enabled = true
-	env.fog_density = clampf(env.fog_density, 0.00016, 0.00028)
-	env.fog_height = _ground_y + 18.0
-	env.fog_height_density = 0.012
-	env.fog_aerial_perspective = maxf(env.fog_aerial_perspective, 0.35)
-	env.ambient_light_energy = clampf(env.ambient_light_energy, 0.65, 0.90)
-	env.ambient_light_sky_contribution = maxf(env.ambient_light_sky_contribution, 0.58)
+	env.fog_density = clampf(env.fog_density, 0.00014, 0.00028)
+	env.fog_height = fog_h
+	env.fog_height_density = fog_h_dens
+	env.fog_aerial_perspective = maxf(env.fog_aerial_perspective, 0.34)
+	env.ambient_light_energy = clampf(env.ambient_light_energy, 0.54, 0.78)
+	env.ambient_light_sky_contribution = maxf(env.ambient_light_sky_contribution, 0.72)
 	if OS.get_name() == "iOS" or OS.has_feature("mobile") or OS.has_environment("MOBILE_UI"):
 		env.glow_enabled = false
 	env.adjustment_enabled = true
-	env.adjustment_contrast = 1.07
+	env.adjustment_contrast = 1.08
 	env.adjustment_saturation = 1.10
 	env.adjustment_brightness = 1.0
 	if sun != null:
-		sun.light_energy = minf(sun.light_energy, 2.2)
-	# Soft cool fill from the opposite side.  One extra unshadowed directional
-	# light gives shape to facades and the hall interior without SSAO/SSIL cost.
+		sun.light_energy = clampf(sun.light_energy, 1.8, 2.55)
+		var mtn := get_node_or_null("FrontlineTerrain/MountainBackdrop") as MeshInstance3D
+		if mtn != null and mtn.material_override is ShaderMaterial:
+			var mmat := mtn.material_override as ShaderMaterial
+			mmat.set_shader_parameter("sun_dir", sun.basis.z.normalized())
+			mmat.set_shader_parameter("sun_scatter_color", sun.light_color)
+	# Cool sky-bounce fill opposing the key sun: shapes shaded walls/tumrets
+	# without flattening directional contrast.
 	var fill := get_node_or_null("FillLight") as DirectionalLight3D
 	if fill == null:
 		fill = DirectionalLight3D.new()
 		fill.name = "FillLight"
 		add_child(fill)
-	fill.rotation_degrees = Vector3(-52.0, -140.0, 0.0)
-	fill.light_color = Color(0.62, 0.72, 0.88)
-	fill.light_energy = 0.32
+	var fill_yaw := sun.rotation_degrees.y - 165.0 if sun != null else -140.0
+	fill.rotation_degrees = Vector3(-48.0, fill_yaw, 0.0)
+	fill.light_color = fill_col
+	fill.light_energy = fill_energy
 	fill.shadow_enabled = false
 	fill.light_volumetric_fog_energy = 0.0
 
@@ -1373,6 +1486,7 @@ func _load_map() -> void:
 		var upgrader = load("res://scripts/util/material_upgrader.gd")
 		if upgrader != null:
 			upgrader.upgrade(instance, "legacy", QualityManagerScript.get_active_level())
+			upgrader.apply_arch_weathering(instance, "legacy", null, 400.0, 0.0, false)
 	if not OS.has_environment("QA_NO_LEGACY_DETAIL"):
 		call_deferred("_scatter_legacy_map", instance)
 	_prepare_bedrock_floor()
@@ -2824,6 +2938,28 @@ func _add_vehicle(kind: int, waypoints: Array, speed: float, hostile: bool,
 				v.x = dry.x
 				v.z = dry.y
 			shifted.append(v)
+		if hostile and not shifted.is_empty():
+			var min_dist := MIN_ENEMY_SPAWN_DIST_AIR if is_air else MIN_ENEMY_SPAWN_DIST_GROUND
+			var bound := minf(MAP_AIR_SAFE, Vehicle.VEHICLE_AIR_BOUND) if is_air else MAP_GROUND_SAFE
+			var sp := _player_spawn_xz()
+			var best_idx := 0
+			var best_d := -1.0
+			for wi in range(shifted.size()):
+				var wpv: Vector3 = shifted[wi]
+				var d_xz := Vector2(wpv.x, wpv.z).distance_to(sp)
+				if d_xz > best_d:
+					best_d = d_xz
+					best_idx = wi
+			if best_idx > 0:
+				var rotated: Array = []
+				for wi in range(shifted.size()):
+					rotated.append(shifted[(best_idx + wi) % shifted.size()])
+				shifted = rotated
+			var first_wp: Vector3 = shifted[0]
+			if Vector2(first_wp.x, first_wp.z).distance_to(sp) < min_dist:
+				var safe_xz := _ensure_enemy_xz_clearance(
+						Vector2(first_wp.x, first_wp.z), min_dist, bound, is_air)
+				shifted[0] = Vector3(safe_xz.x, first_wp.y, safe_xz.y)
 		waypoints = shifted
 	var vehicle := VEHICLE.new()
 	vehicle.kind = kind
@@ -2962,6 +3098,10 @@ func _add_mission_infantry(pos: Vector3, patrol_axis: Vector3, patrol_dist: floa
 			var dry := _find_dry_spot(pos.x, pos.z)
 			pos.x = dry.x
 			pos.z = dry.y
+	var safe_inf := _ensure_enemy_xz_clearance(
+			Vector2(pos.x, pos.z), MIN_ENEMY_SPAWN_DIST_GROUND, MAP_GROUND_SAFE, false)
+	pos.x = safe_inf.x
+	pos.z = safe_inf.y
 	var unit := EnemyRiflemanScript.new()
 	unit.name = "MissionInfantry_%d" % _infantry_units.size()
 	add_child(unit)
@@ -3816,6 +3956,12 @@ func _spawn_combat_mission(mission_id: int) -> void:
 				base_center = Vector3(-65.0, 0.0, 55.0) + _mission_offset
 			elif sector_roll == 2:
 				base_center = Vector3(65.0, 0.0, 65.0) + _mission_offset
+			var sp_xz := _player_spawn_xz()
+			if Vector2(base_center.x, base_center.z).distance_to(sp_xz) < 95.0:
+				var safe_bc := _ensure_enemy_xz_clearance(
+						Vector2(base_center.x, base_center.z), 98.0, MAP_GROUND_SAFE - 24.0, false)
+				base_center.x = safe_bc.x
+				base_center.z = safe_bc.y
 
 			for i in range(6):
 				var angle := (float(i) / 6.0) * TAU + randf_range(-0.35, 0.35)
@@ -3969,8 +4115,8 @@ func _spawn_frontline_bonus_targets() -> void:
 		"industrial":
 			spots = [
 				[Vector3(128.0, 0.0, 84.0), Vector3(1.0, 0.0, 0.0), 15.0],
-				[Vector3(10.0, 0.0, 138.0), Vector3(0.0, 0.0, -1.0), 14.0],
-				[Vector3(48.0, 0.0, 118.0), Vector3(-1.0, 0.0, 0.2), 13.0],
+				[Vector3(-64.0, 0.0, -34.0), Vector3(1.0, 0.0, 0.2), 14.0],
+				[Vector3(-96.0, 0.0, 26.0), Vector3(0.4, 0.0, -1.0), 13.0],
 			]
 		"wetlands":
 			spots = [

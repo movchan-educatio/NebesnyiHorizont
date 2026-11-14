@@ -238,11 +238,11 @@ func _build_world_track() -> void:
 	gate_high = _create_arch(Vector2(start_pos.x, start_pos.z - 123.0),
 			6.0, 3.2, 5.0, "ВИСОКО · 5 м", Color(0.75, 0.55, 0.95))
 	gate_window = _create_window_wall(Vector2(start_pos.x, start_pos.z - 150.0))
-	brake_pos = Vector3(start_pos.x, _ground_at(start_pos.x, start_pos.z - 172.0),
-			start_pos.z - 172.0)
+	brake_pos = Vector3(start_pos.x, _surface_ground_at(start_pos.x, start_pos.z - 166.0, 2.8) + 0.08,
+			start_pos.z - 166.0)
 	brake_node = _create_brake_zone(brake_pos)
-	landing_pos = Vector3(start_pos.x, _ground_at(start_pos.x, start_pos.z - 188.0),
-			start_pos.z - 188.0)
+	landing_pos = Vector3(start_pos.x, _surface_ground_at(start_pos.x, start_pos.z - 180.0, 3.25) + 0.14,
+			start_pos.z - 180.0)
 	landing_node = _create_landing_pad(landing_pos)
 
 	for node in [gate_forward, gate_slalom_a, gate_slalom_b, gate_low, gate_high,
@@ -262,6 +262,47 @@ func _ground_at(x: float, z: float) -> float:
 	if level != null and level.has_method("_find_ground_y"):
 		return float(level.call("_find_ground_y", x, z))
 	return ground_y
+
+
+## Samples both analytic/mesh terrain height and local physics colliders across
+## `half_extent` so landing/brake markers sit cleanly above the visible surface.
+func _surface_ground_at(x: float, z: float, half_extent: float = 0.0) -> float:
+	var best := _ground_at(x, z)
+	var fmap := ""
+	if level != null and level.get("frontline_map") != null:
+		fmap = String(level.get("frontline_map"))
+	var ft = load("res://scripts/util/frontline_terrain.gd") if not fmap.is_empty() else null
+	var wl := -999.0
+	if ft != null:
+		wl = float(ft.water_level(fmap))
+	var offsets := [0.0] if half_extent <= 0.01 else [-half_extent, 0.0, half_extent]
+	var excl: Array[RID] = []
+	if drone is CollisionObject3D:
+		excl.append((drone as CollisionObject3D).get_rid())
+	var space: PhysicsDirectSpaceState3D = null
+	if level != null and level.is_inside_tree():
+		space = level.get_world_3d().direct_space_state
+	for ox in offsets:
+		for oz in offsets:
+			var px: float = x + float(ox)
+			var pz: float = z + float(oz)
+			var h := _ground_at(px, pz)
+			best = maxf(best, h)
+			if ft != null:
+				best = maxf(best, float(ft.mesh_surface_height(fmap, px, pz)))
+			if space != null:
+				var q := PhysicsRayQueryParameters3D.create(
+						Vector3(px, h + 2.8, pz), Vector3(px, h - 3.0, pz))
+				q.collision_mask = 1
+				q.exclude = excl
+				var hit := space.intersect_ray(q)
+				if not hit.is_empty():
+					var hy := (hit["position"] as Vector3).y
+					if hy <= h + 2.5 and hy >= h - 2.0:
+						best = maxf(best, hy)
+	if wl > -100.0:
+		best = maxf(best, wl + 0.35)
+	return best
 
 
 func _emissive(color: Color, alpha: float = 1.0, energy: float = 3.0) -> StandardMaterial3D:
@@ -491,22 +532,66 @@ func _create_landing_pad(pos: Vector3) -> Node3D:
 	var root := Node3D.new()
 	root.name = "LandingPad"
 	root.position = pos
+
+	# Solid deck collider whose top face sits exactly at local y = 0.0 (= landing_pos.y)
+	var body := StaticBody3D.new()
+	body.name = "LandingPadCollider"
+	var col := CollisionShape3D.new()
+	var col_shape := BoxShape3D.new()
+	col_shape.size = Vector3(7.0, 0.30, 7.0)
+	col.shape = col_shape
+	col.position = Vector3(0.0, -0.15, 0.0)
+	body.add_child(col)
+	root.add_child(body)
+
+	# Concrete top deck flush at local y = 0.0
 	var pad := MeshInstance3D.new()
 	var box := BoxMesh.new()
-	box.size = Vector3(6.5, 0.08, 6.5)
+	box.size = Vector3(6.8, 0.16, 6.8)
 	pad.mesh = box
+	pad.position = Vector3(0.0, -0.08, 0.0)
 	var pad_mat := StandardMaterial3D.new()
-	pad_mat.albedo_color = Color(0.10, 0.13, 0.10)
+	pad_mat.albedo_color = Color(0.16, 0.19, 0.16)
 	pad_mat.roughness = 0.85
 	pad.material_override = pad_mat
 	root.add_child(pad)
+
+	# Visual foundation plinth reaching into uneven perimeter terrain (no extra collision)
+	var plinth := MeshInstance3D.new()
+	var plinth_box := BoxMesh.new()
+	plinth_box.size = Vector3(7.4, 2.2, 7.4)
+	plinth.mesh = plinth_box
+	plinth.position = Vector3(0.0, -1.25, 0.0)
+	var plinth_mat := StandardMaterial3D.new()
+	plinth_mat.albedo_color = Color(0.11, 0.13, 0.11)
+	plinth_mat.roughness = 0.92
+	plinth.material_override = plinth_mat
+	root.add_child(plinth)
+
+	# Painted "H" helipad markings flush above top deck
+	var h_mat := _emissive(Color(0.85, 1.0, 0.72), 0.95, 1.8)
+	for x_off in [-0.75, 0.75]:
+		var bar := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(0.24, 0.02, 2.2)
+		bar.mesh = bm
+		bar.position = Vector3(x_off, 0.02, 0.0)
+		bar.material_override = h_mat
+		root.add_child(bar)
+	var cross := MeshInstance3D.new()
+	var cm := BoxMesh.new()
+	cm.size = Vector3(1.74, 0.02, 0.24)
+	cross.mesh = cm
+	cross.position = Vector3(0.0, 0.02, 0.0)
+	cross.material_override = h_mat
+	root.add_child(cross)
+
 	var ring := MeshInstance3D.new()
 	var torus := TorusMesh.new()
 	torus.inner_radius = 2.8
 	torus.outer_radius = 3.05
 	ring.mesh = torus
-	ring.position = Vector3(0.0, 0.06, 0.0)
-	ring.rotation_degrees.x = 90.0
+	ring.position = Vector3(0.0, 0.04, 0.0)
 	ring.material_override = _emissive(Color(0.35, 1.0, 0.45), 1.0, 3.0)
 	root.add_child(ring)
 	var lbl := Label3D.new()
@@ -1024,7 +1109,12 @@ func update_flight_school(delta: float) -> void:
 	_check_pilot_errors(delta)
 
 	var pos := drone.global_position
-	_step_alt = pos.y - _ground_at(pos.x, pos.z)
+	var surface_y := _ground_at(pos.x, pos.z)
+	if current_step == Step.LANDING:
+		var pad_dist := Vector2(pos.x - landing_pos.x, pos.z - landing_pos.z).length()
+		if pad_dist < 5.0:
+			surface_y = landing_pos.y
+	_step_alt = pos.y - surface_y
 	_step_speed = drone.linear_velocity.length()
 	_step_heading = drone.global_transform.basis.get_euler().y
 	if _miss_cooldown > 0.0:
@@ -1246,11 +1336,12 @@ func _process_landing() -> void:
 			drone.global_position.z - landing_pos.z).length()
 	var vy := absf(drone.linear_velocity.y)
 	var armed: bool = drone.flight_controller != null and drone.flight_controller.state_armed
-	if d < 4.5 and _step_alt < 0.75 and vy < 2.2 and not armed:
+	var pad_alt := (drone.global_position.y - landing_pos.y) if d < 5.0 else _step_alt
+	if d < 4.5 and pad_alt < 0.85 and vy < 2.2 and not armed:
 		complete_course()
 		return
-	if not armed and _step_alt >= 0.75:
-		metric_lbl.text = "ЗАВИСОКО ДЛЯ ВИМКНЕННЯ · висота %.1f м · сідайте нижче" % _step_alt
+	if not armed and pad_alt >= 0.85:
+		metric_lbl.text = "ЗАВИСОКО ДЛЯ ВИМКНЕННЯ · висота %.1f м · сідайте нижче" % pad_alt
 		metric_lbl.add_theme_color_override("font_color", MenuUI.DANGER)
 		return
 	metric_lbl.text = "МАЙДАНЧИК %.0f м · висота %.2f м · спуск %.1f м/с · ПРОБІЛ — вимкнути двигуни" % [

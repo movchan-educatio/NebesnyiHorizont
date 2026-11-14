@@ -84,6 +84,9 @@ static var _reserved_zones: Array[Dictionary] = []
 static var _structure_registry: Dictionary = {}
 static var _contact_shadow_tex_cache: GradientTexture2D = null
 static var _contact_shadow_mat_cache: StandardMaterial3D = null
+static var _contact_shadow_quad_cache: QuadMesh = null
+static var _contact_shadow_queues: Dictionary = {}
+static var _height_tex_cache: Dictionary = {}
 
 
 static func reserve_area(p: Vector2, radius: float) -> void:
@@ -206,46 +209,138 @@ static func _reserve_near_site(terrain_root: Node, map_name: String,
 	return Vector2.INF
 
 
-static func add_contact_shadow(root: Node3D, map_name: String, pos_xz: Vector2,
-		radius: float, tag: String = "") -> void:
+static func _contact_shadow_material() -> StandardMaterial3D:
+	if _contact_shadow_mat_cache != null:
+		return _contact_shadow_mat_cache
+	var grad := Gradient.new()
+	grad.set_color(0, Color(0.02, 0.025, 0.02, 0.46))
+	grad.set_color(1, Color(0.02, 0.025, 0.02, 0.0))
+	grad.add_point(0.35, Color(0.02, 0.025, 0.02, 0.35))
+	grad.add_point(0.72, Color(0.02, 0.025, 0.02, 0.12))
+	var tex := GradientTexture2D.new()
+	tex.gradient = grad
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(0.5, 0.0)
+	tex.width = 64
+	tex.height = 64
+	_contact_shadow_tex_cache = tex
+	var mat := StandardMaterial3D.new()
+	mat.albedo_texture = tex
+	mat.albedo_color = Color.WHITE
+	mat.vertex_color_use_as_albedo = true
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	mat.disable_receive_shadows = true
+	_contact_shadow_mat_cache = mat
+	return mat
+
+
+static func _contact_shadow_quad() -> QuadMesh:
+	if _contact_shadow_quad_cache == null:
+		var q := QuadMesh.new()
+		q.size = Vector2(1.0, 1.0)
+		_contact_shadow_quad_cache = q
+	return _contact_shadow_quad_cache
+
+
+static func _contact_shadow_transform(map_name: String, pos_xz: Vector2,
+		size_xz: Vector2, yaw: float) -> Transform3D:
+	var h_c := mesh_surface_height(map_name, pos_xz.x, pos_xz.y)
+	var h_l := _height(map_name, pos_xz.x - 1.0, pos_xz.y)
+	var h_r := _height(map_name, pos_xz.x + 1.0, pos_xz.y)
+	var h_d := _height(map_name, pos_xz.x, pos_xz.y - 1.0)
+	var h_u := _height(map_name, pos_xz.x, pos_xz.y + 1.0)
+	var n := Vector3(h_l - h_r, 2.0, h_d - h_u).normalized()
+	var right_flat := Vector3(cos(yaw), 0.0, -sin(yaw))
+	var z_axis := n
+	var y_axis := z_axis.cross(right_flat)
+	if y_axis.length_squared() < 0.0001:
+		y_axis = z_axis.cross(Vector3.RIGHT)
+	y_axis = y_axis.normalized()
+	var x_axis := y_axis.cross(z_axis).normalized()
+	var basis := Basis(x_axis * size_xz.x, y_axis * size_xz.y, z_axis)
+	return Transform3D(basis, Vector3(pos_xz.x, h_c, pos_xz.y) + n * 0.05)
+
+
+static func _enqueue_contact_shadow(root: Node3D, xf: Transform3D,
+		alpha_scale: float) -> void:
 	if root == null:
 		return
-	if _contact_shadow_mat_cache == null:
-		var grad := Gradient.new()
-		grad.set_color(0, Color(0.02, 0.025, 0.02, 0.44))
-		grad.set_color(1, Color(0.02, 0.025, 0.02, 0.0))
-		grad.add_point(0.35, Color(0.02, 0.025, 0.02, 0.34))
-		grad.add_point(0.72, Color(0.02, 0.025, 0.02, 0.12))
-		var tex := GradientTexture2D.new()
-		tex.gradient = grad
-		tex.fill = GradientTexture2D.FILL_RADIAL
-		tex.fill_from = Vector2(0.5, 0.5)
-		tex.fill_to = Vector2(0.5, 0.0)
-		tex.width = 64
-		tex.height = 64
-		_contact_shadow_tex_cache = tex
-		var mat := StandardMaterial3D.new()
-		mat.albedo_texture = tex
-		mat.albedo_color = Color.WHITE
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-		mat.disable_receive_shadows = true
-		_contact_shadow_mat_cache = mat
-	var quad := QuadMesh.new()
-	var span := maxf(radius * 2.25, 4.0)
-	quad.size = Vector2(span, span)
-	var mi := MeshInstance3D.new()
-	var clean_tag := tag if tag != "" else "%d_%d" % [int(pos_xz.x), int(pos_xz.y)]
-	mi.name = "ContactShadow_" + clean_tag
-	mi.mesh = quad
-	mi.material_override = _contact_shadow_mat_cache
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mi.set_meta("no_batch", true)
-	var gy := mesh_surface_height(map_name, pos_xz.x, pos_xz.y)
-	mi.position = Vector3(pos_xz.x, gy + 0.04, pos_xz.y)
-	mi.rotation.x = -PI * 0.5
-	root.add_child(mi)
+	var col := Color(1.0, 1.0, 1.0, clampf(alpha_scale, 0.05, 1.0))
+	var key := root.get_instance_id()
+	if not _contact_shadow_queues.has(key):
+		_contact_shadow_queues[key] = []
+	(_contact_shadow_queues[key] as Array).append({"xf": xf, "col": col})
+	if root.get_meta("_contact_shadows_flushed", false):
+		flush_contact_shadows(root)
+
+
+static func add_contact_shadow(root: Node3D, map_name: String, pos_xz: Vector2,
+		radius: float, _tag: String = "", alpha_scale: float = 1.0) -> void:
+	if root == null:
+		return
+	var span := maxf(radius * 2.25, 3.6)
+	var xf := _contact_shadow_transform(map_name, pos_xz, Vector2(span, span), 0.0)
+	_enqueue_contact_shadow(root, xf, alpha_scale)
+
+
+static func add_contact_shadow_rect(root: Node3D, map_name: String, pos_xz: Vector2,
+		size_xz: Vector2, yaw: float = 0.0, alpha_scale: float = 0.65) -> void:
+	if root == null:
+		return
+	var xf := _contact_shadow_transform(map_name, pos_xz, size_xz, yaw)
+	_enqueue_contact_shadow(root, xf, alpha_scale)
+
+
+static func flush_contact_shadows(root: Node3D) -> void:
+	if root == null:
+		return
+	var key := root.get_instance_id()
+	var pending: Array = _contact_shadow_queues.get(key, []) as Array
+	if pending.is_empty():
+		root.set_meta("_contact_shadows_flushed", true)
+		return
+	var existing := root.get_node_or_null("ContactShadows") as MultiMeshInstance3D
+	var all_entries: Array = []
+	if existing != null and existing.multimesh != null:
+		var old_mm := existing.multimesh
+		for i in range(old_mm.instance_count):
+			all_entries.append({
+				"xf": old_mm.get_instance_transform(i),
+				"col": old_mm.get_instance_color(i),
+			})
+	all_entries.append_array(pending)
+	pending.clear()
+	_contact_shadow_queues.erase(key)
+
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	mm.mesh = _contact_shadow_quad()
+	mm.instance_count = all_entries.size()
+	for i in range(all_entries.size()):
+		var entry: Dictionary = all_entries[i]
+		mm.set_instance_transform(i, entry["xf"])
+		mm.set_instance_color(i, entry["col"])
+
+	if existing != null:
+		existing.multimesh = mm
+	else:
+		var mmi := MultiMeshInstance3D.new()
+		mmi.name = "ContactShadows"
+		mmi.multimesh = mm
+		mmi.material_override = _contact_shadow_material()
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mmi.set_meta("no_batch", true)
+		var veg_range := float(QualityManager.get_value("veg_range", 560.0))
+		mmi.visibility_range_end = minf(veg_range, 560.0)
+		mmi.visibility_range_end_margin = 55.0
+		mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+		root.add_child(mmi)
+	root.set_meta("_contact_shadows_flushed", true)
 
 
 ## Slow drift for the battle-smoke billboards: a vertical bob, a lateral sway
@@ -300,6 +395,13 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 	level.add_child(root)
 	root.position = Vector3(0.0, base_y, 0.0)
 	reset_structure_registry(root)
+	_contact_shadow_queues[root.get_instance_id()] = []
+	if _is_tutorial_mode():
+		# Keep the entire FlightSchool corridor (spawn -> window -> brake -> landing)
+		# free of POIs, hero structures, freestyle props and vegetation.
+		reserve_area(Vector2(-48.0, 120.0), 26.0)
+		reserve_area(Vector2(-48.0, 40.0), 26.0)
+		reserve_area(Vector2(-48.0, -38.0), 26.0)
 
 	var ground_mat := _ground_material(map_name)
 	var outer_cells := maxi(16, OUTER_CELLS / 2)
@@ -385,8 +487,7 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 	_flush_library_trees(root)
 	_build_treelines(root, map_name)
 	_build_ground_detail(root, map_name)
-	if QualityManager.get_active_level() != QualityManager.Level.HIGH:
-		_trim_small_shadow_casters(root)
+	_trim_small_shadow_casters(root)
 	var qa_scanner = load("res://scripts/qa/qa_floating_scanner.gd")
 	if qa_scanner != null:
 		qa_scanner.scan(root, map_name,
@@ -401,7 +502,13 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 		_batch_static_meshes(root)
 		_batch_multisurface_meshes(root)
 	_texture_flat_large_meshes(root)
+	if not OS.has_environment("QA_NO_MATERIAL_UPGRADE"):
+		var arch_upgrader = load("res://scripts/util/material_upgrader.gd")
+		if arch_upgrader != null:
+			arch_upgrader.apply_arch_weathering(root, map_name,
+					height_map_tex(map_name), OUTER_HALF, base_y, true)
 	_add_smoke_plumes(root, map_name, base_y)
+	flush_contact_shadows(root)
 
 	print("[FrontlineTerrain] built ", map_name, " (", OUTER_SIZE, " m clipmap, reserved=",
 			get_reserved_structures(root).size(), ")")
@@ -418,6 +525,25 @@ static func build(level: Node3D, map_name: String, _base_y: float) -> void:
 # ===========================================================================
 static func height_at(map_name: String, x: float, z: float) -> float:
 	return _height(map_name, x, z)
+
+
+## Cached 128x128 baked height texture covering [-OUTER_HALF, +OUTER_HALF] for
+## building plinth weathering (normalized [-16 m, +48 m] -> [0, 1] in FORMAT_R8
+## so linear filtering works with zero extension requirements on iOS Metal).
+static func height_map_tex(map_name: String) -> ImageTexture:
+	if _height_tex_cache.has(map_name):
+		return _height_tex_cache[map_name]
+	const RES := 128
+	var img := Image.create(RES, RES, false, Image.FORMAT_R8)
+	for j in range(RES):
+		var wz := -OUTER_HALF + OUTER_SIZE * (float(j) + 0.5) / float(RES)
+		for i in range(RES):
+			var wx := -OUTER_HALF + OUTER_SIZE * (float(i) + 0.5) / float(RES)
+			var hn := clampf((_height(map_name, wx, wz) + 16.0) / 64.0, 0.0, 1.0)
+			img.set_pixel(i, j, Color(hn, 0.0, 0.0, 1.0))
+	var tex := ImageTexture.create_from_image(img)
+	_height_tex_cache[map_name] = tex
+	return tex
 
 
 ## Height of the *rendered* terrain surface, not the analytic noise field.
@@ -502,6 +628,25 @@ static func _height(map_name: String, x: float, z: float) -> float:
 	elif map_name == "wetlands":
 		h = _flatten_pad(h, x, z, Vector2(-56.0, -118.0),
 				Vector2(26.0, 20.0), -1.0)
+	if _is_tutorial_mode():
+		var wl_tut := water_level(map_name)
+		var tut_dx := maxf(absf(x + 48.0) - 10.0, 0.0)
+		var tut_dz := 0.0
+		if z < -58.0:
+			tut_dz = -58.0 - z
+		elif z > 152.0:
+			tut_dz = z - 152.0
+		var tut_d := sqrt(tut_dx * tut_dx + tut_dz * tut_dz)
+		if tut_d < 14.0:
+			var blend := 1.0 - smoothstep(0.0, 14.0, tut_d)
+			var clean_h := _base_height(map_name, x, z) + _relief_offset(map_name, x, z) * 0.25
+			if wl_tut > -100.0:
+				clean_h = maxf(clean_h, wl_tut + 0.95)
+			h = lerpf(h, clean_h, blend)
+		var pad_lvl := _base_height(map_name, -48.0, -38.0)
+		if wl_tut > -100.0:
+			pad_lvl = maxf(pad_lvl, wl_tut + 1.0)
+		h = _flatten_pad(h, x, z, Vector2(-48.0, -38.0), Vector2(10.0, 20.0), pad_lvl)
 	return h
 
 
@@ -713,6 +858,8 @@ static func _crater_offset(map_name: String, x: float, z: float) -> float:
 	var h := 0.0
 	for c in _craters(map_name):
 		var pos: Vector2 = c["pos"]
+		if _is_tutorial_corridor(pos.x, pos.y):
+			continue
 		var r: float = c["r"]
 		if absf(x - pos.x) > r * 1.6 or absf(z - pos.y) > r * 1.6:
 			continue
@@ -750,6 +897,7 @@ static func _build_chunk(root: Node3D, map_name: String, ox: float, oz: float,
 	uvs.resize(vert_count)
 	colors.resize(vert_count)
 
+	var wl := water_level(map_name)
 	for j in range(cells + 1):
 		for i in range(cells + 1):
 			var vi := j * (cells + 1) + i
@@ -758,20 +906,35 @@ static func _build_chunk(root: Node3D, map_name: String, ox: float, oz: float,
 			var wz := oz + float(j) * step
 			verts[vi] = Vector3(float(i) * step, h, float(j) * step)
 
-			var dx := hs[(j + 1) * stride + (i + 2)] - hs[(j + 1) * stride + i]
-			var dz := hs[(j + 2) * stride + (i + 1)] - hs[j * stride + (i + 1)]
+			var hL := hs[(j + 1) * stride + i]
+			var hR := hs[(j + 1) * stride + (i + 2)]
+			var hD := hs[j * stride + (i + 1)]
+			var hU := hs[(j + 2) * stride + (i + 1)]
+			var dx := hR - hL
+			var dz := hU - hD
 			var n := Vector3(-dx, 2.0 * step, -dz).normalized()
 			normals[vi] = n
 
 			uvs[vi] = Vector2(wx, wz) * 0.08
-			# Vertex colour is a cheap per-vertex macro mask consumed by
-			# terrain_pbr.gdshader: R = broad 22 m patches (grass vs dirt),
-			# G = 3 m grain, B = local slope.  The actual colour lives in the
-			# four PBR textures, so no albedo is baked into the vertices.
+			# Vertex colour is a per-vertex mask consumed by terrain_pbr shaders:
+			# R = broad 22 m patches, G = 3 m grain, B = local slope,
+			# A = baked static AO (trenches, craters, roadside ditches, banks & curvature).
 			var slope := clampf((1.0 - n.y) * 2.6, 0.0, 1.0)
 			var patch := _noise2(wx * 0.045 + 11.0, wz * 0.045 - 7.0) * 0.5 + 0.5
 			var grain := _noise2(wx * 0.33, wz * 0.33) * 0.5 + 0.5
-			colors[vi] = Color(patch, grain, slope, 1.0)
+			var h_avg := (hL + hR + hD + hU) * 0.25
+			var concav := clampf((h_avg - h) / maxf(step * 0.45, 0.4), -1.0, 1.0)
+			var tr_off := _trench_offset(map_name, wx, wz)
+			var cr_off := _crater_offset(map_name, wx, wz)
+			var rf := _road_factor(map_name, wx, wz)
+			var trench_ao := clampf(-tr_off / 1.85, 0.0, 1.0) * 0.34
+			var crater_ao := clampf(-cr_off / 1.65, 0.0, 1.0) * 0.28
+			var verge_ao := clampf(rf * (1.0 - rf * 0.65) * 2.1, 0.0, 1.0) * 0.16
+			var bank_ao := clampf((wl + 1.8 - h) / 2.6, 0.0, 1.0) * 0.22 if (wl > -50.0 and h < wl + 1.8) else 0.0
+			var concav_ao := clampf(concav, 0.0, 1.0) * 0.18
+			var ridge_lift := clampf(-concav, 0.0, 1.0) * 0.06 + clampf(tr_off, 0.0, 0.85) * 0.05
+			var ao := clampf(0.92 - trench_ao - crater_ao - verge_ao - bank_ao - concav_ao + ridge_lift, 0.22, 1.0)
+			colors[vi] = Color(patch, grain, slope, ao)
 
 	var indices := PackedInt32Array()
 	indices.resize(cells * cells * 6)
@@ -974,6 +1137,23 @@ static func _build_mountain_backdrop(root: Node3D, map_name: String) -> void:
 	mat.set_shader_parameter("haze_amount", 0.46)
 	mat.set_shader_parameter("base_y", -26.0)
 	mat.set_shader_parameter("top_y", (h_outer0 + h_outer1) * 1.35)
+	var sun_euler := Vector3(-25.0, 48.0, 0.0)
+	var sun_warm := Color(1.0, 0.86, 0.68)
+	match map_name:
+		"industrial":
+			sun_euler = Vector3(-24.0, 68.0, 0.0)
+			sun_warm = Color(1.0, 0.84, 0.68)
+		"village":
+			sun_euler = Vector3(-27.0, 42.0, 0.0)
+			sun_warm = Color(1.0, 0.87, 0.68)
+		"wetlands":
+			sun_euler = Vector3(-20.0, 30.0, 0.0)
+			sun_warm = Color(0.96, 0.87, 0.70)
+	var sun_basis := Basis.from_euler(Vector3(deg_to_rad(sun_euler.x),
+			deg_to_rad(sun_euler.y), 0.0))
+	mat.set_shader_parameter("sun_dir", sun_basis.z.normalized())
+	mat.set_shader_parameter("scatter_strength", 0.56)
+	mat.set_shader_parameter("sun_scatter_color", sun_warm)
 	var mi := MeshInstance3D.new()
 	mi.name = "MountainBackdrop"
 	mi.mesh = mesh
@@ -1275,29 +1455,44 @@ static func _water_normal_tex() -> NoiseTexture2D:
 
 static func _build_industrial_river(root: Node3D) -> void:
 	var steps := 64
+	var cols := 5
 	var half_w := 14.0
 	var y := -2.2
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var uvs := PackedVector2Array()
+	var colors := PackedColorArray()
 	var indices := PackedInt32Array()
 	for i in range(steps + 1):
 		var x := -OUTER_HALF + OUTER_SIZE * float(i) / float(steps)
 		var zc := -170.0 + 10.0 * sin(x * 0.015)
-		verts.append(Vector3(x, y, zc - half_w))
-		verts.append(Vector3(x, y, zc + half_w))
-		normals.append(Vector3.UP)
-		normals.append(Vector3.UP)
-		uvs.append(Vector2(float(i) * 0.5, 0.0))
-		uvs.append(Vector2(float(i) * 0.5, 1.0))
+		for c in range(cols):
+			var u_frac := float(c) / float(cols - 1)
+			var s := -1.0 + 2.0 * u_frac
+			var wz := zc + half_w * s
+			var bed_h := _height("industrial", x, wz)
+			var depth_m := clampf(y - bed_h, 0.0, 3.0)
+			var edge_cap := clampf((1.0 - absf(s)) * 2.5, 0.0, 1.0) * 3.0
+			var d_norm := clampf(minf(depth_m, edge_cap) / 3.0, 0.0, 1.0)
+			verts.append(Vector3(x, y, wz))
+			normals.append(Vector3.UP)
+			uvs.append(Vector2(float(i) * 0.5, u_frac))
+			colors.append(Color(d_norm, clampf(depth_m / 3.0, 0.0, 1.0), 0.0, 1.0))
 	for i in range(steps):
-		var b := i * 2
-		indices.append_array([b, b + 2, b + 1, b + 1, b + 2, b + 3])
+		var row0 := i * cols
+		var row1 := (i + 1) * cols
+		for c in range(cols - 1):
+			var a := row0 + c
+			var b := row1 + c
+			var d := row0 + c + 1
+			var e := row1 + c + 1
+			indices.append_array(PackedInt32Array([a, b, d, d, b, e]))
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_COLOR] = colors
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
@@ -1312,9 +1507,11 @@ static func _build_industrial_river(root: Node3D) -> void:
 	water.set_shader_parameter("wave_height", 0.035)
 	water.set_shader_parameter("sky_reflect", Color(0.36, 0.54, 0.80))
 	water.set_shader_parameter("sky_amount", 0.65)
+	water.set_shader_parameter("shore_fade", 1.1)
 	water.set_shader_parameter("ripple_normal", _water_normal_tex())
 	var mi := MeshInstance3D.new()
 	mi.name = "RiverWater"
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.mesh = mesh
 	mi.material_override = water
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -1387,6 +1584,8 @@ static func _spawn_handcrafted_assets(root: Node3D, map_name: String) -> void:
 	}
 	for spec in specs.get(map_name, []):
 		var path: String = spec[0]
+		if _is_tutorial_mode() and map_name == "steppe" and path.ends_with("farm_complex.glb"):
+			continue
 		if not ResourceLoader.exists(path):
 			continue
 		var ps := load(path) as PackedScene
@@ -2967,6 +3166,7 @@ static func _build_water(root: Node3D, map_name: String) -> void:
 	mat.set_shader_parameter("wave_height", 0.045)
 	mat.set_shader_parameter("sky_reflect", Color(0.36, 0.55, 0.80))
 	mat.set_shader_parameter("sky_amount", 0.68)
+	mat.set_shader_parameter("shore_fade", 1.15)
 	mat.set_shader_parameter("ripple_normal", _water_normal_tex())
 
 	var mi := MeshInstance3D.new()
@@ -2976,45 +3176,101 @@ static func _build_water(root: Node3D, map_name: String) -> void:
 
 	if map_name == "village":
 		var steps := 96
+		var cols := 5
 		var verts := PackedVector3Array()
 		var normals := PackedVector3Array()
 		var uvs := PackedVector2Array()
+		var colors := PackedColorArray()
 		var indices := PackedInt32Array()
 		for i in range(steps + 1):
 			var z := -OUTER_HALF + float(i) * (OUTER_SIZE / float(steps))
 			var x := -140.0 + 18.0 * sin(z * 0.011)
 			var dir := Vector2(18.0 * 0.011 * cos(z * 0.011), 1.0).normalized()
 			var n := Vector2(-dir.y, dir.x)
-			var left := Vector2(x, z) + n * 24.0
-			var right := Vector2(x, z) - n * 24.0
-			verts.append(Vector3(left.x, level, left.y))
-			verts.append(Vector3(right.x, level, right.y))
-			normals.append(Vector3.UP)
-			normals.append(Vector3.UP)
-			uvs.append(Vector2(0.0, float(i) * 0.5))
-			uvs.append(Vector2(1.0, float(i) * 0.5))
+			for c in range(cols):
+				var u_frac := float(c) / float(cols - 1)
+				var s := 1.0 - 2.0 * u_frac
+				var wp := Vector2(x, z) + n * (24.0 * s)
+				var bed_h := _height(map_name, wp.x, wp.y)
+				var depth_m := clampf(level - bed_h, 0.0, 3.0)
+				var edge_cap := clampf((1.0 - absf(s)) * 2.5, 0.0, 1.0) * 3.0
+				var d_norm := clampf(minf(depth_m, edge_cap) / 3.0, 0.0, 1.0)
+				verts.append(Vector3(wp.x, level, wp.y))
+				normals.append(Vector3.UP)
+				uvs.append(Vector2(u_frac, float(i) * 0.5))
+				colors.append(Color(d_norm, clampf(depth_m / 3.0, 0.0, 1.0), 0.0, 1.0))
 			if i > 0:
-				var a := (i - 1) * 2
-				indices.append_array(PackedInt32Array([
-					a, a + 1, a + 2, a + 1, a + 3, a + 2]))
+				var r0 := (i - 1) * cols
+				var r1 := i * cols
+				for c in range(cols - 1):
+					var a := r0 + c
+					var b := r0 + c + 1
+					var d := r1 + c
+					var e := r1 + c + 1
+					indices.append_array(PackedInt32Array([a, b, d, b, e, d]))
 		var arrays := []
 		arrays.resize(Mesh.ARRAY_MAX)
 		arrays[Mesh.ARRAY_VERTEX] = verts
 		arrays[Mesh.ARRAY_NORMAL] = normals
 		arrays[Mesh.ARRAY_TEX_UV] = uvs
+		arrays[Mesh.ARRAY_COLOR] = colors
 		arrays[Mesh.ARRAY_INDEX] = indices
 		var mesh := ArrayMesh.new()
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 		mesh.surface_set_material(0, mat)
 		mi.mesh = mesh
 	else:
-		var plane := PlaneMesh.new()
-		plane.size = Vector2(OUTER_SIZE, OUTER_SIZE)
-		plane.subdivide_width = 16
-		plane.subdivide_depth = 16
-		plane.material = mat
-		mi.mesh = plane
-		mi.position = Vector3(0.0, level, 0.0)
+		# Subdivided 64x64 wetlands water sheet with per-vertex bed depth in COLOR.r
+		# and dry upland quads culled so iPhone TBDR pays zero fill on high banks.
+		var cells := 64
+		var stride := cells + 1
+		var step := OUTER_SIZE / float(cells)
+		var v_count := stride * stride
+		var verts := PackedVector3Array()
+		var normals := PackedVector3Array()
+		var uvs := PackedVector2Array()
+		var colors := PackedColorArray()
+		var bed_hs := PackedFloat32Array()
+		verts.resize(v_count)
+		normals.resize(v_count)
+		uvs.resize(v_count)
+		colors.resize(v_count)
+		bed_hs.resize(v_count)
+		for j in range(stride):
+			var wz := -OUTER_HALF + float(j) * step
+			for i in range(stride):
+				var wx := -OUTER_HALF + float(i) * step
+				var vi := j * stride + i
+				var bed_h := _height(map_name, wx, wz)
+				bed_hs[vi] = bed_h
+				var depth_m := clampf(level - bed_h, 0.0, 3.0)
+				verts[vi] = Vector3(wx, level, wz)
+				normals[vi] = Vector3.UP
+				uvs[vi] = Vector2(float(i) / float(cells), float(j) / float(cells)) * 16.0
+				colors[vi] = Color(depth_m / 3.0, 0.0, 0.0, 1.0)
+		var indices := PackedInt32Array()
+		for j in range(cells):
+			for i in range(cells):
+				var a := j * stride + i
+				var b := a + 1
+				var c := a + stride
+				var d := c + 1
+				if minf(minf(bed_hs[a], bed_hs[b]), minf(bed_hs[c], bed_hs[d])) < level + 1.25:
+					indices.append_array(PackedInt32Array([a, b, c, b, d, c]))
+		if indices.is_empty():
+			mi.queue_free()
+			return
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = verts
+		arrays[Mesh.ARRAY_NORMAL] = normals
+		arrays[Mesh.ARRAY_TEX_UV] = uvs
+		arrays[Mesh.ARRAY_COLOR] = colors
+		arrays[Mesh.ARRAY_INDEX] = indices
+		var mesh := ArrayMesh.new()
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		mesh.surface_set_material(0, mat)
+		mi.mesh = mesh
 
 
 # ===========================================================================
@@ -3260,11 +3516,26 @@ static func _build_trenches(root: Node3D, map_name: String) -> void:
 			if length < 0.01:
 				continue
 			var dir := seg / length
+			var yaw := atan2(dir.x, dir.y)
 			var n := Vector2(-dir.y, dir.x)
+			var cs := 0.0
+			while cs < length:
+				var seg_step := minf(4.8, length - cs)
+				if seg_step > 1.2:
+					var mid_p := a + dir * (cs + seg_step * 0.5)
+					for side in [-1.0, 1.0]:
+						var cpos: Vector2 = mid_p + n * (2.65 * side)
+						if not _is_tutorial_corridor(cpos.x, cpos.y):
+							add_contact_shadow_rect(root, map_name, cpos,
+									Vector2(1.85, seg_step + 0.55), yaw, 0.56)
+				cs += 4.8
 			var t := 0.0
 			while t < length:
 				var p := a + dir * t
 				for side in [-1.0, 1.0]:
+					var test_pos: Vector2 = p + n * 2.65 * side
+					if _is_tutorial_corridor(test_pos.x, test_pos.y):
+						continue
 					for layer in range(2):
 						var off: Vector2 = n * 2.65 * side + dir * rng.randf_range(-0.12, 0.12)
 						var pos := p + off
@@ -3275,7 +3546,7 @@ static func _build_trenches(root: Node3D, map_name: String) -> void:
 						var y := support + 0.22 + float(layer) * 0.33
 						var basis := Basis(Vector3.UP, atan2(dir.x, dir.y) + rng.randf_range(-0.09, 0.09))
 						transforms.append(Transform3D(basis, Vector3(pos.x, y, pos.y)))
-				if fmod(t, 3.0) < 1.2:
+				if fmod(t, 3.0) < 1.2 and not _is_tutorial_corridor(p.x, p.y):
 					var cy := mesh_surface_height(map_name, p.x, p.y) + 0.06
 					var cb := Basis(Vector3.UP, atan2(dir.x, dir.y))
 					duck_transforms.append(Transform3D(cb, Vector3(p.x, cy, p.y)))
@@ -3301,6 +3572,8 @@ static func _build_crater_marks(root: Node3D, map_name: String) -> void:
 	var transforms: Array = []
 	for c in _craters(map_name):
 		var pos: Vector2 = c["pos"]
+		if _is_tutorial_corridor(pos.x, pos.y):
+			continue
 		var r: float = c["r"]
 		var y := _height(map_name, pos.x, pos.y) + 0.02
 		var basis := Basis(Vector3.UP, float(hash(pos)) * 0.0001).scaled(
@@ -3369,6 +3642,7 @@ static func _build_power_lines(root: Node3D, map_name: String) -> void:
 			# crossarm; this keeps all three conductors over the insulators.
 			var yaw := atan2(dir2.x, dir2.y)
 			ASSETS.spawn(root, "pylon", Vector3(p.x, y, p.y), yaw)
+			add_contact_shadow(root, map_name, p, 5.2, "Pylon", 0.78)
 			tops.append(Vector3(p.x, y + 20.2, p.y))
 
 		var immediate := ImmediateMesh.new()
@@ -3675,18 +3949,41 @@ static func _flush_library_trees(root: Node3D) -> void:
 			break
 	if variant.is_empty():
 		return
+	var veg_range := float(QualityManager.get_value("veg_range", 560.0))
+	var q_lvl := QualityManager.get_active_level()
+	var detail_lvl := 0.34 if q_lvl == QualityManager.Level.HIGH else \
+			(0.28 if q_lvl == QualityManager.Level.MEDIUM else 0.20)
+	var leaf_mesh_ref: Mesh = variant["leaves"]
+	if leaf_mesh_ref is ArrayMesh:
+		var lmat := (leaf_mesh_ref as ArrayMesh).surface_get_material(0) as ShaderMaterial
+		if lmat != null:
+			lmat.set_shader_parameter("leaf_detail", detail_lvl)
+			lmat.set_shader_parameter("crown_ao", 0.62)
+			lmat.set_shader_parameter("backlight_strength", 0.38)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(_current_map) + 3391
 	for part in ["trunk", "leaves"]:
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D
 		mm.mesh = variant[part]
+		mm.use_custom_data = (part == "leaves")
 		mm.instance_count = xfs.size()
 		for i in range(xfs.size()):
-			mm.set_instance_transform(i, xfs[i])
+			var txf: Transform3D = xfs[i]
+			mm.set_instance_transform(i, txf)
+			if part == "trunk":
+				add_contact_shadow(root, _current_map, Vector2(txf.origin.x, txf.origin.z),
+						3.4 * txf.basis.get_scale().x, "HeroTree", 0.76)
+			else:
+				mm.set_instance_custom_data(i, _tree_crown_tint(rng, _current_map))
 		var mmi := MultiMeshInstance3D.new()
 		mmi.name = "HeroTrees_" + part
 		mmi.multimesh = mm
 		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON \
 				if part == "trunk" else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mmi.visibility_range_end = veg_range
+		mmi.visibility_range_end_margin = 60.0
+		mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 		root.add_child(mmi)
 
 	# Trunk collision for hero trees so drones collide with tree trunks
@@ -3988,6 +4285,18 @@ static func _add_simple_house(root: Node3D, map_name: String, p: Vector2,
 static func _add_fence_line(root: Node3D, center: Vector3, length: float, yaw: float,
 		wood: Material) -> void:
 	var basis := Basis(Vector3.UP, yaw)
+	var distant := Vector2(center.x, center.z).distance_to(Vector2(0.0, 128.0)) > 36.0
+	if _current_map != "":
+		if length > 3.5:
+			var wing_len := (length - 2.1) * 0.5
+			var off := wing_len * 0.5 + 1.05
+			for s in [-1.0, 1.0]:
+				var wp := center + basis * Vector3(s * off, 0.0, 0.0)
+				add_contact_shadow_rect(root, _current_map, Vector2(wp.x, wp.z),
+						Vector2(wing_len, 1.8), yaw, 0.54)
+		else:
+			add_contact_shadow_rect(root, _current_map, Vector2(center.x, center.z),
+					Vector2(length, 1.8), yaw, 0.54)
 	var count := maxi(2, int(length / 2.1))
 	for i in range(count):
 		var x := -length * 0.5 + (float(i) + 0.5) * (length / float(count))
@@ -3996,9 +4305,15 @@ static func _add_fence_line(root: Node3D, center: Vector3, length: float, yaw: f
 			continue
 		var post := center + basis * Vector3(x, 0.62, 0)
 		for rail_y in [0.48, 0.98]:
-			_add_box(root, post + basis * Vector3(0, rail_y - 0.62, 0),
+			var rail := _add_box(root, post + basis * Vector3(0, rail_y - 0.62, 0),
 					Vector3(length / float(count) - 0.08, 0.10, 0.09), wood, yaw, false)
-		_add_box(root, post, Vector3(0.12, 1.28, 0.12), wood, yaw, true)
+			if distant and rail is MeshInstance3D:
+				(rail as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var post_node := _add_box(root, post, Vector3(0.12, 1.28, 0.12), wood, yaw, true)
+		if distant:
+			for c in post_node.get_children():
+				if c is MeshInstance3D:
+					(c as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 
 static func _add_well(root: Node3D, p: Vector2, y: float, stone: Material,
@@ -4509,20 +4824,40 @@ static func _build_hall_occluders(root: Node3D, map_name: String) -> void:
 	root.add_child(occ)
 
 
-## Small clutter casts shadows that are barely visible at FPV speed but still
-## cost a shadow-map draw.  Keep hero props and anything above 1.6 m.
+## Small clutter, grass, decorative bushes, debris and distant thin fences cast
+## shadows that eat directional texels without visual payoff at FPV speed.
 static func _trim_small_shadow_casters(root: Node3D) -> void:
+	var is_high := QualityManager.get_active_level() == QualityManager.Level.HIGH
+	var size_thresh := 1.25 if is_high else 1.65
 	var trimmed := 0
-	for node in root.find_children("*", "MeshInstance3D", true, false):
-		var mi := node as MeshInstance3D
-		if mi == null or mi.mesh == null or _is_batch_excluded(mi):
+	for node in root.find_children("*", "GeometryInstance3D", true, false):
+		var gi := node as GeometryInstance3D
+		if gi == null or gi.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
 			continue
-		if mi.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+		if _is_batch_excluded(gi):
 			continue
-		var box: AABB = _local_transform_to_root(mi, root) * mi.get_aabb()
-		var longest := maxf(box.size.x, maxf(box.size.y, box.size.z))
-		if longest < 1.6:
-			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var nm := gi.name.to_lower()
+		var pname := gi.get_parent().name.to_lower() if gi.get_parent() != null else ""
+		var combined := nm + " " + pname
+		var force_off := combined.contains("scrub") or combined.contains("bush") \
+				or combined.contains("shrub") or combined.contains("grass") \
+				or combined.contains("weed") or combined.contains("tuft") \
+				or combined.contains("flower") or combined.contains("debris") \
+				or combined.contains("rebar") or combined.contains("plank") \
+				or combined.contains("reed") or combined.contains("moss")
+		if not force_off and gi is MeshInstance3D:
+			var mi := gi as MeshInstance3D
+			if mi.mesh != null:
+				var box: AABB = _local_transform_to_root(mi, root) * mi.get_aabb()
+				var longest := maxf(box.size.x, maxf(box.size.y, box.size.z))
+				if longest < size_thresh:
+					force_off = true
+				elif combined.contains("fence"):
+					var pos2 := Vector2(box.get_center().x, box.get_center().z)
+					if pos2.distance_to(Vector2(0.0, 128.0)) > 36.0:
+						force_off = true
+		if force_off:
+			gi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			trimmed += 1
 	if trimmed > 0:
 		print("[FrontlineTerrain] shadow casters trimmed: ", trimmed)
@@ -5181,6 +5516,7 @@ static func _add_hall_foliage(root: Node3D, hall: Node3D, site: Dictionary,
 	grass.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	grass.visibility_range_end = 85.0
 	grass.visibility_range_end_margin = 12.0
+	grass.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	root.add_child(grass)
 
 	if map_name == "wetlands":
@@ -5363,7 +5699,10 @@ static func _add_hall_foliage(root: Node3D, hall: Node3D, site: Dictionary,
 	bushes.name = "HallScrub_" + map_name
 	bushes.multimesh = bush_mm
 	bushes.material_override = bush_mat
-	bushes.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	bushes.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	bushes.visibility_range_end = 140.0
+	bushes.visibility_range_end_margin = 20.0
+	bushes.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	root.add_child(bushes)
 
 
@@ -5968,16 +6307,27 @@ static func _treelines(map_name: String) -> Array:
 			]
 
 
-## The flight-school strip must stay free of trees and props: the student flies
-## a fixed 190 m course there.
-static func _tutorial_clear_zone(x: float, z: float) -> bool:
-	var is_tut := false
+static func _is_tutorial_mode() -> bool:
 	var st := Engine.get_main_loop() as SceneTree
 	if st != null and st.root != null:
 		var g := st.root.get_node_or_null("Global")
 		if g != null and int(g.get("play_mode")) == 3:
-			is_tut = true
-	return is_tut and absf(x + 48.0) < 42.0 and z > 20.0 and z < 176.0
+			return true
+	return false
+
+
+static func _is_tutorial_corridor(x: float, z: float) -> bool:
+	return _is_tutorial_mode() and absf(x + 48.0) < 20.0 and z >= -68.0 and z <= 162.0
+
+
+## The flight-school strip must stay free of trees and props: the student flies
+## a fixed 180 m course there.
+static func _tutorial_clear_zone(x: float, z: float) -> bool:
+	if not _is_tutorial_mode():
+		return false
+	if absf(x + 48.0) < 42.0 and z > 20.0 and z < 176.0:
+		return true
+	return absf(x + 48.0) < 22.0 and z >= -70.0 and z <= 20.0
 
 
 ## Keep every authored hall interior and apron free of scattered trees and
@@ -6327,8 +6677,10 @@ static func _build_treelines(root: Node3D, map_name: String) -> void:
 	if broadleaf.is_empty():
 		broadleaf = variants
 	var buckets: Dictionary = {}
+	var tint_buckets: Dictionary = {}
 	for v in broadleaf:
 		buckets[v["name"]] = []
+		tint_buckets[v["name"]] = []
 	for pos in positions:
 		var v: Dictionary = broadleaf[rng.randi_range(0, broadleaf.size() - 1)]
 		var scale := rng.randf_range(1.05, 1.55)
@@ -6336,22 +6688,28 @@ static func _build_treelines(root: Node3D, map_name: String) -> void:
 		var xf := Transform3D(Basis(Vector3.UP, yaw).scaled(
 				Vector3(scale, scale, scale)), pos)
 		buckets[v["name"]].append(xf)
+		tint_buckets[v["name"]].append(_tree_crown_tint(rng, map_name))
+		add_contact_shadow(root, map_name, Vector2(pos.x, pos.z), 2.7 * scale, "Tree", 0.74)
 
 	for v in broadleaf:
 		var xfs: Array = buckets[v["name"]]
 		if xfs.is_empty():
 			continue
+		var tints: Array = tint_buckets[v["name"]]
 		var leaf_mesh: Mesh = v["leaves"]
 		var leaf_mat := (leaf_mesh as ArrayMesh).surface_get_material(0) as ShaderMaterial
 		if leaf_mat != null:
-			var detail_lvl := 0.32 if q_lvl == QualityManager.Level.HIGH else (0.24 if q_lvl == QualityManager.Level.MEDIUM else 0.16)
+			var detail_lvl := 0.34 if q_lvl == QualityManager.Level.HIGH else \
+					(0.28 if q_lvl == QualityManager.Level.MEDIUM else 0.20)
 			leaf_mat.set_shader_parameter("leaf_detail", detail_lvl)
+			leaf_mat.set_shader_parameter("crown_ao", 0.62)
+			leaf_mat.set_shader_parameter("backlight_strength", 0.38)
 		var trunk_node := _multimesh(root, v["name"] + "_Trunks",
 				v["trunk"], null, xfs, tree_shadows)
 		var leaf_node: MultiMeshInstance3D = null
 		if not OS.has_environment("QA_NO_LEAVES"):
 			leaf_node = _multimesh(root, v["name"] + "_Leaves",
-					leaf_mesh, null, xfs, canopy_shadows)
+					leaf_mesh, null, xfs, canopy_shadows, [], tints)
 		for node in [trunk_node, leaf_node]:
 			if node != null:
 				node.visibility_range_end = veg_range
@@ -6669,18 +7027,30 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 		bush_xf.append(Transform3D(Basis(Vector3.UP, rng.randf_range(0.0, TAU))
 				.scaled(Vector3(bs * 1.4, bs * rng.randf_range(0.45, 0.65),
 						bs * 1.4)), Vector3(bx, by + bs * 0.12, bz)))
-	_multimesh(root, "GroundScrub", bush_mesh, bush_mat, bush_xf, false)
+	var scrub_node := _multimesh(root, "GroundScrub", bush_mesh, bush_mat, bush_xf, false)
+	if scrub_node != null:
+		scrub_node.visibility_range_end = bush_radius + 40.0
+		scrub_node.visibility_range_end_margin = 28.0
+		scrub_node.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 
 	var rock_mat := _mat(Color(0.52, 0.50, 0.45), 1.0)
 	rock_mat.vertex_color_use_as_albedo = true
-	_multimesh(root, "GroundStones", rock_mesh, rock_mat, rock_xf, false, rock_col)
+	var stone_node := _multimesh(root, "GroundStones", rock_mesh, rock_mat, rock_xf, false, rock_col)
+	if stone_node != null:
+		stone_node.visibility_range_end = rock_radius + 25.0
+		stone_node.visibility_range_end_margin = 20.0
+		stone_node.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	var flower_mat := _mat(Color(1.0, 1.0, 1.0), 0.9)
 	flower_mat.vertex_color_use_as_albedo = true
 	flower_mat.emission_enabled = true
 	flower_mat.emission = Color(1.0, 1.0, 0.55)
 	flower_mat.emission_energy_multiplier = 0.12
-	_multimesh(root, "Wildflowers", flower_mesh, flower_mat, flower_xf, false,
+	var flower_node := _multimesh(root, "Wildflowers", flower_mesh, flower_mat, flower_xf, false,
 			flower_col)
+	if flower_node != null:
+		flower_node.visibility_range_end = flower_radius + 25.0
+		flower_node.visibility_range_end_margin = 20.0
+		flower_node.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 
 	var tuft_target := maxi(700, int(round(4200.0 * tuft_mult)))
 	var tuft_radius := 166.0 if high_detail else (152.0 if detail_lvl > 0 else 132.0)
@@ -6726,6 +7096,7 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 	if tuft_node != null:
 		tuft_node.visibility_range_end = tuft_radius + 20.0
 		tuft_node.visibility_range_end_margin = 20.0
+		tuft_node.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	print("[GroundDetail] lvl=", q_lvl, " rocks=", rock_xf.size(),
 			" flowers=", flower_xf.size(), " scrub=", bush_xf.size(),
 			" tufts=", tuft_xf.size(), " radii=", rock_radius, "/",
@@ -6971,19 +7342,39 @@ static func _octahedron_mesh() -> ArrayMesh:
 # ===========================================================================
 #  Small helpers
 # ===========================================================================
+static func _tree_crown_tint(rng: RandomNumberGenerator, map_name: String) -> Color:
+	var val := rng.randf_range(0.84, 1.14)
+	var warm := rng.randf_range(0.0, 1.0)
+	var r := val * (0.94 + warm * 0.22)
+	var g := val * (0.97 + (1.0 - absf(warm - 0.5)) * 0.08)
+	var b := val * (0.88 - warm * 0.12)
+	if map_name == "steppe":
+		r *= 1.08
+		b *= 0.92
+	elif map_name == "wetlands":
+		g *= 1.06
+		b *= 1.04
+	return Color(clampf(r, 0.72, 1.24), clampf(g, 0.76, 1.22),
+			clampf(b, 0.68, 1.12), warm)
+
+
 static func _multimesh(root: Node3D, node_name: String, mesh: Mesh, mat: Material,
-		transforms: Array, shadows: bool, colors: Array = []) -> MultiMeshInstance3D:
+		transforms: Array, shadows: bool, colors: Array = [],
+		custom_data: Array = []) -> MultiMeshInstance3D:
 	if transforms.is_empty():
 		return null
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.mesh = mesh
 	mm.use_colors = not colors.is_empty()
+	mm.use_custom_data = not custom_data.is_empty()
 	mm.instance_count = transforms.size()
 	for i in range(transforms.size()):
 		mm.set_instance_transform(i, transforms[i])
 		if mm.use_colors and i < colors.size():
 			mm.set_instance_color(i, colors[i])
+		if mm.use_custom_data and i < custom_data.size():
+			mm.set_instance_custom_data(i, custom_data[i])
 	var mmi := MultiMeshInstance3D.new()
 	mmi.name = node_name
 	mmi.multimesh = mm

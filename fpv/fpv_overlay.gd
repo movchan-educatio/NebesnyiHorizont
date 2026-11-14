@@ -35,8 +35,8 @@ func _ready() -> void:
 	_user_visible = (DisplayServer.get_name() != "headless") \
 			and (OS.has_environment("DRONE_VIDEO_MODE") \
 			or OS.has_environment("DRONE_SHOW_FPV_EFFECTS"))
-	visible = _user_visible
 	_material = overlay.material as ShaderMaterial
+	_update_auto_visibility()
 	_mode = int(Graphics.fpv_video_mode)
 	# QA hook: render a specific downlink look without touching saved settings.
 	if OS.has_environment("DRONE_VIDEO_MODE"):
@@ -50,13 +50,29 @@ func _ready() -> void:
 		_radio = parent.get_node_or_null("RadioController")
 
 
+func _needs_clean_sharpen() -> bool:
+	if DisplayServer.get_name() == "headless" or OS.has_environment("DRONE_NO_SHARPEN"):
+		return false
+	var vp := get_viewport()
+	var s3d := clampf(vp.scaling_3d_scale, 0.25, 1.0) if vp != null else 1.0
+	return s3d < 0.95
+
+
 func _process(_delta: float) -> void:
 	if _material == null:
 		return
 	_update_auto_visibility()
 	if not visible:
 		return
-	_material.set_shader_parameter("screen_size", get_viewport().get_visible_rect().size)
+	var vp := get_viewport()
+	var s3d := clampf(vp.scaling_3d_scale, 0.25, 1.0) if vp != null else 1.0
+	var clean_only := not (_user_visible or _auto_visible)
+	_material.set_shader_parameter("screen_size",
+			vp.get_visible_rect().size if vp != null else Vector2(1920.0, 1080.0))
+	_material.set_shader_parameter("render_scale_3d", s3d)
+	_material.set_shader_parameter("clean_sharpen_only", clean_only)
+	if clean_only:
+		return
 	if _reb == null or not is_instance_valid(_reb):
 		_reb = get_tree().get_first_node_in_group("reb_system")
 	var lq := 1.0
@@ -91,8 +107,9 @@ func _process(_delta: float) -> void:
 
 
 func _update_auto_visibility() -> void:
+	var sharpen := _needs_clean_sharpen()
 	if _manual_override:
-		visible = _user_visible
+		visible = _user_visible or sharpen
 		return
 	if _reb == null or not is_instance_valid(_reb):
 		_reb = get_tree().get_first_node_in_group("reb_system")
@@ -103,7 +120,7 @@ func _update_auto_visibility() -> void:
 			var ew := clampf(float(_reb.get("in_ew")), 0.0, 1.0)
 			auto = lq < 0.72 or ew > 0.08 or bool(_reb.get("failsafe"))
 	_auto_visible = auto
-	visible = _user_visible or _auto_visible
+	visible = _user_visible or _auto_visible or sharpen
 
 
 func _on_video_mode_changed(mode: int) -> void:
@@ -136,7 +153,7 @@ func set_video_mode(mode: int) -> void:
 func set_user_visible(on: bool) -> void:
 	_manual_override = true
 	_user_visible = on
-	visible = on
+	visible = on or _needs_clean_sharpen()
 
 
 func is_user_visible() -> bool:
@@ -148,6 +165,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		# Once the pilot touches the shortcut, the link-loss auto layer stops
 		# fighting the manual choice until the next scene load.
 		_manual_override = true
-		_user_visible = not visible
-		visible = _user_visible
+		_user_visible = not _user_visible
+		visible = _user_visible or _needs_clean_sharpen()
 		get_viewport().set_input_as_handled()

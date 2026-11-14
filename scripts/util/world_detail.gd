@@ -324,6 +324,8 @@ static func _flush_pending(root: Node3D) -> void:
 				_p_chunks, false, _p_chunk_cols)
 		if mm != null:
 			mm.visibility_range_end = 190.0
+			mm.visibility_range_end_margin = 25.0
+			mm.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	if not _p_bricks.is_empty():
 		var bm: StandardMaterial3D = (FT._pbr("brick", Color(0.68, 0.48, 0.38),
 				0.50) as StandardMaterial3D).duplicate() as StandardMaterial3D
@@ -332,6 +334,8 @@ static func _flush_pending(root: Node3D) -> void:
 				_p_bricks, false, _p_brick_cols)
 		if mm != null:
 			mm.visibility_range_end = 120.0
+			mm.visibility_range_end_margin = 18.0
+			mm.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	if not _p_planks.is_empty():
 		var pm: StandardMaterial3D = (FT._pbr("wood", Color(0.64, 0.52, 0.38),
 				0.50) as StandardMaterial3D).duplicate() as StandardMaterial3D
@@ -340,11 +344,15 @@ static func _flush_pending(root: Node3D) -> void:
 				_p_planks, false, _p_plank_cols)
 		if mm != null:
 			mm.visibility_range_end = 150.0
+			mm.visibility_range_end_margin = 20.0
+			mm.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	if not _p_rebar.is_empty():
 		var mm := FT._multimesh(root, "BatchRubbleRebar", _rebar_mesh,
 				FT._mat(Color(0.29, 0.16, 0.09), 0.72, 0.2), _p_rebar, false)
 		if mm != null:
 			mm.visibility_range_end = 90.0
+			mm.visibility_range_end_margin = 14.0
+			mm.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	for key in _p_weeds.keys():
 		var b: Dictionary = _p_weeds[key]
 		var xfs: Array = b["xf"]
@@ -354,6 +362,7 @@ static func _flush_pending(root: Node3D) -> void:
 		if mm != null:
 			mm.visibility_range_end = 130.0
 			mm.visibility_range_end_margin = 20.0
+			mm.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	if _prop_mat == null:
 		_prop_mat = StandardMaterial3D.new()
 		_prop_mat.vertex_color_use_as_albedo = true
@@ -372,6 +381,7 @@ static func _flush_pending(root: Node3D) -> void:
 		if mm != null:
 			mm.visibility_range_end = 260.0
 			mm.visibility_range_end_margin = 30.0
+			mm.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 
 
 static func _puddle(root: Node3D, center: Vector2, radius: float) -> void:
@@ -875,6 +885,7 @@ static func _bushes(root: Node3D, center: Vector2, radius: float, count: int) ->
 	if mmi != null:
 		mmi.visibility_range_end = 240.0
 		mmi.visibility_range_end_margin = 30.0
+		mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 
 
 static func _forklift(root: Node3D, p: Vector2, yaw: float) -> void:
@@ -987,6 +998,7 @@ static func _pebbles(root: Node3D, center: Vector2, radius: float, count: int) -
 	if mmi != null:
 		mmi.visibility_range_end = 70.0
 		mmi.visibility_range_end_margin = 12.0
+		mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 
 
 static func _yard_ground_detail(root: Node3D, center: Vector2, w: float, d: float) -> void:
@@ -2276,6 +2288,10 @@ static func _pond(root: Node3D, center: Vector2, radius: float, factor: float) -
 		return
 	var mat := ShaderMaterial.new()
 	mat.shader = load(water_path)
+	mat.set_shader_parameter("ripple_normal", FT._water_normal_tex())
+	mat.set_shader_parameter("ripple_scale", 0.055)
+	mat.set_shader_parameter("sky_reflect", Color(0.36, 0.55, 0.80))
+	mat.set_shader_parameter("sky_amount", 0.62)
 	var disc := SphereMesh.new()
 	disc.radius = radius
 	disc.height = 0.05
@@ -2334,6 +2350,8 @@ static func _reeds(root: Node3D, center: Vector2, radius: float, count: int) -> 
 	var mmi := FT._multimesh(root, "PondReeds", _crop_mesh, mat, xfs, false)
 	if mmi != null:
 		mmi.visibility_range_end = 160.0
+		mmi.visibility_range_end_margin = 22.0
+		mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 
 
 static func _tall_flowers(root: Node3D, center: Vector2, radius: float, count: int) -> void:

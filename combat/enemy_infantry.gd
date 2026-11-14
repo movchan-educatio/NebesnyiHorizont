@@ -117,8 +117,9 @@ func _ready() -> void:
 		_walk_phase = fmod(float(abs(get_instance_id())) * 0.6180339, TAU)
 	_build()
 	_build_lod_proxy()
-	_drone = get_tree().current_scene.get_node_or_null("Drone") as Drone
-	_combat = get_tree().current_scene.get_node_or_null("CombatSystem")
+	var scene := _find_level_scene()
+	_drone = scene.get_node_or_null("Drone") as Drone if scene != null else null
+	_combat = scene.get_node_or_null("CombatSystem") if scene != null else null
 	match Global.difficulty:
 		Global.Difficulty.RECRUIT:
 			tracer_damage = 1.2
@@ -457,12 +458,15 @@ func _mobile_visual_lod_enabled() -> bool:
 func _physics_process(delta: float) -> void:
 	if is_destroyed or _disabled:
 		return
+	_clamp_to_map_bounds()
 	# Visual LOD follows the camera independently of AI distance throttling or
 	# the presence of a drone. Use every frame's delta for its 0.25 s timer.
 	if _mobile_visual_lod_enabled():
 		_update_lod(delta)
 	if _drone == null or not is_instance_valid(_drone):
-		_drone = get_tree().current_scene.get_node_or_null("Drone") as Drone
+		var lvl := _find_level_scene()
+		if lvl != null:
+			_drone = lvl.get_node_or_null("Drone") as Drone
 	if _drone == null:
 		_burst_left = 0
 		_tactical_knee = false
@@ -592,6 +596,18 @@ func _can_step(move_dir: Vector3, step_len: float) -> bool:
 	var space := get_world_3d().direct_space_state
 	var from := global_position + Vector3.UP * 0.95
 	var to := from + move_dir * (step_len + 0.55)
+	if absf(to.x) > INFANTRY_MAP_BOUND or absf(to.z) > INFANTRY_MAP_BOUND:
+		return false
+	var scene := _find_level_scene()
+	if scene != null and scene.get("frontline_map") != null:
+		var map := String(scene.get("frontline_map"))
+		if not map.is_empty():
+			var wl := FrontlineTerrainScript.water_level(map)
+			if wl > -100.0:
+				var cur_h := FrontlineTerrainScript.height_at(map, global_position.x, global_position.z)
+				var next_h := FrontlineTerrainScript.height_at(map, to.x, to.z)
+				if next_h < wl + 0.25 and next_h <= cur_h:
+					return false
 	var query := PhysicsRayQueryParameters3D.create(from, to)
 	query.collision_mask = 1
 	query.exclude = [get_rid()]
@@ -778,23 +794,42 @@ func _panic_step(delta: float) -> void:
 		_panic_state = 0
 
 
+const INFANTRY_MAP_BOUND := 152.0
+
+
+func _find_level_scene() -> Node:
+	var cur := get_parent()
+	while cur != null:
+		if cur.get("frontline_map") != null or cur.get_node_or_null("Drone") != null:
+			return cur
+		cur = cur.get_parent()
+	var tree := get_tree()
+	if tree != null and tree.current_scene != null:
+		return tree.current_scene
+	return null
+
+
+func _clamp_to_map_bounds() -> void:
+	if absf(global_position.x) > INFANTRY_MAP_BOUND or absf(global_position.z) > INFANTRY_MAP_BOUND:
+		global_position.x = clampf(global_position.x, -INFANTRY_MAP_BOUND, INFANTRY_MAP_BOUND)
+		global_position.z = clampf(global_position.z, -INFANTRY_MAP_BOUND, INFANTRY_MAP_BOUND)
+		_patrol_dir = -_patrol_dir
+		_strafe_dir = -_strafe_dir
+		_flank_dir = -_flank_dir
+		_panic_dir = -_panic_dir
+
+
 func _snap_to_ground() -> void:
+	_clamp_to_map_bounds()
 	if (Engine.get_physics_frames() + abs(get_instance_id())) % 3 != 0:
 		return
 	# Frontline maps have an analytic height field.  A downward ray from a
 	# soldier standing next to a warehouse can hit its roof, which is why some
 	# infantrymen were walking on top of buildings.
-	var scene := get_tree().current_scene
+	var scene := _find_level_scene()
 	if scene != null and scene.get("frontline_map") != null:
 		var map := String(scene.get("frontline_map"))
 		if not map.is_empty():
-			var lim := 285.0
-			if absf(global_position.x) > lim or absf(global_position.z) > lim:
-				global_position.x = clampf(global_position.x, -lim, lim)
-				global_position.z = clampf(global_position.z, -lim, lim)
-				_patrol_dir = -_patrol_dir
-				_strafe_dir = -_strafe_dir
-				_panic_dir = -_panic_dir
 			global_position.y = FrontlineTerrainScript.height_at(map,
 					global_position.x, global_position.z)
 			return

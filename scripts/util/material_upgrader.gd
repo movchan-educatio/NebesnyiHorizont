@@ -23,7 +23,11 @@ extends RefCounted
 const TEX_ROOT := "res://Assets/frontline/"
 const HALL_ROOT := "res://Assets/frontline/industrial_hall/"
 
+const ARCH_WEATHER_SHADER := preload("res://shaders/arch_weathering.gdshader")
+const ARCH_WEATHER_DOUBLE_SHADER := preload("res://shaders/arch_weathering_double.gdshader")
+
 static var _cache: Dictionary = {}
+static var _weather_cache: Dictionary = {}
 static var _detail_albedo_tex: Texture2D = null
 static var _detail_normal_tex: Texture2D = null
 static var _height_tex: Texture2D = null
@@ -265,3 +269,164 @@ static func _height_texture() -> Texture2D:
 	if ResourceLoader.exists(p):
 		_height_tex = load(p) as Texture2D
 	return _height_tex
+
+
+## Post-batching architectural weathering pass: swaps concrete, brick and
+## plaster StandardMaterial3D surfaces onto a lightweight ShaderMaterial that
+## adds bottom ~1.55 m grime/dampness near the ground and subtle panel variation
+## without breaking static batching or adding draw calls.
+static func apply_arch_weathering(root: Node3D, map_name: String,
+		height_tex: Texture2D = null, half_extent: float = 192.0,
+		flat_ground_y: float = 0.0, enable_grime: bool = true) -> int:
+	if root == null:
+		return 0
+	var count := 0
+	for node in root.find_children("*", "MeshInstance3D", true, false):
+		var mi := node as MeshInstance3D
+		if mi == null or mi.mesh == null or not mi.is_visible_in_tree():
+			continue
+		if mi.get_meta("no_batch", false):
+			continue
+		var names := String(mi.name).to_lower()
+		var pnames := String(mi.get_parent().name).to_lower() if mi.get_parent() != null else ""
+		var combined_names := names + " " + pnames
+		if _skip_arch_node(combined_names):
+			continue
+		var mat_override := mi.material_override
+		if mat_override is StandardMaterial3D:
+			var sm_ov := mat_override as StandardMaterial3D
+			var cat_ov := _classify_arch(sm_ov, combined_names)
+			if cat_ov != "":
+				var wmat_ov := _get_weather_mat(sm_ov, cat_ov, map_name, height_tex,
+						half_extent, flat_ground_y, enable_grime)
+				if wmat_ov != null:
+					mi.material_override = wmat_ov
+					count += 1
+					continue
+		for s in range(mi.mesh.get_surface_count()):
+			var src: Material = mi.get_surface_override_material(s)
+			if src == null:
+				src = mi.mesh.surface_get_material(s)
+			var sm := src as StandardMaterial3D
+			if sm == null:
+				continue
+			var cat := _classify_arch(sm, combined_names)
+			if cat == "":
+				continue
+			var wmat := _get_weather_mat(sm, cat, map_name, height_tex,
+					half_extent, flat_ground_y, enable_grime)
+			if wmat != null:
+				mi.set_surface_override_material(s, wmat)
+				count += 1
+	root.set_meta("gfx_arch_weathering", count)
+	return count
+
+
+static func _skip_arch_node(names: String) -> bool:
+	for w in ["terrain", "horizon", "mountain", "water", "river", "road",
+			"crater", "contactshadow", "tree", "leaf", "leaves", "grass",
+			"reed", "scrub", "bush", "weed", "tuft", "flower", "rubble",
+			"pebble", "debris", "crop", "soldier", "infantry", "drone",
+			"rotor", "vehicle", "tank", "apc", "truck", "smoke", "fire",
+			"cloud", "sky", "beacon", "ring", "gate", "target",
+			"train", "loco", "boxcar", "gondola", "rail"]:
+		if names.contains(String(w)):
+			return true
+	return false
+
+
+static func _classify_arch(sm: StandardMaterial3D, node_names: String) -> String:
+	if sm.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED or sm.emission_enabled:
+		return ""
+	if sm.metallic > 0.15 or sm.roughness < 0.68:
+		return ""
+	var tex_p := sm.albedo_texture.resource_path.to_lower() if sm.albedo_texture != null else ""
+	var rn := String(sm.resource_name).to_lower()
+	var key := tex_p + " " + rn + " " + node_names
+	for reject in ["grass", "dirt", "mud", "sand", "asphalt", "road", "roof",
+			"tile", "shingle", "wood", "timber", "steel", "metal", "iron",
+			"rust", "moss", "glass", "window", "glazing", "floor", "car",
+			"truck", "crate", "barrel", "tyre", "tire"]:
+		if key.contains(String(reject)):
+			return ""
+	if tex_p.contains("brick") or rn.contains("brick"):
+		return "brick"
+	if tex_p.contains("plaster") or tex_p.contains("stucco") or rn.contains("plaster"):
+		return "plaster"
+	if tex_p.contains("concrete") or tex_p.contains("wall") or tex_p.contains("cement"):
+		return "concrete"
+	for kw in ["concrete", "cement", "brick", "plaster", "stucco", "facade",
+			"wall", "bld", "building", "hall", "hangar", "bunker", "bridge",
+			"pillar", "tower", "office", "block", "factory", "annex",
+			"station", "terminal", "platform", "silo", "revetment"]:
+		if (rn + " " + node_names).contains(String(kw)):
+			return "concrete"
+	return ""
+
+
+static func _get_weather_mat(sm: StandardMaterial3D, cat: String, map_name: String,
+		height_tex: Texture2D, half_extent: float, flat_ground_y: float,
+		enable_grime: bool) -> ShaderMaterial:
+	var key := "%d|%s|%s|%d|%.1f" % [sm.get_instance_id(), map_name, cat,
+			1 if enable_grime else 0, flat_ground_y]
+	if _weather_cache.has(key):
+		return _weather_cache[key]
+	var sh := ARCH_WEATHER_DOUBLE_SHADER if sm.cull_mode == BaseMaterial3D.CULL_DISABLED \
+			else ARCH_WEATHER_SHADER
+	var mat := ShaderMaterial.new()
+	mat.shader = sh
+	mat.set_shader_parameter("albedo_color", sm.albedo_color)
+	mat.set_shader_parameter("has_albedo_tex", sm.albedo_texture != null)
+	if sm.albedo_texture != null:
+		mat.set_shader_parameter("albedo_tex", sm.albedo_texture)
+	var has_norm := sm.normal_enabled and sm.normal_texture != null
+	mat.set_shader_parameter("has_normal_tex", has_norm)
+	if has_norm:
+		mat.set_shader_parameter("normal_tex", sm.normal_texture)
+		mat.set_shader_parameter("normal_strength", sm.normal_scale)
+	var has_rough := sm.roughness_texture != null
+	mat.set_shader_parameter("has_rough_tex", has_rough)
+	if has_rough:
+		mat.set_shader_parameter("rough_tex", sm.roughness_texture)
+	var has_ao := sm.ao_enabled and sm.ao_texture != null
+	mat.set_shader_parameter("has_ao_tex", has_ao)
+	if has_ao:
+		mat.set_shader_parameter("ao_tex", sm.ao_texture)
+		mat.set_shader_parameter("ao_strength", clampf(sm.ao_light_affect, 0.35, 0.85))
+	mat.set_shader_parameter("use_triplanar", sm.uv1_triplanar or sm.uv1_world_triplanar)
+	mat.set_shader_parameter("use_vertex_color", sm.vertex_color_use_as_albedo)
+	mat.set_shader_parameter("uv_scale", maxf(sm.uv1_scale.x, 0.01))
+	mat.set_shader_parameter("roughness_base", clampf(sm.roughness, 0.25, 0.98))
+	mat.set_shader_parameter("metallic_base", clampf(sm.metallic, 0.0, 0.25))
+	mat.set_shader_parameter("specular_base", clampf(sm.metallic_specular, 0.1, 0.6))
+	mat.set_shader_parameter("use_heightmap", height_tex != null)
+	if height_tex != null:
+		mat.set_shader_parameter("terrain_height_tex", height_tex)
+	mat.set_shader_parameter("terrain_half_extent", half_extent)
+	mat.set_shader_parameter("flat_ground_y", flat_ground_y)
+	mat.set_shader_parameter("grime_height", 1.55)
+
+	var grime_col := Color(0.20, 0.18, 0.14)
+	var grime_str := 0.44 if cat != "plaster" else 0.36
+	var var_str := 0.12 if cat != "plaster" else 0.09
+	match map_name:
+		"steppe":
+			grime_col = Color(0.30, 0.25, 0.17)
+			grime_str = 0.44
+		"wetlands":
+			grime_col = Color(0.14, 0.17, 0.12)
+			grime_str = 0.54
+		"industrial":
+			grime_col = Color(0.15, 0.15, 0.14)
+			grime_str = 0.48
+		"city", "course":
+			grime_col = Color(0.24, 0.23, 0.21)
+			grime_str = 0.36
+			var_str = 0.09
+	if not enable_grime:
+		grime_str = 0.0
+	mat.set_shader_parameter("grime_color", Vector3(grime_col.r, grime_col.g, grime_col.b))
+	mat.set_shader_parameter("grime_strength", grime_str)
+	mat.set_shader_parameter("micro_var_strength", var_str)
+	_weather_cache[key] = mat
+	return mat

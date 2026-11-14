@@ -145,7 +145,7 @@ static func params() -> Dictionary:
 					"adaptive": true, "target_fps": mobile_target,
 					"grass_count": 2400, "grass_range": 24.0,
 					"veg_range": 850.0, "veg_density": 0.72, "mesh_lod": 1.25,
-					"shadow_distance": 110.0, "shadow_atlas": 1024,
+					"shadow_distance": 110.0, "shadow_atlas": 1536,
 					"ssao": false, "ssil": false, "volumetric_fog": false,
 					"glow": false, "fxaa": true}, true)
 			Level.HIGH:
@@ -271,13 +271,17 @@ static func _apply_static_sky(env: Environment) -> void:
 		env.sky.set_meta("lowspec_sky_backup", env.sky.sky_material)
 		env.sky.set_meta("lowspec_sky_process", env.sky.process_mode)
 		env.sky.set_meta("lowspec_sky_rot", env.sky_rotation)
+	env.background_mode = Environment.BG_SKY
 	env.sky.sky_material = mat
 	env.sky.process_mode = Sky.PROCESS_MODE_INCREMENTAL
 	env.sky_rotation.y = PI
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.58, 0.64, 0.72)
-	env.ambient_light_energy = 0.9
-	env.reflected_light_source = Environment.REFLECTION_SOURCE_BG
+	# Baked sky radiance ambient (0 SSAO/GI per-frame cost): shadows receive cool
+	# sky-dome blue instead of flat grey-blue, while metal & roofs reflect sky.
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	env.ambient_light_color = Color(0.46, 0.58, 0.78)
+	env.ambient_light_sky_contribution = 0.78
+	env.ambient_light_energy = 0.72
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 
 
 static func _restore_sky(env: Environment) -> void:
@@ -375,30 +379,35 @@ static func apply_sun(sun: DirectionalLight3D) -> void:
 	sun.shadow_enabled = p["shadows"]
 	# Slight bias/normal-bias kills the acne on the merged terrain without
 	# visible peter-panning at FPV distances.
-	sun.shadow_bias = 0.04
-	sun.shadow_normal_bias = 1.6
+	sun.shadow_bias = 0.09
+	sun.shadow_normal_bias = 2.0
+	var d := float(p["shadow_distance"])
+	sun.directional_shadow_max_distance = d
+	var cur_lvl := level()
+	# Focus peak shadow-atlas texel density on the near 0-28 m FPV flight corridor
+	# (24 m on LOW, 28 m on MEDIUM/HIGH) instead of stretching split_1 thinly.
+	var near_m := 24.0 if cur_lvl == Level.LOW else 28.0
+	var two_split_1 := clampf(near_m / maxf(d, 1.0), 0.16, 0.36)
 	match int(p["shadow_splits"]):
 		2:
 			sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
-			sun.directional_shadow_split_1 = 0.18
+			sun.directional_shadow_split_1 = two_split_1
 		_:
 			sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-	sun.directional_shadow_max_distance = p["shadow_distance"]
-	# FPV cascade profile: 0-12 m grass/props/payload, 12-60 m trenches and
-	# sandbags, 60-250 m tree line.  Beyond the cascade shadows are off and the
-	# height fog supplies the depth cue.
-	if level() == Level.HIGH:
-		var d := float(p["shadow_distance"])
+	# FPV cascade profile: 0-28 m near flight/obstacles/trees, mid range trenches
+	# and structures, outer falloff covered by contact shadows and height fog.
+	if cur_lvl == Level.HIGH:
 		if int(p["shadow_splits"]) >= 4:
-			sun.directional_shadow_split_1 = 12.0 / d
-			sun.directional_shadow_split_2 = 60.0 / d
-			sun.directional_shadow_split_3 = 250.0 / d
+			sun.directional_shadow_split_1 = clampf(16.0 / maxf(d, 1.0), 0.08, 0.25)
+			sun.directional_shadow_split_2 = clampf(60.0 / maxf(d, 1.0), 0.28, 0.55)
+			sun.directional_shadow_split_3 = clampf(140.0 / maxf(d, 1.0), 0.58, 0.88)
 		else:
-			sun.directional_shadow_split_1 = 0.22
+			sun.directional_shadow_split_1 = two_split_1
 		sun.directional_shadow_blend_splits = true
 		sun.shadow_blur = 0.85
 		sun.directional_shadow_fade_start = 0.85
 	else:
+		sun.directional_shadow_blend_splits = (cur_lvl == Level.MEDIUM)
 		sun.directional_shadow_fade_start = 0.8
 		sun.shadow_blur = 1.0
 

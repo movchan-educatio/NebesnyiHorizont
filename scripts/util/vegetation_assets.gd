@@ -66,9 +66,10 @@ static func leaf_material(pine: bool, tint: Color = Color.WHITE,
 	mat.set_shader_parameter("sway", 0.055)
 	mat.set_shader_parameter("gust", 0.026)
 	mat.set_shader_parameter("speed", 1.05)
-	mat.set_shader_parameter("mottle_strength", 0.30)
-	mat.set_shader_parameter("crown_ao", 0.28 if pine else 0.48)
-	mat.set_shader_parameter("leaf_detail", 0.32 if detail else 0.0)
+	mat.set_shader_parameter("mottle_strength", 0.28)
+	mat.set_shader_parameter("crown_ao", 0.40 if pine else 0.60)
+	mat.set_shader_parameter("backlight_strength", 0.32 if pine else 0.38)
+	mat.set_shader_parameter("leaf_detail", 0.34 if detail else 0.20)
 	return mat
 
 

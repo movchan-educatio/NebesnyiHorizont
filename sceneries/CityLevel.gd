@@ -72,6 +72,9 @@ func _on_city_spawn_ready(_xform: Transform3D) -> void:
 func _batch_city_static() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
+	var gmi := get_node_or_null("Ground/MeshInstance3D") as GeometryInstance3D
+	if gmi != null:
+		gmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var ft = load("res://scripts/util/frontline_terrain.gd")
 	if ft == null:
 		return
@@ -79,6 +82,10 @@ func _batch_city_static() -> void:
 	if city != null:
 		ft.prepare_city(city)
 		ft.batch_static_fast(city)
+		if not OS.has_environment("QA_NO_MATERIAL_UPGRADE"):
+			var upgrader = load("res://scripts/util/material_upgrader.gd")
+			if upgrader != null:
+				upgrader.apply_arch_weathering(city, "city", null, 300.0, 0.0, true)
 
 
 func _place_drone_at_respawn() -> void:

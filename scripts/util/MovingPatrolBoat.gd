@@ -68,10 +68,13 @@ static func create_patrol_boat(wps: Array[Vector3], water_y: float, yaw: float =
 	var script: GDScript = load("res://scripts/util/MovingPatrolBoat.gd") as GDScript
 	var root: Node3D = script.new() as Node3D
 	root.name = "MovingPatrolBoat"
-	root.waypoints = wps
+	var clamped_wps: Array[Vector3] = []
+	for wp in wps:
+		clamped_wps.append(Vector3(clampf(wp.x, -178.0, 178.0), wp.y, clampf(wp.z, -178.0, 178.0)))
+	root.waypoints = clamped_wps
 	root.water_level_y = water_y
-	if not wps.is_empty():
-		root.position = wps[0]
+	if not clamped_wps.is_empty():
+		root.position = clamped_wps[0]
 	root.rotation.y = yaw
 
 	var FT = load("res://scripts/util/frontline_terrain.gd")

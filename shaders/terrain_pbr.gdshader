@@ -88,6 +88,9 @@ void fragment() {
 	float macro = COLOR.r;
 	float grain = COLOR.g;
 	float slope = clamp(max(1.0 - v_world_normal.y, COLOR.b), 0.0, 1.0);
+	float ao_baked = COLOR.a;
+	float cavity = clamp((0.92 - ao_baked) / 0.70, 0.0, 1.0);
+	float ridge = clamp((ao_baked - 0.92) / 0.08, 0.0, 1.0);
 	float broad = fbm2(macro_uv * 3.0);
 	float fine = fbm2(vec2(v_world.x + v_world.z * 0.7, v_world.z - v_world.x * 0.35) * 0.55);
 	float view_dist = length(v_world - CAMERA_POSITION_WORLD);
@@ -131,10 +134,15 @@ void fragment() {
 	albedo *= macro_lum * micro_lum * hue_mod;
 
 	// Wet ground is darker and slightly more saturated, like real marsh mud.
-	float wet = clamp(mud_w * 1.5 + (1.0 - smoothstep(wet_height, wet_height + 1.2, v_world.y)) * mud_amount, 0.0, 1.0);
-	albedo *= mix(1.0, 0.62, wet);
+	float lowland = 1.0 - smoothstep(wet_height - 0.4, wet_height + 2.6, v_world.y);
+	float wet = clamp(mud_w * 1.45 + lowland * (0.45 + cavity * 0.75) * mud_amount, 0.0, 1.0);
+	albedo *= mix(1.0, 0.60, wet);
+	albedo = mix(albedo, albedo * vec3(0.84, 0.80, 0.76), cavity * 0.50);
+	albedo *= mix(1.0, 0.58, cavity) * (1.0 + ridge * 0.05);
 
 	ALBEDO = albedo;
+	AO = clamp(mix(1.0, 0.34, cavity), 0.22, 1.0);
+	AO_LIGHT_AFFECT = 0.65;
 
 	// ---- normals -----------------------------------------------------------
 	float detail_fade = 1.0 - smoothstep(120.0, 700.0, view_dist);
@@ -156,8 +164,8 @@ void fragment() {
 	rough += (fine - 0.5) * 0.08;
 	// Dynamic micro-roughness derived from surface luminance for crisp tactile depth
 	float tex_luma = dot(albedo, vec3(0.299, 0.587, 0.114));
-	rough = clamp(rough + (tex_luma - 0.48) * 0.28, 0.18, 0.98);
-	ROUGHNESS = clamp(mix(rough, 0.16, wet * 0.85), 0.0, 1.0);
-	SPECULAR = mix(0.40, 0.82, wet);
+	rough = clamp(rough + (tex_luma - 0.48) * 0.28 - cavity * 0.08, 0.18, 0.98);
+	ROUGHNESS = clamp(mix(rough, 0.15, wet * 0.86), 0.12, 1.0);
+	SPECULAR = mix(0.40, 0.85, wet);
 	METALLIC = 0.0;
 }

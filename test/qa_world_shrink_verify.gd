@@ -161,6 +161,42 @@ func _verify_frontline_combat_map(scene_path: String, map_name: String, campaign
 			_check(ft.get_node_or_null(legacy_bg) == null,
 					"%s legacy dark horizon box %s removed" % [map_name, legacy_bg])
 
+		# Photoreal mobile graphics checks: baked COLOR.a AO, ContactShadows MultiMesh, depth-free water
+		var cs_mm := ft.get_node_or_null("ContactShadows") as MultiMeshInstance3D
+		_check(cs_mm != null and cs_mm.multimesh != null and cs_mm.multimesh.instance_count > 10 \
+				and _node_is_shadowless(cs_mm),
+				"%s ContactShadows MultiMesh present (%d instances) & shadowless" % [map_name, cs_mm.multimesh.instance_count if cs_mm and cs_mm.multimesh else 0])
+		_check(ft.find_children("ContactShadow_*", "MeshInstance3D", true, false).is_empty(),
+				"%s has 0 unbatched ContactShadow_* nodes" % map_name)
+		var ao_min := 2.0
+		var ao_max := -1.0
+		var ao_meshes := 0
+		for tm in ft.find_children("*", "MeshInstance3D", true, false):
+			var tmi := tm as MeshInstance3D
+			if tmi == null or tmi.mesh == null or tmi.mesh.get_surface_count() == 0:
+				continue
+			var tmat := tmi.get_active_material(0) as ShaderMaterial
+			if tmat != null and tmat.shader != null and (
+					tmat.shader.resource_path.ends_with("terrain_pbr_lite.gdshader")
+					or tmat.shader.resource_path.ends_with("terrain_pbr.gdshader")):
+				var tarrs := tmi.mesh.surface_get_arrays(0)
+				if tarrs.size() > Mesh.ARRAY_COLOR and tarrs[Mesh.ARRAY_COLOR] is PackedColorArray:
+					ao_meshes += 1
+					for col in (tarrs[Mesh.ARRAY_COLOR] as PackedColorArray):
+						ao_min = minf(ao_min, col.a)
+						ao_max = maxf(ao_max, col.a)
+		_check(ao_meshes > 0 and ao_min < 0.85 and ao_max >= 0.90,
+				"%s baked terrain COLOR.a AO spans [%.2f..%.2f]" % [map_name, ao_min, ao_max])
+		if map_name in ["village", "industrial", "wetlands"]:
+			var wnode := ft.get_node_or_null("Water") as MeshInstance3D
+			if wnode == null:
+				wnode = ft.get_node_or_null("RiverWater") as MeshInstance3D
+			var w_ok := wnode != null and _node_is_shadowless(wnode) and wnode.mesh != null
+			if w_ok and wnode.mesh.get_surface_count() > 0:
+				var warrs := wnode.mesh.surface_get_arrays(0)
+				w_ok = warrs.size() > Mesh.ARRAY_COLOR and warrs[Mesh.ARRAY_COLOR] is PackedColorArray
+			_check(w_ok, "%s water mesh shadowless with baked vertex depth ARRAY_COLOR" % map_name)
+
 		var reserved: Array = FT.get_reserved_structures(ft)
 		var res_in_bounds := true
 		var min_corridor := 9999.0
