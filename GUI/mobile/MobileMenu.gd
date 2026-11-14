@@ -859,6 +859,11 @@ func _show(name: String) -> void:
 		_top_brand.visible = (name != "main")
 	if name == "play" and _maps_row != null:
 		_update_map_cards(_maps_row)
+	if name == "drone":
+		if _hangar_preview_idx != Global.drone_preset:
+			_hangar_preview_idx = Global.drone_preset
+			_load_hangar_model(_hangar_preview_idx)
+		_update_hangar_list_styles()
 	_screen_scrim.color = Color(0.015, 0.045, 0.035, 0.10 if name == "main" else 0.22)
 	_update_status()
 
@@ -1260,18 +1265,20 @@ func _load_hero_model(preset_idx: int) -> void:
 	var is_vtol: bool = str(p.get("name", "")).contains("VTOL") or str(p.get("tag", "")).contains("VTOL")
 	var target_sz: float = 0.46 if is_vtol else 0.52
 	_update_hero_drone_info(preset_idx)
-	# Load the scene on the worker thread first; keep the old drone visible
-	# while it happens so the UI never freezes on Next/Previous.
-	await DroneCatalog.wait_for_model(preset_idx)
-	if token != _hero_load_token:
-		return
 	for child in _hero_holder.get_children():
 		_hero_holder.remove_child(child)
 		child.queue_free()
+	await DroneCatalog.wait_for_model(preset_idx)
+	if token != _hero_load_token:
+		return
 	var model: Node3D = DroneCatalog.attach_model(_hero_holder, preset_idx)
 	if model == null:
 		_fit_hero_camera()
 		return
+	model.set_meta("preset_idx", preset_idx)
+	# Hide during the two-frame transform settle so full-scale 2m–2.8m planes
+	# never flash visibly over the pedestal before fit_preview_model scales them.
+	model.visible = false
 	# Let the imported prop/motor children enter the tree and update their
 	# global transforms before measuring the bounds.  Measuring on the same
 	# frame occasionally produced an origin-space AABB and a tiny drone.
@@ -1283,6 +1290,7 @@ func _load_hero_model(preset_idx: int) -> void:
 	MenuUI.fit_preview_model(model, target_sz, -0.205)
 	_ensure_preview_scale(_hero_holder, model, target_sz, -0.205)
 	_fit_hero_camera()
+	model.visible = true
 
 
 func _fit_hero_camera() -> void:
@@ -2477,16 +2485,20 @@ func _load_hangar_model(preset_idx: int) -> void:
 	var is_vtol: bool = str(p.get("name", "")).contains("VTOL") or str(p.get("tag", "")).contains("VTOL")
 	var target_sz: float = 0.46 if is_vtol else 0.52
 	_update_hangar_info(preset_idx)
-	await DroneCatalog.wait_for_model(preset_idx)
-	if token != _hangar_load_token:
-		return
 	for child in _hangar_holder.get_children():
 		_hangar_holder.remove_child(child)
 		child.queue_free()
+	await DroneCatalog.wait_for_model(preset_idx)
+	if token != _hangar_load_token:
+		return
 	var model: Node3D = DroneCatalog.attach_model(_hangar_holder, preset_idx)
 	if model == null:
 		_fit_hangar_camera()
 		return
+	model.set_meta("preset_idx", preset_idx)
+	# Hide during the two-frame settle so unscaled aircraft never flash over
+	# the pedestal before MenuUI.fit_preview_model fits them to target_sz.
+	model.visible = false
 	# Same two-frame settle as the hero podium.  Without it the first drone
 	# opened in the hangar could be a speck until Next/Previous reloaded it.
 	await get_tree().process_frame
@@ -2497,6 +2509,7 @@ func _load_hangar_model(preset_idx: int) -> void:
 	MenuUI.fit_preview_model(model, target_sz, -0.1775)
 	_ensure_preview_scale(_hangar_holder, model, target_sz, -0.1775)
 	_fit_hangar_camera()
+	model.visible = true
 
 
 func _fit_hangar_camera() -> void:

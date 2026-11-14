@@ -54,7 +54,7 @@ const PRESETS := [
 		"drag_area": Vector3(0.032, 0.035, 0.020),
 		"model": "res://Assets/Drones/ua_norm/grim7.glb",
 		"model_size": 0.391, "model_fit": false,
-		"fpv_cam_pos": Vector3(0.0, 0.026, -0.145), "fpv_cam_pitch": -14.0,
+		"fpv_cam_pos": Vector3(-0.0146, 0.007, -0.095), "fpv_cam_pitch": -14.0,
 	},
 	{
 		"id": "grim7m",
@@ -84,7 +84,7 @@ const PRESETS := [
 		"drag_area": Vector3(0.030, 0.032, 0.018),
 		"model": "res://Assets/Drones/ua_norm/grim7m.glb",
 		"model_size": 0.420, "model_fit": false,
-		"fpv_cam_pos": Vector3(0.0, 0.028, -0.165), "fpv_cam_pitch": -14.0,
+		"fpv_cam_pos": Vector3(0.0, 0.002, -0.120), "fpv_cam_pitch": -14.0,
 	},
 	{
 		"id": "strila8",
@@ -113,7 +113,7 @@ const PRESETS := [
 		"drag_area": Vector3(0.034, 0.038, 0.022),
 		"model": "res://Assets/Drones/ua_norm/strila8.glb",
 		"model_size": 0.376, "model_fit": false,
-		"fpv_cam_pos": Vector3(0.0, 0.034, -0.155), "fpv_cam_pitch": -10.0,
+		"fpv_cam_pos": Vector3(0.0, 0.004, -0.053), "fpv_cam_pitch": -10.0,
 	},
 	{
 		"id": "quad5",
@@ -170,7 +170,7 @@ const PRESETS := [
 		"model": "res://Assets/Drones/ua_norm/pisun_vtol.glb",
 		"model_size": 0.450, "model_fit": false,
 		"model_pitch": 0.0,
-		"fpv_cam_pos": Vector3(0.0, 0.115, -0.160), "fpv_cam_pitch": -12.0,
+		"fpv_cam_pos": Vector3(0.0, 0.088, -0.060), "fpv_cam_pitch": -12.0,
 	},
 	{
 		"id": "military_fpv",
@@ -199,7 +199,7 @@ const PRESETS := [
 		"drag_area": Vector3(0.050, 0.060, 0.035),
 		"model": "res://Assets/Drones/ua_norm/strila8.glb",
 		"model_size": 0.450, "model_fit": false,
-		"fpv_cam_pos": Vector3(0.0, 0.040, -0.185), "fpv_cam_pitch": -14.0,
+		"fpv_cam_pos": Vector3(0.0, 0.004, -0.090), "fpv_cam_pitch": -14.0,
 	},
 	{
 		"id": "baba_yaga",

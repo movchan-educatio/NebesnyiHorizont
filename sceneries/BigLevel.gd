@@ -365,7 +365,6 @@ func _ready() -> void:
 	if preset_drone != null:
 		DroneCatalog.apply_to_drone(preset_drone, Global.drone_preset)
 		_model_root = preset_drone.get_node_or_null("DroneModel") as Node3D
-	_refresh_model_visibility()
 
 	var cam := get_node_or_null("Drone/FPVCamera") as Camera3D
 	if cam != null:
@@ -5022,10 +5021,8 @@ func _setup_recon_view() -> void:
 
 
 func _attach_fpv_rig() -> void:
-	# Rebuilds the procedural lower-frame FPV combat rig (warhead nose + wire
-	# contact whiskers) attached directly to FPVCamera so it frames consistently
-	# in first-person regardless of model mesh variation, alongside the GLB
-	# DroneModel used for third-person / recon aircraft.
+	# Uses the real 3D drone model (DroneModel GLB in res://Assets/Drones/ua_norm/)
+	# instead of procedurally generating cylinders or wires.
 	var cam := get_node_or_null("Drone/FPVCamera") as Camera3D
 	if cam != null:
 		var old := cam.get_node_or_null("FPVRig")
@@ -5035,6 +5032,7 @@ func _attach_fpv_rig() -> void:
 	var drone := get_node_or_null("Drone")
 	if drone != null:
 		_model_root = drone.get_node_or_null("DroneModel") as Node3D
+	_fpv_rig = _model_root
 	var p := DroneCatalog.preset(Global.drone_preset)
 	_heavy_bomber = bool(p.get("heavy_bomber", false))
 	_payload_ammo_left = int(p.get("payload", 0))
@@ -5048,13 +5046,6 @@ func _attach_fpv_rig() -> void:
 				_bomb_nodes.append(child as Node3D)
 	var is_combat: bool = bool(p.get("combat", false))
 	_payload_enabled = is_combat and DroneCatalog.supports_payload_actions(Global.drone_preset)
-	var show_cam_rig := is_combat \
-			and not bool(p.get("fpv_show_airframe", false)) \
-			and not _heavy_bomber
-	if cam != null and show_cam_rig:
-		_fpv_rig = _build_fpv_rig_node(cam)
-	else:
-		_fpv_rig = _model_root
 	if not _payload_enabled:
 		_fpv_payload = null
 
@@ -5065,141 +5056,6 @@ func _attach_fpv_rig() -> void:
 			mode_label.visible = false
 	_rig_visible = bool(GameSettings.hud_config.get("fpv_rig", true)) if GameSettings != null else true
 	_apply_fpv_rig()
-
-
-func _add_rig_segment(parent: Node3D, p0: Vector3, p1: Vector3, radius: float,
-		mat: StandardMaterial3D) -> void:
-	var diff := p1 - p0
-	var length := diff.length()
-	if length < 0.0005:
-		return
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = radius
-	mesh.bottom_radius = radius
-	mesh.height = length
-	mesh.radial_segments = 8
-	mesh.rings = 1
-	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
-	mi.material_override = mat
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var y_ax := diff / length
-	var ref := Vector3.FORWARD if absf(y_ax.dot(Vector3.FORWARD)) < 0.94 else Vector3.RIGHT
-	var x_ax := y_ax.cross(ref).normalized()
-	var z_ax := x_ax.cross(y_ax).normalized()
-	mi.basis = Basis(x_ax, y_ax, z_ax)
-	mi.position = (p0 + p1) * 0.5
-	parent.add_child(mi)
-
-
-func _build_fpv_rig_node(cam: Camera3D) -> Node3D:
-	var rig := Node3D.new()
-	rig.name = "FPVRig"
-	cam.add_child(rig)
-
-	var warhead_mat := StandardMaterial3D.new()
-	warhead_mat.albedo_color = Color(0.52, 0.50, 0.41)
-	warhead_mat.roughness = 0.62
-	warhead_mat.metallic = 0.22
-
-	var tape_mat := StandardMaterial3D.new()
-	tape_mat.albedo_color = Color(0.32, 0.34, 0.36)
-	tape_mat.roughness = 0.45
-	tape_mat.metallic = 0.50
-
-	var steel_mat := StandardMaterial3D.new()
-	steel_mat.albedo_color = Color(0.22, 0.23, 0.25)
-	steel_mat.roughness = 0.34
-	steel_mat.metallic = 0.85
-
-	var wire_mat := StandardMaterial3D.new()
-	wire_mat.albedo_color = Color(0.76, 0.79, 0.82)
-	wire_mat.roughness = 0.26
-	wire_mat.metallic = 0.88
-
-	# Central warhead ogive poking cleanly into the lower ~22% of frame.
-	var warhead := Node3D.new()
-	warhead.name = "WarheadNose"
-	warhead.position = Vector3(0.0, -0.34, -0.28)
-	warhead.rotation_degrees = Vector3(24.0, 0.0, 0.0)
-	rig.add_child(warhead)
-
-	var body := MeshInstance3D.new()
-	var body_mesh := CylinderMesh.new()
-	body_mesh.top_radius = 0.044
-	body_mesh.bottom_radius = 0.048
-	body_mesh.height = 0.22
-	body_mesh.radial_segments = 16
-	body.mesh = body_mesh
-	body.material_override = warhead_mat
-	body.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	warhead.add_child(body)
-
-	var tape := MeshInstance3D.new()
-	var tape_mesh := CylinderMesh.new()
-	tape_mesh.top_radius = 0.049
-	tape_mesh.bottom_radius = 0.050
-	tape_mesh.height = 0.046
-	tape_mesh.radial_segments = 16
-	tape.mesh = tape_mesh
-	tape.material_override = tape_mat
-	tape.position = Vector3(0.0, -0.025, 0.0)
-	tape.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	warhead.add_child(tape)
-
-	var dome := MeshInstance3D.new()
-	var dome_mesh := SphereMesh.new()
-	dome_mesh.radius = 0.044
-	dome_mesh.height = 0.082
-	dome_mesh.radial_segments = 16
-	dome_mesh.rings = 8
-	dome.mesh = dome_mesh
-	dome.material_override = warhead_mat
-	dome.position = Vector3(0.0, 0.105, 0.0)
-	dome.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	warhead.add_child(dome)
-
-	var fuze := MeshInstance3D.new()
-	var fuze_mesh := CylinderMesh.new()
-	fuze_mesh.top_radius = 0.011
-	fuze_mesh.bottom_radius = 0.015
-	fuze_mesh.height = 0.036
-	fuze_mesh.radial_segments = 12
-	fuze.mesh = fuze_mesh
-	fuze.material_override = steel_mat
-	fuze.position = Vector3(0.0, 0.152, 0.0)
-	fuze.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	warhead.add_child(fuze)
-
-	# Dual symmetric wire contact whiskers with spring coils at lower edges.
-	for side in [-1.0, 1.0]:
-		var sx: float = float(side)
-		for ring_i in range(4):
-			var torus := MeshInstance3D.new()
-			var t_mesh := TorusMesh.new()
-			t_mesh.inner_radius = 0.0075
-			t_mesh.outer_radius = 0.0115
-			t_mesh.rings = 10
-			t_mesh.ring_segments = 6
-			torus.mesh = t_mesh
-			torus.material_override = wire_mat
-			torus.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			torus.position = Vector3(sx * (0.056 + float(ring_i) * 0.008),
-					-0.34 + float(ring_i) * 0.006, -0.275)
-			torus.rotation_degrees = Vector3(14.0, sx * 12.0, sx * 54.0)
-			rig.add_child(torus)
-
-		var pts := [
-			Vector3(sx * 0.056, -0.34, -0.275),
-			Vector3(sx * 0.115, -0.295, -0.285),
-			Vector3(sx * 0.190, -0.240, -0.295),
-			Vector3(sx * 0.258, -0.192, -0.290),
-			Vector3(sx * 0.305, -0.172, -0.280),
-		]
-		for i in range(pts.size() - 1):
-			_add_rig_segment(rig, pts[i], pts[i + 1], 0.0028, wire_mat)
-
-	return rig
 
 
 func _on_hud_config_rig_updated() -> void:
@@ -5801,14 +5657,7 @@ func _apply_fpv_rig() -> void:
 		var root := drone.get_node_or_null("DroneModel") as Node3D
 		if root != null:
 			_model_root = root
-	var cam := get_node_or_null("Drone/FPVCamera") as Camera3D
-	var cam_rig := cam.get_node_or_null("FPVRig") as Node3D if cam != null else null
-	if cam_rig != null:
-		_fpv_rig = cam_rig
-	elif _model_root != null:
-		_fpv_rig = _model_root
-	if _fpv_rig != null and is_instance_valid(_fpv_rig):
-		_fpv_rig.visible = _rig_visible
+			_fpv_rig = root
 	_refresh_model_visibility()
 
 
@@ -7168,17 +7017,10 @@ func _update_wind_simulation(delta: float) -> void:
 
 
 func _refresh_model_visibility() -> void:
-	var cam_rig_root := get_node_or_null("Drone/FPVCamera") as Camera3D
-	var cam_rig := cam_rig_root.get_node_or_null("FPVRig") as Node3D if cam_rig_root != null else null
-	var drone_for_rig := get_node_or_null("Drone") as Node3D
-	var third_person := camera != null and camera.name != "FPVCamera"
-	if cam_rig != null and is_instance_valid(cam_rig):
-		var drone_alive := drone_for_rig == null or drone_for_rig.visible
-		var kc_on := _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active()
-		cam_rig.visible = _rig_visible and (not third_person) and drone_alive and not kc_on
 	if _model_root == null or not is_instance_valid(_model_root):
 		return
 	var p := DroneCatalog.preset(Global.drone_preset)
+	var third_person := camera != null and camera.name != "FPVCamera"
 	if not third_person:
 		# Combat airframes show the warhead at the bottom edge with the camera
 		# lifted just above the frame so the body no longer fills the centre.
@@ -7192,14 +7034,14 @@ func _refresh_model_visibility() -> void:
 		# still simulated, the CCIP sight and AMMO counter carry the cue.
 		if bool(p.get("heavy_bomber", false)):
 			hide_model = true
-		_model_root.visible = _rig_visible and (combat_airframe or show_airframe) and not hide_model
+		_model_root.visible = ((combat_airframe and _rig_visible) or show_airframe) and not hide_model
 		# Mobile attitude-reference props were removed: at 110° FOV the front
 		# blades were visibly cut off at the screen edges, which read as a
 		# rendering bug.  Keep the clean lens instead.
 		var mobile_front_props := false
 		if mobile_front_props and _rig_visible:
 			_model_root.visible = true
-		_apply_combat_fpv_camera(combat_airframe and not show_airframe and not hide_model, p)
+		_apply_combat_fpv_camera(combat_airframe and _rig_visible and not show_airframe and not hide_model, p)
 		if show_airframe:
 			# Recon/loitering fixed-wing aircraft need enough body in frame for
 			# orientation. Hide the close-up camera gimbal itself, which otherwise

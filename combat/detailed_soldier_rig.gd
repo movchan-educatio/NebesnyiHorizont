@@ -198,10 +198,17 @@ func _build_rifle_prop() -> void:
 ## cheap box-built carbine gives the rig a real weapon to aim, sway, kick and
 ## drop: six primitives, one shared material, plus the muzzle marker.
 func _build_procedural_rifle() -> void:
+	var grip_pos := Vector3(0.303, 1.235, -0.090)
+	var b_r_hand := _bone("Bip01 R Hand")
+	if skeleton != null and b_r_hand >= 0:
+		skeleton.force_update_all_bone_transforms()
+		grip_pos = to_local(skeleton.to_global(skeleton.get_bone_global_pose(b_r_hand).origin))
 	rifle_pivot = Node3D.new()
 	rifle_pivot.name = "RiflePivot"
-	rifle_pivot.position = Vector3(-0.02, 1.33, -0.45)
-	_rifle_basis = _make_rifle_basis()
+	# Place RifleGrip (local (0, -0.08, -0.015)) right in the trigger hand bone.
+	rifle_pivot.position = grip_pos + Vector3(0.0, 0.08, 0.015)
+	# Procedural carbine parts already use local -Z forward and +Y up.
+	_rifle_basis = Basis.IDENTITY
 	rifle_pivot.basis = _rifle_basis
 	add_child(rifle_pivot)
 	_rifle_rest = rifle_pivot.position

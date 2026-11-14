@@ -61,18 +61,21 @@ func _run() -> void:
 		_check(cam != null and cam.get_node_or_null("AirflowParticles") == null,
 				"AirflowParticles removed from FPVCamera")
 
-		# Bug #7: Procedural FPVRig (warhead + whiskers) attached and toggleable via hud_config['fpv_rig'].
-		var rig := cam.get_node_or_null("FPVRig") as Node3D if cam != null else null
-		_check(rig != null and rig.get_node_or_null("WarheadNose") != null and rig.visible,
-				"FPVRig warhead+whiskers attached and visible by default")
+		# Bug #7: Authentic per-drone GLB FPVRig (_fpv_rig == _model_root, no procedural FPVRig) toggleable via fpv_rig.
+		var model_root := lvl.get("_model_root") as Node3D
+		var fpv_rig := lvl.get("_fpv_rig") as Node3D
+		_check(cam != null and cam.get_node_or_null("FPVRig") == null,
+				"No procedural FPVRig node on FPVCamera")
+		_check(model_root != null and fpv_rig == model_root and model_root.visible,
+				"Authentic GLB DroneModel used as _fpv_rig and visible when fpv_rig=true")
 		GameSettings.hud_config["fpv_rig"] = false
 		GameSettings.hud_config_updated.emit()
 		await get_tree().process_frame
-		_check(rig != null and not rig.visible, "FPVRig hides when fpv_rig=false")
+		_check(model_root != null and not model_root.visible, "DroneModel obvis hides when fpv_rig=false")
 		GameSettings.hud_config["fpv_rig"] = true
 		GameSettings.hud_config_updated.emit()
 		await get_tree().process_frame
-		_check(rig != null and rig.visible, "FPVRig shows again when fpv_rig=true")
+		_check(model_root != null and model_root.visible, "DroneModel obvis shows again when fpv_rig=true")
 
 		# Bug #2: TouchControls Menu button sits cleanly below HUD text (TelemetryLeftRow / MissionBadgeRow).
 		TouchControls.set_enabled(true)
@@ -193,15 +196,87 @@ func _run() -> void:
 		lvl.queue_free()
 		await get_tree().process_frame
 
-	# Bug #9: Verify all kept drone preset models + all level scenes load after exclusions.
+	# Bug #10: Hangar & Hero hide newly attached giant models until fit_preview_model scales them.
+	if mm_packed != null:
+		var mm := mm_packed.instantiate()
+		get_tree().root.add_child(mm)
+		mm.call("show_drone")
+		var leleka_idx := -1
+		for i in range(DroneCatalog.count()):
+			if str(DroneCatalog.preset(i).get("id", "")) == "leleka100":
+				leleka_idx = i
+				break
+		if leleka_idx >= 0:
+			mm.set("_hangar_preview_idx", leleka_idx)
+			mm.call("_load_hangar_model", leleka_idx)
+			var hangar_holder := mm.get("_hangar_holder") as Node3D
+			var model_attached_hidden := false
+			var saw_unscaled_visible := false
+			for _f in range(90):
+				await get_tree().process_frame
+				if hangar_holder != null and hangar_holder.get_child_count() > 0:
+					var m := hangar_holder.get_child(0) as Node3D
+					if m != null:
+						if not m.visible:
+							model_attached_hidden = true
+						else:
+							var box: AABB = mm.call("_combined_bounds", hangar_holder)
+							var max_d := maxf(box.size.x, maxf(box.size.y, box.size.z))
+							if max_d > 0.70:
+								saw_unscaled_visible = true
+							else:
+								break
+			_check(model_attached_hidden or not saw_unscaled_visible,
+					"Leleka-100 never appears unscaled (>0.70m) in Hangar")
+			var final_box: AABB = mm.call("_combined_bounds", hangar_holder)
+			var final_max := maxf(final_box.size.x, maxf(final_box.size.y, final_box.size.z))
+			_check(final_max > 0.20 and final_max <= 0.70,
+					"Hangar Leleka-100 scaled cleanly to pedestal size (max_dim=%.3f)" % final_max)
+		mm.queue_free()
+		await get_tree().process_frame
+
+	# Bug #9: Real per-drone GLB rigs load across presets; verify all kept drone preset models & level scenes load cleanly.
+	# AND verify none of their transitive ResourceLoader dependencies match export_presets.cfg exclude_filter.
 	var models_ok := true
+	var check_roots: Array[String] = [
+		"res://GUI/mobile/MobileMenu.tscn",
+		"res://sceneries/BigLevel.tscn",
+		"res://sceneries/VillageLevel.tscn",
+		"res://sceneries/SteppeLevel.tscn",
+		"res://sceneries/IndustrialLevel.tscn",
+		"res://sceneries/WetlandsLevel.tscn",
+		"res://sceneries/CityLevel.tscn",
+		"res://sceneries/CourseLevel.tscn",
+		"res://Assets/combat/soldier_detailed_merged.glb",
+		"res://Assets/combat/rifleman.glb",
+		"res://Assets/vehicles/low_poly_t-72_tank_-_game_ready.glb",
+		"res://Assets/vehicles/low-poly_bmp-2m.glb",
+		"res://Assets/vehicles/btr-90_ussr.glb",
+		"res://Assets/vehicles/gaz_tigr_low_poly.glb",
+		"res://Assets/vehicles/apache_hecu_half-life.glb",
+		"res://Assets/vehicles/apache_hecu_half-life_mobile.glb",
+		"res://Assets/Drones/shahed-136.glb",
+		"res://Assets/Drones/ua_norm/radiomaster_tx12.glb",
+		"res://Assets/Drones/ua_norm/radiomaster_tx12_rig.glb",
+		"res://Assets/handcrafted/factory_complex.glb",
+		"res://Assets/handcrafted/farm_complex.glb",
+		"res://Assets/handcrafted/freight_train.glb",
+		"res://Assets/handcrafted/village_house.glb",
+		"res://Assets/handcrafted/wetlands_dock.glb",
+	]
 	for i in range(DroneCatalog.PRESETS.size()):
 		var p := DroneCatalog.preset(i)
 		var mpath := str(p.get("model", ""))
-		if not mpath.is_empty() and load(mpath) == null:
-			models_ok = false
-			print("[", TEST_NAME, "] FAIL missing preset model: ", mpath)
+		if not mpath.is_empty():
+			if load(mpath) == null:
+				models_ok = false
+				print("[", TEST_NAME, "] FAIL missing preset model: ", mpath)
+			check_roots.append(mpath)
+			var mob_path := mpath.trim_suffix(".glb") + "_mobile.glb"
+			if ResourceLoader.exists(mob_path):
+				check_roots.append(mob_path)
 	_check(models_ok, "All DroneCatalog preset GLB models load cleanly")
+	_verify_export_dependencies(check_roots)
 
 	for spath in [
 		"res://sceneries/BigLevel.tscn",
@@ -226,3 +301,52 @@ func _run() -> void:
 	Global.special_mission = saved_sp
 	print("[", TEST_NAME, "] failures=", _failures)
 	get_tree().quit(0 if _failures == 0 else 1)
+
+
+func _verify_export_dependencies(roots: Array[String]) -> void:
+	var raw_cfg := FileAccess.open("res://export_presets.cfg", FileAccess.READ)
+	var has_bom := false
+	if raw_cfg != null:
+		has_bom = raw_cfg.get_8() == 0xEF and raw_cfg.get_8() == 0xBB and raw_cfg.get_8() == 0xBF
+		raw_cfg.close()
+	_check(not has_bom, "export_presets.cfg has no UTF-8 BOM")
+	var cfg := ConfigFile.new()
+	var err := cfg.load("res://export_presets.cfg")
+	_check(err == OK, "export_presets.cfg parses as ConfigFile")
+	if err != OK:
+		return
+	var exclude_raw := str(cfg.get_value("preset.0", "exclude_filter", ""))
+	var pats := PackedStringArray()
+	for tok in exclude_raw.split(","):
+		var t := tok.strip_edges()
+		if t != "":
+			pats.append(t)
+
+	var visited: Dictionary = {}
+	var queue: Array[String] = roots.duplicate()
+	while queue.size() > 0:
+		var cur: String = queue.pop_front()
+		if visited.has(cur):
+			continue
+		visited[cur] = true
+		if ResourceLoader.exists(cur):
+			for dep in ResourceLoader.get_dependencies(cur):
+				var parts := String(dep).split("::::")
+				var dp := parts[-1]
+				if dp.begins_with("res://") and not visited.has(dp):
+					queue.append(dp)
+
+	var excluded_deps: Array[String] = []
+	for p in visited.keys():
+		var s := String(p)
+		if not s.begins_with("res://Assets/"):
+			continue
+		var rel := s.trim_prefix("res://")
+		for pat in pats:
+			if rel.matchn(pat) or (pat.ends_with("/**") and rel.begins_with(pat.trim_suffix("/**") + "/")) or (pat.ends_with("/*") and rel.begins_with(pat.trim_suffix("/*") + "/")):
+				excluded_deps.append(rel + " <- " + pat)
+				break
+	if excluded_deps.size() > 0:
+		print("[", TEST_NAME, "] EXCLUDED_DEPS sample: ", excluded_deps.slice(0, 10))
+	_check(excluded_deps.is_empty(),
+			"Zero transitive Assets/ dependencies excluded by export_presets.cfg (found=%d)" % excluded_deps.size())
