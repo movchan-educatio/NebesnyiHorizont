@@ -280,9 +280,7 @@ func _make_row(index: int) -> Control:
 	var title_row := HBoxContainer.new()
 	title_row.add_theme_constant_override("separation", 8)
 	info.add_child(title_row)
-	var display_name := str(p["name"])
-	if MenuUI.is_english():
-		display_name = str(p.get("name_en", MenuUI.translate_text(display_name)))
+	var display_name := DroneCatalog.get_drone_name(index)
 	var name_label := MenuUI.body(display_name, 18 if MenuUI.is_mobile_ui() else 19, MenuUI.TEXT)
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	# Long military-airframe names must shrink inside the list column instead
@@ -290,13 +288,13 @@ func _make_row(index: int) -> Control:
 	name_label.clip_text = true
 	name_label.custom_minimum_size = Vector2(0, 0)
 	title_row.add_child(name_label)
-	var tag_label := MenuUI.body(str(p.get("tag", "")), 11, MenuUI.ACCENT)
+	var tag_label := MenuUI.body(DroneCatalog.get_drone_tag(index), 11, MenuUI.ACCENT)
 	tag_label.clip_text = true
 	# The description below already carries the class/role; dropping the tag
 	# on the phone leaves enough width for the full drone name.
 	tag_label.visible = not MenuUI.is_mobile_ui()
 	title_row.add_child(tag_label)
-	var desc_label := MenuUI.body(MenuUI.translate_text(str(p["desc"])), 12,
+	var desc_label := MenuUI.body(DroneCatalog.get_drone_desc(index), 12,
 			MenuUI.MUTED)
 	desc_label.clip_text = true
 	info.add_child(desc_label)
@@ -361,10 +359,7 @@ func _select_preview(index: int) -> void:
 	_refresh()
 	_show_model(index)
 	if _confirm != null:
-		var preset := DroneCatalog.preset(index)
-		var preset_name := str(preset["name"])
-		if MenuUI.is_english():
-			preset_name = str(preset.get("name_en", MenuUI.translate_text(preset_name)))
+		var preset_name := DroneCatalog.get_drone_name(index)
 		_confirm.text = ("Previewing %s. Select this drone to confirm." if MenuUI.is_english() else "Перегляд: %s. Натисніть «ОБРАТИ ЦЕЙ ДРОН»." ) % preset_name
 
 
@@ -386,15 +381,12 @@ func _apply_pending() -> void:
 	Global.menu_settings["drone_preset"] = _pending
 	Global.save_menu_settings()
 	_refresh()
-	var preset := DroneCatalog.preset(_pending)
-	var preset_name := str(preset["name"])
-	if MenuUI.is_english():
-		preset_name = str(preset.get("name_en", MenuUI.translate_text(preset_name)))
+	var preset_name := DroneCatalog.get_drone_name(_pending)
 	if _choose != null:
 		_choose.text = "SELECTED ✓" if MenuUI.is_english() else "ОБРАНО ✓"
 	if _confirm != null:
 		if was_combat_locked:
-			_confirm.text = ("✓ %s selected for Free Flight (no combat payload).\nCombat sorties still require a strike / bomber drone." if MenuUI.is_english() else "✓ %s обрано для вільного польоту (без бойової БЧ).\nДля бойових місій потрібен ударний дрон або дрон зі скидом.") % preset_name
+			_confirm.text = ("✓ %s selected for Free Flight (no tactical payload).\nCombat sorties require a tactical / drop drone." if MenuUI.is_english() else "✓ %s обрано для вільного польоту (без БЧ).\nДля бойових місій потрібен тактичний дрон або дрон зі скидом.") % preset_name
 		else:
 			_confirm.text = ("✓ %s is selected for your next sortie.\nGo back to choose a flight mode." if MenuUI.is_english() else "✓ %s — саме цей дрон злетить у наступному польоті.\nНатисніть «НАЗАД» і виберіть режим.") % preset_name
 
@@ -402,23 +394,25 @@ func _apply_pending() -> void:
 func _show_model(index: int) -> void:
 	var p := DroneCatalog.preset(index)
 	var is_en := MenuUI.is_english()
-	_caption.text = str(p.get("name_en", MenuUI.translate_text(str(p["name"])))) if is_en else str(p["name"])
-	_tag.text = MenuUI.translate_text(str(p.get("tag", "")))
+	_caption.text = DroneCatalog.get_drone_name(index)
+	_tag.text = DroneCatalog.get_drone_tag(index)
 	var is_combat: bool = bool(p.get("combat", false))
 	var has_drop: bool = bool(p.get("has_drop", false))
 	var ammo_count := int(p.get("payload", 0)) if is_combat else 0
 	var ammo_str: String
 	if not is_combat:
-		ammo_str = "no payload" if is_en else "без БЧ"
+		ammo_str = "no payload" if is_en else "без навантаження"
 	elif has_drop:
-		ammo_str = "drop: %s" % str(p.get("drop_name_en", "%d× VOG-17" % ammo_count)) if is_en else "скид: %s" % str(p.get("drop_name", "%d× ВОГ-17" % ammo_count))
+		var drop_name := DroneCatalog.get_drone_drop_name(index)
+		if drop_name.is_empty():
+			drop_name = "%d× payload" % ammo_count if is_en else "%d× скид" % ammo_count
+		ammo_str = ("drop: %s" if is_en else "скид: %s") % drop_name
 	else:
-		ammo_str = "%d× kamikaze payload" % ammo_count if is_en else "%d× БЧ камікадзе" % ammo_count
+		ammo_str = "%d× tactical payload" % ammo_count if is_en else "%d× тактична БЧ" % ammo_count
 	_specs.text = ("%.2f kg · %d KV · %.1f\" propeller · %d blades · %s" if is_en else "%.2f кг · %d KV · пропелер %.1f\" · %d лопаті · %s") % [
 			float(p["dry"]) + float(p["batt"]), int(p["kv"]), float(p["prop_d"]),
 			int(p["blades"]), ammo_str]
-	var base_info := str(p.get("info", p.get("desc", "")))
-	_info.text = str(p.get("info_en", MenuUI.translate_text(base_info))) if is_en else base_info
+	_info.text = DroneCatalog.get_drone_info(index)
 	if _holder == null:
 		return
 	for child in _holder.get_children():

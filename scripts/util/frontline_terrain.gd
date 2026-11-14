@@ -28,74 +28,224 @@ const GOD_RAY_SHADER := preload("res://shaders/god_ray.gdshader")
 ##
 ## The mesh is a two-ring clipmap: a 256 m high-resolution centre (2 m cells)
 ## Terrain & backdrop layout for all four frontline battlegrounds.
-## Outer grid is 614.4 m (8x8 x 76.8 m chunks) with a 153.6 m inner high-detail
-## patch (1.6 m cells), surrounded by an extended themed horizon ring & backdrop
-## so the battleground looks vast while cutting active terrain CPU/GPU cost.
+## Outer grid is 384.0 m (8x8 x 48.0 m chunks, ±192 m) with a 96.0 m inner
+## high-detail patch (1.5 m cells), surrounded by a seamless horizon ring and
+## misty mountain silhouette so there are no bare outskirts.
 
-const OUTER_SIZE := 614.4
+const OUTER_SIZE := 384.0
+const OUTER_HALF := 192.0
+const PLAYABLE_HALF_BOUND := 178.0
+const SAFE_STRUCTURE_BOUND := 162.0
+const MAX_KEY_STRUCTURES := 16
 const OUTER_CHUNKS := 8
-const OUTER_CELLS := 32          # 4.8 m outer cell
-const INNER_SIZE := 153.6
+const OUTER_CELLS := 32          # 3.0 m outer cell (half = 16)
+const INNER_SIZE := 96.0
 const INNER_CHUNKS := 2
-const INNER_CELLS := 48          # 1.6 m inner cell
+const INNER_CELLS := 32          # 1.5 m inner cell (exact 1:2 subdivision)
 
-## Ruined concrete hall sites: one authored shell per map, the same kit and
-## material set everywhere.  `half` is the flattened terrain pad (m), `scale`
-## the hall multiplier, `sink` how deep the floor slab sits below terrain.
-## Authored hero interiors.  Every frontline map now has its own large ruined
-## industrial hall with a distinct industrial story, a floor-level spawn and an
-## interior light/foliage pass.  `half` is the flattened terrain pad (m), not the
-## full exterior footprint.
+## Authored hero interiors.  Every frontline map sits cleanly within ±162 m.
 const HALL_SITES := {
 	"industrial": {
-		"center": Vector2(50.0, 80.0), "scale": 1.0, "yaw": 0.0,
+		"center": Vector2(46.0, 68.0), "scale": 1.0, "yaw": 0.0,
 		"sink": 0.0, "interior": true, "half": Vector2(68.0, 42.0),
 		"asset": "industrial_hall.glb", "theme": "industrial",
-		"spawn": Vector2(50.0, 142.0), "spawn_yaw": PI,
+		"spawn": Vector2(46.0, 130.0), "spawn_yaw": PI,
 		"roof_height": 22.0,
 	},
 	"village": {
-		"center": Vector2(192.0, 58.0), "scale": 1.0, "yaw": 0.0,
+		"center": Vector2(88.0, 52.0), "scale": 1.0, "yaw": 0.0,
 		"sink": 0.0, "interior": true, "half": Vector2(56.0, 36.0),
 		"asset": "village_hall.glb", "theme": "village",
-		"spawn": Vector2(192.0, 114.0), "spawn_yaw": PI,
+		"spawn": Vector2(88.0, 108.0), "spawn_yaw": PI,
 		"roof_height": 16.0,
 	},
 	"steppe": {
-		# Moved 96 m east of the old site: its 48x34 m pad overlapped the
-		# farm-complex pad and lifted the hall floor 1.7 m above the fields.
-		"center": Vector2(192.0, 116.0), "scale": 1.0, "yaw": 0.0,
+		"center": Vector2(88.0, 84.0), "scale": 1.0, "yaw": 0.0,
 		"sink": 0.0, "interior": true, "half": Vector2(63.0, 38.0),
 		"asset": "steppe_hall.glb", "theme": "steppe",
-		"spawn": Vector2(192.0, 174.0), "spawn_yaw": PI,
+		"spawn": Vector2(88.0, 142.0), "spawn_yaw": PI,
 		"roof_height": 20.5,
 	},
 	"wetlands": {
-		"center": Vector2(85.0, 60.0), "scale": 1.0, "yaw": 0.0,
+		"center": Vector2(72.0, 52.0), "scale": 1.0, "yaw": 0.0,
 		"sink": 0.0, "interior": true, "half": Vector2(59.0, 38.0),
 		"asset": "wetlands_hall.glb", "theme": "wetlands",
-		"spawn": Vector2(85.0, 120.0), "spawn_yaw": PI,
+		"spawn": Vector2(72.0, 110.0), "spawn_yaw": PI,
 		"roof_height": 19.5,
 	},
 }
 
 static var _trench_cache := {}
 static var _crater_cache := {}
-## Large hero trees are collected during the landmark pass and flushed into
-## four MultiMeshes (oak/pine x trunk/leaves) so a dozen hero trees do not add
-## a draw call each.
 static var _hero_tree_slots := {"oak": [], "pine": []}
-## Map-unique landmark positions (water tower, transformer yard, watch tower,
-## burnt armour).  Filled before the military scatter pass so the random
-## structures keep a 40 m berth and no tree/pole can grow through a POI.
+static var _placed_tree_positions: Array[Vector2] = []
 static var _poi_positions: Array[Vector2] = []
-## Footprints reserved by the tactical enrichment/FPV stunt pass.  Tree,
-## object-kit and world-detail scatter passes keep out of these radii.
 static var _reserved_zones: Array[Dictionary] = []
+static var _structure_registry: Dictionary = {}
+static var _contact_shadow_tex_cache: GradientTexture2D = null
+static var _contact_shadow_mat_cache: StandardMaterial3D = null
 
 
 static func reserve_area(p: Vector2, radius: float) -> void:
 	_reserved_zones.append({"pos": p, "radius": radius})
+
+
+static func reset_structure_registry(terrain_root: Node) -> void:
+	if terrain_root == null:
+		_structure_registry.clear()
+		return
+	var key := terrain_root.get_instance_id()
+	_structure_registry[key] = []
+
+
+static func get_reserved_structures(terrain_root: Node) -> Array:
+	if terrain_root == null:
+		return []
+	return (_structure_registry.get(terrain_root.get_instance_id(), []) as Array).duplicate()
+
+
+static func _local_transform_to_root(node: Node3D, root_node: Node = null) -> Transform3D:
+	if node == null:
+		return Transform3D.IDENTITY
+	if root_node == null and node.is_inside_tree():
+		return node.global_transform
+	var xf := Transform3D.IDENTITY
+	var cur: Node = node
+	while cur != null and cur != root_node:
+		if cur is Node3D:
+			xf = (cur as Node3D).transform * xf
+		cur = cur.get_parent()
+	return xf
+
+
+static func _apply_look_at(node: Node3D, target: Vector3, up: Vector3 = Vector3.UP) -> void:
+	if node == null:
+		return
+	var dir := target - node.position
+	if dir.length_squared() < 1e-8:
+		return
+	var fwd := dir.normalized()
+	var ref_up := up if absf(fwd.dot(up)) < 0.995 else Vector3.FORWARD
+	node.transform = Transform3D(Basis.looking_at(fwd, ref_up), node.position)
+
+
+static func _reparent_keep_local_to(node: Node3D, new_parent: Node3D) -> void:
+	if node == null or new_parent == null:
+		return
+	if node.is_inside_tree() and new_parent.is_inside_tree():
+		node.reparent(new_parent, true)
+		return
+	var xf := _local_transform_to_root(node, new_parent)
+	if node.get_parent() != null:
+		node.get_parent().remove_child(node)
+	new_parent.add_child(node)
+	node.transform = xf
+
+
+static func _road_factor(map_name: String, x: float, z: float) -> float:
+	var p := Vector2(x, z)
+	var min_d := 9999.0
+	for line in _road_points(map_name):
+		var pts: PackedVector2Array = line
+		for i in range(pts.size() - 1):
+			var closest := Geometry2D.get_closest_point_to_segment(p, pts[i], pts[i + 1])
+			min_d = minf(min_d, p.distance_to(closest))
+	if map_name == "village":
+		var lane := Geometry2D.get_closest_point_to_segment(p, Vector2(8.0, 58.0), Vector2(138.0, 58.0))
+		min_d = minf(min_d, p.distance_to(lane))
+	return clampf(1.0 - smoothstep(4.5, 16.0, min_d), 0.0, 1.0)
+
+
+static func try_reserve_structure(terrain_root: Node, map_name: String,
+		pos_xz: Vector2, footprint_radius: float,
+		min_corridor: float = 28.0, allow_on_road: bool = false) -> bool:
+	if absf(pos_xz.x) > SAFE_STRUCTURE_BOUND or absf(pos_xz.y) > SAFE_STRUCTURE_BOUND:
+		return false
+	if not allow_on_road and _road_factor(map_name, pos_xz.x, pos_xz.y) >= 0.22:
+		return false
+	var site: Dictionary = HALL_SITES.get(map_name, {})
+	if not site.is_empty():
+		var spawn := Vector2(site.get("spawn", Vector2.ZERO))
+		if pos_xz.distance_to(spawn) < footprint_radius + 18.0:
+			return false
+	var key := terrain_root.get_instance_id() if terrain_root != null else 0
+	var list: Array = _structure_registry.get(key, [])
+	if list.size() >= MAX_KEY_STRUCTURES:
+		return false
+	for prev in list:
+		var prev_pos: Vector2 = prev["pos"]
+		var prev_r: float = float(prev["radius"])
+		if pos_xz.distance_to(prev_pos) < prev_r + footprint_radius + min_corridor:
+			return false
+	list.append({"pos": pos_xz, "radius": footprint_radius, "allow_on_road": allow_on_road})
+	_structure_registry[key] = list
+	reserve_area(pos_xz, footprint_radius + 8.0)
+	return true
+
+
+static func _reserve_near_site(terrain_root: Node, map_name: String,
+		base_xz: Vector2, footprint_radius: float,
+		min_corridor: float = 28.0, allow_on_road: bool = false) -> Vector2:
+	var clamped_base := Vector2(
+			clampf(base_xz.x, -152.0, 152.0),
+			clampf(base_xz.y, -152.0, 152.0))
+	var wl := water_level(map_name)
+	for ring in range(0, 10):
+		var rad := 16.0 * float(ring)
+		var steps := 1 if ring == 0 else 16
+		for i in range(steps):
+			var a := TAU * float(i) / float(steps) + float(ring) * 0.37
+			var cand := clamped_base + Vector2(cos(a), sin(a)) * rad
+			if absf(cand.x) > 158.0 or absf(cand.y) > 158.0:
+				continue
+			if _height(map_name, cand.x, cand.y) <= wl + 0.6:
+				continue
+			if try_reserve_structure(terrain_root, map_name, cand,
+					footprint_radius, min_corridor, allow_on_road):
+				return cand
+	return Vector2.INF
+
+
+static func add_contact_shadow(root: Node3D, map_name: String, pos_xz: Vector2,
+		radius: float, tag: String = "") -> void:
+	if root == null:
+		return
+	if _contact_shadow_mat_cache == null:
+		var grad := Gradient.new()
+		grad.set_color(0, Color(0.02, 0.025, 0.02, 0.44))
+		grad.set_color(1, Color(0.02, 0.025, 0.02, 0.0))
+		grad.add_point(0.35, Color(0.02, 0.025, 0.02, 0.34))
+		grad.add_point(0.72, Color(0.02, 0.025, 0.02, 0.12))
+		var tex := GradientTexture2D.new()
+		tex.gradient = grad
+		tex.fill = GradientTexture2D.FILL_RADIAL
+		tex.fill_from = Vector2(0.5, 0.5)
+		tex.fill_to = Vector2(0.5, 0.0)
+		tex.width = 64
+		tex.height = 64
+		_contact_shadow_tex_cache = tex
+		var mat := StandardMaterial3D.new()
+		mat.albedo_texture = tex
+		mat.albedo_color = Color.WHITE
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		mat.disable_receive_shadows = true
+		_contact_shadow_mat_cache = mat
+	var quad := QuadMesh.new()
+	var span := maxf(radius * 2.25, 4.0)
+	quad.size = Vector2(span, span)
+	var mi := MeshInstance3D.new()
+	var clean_tag := tag if tag != "" else "%d_%d" % [int(pos_xz.x), int(pos_xz.y)]
+	mi.name = "ContactShadow_" + clean_tag
+	mi.mesh = quad
+	mi.material_override = _contact_shadow_mat_cache
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.set_meta("no_batch", true)
+	var gy := mesh_surface_height(map_name, pos_xz.x, pos_xz.y)
+	mi.position = Vector3(pos_xz.x, gy + 0.04, pos_xz.y)
+	mi.rotation.x = -PI * 0.5
+	root.add_child(mi)
 
 
 ## Slow drift for the battle-smoke billboards: a vertical bob, a lateral sway
@@ -110,20 +260,25 @@ class SmokePlume:
 	func setup(seed_value: float) -> void:
 		_seed = seed_value
 
-	func register_quad(q: MeshInstance3D, base_y: float) -> void:
+	func register_quad(q: MeshInstance3D, base_y: float, base_x: float = 0.0,
+			base_z: float = 0.0) -> void:
+		q.set_meta("base_x", base_x)
 		q.set_meta("base_y", base_y)
+		q.set_meta("base_z", base_z)
 		_quads.append(q)
 
 	func _process(delta: float) -> void:
 		_t += delta
 		for i in range(_quads.size()):
 			var q := _quads[i]
+			var bx := float(q.get_meta("base_x", 0.0))
 			var by := float(q.get_meta("base_y", 0.0))
+			var bz := float(q.get_meta("base_z", 0.0))
 			var ph := _seed + float(i) * 1.7
 			q.position = Vector3(
-					sin(_t * 0.23 + ph * 0.7) * 2.2,
-					by + sin(_t * 0.45 + ph) * 1.6,
-					cos(_t * 0.19 + ph * 1.1) * 1.8)
+					bx + sin(_t * 0.23 + ph * 0.7) * 1.4,
+					by + sin(_t * 0.45 + ph) * 1.2,
+					bz + cos(_t * 0.19 + ph * 1.1) * 1.2)
 			var s := 1.0 + sin(_t * 0.33 + ph) * 0.06
 			q.scale = Vector3(s, s, s)
 
@@ -137,15 +292,16 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 	_current_map = map_name
 	_hero_tree_slots["oak"].clear()
 	_hero_tree_slots["pine"].clear()
+	_placed_tree_positions.clear()
 	_reserved_zones.clear()
+	_poi_positions.clear()
 	var root := Node3D.new()
 	root.name = "FrontlineTerrain"
 	level.add_child(root)
 	root.position = Vector3(0.0, base_y, 0.0)
+	reset_structure_registry(root)
 
 	var ground_mat := _ground_material(map_name)
-	# 8 m cells for the outer ring at every preset: invisible from FPV altitude
-	# and ~90k fewer triangles in the frame.
 	var outer_cells := maxi(16, OUTER_CELLS / 2)
 
 	# Outer ring: 8x8 chunks, skip the central 2x2 that the inner ring fills.
@@ -170,8 +326,7 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 			inner_meshes.append(_build_chunk(root, map_name, ox, oz, inner_chunk,
 					INNER_CELLS, ground_mat))
 
-	# One visual mesh for the whole outer ring and one for the inner patch:
-	# 64 terrain draw calls collapse into 2 while collision stays chunked.
+	# One visual mesh for the whole outer ring and one for the inner patch.
 	_merge_visual_chunks(root, outer_meshes, ground_mat)
 	_merge_visual_chunks(root, inner_meshes, ground_mat)
 
@@ -182,33 +337,21 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 	_build_roads(root, map_name)
 	_build_trenches(root, map_name)
 	_build_crater_marks(root, map_name)
-	# Overhead power lines were removed: the 20 m pylon tops read as small
-	# floating chimneys from FPV altitude (the player explicitly reported the
-	# three boxes hanging in the air) and the catenary collision could snag the
-	# drone.  Ground-level wooden poles in the village are kept.
-	_build_landmarks(root, map_name)
+	# Core authored sites register first so landmarks, POIs and military props
+	# maintain clean flight corridors around them.
 	_build_hall_sites(root, map_name)
-	# Occluder volumes for the hero halls: interior objects are culled while the
-	# player flies outside, and the box is ignored from inside (backfaces).
 	if not OS.has_environment("QA_NO_OCCLUDERS"):
 		_build_hall_occluders(root, map_name)
-	# One signature POI per frontline map.  Built before the military scatter
-	# so the random builders reserve space around it and before the forest so
-	# the clear-zone filter can reject trees.
-	_build_unique_pois(root, map_name)
-	_build_blender_landmarks(root, map_name)
 	_spawn_handcrafted_assets(root, map_name)
-	# War-wear dressing: charred ground, rust streaks and rubble on every
-	# large building so the frontline reads as fought-over, not pristine.
+	_build_unique_pois(root, map_name)
+	_build_mobile_hero_landmarks(root, map_name)
+	_build_landmarks(root, map_name)
+	_build_blender_landmarks(root, map_name)
 	_add_war_wear(root, map_name)
-	# Mobile-only navigation beacons: tall color-coded masts placed on clear
-	# ground between the authored landmarks so pilots can read the map from a
-	# distance instead of flying over unmarked fields.
 	if (OS.get_name() == "iOS" or OS.has_feature("mobile") \
 			or OS.has_environment("MOBILE_UI")) \
 			and not OS.has_environment("QA_NO_MOBILE_BEACONS"):
 		_build_mobile_beacons(root, map_name)
-		_build_mobile_hero_landmarks(root, map_name)
 	if map_name == "industrial":
 		_build_industrial_river(root)
 	else:
@@ -217,31 +360,21 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 	_dress_handcrafted_sites(root, map_name)
 	_add_wall_decals(root, map_name)
 	_add_map_mist(root, map_name)
-	# Mobile-only ground tint patches: large low-alpha quads that break the
-	# repetitive grass tiling without adding texture samples to the terrain
-	# shader. They follow the height field and are placed away from the hall.
+	if not OS.has_environment("QA_NO_MOBILE_PATCHES"):
+		_add_mobile_ground_patches(root, map_name)
 	if (OS.get_name() == "iOS" or OS.has_feature("mobile") \
 			or OS.has_environment("MOBILE_UI")) \
-			and not OS.has_environment("QA_NO_MOBILE_PATCHES"):
-		_add_mobile_ground_patches(root, map_name)
-	# Tactical FPV stunt course + battlefield dressing.  Runs after every
-	# authored landmark/military structure (so it can reserve clear ground) and
-	# before tree/prop/world-detail scatter; the reserved zones keep vegetation
-	# out of the stunt corridors.
+			and not OS.has_environment("QA_NO_MOBILE_PACK"):
+		var pack = load("res://scripts/util/mobile_prop_pack.gd")
+		if pack != null:
+			pack.build(root, map_name)
 	if not OS.has_environment("QA_NO_ENRICH"):
 		var enricher = load("res://scripts/util/map_enricher.gd")
 		if enricher != null:
 			enricher.build(root, map_name, QualityManager.get_active_level())
-	# Battlefield landmarks, trenches and roads stay; rocks, flowers, debris and
-	# outdoor set dressing are scaled per preset inside their build passes.
-	_build_treelines(root, map_name)
-	_build_ground_detail(root, map_name)
 	_build_debris(root, map_name)
 	if not OS.has_environment("QA_NO_PROPS"):
 		_build_props(root, map_name)
-	# Outdoor set dressing: hall aprons, ruins, fields, orchards, rail yards,
-	# marsh detail.  Runs before the static batching pass so all of its boxes
-	# and cylinders collapse into the same handful of MultiMeshes.
 	if not OS.has_environment("QA_NO_WORLD_DETAIL"):
 		var detail = load("res://scripts/util/world_detail.gd")
 		if detail != null:
@@ -250,62 +383,34 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 			push_warning("[FrontlineTerrain] world_detail.gd missing")
 	_build_far_impostors(root, map_name)
 	_flush_library_trees(root)
-	# Small crates/posts/rails do not need a real shadow; trimming their shadow
-	# casters saves shadow-map draw calls without touching the hero props.
+	_build_treelines(root, map_name)
+	_build_ground_detail(root, map_name)
 	if QualityManager.get_active_level() != QualityManager.Level.HIGH:
 		_trim_small_shadow_casters(root)
-	# QA runs here, while every prop is still an individual MeshInstance3D and
-	# before _batch_static_props() folds it into a monolith.  The scanner also
-	# walks MultiMesh instance transforms and records the original supports on
-	# the terrain root, so the post-batch audit keeps its evidence.
 	var qa_scanner = load("res://scripts/qa/qa_floating_scanner.gd")
 	if qa_scanner != null:
 		qa_scanner.scan(root, map_name,
 				OS.has_environment("QA_STRICT") or OS.has_environment("DRONE_FLOAT_AUDIT"))
-	# Map-wide material upgrade: adds the missing PBR normal/roughness maps,
-	# detail grain and heightmap parallax to every authored GLB landmark that
-	# still used a flat placeholder material.  Runs before the static batching
-	# pass so the upgraded materials can share batches.
 	if not OS.has_environment("QA_NO_MATERIAL_UPGRADE"):
 		var upgrader = load("res://scripts/util/material_upgrader.gd")
 		if upgrader != null:
 			upgrader.upgrade(root, map_name, QualityManager.get_active_level())
 		_fix_untextured_white(root)
 	_batch_static_props(root)
-	# The remaining single-surface decoration (pipes, yard clutter, power-line
-	# meshes, puddles, rail pieces) is created directly under the terrain root.
-	# Merge it by material and 128 m cell so it stops costing one draw per prop.
 	if not OS.has_environment("QA_NO_STATIC_MERGE"):
 		_batch_static_meshes(root)
 		_batch_multisurface_meshes(root)
 	_texture_flat_large_meshes(root)
-	# Curated Blender pack: 20 low-poly props + 5 large landmarks per map.  It
-	# runs after the material upgrade, floating scan and static batching so the
-	# new objects keep their own vertex-colour material, colliders and LOD
-	# instead of being folded into the terrain batches.
-	if (OS.get_name() == "iOS" or OS.has_feature("mobile") \
-			or OS.has_environment("MOBILE_UI")) \
-			and not OS.has_environment("QA_NO_MOBILE_PACK"):
-		var pack = load("res://scripts/util/mobile_prop_pack.gd")
-		if pack != null:
-			pack.build(root, map_name)
-	# Battle smoke: burning-wreck plumes are part of the map, not a post-drone
-	# pass, so they must be added here (the old _add_smoke_plumes call lived in
-	# the dead build() function and never ran).
 	_add_smoke_plumes(root, map_name, base_y)
 
-	print("[FrontlineTerrain] built ", map_name, " (", OUTER_SIZE, " m clipmap)")
+	print("[FrontlineTerrain] built ", map_name, " (", OUTER_SIZE, " m clipmap, reserved=",
+			get_reserved_structures(root).size(), ")")
 
 
 ## Props that can be placed after the drone has been positioned on the ground.
-static func build(level: Node3D, map_name: String, base_y: float) -> void:
-	if map_name == "":
+static func build(level: Node3D, map_name: String, _base_y: float) -> void:
+	if map_name == "" or level == null:
 		return
-	var root := level.get_node_or_null("FrontlineTerrain") as Node3D
-	if root == null:
-		root = level
-	# Battle smoke: a handful of cheap billboard plumes over burning vehicles.
-	_add_smoke_plumes(root, map_name, base_y)
 
 
 # ===========================================================================
@@ -382,33 +487,21 @@ static func _height(map_name: String, x: float, z: float) -> float:
 		var dz := maxf(absf(z - c.y) - half.y, 0.0)
 		var d := sqrt(dx * dx + dz * dz)
 		h = lerpf(h, pad, 1.0 - smoothstep(0.0, 10.0, d))
-	# Handcrafted industrial valley: flat pads under the new factory GLB and
-	# the rail corridor so the authored buildings sit level.
+	# Handcrafted industrial valley: flat pads inside ±162 m so authored GLBs sit level.
 	if map_name == "industrial":
-		var fc := Vector2(-200.0, -180.0)
-		var fh := Vector2(125.0, 95.0)
-		var fdx := maxf(absf(x - fc.x) - fh.x, 0.0)
-		var fdz := maxf(absf(z - fc.y) - fh.y, 0.0)
-		var fd := sqrt(fdx * fdx + fdz * fdz)
-		h = lerpf(h, 1.6, 1.0 - smoothstep(0.0, 14.0, fd))
-		# Flat pad for the cooling tower so its fly-through base sits flush with ground
-		h = _flatten_pad(h, x, z, Vector2(-72.0, -214.0), Vector2(20.0, 20.0), 1.6)
-		if absf(z + 15.0) < 11.0 and absf(x) < 120.0:
+		h = _flatten_pad(h, x, z, Vector2(-105.0, -98.0), Vector2(56.0, 40.0), 1.6)
+		h = _flatten_pad(h, x, z, Vector2(-48.0, -142.0), Vector2(16.0, 16.0), 1.6)
+		if absf(z + 15.0) < 11.0 and absf(x) < 105.0:
 			h = lerpf(h, 1.2, 1.0 - smoothstep(7.0, 11.0, absf(z + 15.0)))
 	elif map_name == "village":
-		h = _flatten_pad(h, x, z, Vector2(60.0, -110.0),
-				Vector2(46.0, 32.0), 1.0)
+		h = _flatten_pad(h, x, z, Vector2(54.0, -96.0),
+				Vector2(34.0, 26.0), 1.0)
 	elif map_name == "steppe":
-		# The farm pad used to be pinned to y=1.4 while the surrounding
-		# steppe valley and the hero hall sit around -5 m.  Its 34-48 m apron
-		# overlapped the hall site and lifted the hall centre 1.7 m above the
-		# surrounding ground, leaving the floor slab hanging.  Flatten to the
-		# actual local base height instead of an unrelated absolute value.
-		h = _flatten_pad(h, x, z, Vector2(40.0, 146.0),
-				Vector2(48.0, 34.0), _base_height(map_name, 40.0, 146.0))
+		h = _flatten_pad(h, x, z, Vector2(36.0, 128.0),
+				Vector2(36.0, 26.0), _base_height(map_name, 36.0, 128.0))
 	elif map_name == "wetlands":
-		h = _flatten_pad(h, x, z, Vector2(-60.0, -140.0),
-				Vector2(34.0, 26.0), -1.0)
+		h = _flatten_pad(h, x, z, Vector2(-56.0, -118.0),
+				Vector2(26.0, 20.0), -1.0)
 	return h
 
 
@@ -450,38 +543,37 @@ static func _relief_offset(map_name: String, x: float, z: float) -> float:
 static func _base_height(map_name: String, x: float, z: float) -> float:
 	match map_name:
 		"village":
-			var h := 1.2 + _fbm(x * 0.005, z * 0.005, 3) * 4.0
-			var river := absf(x + 170.0 - 35.0 * sin(z * 0.008))
-			h -= 7.5 * exp(-pow(river / 26.0, 2.0))
+			var h := 1.2 + _fbm(x * 0.005, z * 0.005, 3) * 3.6
+			var river := absf(x + 140.0 - 18.0 * sin(z * 0.011))
+			h -= 7.2 * exp(-pow(river / 22.0, 2.0))
 			return h
 		"industrial":
-			var h := 0.8 + _fbm(x * 0.006, z * 0.006, 2) * 1.8
-			h += 17.0 * exp(-pow((x + 210.0) / 80.0, 2.0) - pow((z + 120.0) / 60.0, 2.0))
-			h += 12.0 * exp(-pow((x - 230.0) / 70.0, 2.0) - pow((z - 180.0) / 70.0, 2.0))
-			# Spoil heaps / embankments framing the compacted factory valley.
-			h += 12.0 * exp(-pow((x + 60.0) / 50.0, 2.0) - pow((z + 235.0) / 34.0, 2.0))
-			h += 9.0 * exp(-pow((x + 250.0) / 38.0, 2.0) - pow((z - 30.0) / 68.0, 2.0))
-			h += 7.0 * exp(-pow((x - 245.0) / 48.0, 2.0) - pow((z + 55.0) / 40.0, 2.0))
-			# Handcrafted river valley inside the southern boundary.
-			var river_z := 252.0 + 18.0 * sin(x * 0.011)
-			h -= 6.0 * exp(-pow((z - river_z) / 24.0, 2.0))
+			var h := 0.8 + _fbm(x * 0.006, z * 0.006, 2) * 1.6
+			h += 13.0 * exp(-pow((x + 145.0) / 55.0, 2.0) - pow((z + 90.0) / 48.0, 2.0))
+			h += 10.0 * exp(-pow((x - 155.0) / 52.0, 2.0) - pow((z - 125.0) / 52.0, 2.0))
+			h += 9.0 * exp(-pow((x + 45.0) / 40.0, 2.0) - pow((z + 150.0) / 30.0, 2.0))
+			h += 7.0 * exp(-pow((x + 160.0) / 34.0, 2.0) - pow((z - 25.0) / 50.0, 2.0))
+			h += 6.0 * exp(-pow((x - 160.0) / 38.0, 2.0) - pow((z + 45.0) / 36.0, 2.0))
+			# Handcrafted river valley along the northern edge inside ±192 m.
+			var river_z := -170.0 + 10.0 * sin(x * 0.015)
+			h -= 5.8 * exp(-pow((z - river_z) / 18.0, 2.0))
 			return h
 		"wetlands":
-			var h := -0.4 + _fbm(x * 0.007, z * 0.007, 3) * 2.2
+			var h := -0.4 + _fbm(x * 0.007, z * 0.007, 3) * 2.0
 			for i in range(3):
-				var cz := -210.0 + float(i) * 120.0 + 28.0 * sin(x * 0.007 + float(i) * 1.7)
-				h -= 2.6 * exp(-pow((z - cz) / 16.0, 2.0))
+				var cz := -135.0 + float(i) * 95.0 + 20.0 * sin(x * 0.009 + float(i) * 1.7)
+				h -= 2.6 * exp(-pow((z - cz) / 15.0, 2.0))
 			# Keep the southern launch approach dry.
-			h += 2.2 * smoothstep(130.0, 210.0, z)
+			h += 2.2 * smoothstep(105.0, 165.0, z)
 			return h
 		_:
 			# steppe
-			var h := 1.4 + _fbm(x * 0.004, z * 0.004, 3) * 8.0
-			h += _fbm(x * 0.02, z * 0.02, 2) * 0.9
-			h += 13.0 * exp(-pow((z + 150.0) / 90.0, 2.0)) \
+			var h := 1.4 + _fbm(x * 0.004, z * 0.004, 3) * 7.0
+			h += _fbm(x * 0.02, z * 0.02, 2) * 0.8
+			h += 11.0 * exp(-pow((z + 115.0) / 68.0, 2.0)) \
 					* (0.7 + 0.3 * _noise2(x * 0.008, 0.0))
-			h -= 4.0 * exp(-pow((x - 110.0) / 70.0, 2.0)) \
-					* exp(-pow((z - 40.0) / 180.0, 2.0))
+			h -= 3.5 * exp(-pow((x - 85.0) / 55.0, 2.0)) \
+					* exp(-pow((z - 35.0) / 120.0, 2.0))
 			return h
 
 
@@ -528,43 +620,43 @@ static func _trenches(map_name: String) -> Array:
 	match map_name:
 		"steppe":
 			lines.append(PackedVector2Array([
-				Vector2(-248, -40), Vector2(-175, -68), Vector2(-100, -38),
-				Vector2(-25, -66), Vector2(45, -34), Vector2(120, -62),
-				Vector2(185, -32), Vector2(248, -52)]))
+				Vector2(-165, -35), Vector2(-115, -58), Vector2(-65, -34),
+				Vector2(-15, -56), Vector2(35, -32), Vector2(85, -54),
+				Vector2(130, -30), Vector2(165, -46)]))
 			lines.append(PackedVector2Array([
-				Vector2(-225, -152), Vector2(-135, -128), Vector2(-45, -156),
-				Vector2(45, -126), Vector2(135, -152), Vector2(225, -120)]))
+				Vector2(-155, -138), Vector2(-95, -118), Vector2(-30, -142),
+				Vector2(35, -116), Vector2(95, -138), Vector2(155, -112)]))
 			lines.append(PackedVector2Array([
-				Vector2(-115, -68), Vector2(-102, 10), Vector2(-65, 84)]))
+				Vector2(-90, -56), Vector2(-80, 10), Vector2(-52, 72)]))
 			lines.append(PackedVector2Array([
-				Vector2(145, -60), Vector2(138, 20), Vector2(172, 102)]))
+				Vector2(110, -52), Vector2(105, 16), Vector2(132, 72)]))
 		"village":
 			lines.append(PackedVector2Array([
-				Vector2(-240, -62), Vector2(-160, -88), Vector2(-80, -58),
-				Vector2(10, -86), Vector2(100, -56), Vector2(175, -88), Vector2(240, -64)]))
+				Vector2(-165, -52), Vector2(-110, -74), Vector2(-55, -48),
+				Vector2(8, -72), Vector2(70, -48), Vector2(125, -74), Vector2(165, -54)]))
 			lines.append(PackedVector2Array([
-				Vector2(-190, -140), Vector2(-90, -120), Vector2(20, -145),
-				Vector2(120, -118), Vector2(215, -140)]))
+				Vector2(-145, -132), Vector2(-70, -114), Vector2(16, -136),
+				Vector2(90, -112), Vector2(155, -132)]))
 			lines.append(PackedVector2Array([
-				Vector2(-40, 30), Vector2(-30, -40), Vector2(-70, -100)]))
+				Vector2(-34, 24), Vector2(-26, -34), Vector2(-58, -88)]))
 		"industrial":
 			lines.append(PackedVector2Array([
-				Vector2(-252, -148), Vector2(-175, -130), Vector2(-90, -152),
-				Vector2(10, -128), Vector2(100, -150), Vector2(185, -126), Vector2(252, -145)]))
+				Vector2(-165, -132), Vector2(-115, -116), Vector2(-60, -136),
+				Vector2(8, -114), Vector2(70, -134), Vector2(125, -114), Vector2(165, -128)]))
 			lines.append(PackedVector2Array([
-				Vector2(-60, -140), Vector2(-40, -60), Vector2(-90, 20)]))
+				Vector2(-48, -124), Vector2(-32, -52), Vector2(-72, 18)]))
 			lines.append(PackedVector2Array([
-				Vector2(155, -140), Vector2(175, -70), Vector2(150, 10)]))
+				Vector2(115, -124), Vector2(130, -60), Vector2(110, 8)]))
 		"wetlands":
 			lines.append(PackedVector2Array([
-				Vector2(-240, 40), Vector2(-155, 12), Vector2(-75, 40),
-				Vector2(20, 10), Vector2(115, 38), Vector2(190, 8), Vector2(248, 30)]))
+				Vector2(-165, 32), Vector2(-105, 10), Vector2(-52, 34),
+				Vector2(16, 8), Vector2(82, 32), Vector2(132, 8), Vector2(165, 24)]))
 			lines.append(PackedVector2Array([
-				Vector2(-215, -120), Vector2(-110, -95), Vector2(0, -125),
-				Vector2(110, -92), Vector2(215, -118)]))
+				Vector2(-152, -108), Vector2(-76, -86), Vector2(0, -112),
+				Vector2(78, -84), Vector2(152, -106)]))
 		_:
 			lines.append(PackedVector2Array([
-				Vector2(-235, -40), Vector2(-120, -40), Vector2(0, -40), Vector2(140, -40)]))
+				Vector2(-162, -36), Vector2(-80, -36), Vector2(0, -36), Vector2(96, -36)]))
 	_trench_cache[map_name] = lines
 	return lines
 
@@ -601,17 +693,17 @@ static func _craters(map_name: String) -> Array:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(map_name) * 31 + 7
 	var list: Array = []
-	var count := 30 if map_name != "wetlands" else 18
+	var count := 22 if map_name != "wetlands" else 14
 	for i in range(count):
-		var px := rng.randf_range(-265.0, 265.0)
-		var pz := rng.randf_range(-265.0, 265.0)
+		var px := rng.randf_range(-168.0, 168.0)
+		var pz := rng.randf_range(-168.0, 168.0)
 		# Keep the launch pad clear.
-		if Vector2(px, pz).distance_to(Vector2(0, 175)) < 36.0:
+		if Vector2(px, pz).distance_to(Vector2(0, 128)) < 32.0:
 			continue
 		list.append({
 			"pos": Vector2(px, pz),
-			"r": rng.randf_range(2.2, 8.5),
-			"d": rng.randf_range(0.7, 2.3),
+			"r": rng.randf_range(2.2, 7.5),
+			"d": rng.randf_range(0.7, 2.1),
 		})
 	_crater_cache[map_name] = list
 	return list
@@ -766,56 +858,58 @@ static func _build_mountain_backdrop(root: Node3D, map_name: String) -> void:
 	rng.seed = hash(map_name) + 7717
 	var ph := [rng.randf_range(0.0, TAU), rng.randf_range(0.0, TAU),
 			rng.randf_range(0.0, TAU)]
-	var h_inner0 := 42.0
-	var h_inner1 := 90.0
-	var h_outer0 := 75.0
-	var h_outer1 := 145.0
-	var col_low := Color(0.15, 0.20, 0.15)
-	var col_high := Color(0.34, 0.40, 0.42)
-	var col_haze := Color(0.70, 0.77, 0.83)
+	var h_inner0 := 14.0
+	var h_inner1 := 32.0
+	var h_outer0 := 28.0
+	var h_outer1 := 56.0
+	var col_low := Color(0.28, 0.34, 0.28)
+	var col_high := Color(0.48, 0.54, 0.56)
+	var col_haze := Color(0.68, 0.75, 0.82)
 	match map_name:
 		"steppe":
-			h_inner0 = 26.0
-			h_inner1 = 55.0
-			h_outer0 = 48.0
-			h_outer1 = 92.0
-			col_low = Color(0.24, 0.22, 0.14)
-			col_high = Color(0.46, 0.44, 0.34)
-			col_haze = Color(0.78, 0.77, 0.72)
+			h_inner0 = 10.0
+			h_inner1 = 24.0
+			h_outer0 = 20.0
+			h_outer1 = 42.0
+			col_low = Color(0.36, 0.36, 0.26)
+			col_high = Color(0.56, 0.56, 0.46)
+			col_haze = Color(0.76, 0.76, 0.72)
 		"village":
-			h_inner0 = 38.0
-			h_inner1 = 80.0
-			h_outer0 = 70.0
-			h_outer1 = 135.0
-			col_low = Color(0.13, 0.20, 0.12)
-			col_high = Color(0.32, 0.40, 0.34)
-			col_haze = Color(0.70, 0.78, 0.84)
+			h_inner0 = 14.0
+			h_inner1 = 30.0
+			h_outer0 = 26.0
+			h_outer1 = 54.0
+			col_low = Color(0.26, 0.34, 0.24)
+			col_high = Color(0.46, 0.54, 0.48)
+			col_haze = Color(0.68, 0.76, 0.82)
 		"industrial":
-			h_inner0 = 46.0
-			h_inner1 = 88.0
-			h_outer0 = 84.0
-			h_outer1 = 155.0
-			col_low = Color(0.16, 0.18, 0.20)
-			col_high = Color(0.34, 0.38, 0.42)
+			h_inner0 = 16.0
+			h_inner1 = 34.0
+			h_outer0 = 30.0
+			h_outer1 = 58.0
+			col_low = Color(0.28, 0.32, 0.35)
+			col_high = Color(0.46, 0.51, 0.56)
 			col_haze = Color(0.66, 0.72, 0.78)
 		"wetlands":
-			h_inner0 = 12.0
-			h_inner1 = 26.0
-			h_outer0 = 24.0
-			h_outer1 = 48.0
-			col_low = Color(0.12, 0.17, 0.13)
-			col_high = Color(0.28, 0.36, 0.34)
-			col_haze = Color(0.68, 0.76, 0.76)
+			h_inner0 = 7.0
+			h_inner1 = 16.0
+			h_outer0 = 14.0
+			h_outer1 = 28.0
+			col_low = Color(0.24, 0.32, 0.26)
+			col_high = Color(0.42, 0.50, 0.48)
+			col_haze = Color(0.66, 0.74, 0.75)
 
 	var rings := [
-		{"radius": 1620.0, "base": -55.0, "h0": h_inner0, "h1": h_inner1,
-			"bot": col_low, "mid": col_low.lerp(col_high, 0.5),
-			"top": col_high, "shift": 0.0, "snow": 9999.0,
-			"haze": 0.22},
-		{"radius": 2120.0, "base": -55.0, "h0": h_outer0, "h1": h_outer1,
-			"bot": col_low.lerp(col_high, 0.35), "mid": col_high,
-			"top": col_high.lerp(col_haze, 0.35), "shift": 1.7, "snow": 9999.0,
-			"haze": 0.38},
+		{"radius": 340.0, "base": -24.0, "h0": h_inner0, "h1": h_inner1,
+			"bot": col_low.lerp(col_haze, 0.25),
+			"mid": col_low.lerp(col_high, 0.55).lerp(col_haze, 0.35),
+			"top": col_high.lerp(col_haze, 0.45), "shift": 0.0, "snow": 9999.0,
+			"haze": 0.52},
+		{"radius": 660.0, "base": -24.0, "h0": h_outer0, "h1": h_outer1,
+			"bot": col_low.lerp(col_haze, 0.45),
+			"mid": col_high.lerp(col_haze, 0.55),
+			"top": col_high.lerp(col_haze, 0.72), "shift": 1.7, "snow": 9999.0,
+			"haze": 0.72},
 	]
 	var verts := PackedVector3Array()
 	var colors := PackedColorArray()
@@ -837,7 +931,7 @@ static func _build_mountain_backdrop(root: Node3D, map_name: String) -> void:
 			ridge += 0.22 * absf(sin(a * 12.0 + ph[2]))
 			ridge += 0.16 * absf(sin(a * 21.0 + ph[0] * 1.7 + 0.9))
 			var h: float = float(ring["h0"]) + float(ring["h1"]) * pow(ridge, 1.45)
-			h = maxf(14.0, h)
+			h = maxf(6.0, h)
 			for k in range(rows):
 				var t: float = row_t[k]
 				var y: float = float(ring["base"]) + (h - float(ring["base"])) * t
@@ -867,8 +961,8 @@ static func _build_mountain_backdrop(root: Node3D, map_name: String) -> void:
 	mat.set_shader_parameter("color_low", col_low)
 	mat.set_shader_parameter("color_high", col_high)
 	mat.set_shader_parameter("color_haze", col_haze)
-	mat.set_shader_parameter("haze_amount", 0.34)
-	mat.set_shader_parameter("base_y", -55.0)
+	mat.set_shader_parameter("haze_amount", 0.66)
+	mat.set_shader_parameter("base_y", -24.0)
 	mat.set_shader_parameter("top_y", h_outer0 + h_outer1)
 	var mi := MeshInstance3D.new()
 	mi.name = "MountainBackdrop"
@@ -878,193 +972,90 @@ static func _build_mountain_backdrop(root: Node3D, map_name: String) -> void:
 	root.add_child(mi)
 
 
-## Zero-collision distant silhouettes outside the shrunk ±307.2 m combat arena so
-## every map continues visually toward the mountains with biome-matched landmarks
-## at negligible CPU/GPU cost (2-4 unshadowed MultiMeshes total).
+## Soft distant rolling treeline & hill silhouettes outside ±192 m, tinted into
+## atmospheric horizon fog with zero harsh dark blocks or untextured boxes.
 static func _build_themed_horizon_props(root: Node3D, map_name: String) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(map_name) + 9941
-	var half_edge := OUTER_SIZE * 0.5  # 307.2 m
-	var min_r := half_edge + 55.0
-	var max_r := 1120.0
-	var unit_box := BoxMesh.new()
-	unit_box.size = Vector3.ONE
-	var unit_cyl := CylinderMesh.new()
-	unit_cyl.top_radius = 1.0
-	unit_cyl.bottom_radius = 1.0
-	unit_cyl.height = 1.0
-	unit_cyl.radial_segments = 10
-	unit_cyl.rings = 1
+	var half_edge := OUTER_HALF  # 192.0 m
+	var min_r := half_edge + 24.0
+	var max_r := 540.0
+	var canopy := FOLIAGE.make_canopy_mesh(5, 3, 0.22, 1.0, 1.0)
+	var haze_col := Color(0.64, 0.72, 0.78)
+	var base_tree := Color(0.24, 0.32, 0.18)
+	var base_hill := Color(0.32, 0.38, 0.24)
+	match map_name:
+		"steppe":
+			haze_col = Color(0.74, 0.75, 0.69)
+			base_tree = Color(0.32, 0.34, 0.20)
+			base_hill = Color(0.44, 0.42, 0.28)
+		"industrial":
+			haze_col = Color(0.62, 0.68, 0.74)
+			base_tree = Color(0.24, 0.28, 0.20)
+			base_hill = Color(0.34, 0.36, 0.30)
+		"wetlands":
+			haze_col = Color(0.64, 0.72, 0.72)
+			base_tree = Color(0.20, 0.29, 0.18)
+			base_hill = Color(0.26, 0.34, 0.22)
 
-	var cone := CylinderMesh.new()
-	cone.top_radius = 0.05
-	cone.bottom_radius = 1.0
-	cone.height = 1.0
-	cone.radial_segments = 8
-	cone.rings = 1
-
-	var _pick_outer := func(avoid_river_x := false) -> Vector2:
+	var _pick_outer := func() -> Vector2:
 		for _t in range(24):
 			var ang := rng.randf_range(0.0, TAU)
 			var rad := rng.randf_range(min_r, max_r)
 			var px := cos(ang) * rad
 			var pz := sin(ang) * rad
-			if absf(px) < half_edge + 35.0 and absf(pz) < half_edge + 35.0:
-				continue
-			if avoid_river_x and absf(px + 170.0) < 60.0:
+			if absf(px) < half_edge + 18.0 and absf(pz) < half_edge + 18.0:
 				continue
 			return Vector2(px, pz)
-		return Vector2(min_r + 80.0, 0.0)
+		return Vector2(min_r + 36.0, 0.0)
 
-	var _add_bg_mm := func(name_id: String, mesh: Mesh, col: Color,
-			xfs: Array, colors: Array = [], unshaded := false) -> void:
+	var _add_bg_mm := func(name_id: String, xfs: Array, colors: Array) -> void:
 		if xfs.is_empty():
 			return
-		var mat := _mat(col, 0.96, 0.0)
+		var mat := _mat(Color.WHITE, 0.98, 0.0)
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		mat.disable_receive_shadows = true
-		if unshaded:
-			mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		if not colors.is_empty():
-			mat.vertex_color_use_as_albedo = true
-			mat.vertex_color_is_srgb = true
-		var mmi := _multimesh(root, name_id, mesh, mat, xfs, false, colors)
+		mat.vertex_color_use_as_albedo = true
+		mat.vertex_color_is_srgb = true
+		var mmi := _multimesh(root, name_id, canopy, mat, xfs, false, colors)
 		if mmi != null:
-			mmi.visibility_range_begin = 140.0
-			mmi.visibility_range_begin_margin = 40.0
-			mmi.visibility_range_end = 2100.0
-			mmi.visibility_range_end_margin = 150.0
+			mmi.visibility_range_begin = 110.0
+			mmi.visibility_range_begin_margin = 35.0
+			mmi.visibility_range_end = 1100.0
+			mmi.visibility_range_end_margin = 120.0
 			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 
-	match map_name:
-		"industrial":
-			# Distant factory belt: cooling towers, tall chimneys, large halls, smoke discs.
-			var hall_xfs: Array = []
-			var hall_cols: Array = []
-			var tower_xfs: Array = []
-			var stack_xfs: Array = []
-			var smoke_xfs: Array = []
-			for i in range(44):
-				var p: Vector2 = _pick_outer.call(false)
-				var y := _height(map_name, p.x, p.y)
-				var yaw := rng.randf_range(0.0, PI)
-				var w := rng.randf_range(26.0, 62.0)
-				var h := rng.randf_range(9.0, 18.0)
-				var d := rng.randf_range(16.0, 32.0)
-				hall_xfs.append(Transform3D(Basis(Vector3.UP, yaw).scaled(Vector3(w, h, d)),
-						Vector3(p.x, y + h * 0.45, p.y)))
-				var g := rng.randf_range(0.24, 0.40)
-				hall_cols.append(Color(g + 0.02, g + 0.01, g - 0.01))
-			for i in range(14):
-				var p: Vector2 = _pick_outer.call(false)
-				var y := _height(map_name, p.x, p.y)
-				var rad := rng.randf_range(8.5, 14.0)
-				var h := rng.randf_range(26.0, 42.0)
-				tower_xfs.append(Transform3D(Basis().scaled(Vector3(rad, h, rad)),
-						Vector3(p.x, y + h * 0.45, p.y)))
-				if i % 2 == 0:
-					smoke_xfs.append(Transform3D(Basis().scaled(Vector3(16.0, 5.5, 16.0)),
-							Vector3(p.x + 8.0, y + h + 10.0, p.y - 4.0)))
-			for i in range(22):
-				var p: Vector2 = _pick_outer.call(false)
-				var y := _height(map_name, p.x, p.y)
-				var h := rng.randf_range(34.0, 62.0)
-				stack_xfs.append(Transform3D(Basis().scaled(Vector3(2.2, h, 2.2)),
-						Vector3(p.x, y + h * 0.48, p.y)))
-			_add_bg_mm.call("BgIndHalls", unit_box, Color(0.32, 0.32, 0.30), hall_xfs, hall_cols)
-			_add_bg_mm.call("BgIndCoolingTowers", unit_cyl, Color(0.42, 0.42, 0.40), tower_xfs)
-			_add_bg_mm.call("BgIndStacks", unit_cyl, Color(0.36, 0.24, 0.20), stack_xfs)
-			_add_bg_mm.call("BgIndPlumes", unit_cyl, Color(0.68, 0.72, 0.75), smoke_xfs, [], true)
-
-		"steppe":
-			# Endless steppe: distant windbreak treeline strips, wind turbines, grain silos & barns.
-			var tree_xfs: Array = []
-			var tree_cols: Array = []
-			var turbine_xfs: Array = []
-			var turbine_blade_xfs: Array = []
-			var barn_xfs: Array = []
-			for i in range(36):
-				var p: Vector2 = _pick_outer.call(false)
-				var yaw := rng.randf_range(0.0, TAU)
-				var dir := Vector2(cos(yaw), sin(yaw))
-				var count := rng.randi_range(6, 11)
-				for j in range(count):
-					var q := p + dir * (float(j) * 14.0)
-					var y := _height(map_name, q.x, q.y)
-					var s := rng.randf_range(5.5, 10.5)
-					tree_xfs.append(Transform3D(Basis(Vector3.UP, yaw).scaled(Vector3(s, s * 1.15, s)),
-							Vector3(q.x, y + s * 0.45, q.y)))
-					tree_cols.append(Color(rng.randf_range(0.18, 0.28), rng.randf_range(0.24, 0.34), rng.randf_range(0.12, 0.18)))
-			for i in range(18):
-				var p: Vector2 = _pick_outer.call(false)
-				var y := _height(map_name, p.x, p.y)
-				var h := rng.randf_range(44.0, 68.0)
-				turbine_xfs.append(Transform3D(Basis().scaled(Vector3(1.1, h, 1.1)),
-						Vector3(p.x, y + h * 0.5, p.y)))
-				# Crossbar representing turbine rotor from afar
-				turbine_blade_xfs.append(Transform3D(Basis(Vector3.UP, rng.randf_range(0.0, PI)).scaled(Vector3(24.0, 1.4, 1.4)),
-						Vector3(p.x, y + h - 1.5, p.y)))
-			for i in range(20):
-				var p: Vector2 = _pick_outer.call(false)
-				var y := _height(map_name, p.x, p.y)
-				barn_xfs.append(Transform3D(Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(Vector3(22.0, 9.0, 14.0)),
-						Vector3(p.x, y + 4.0, p.y)))
-			_add_bg_mm.call("BgSteppeShelterbelts", cone, Color.WHITE, tree_xfs, tree_cols)
-			_add_bg_mm.call("BgSteppeTurbines", unit_cyl, Color(0.80, 0.82, 0.80), turbine_xfs)
-			_add_bg_mm.call("BgSteppeTurbineBlades", unit_cyl, Color(0.80, 0.82, 0.80), turbine_blade_xfs)
-			_add_bg_mm.call("BgSteppeBarns", unit_box, Color(0.46, 0.40, 0.30), barn_xfs)
-
-		"village":
-			# Countryside vista: distant farm cottages, red-tiled roofs, woods & spires.
-			var wall_xfs: Array = []
-			var roof_xfs: Array = []
-			var tree_xfs: Array = []
-			var tree_cols: Array = []
-			for i in range(52):
-				var p: Vector2 = _pick_outer.call(true)
-				var y := _height(map_name, p.x, p.y)
-				var yaw := rng.randf_range(0.0, TAU)
-				var w := rng.randf_range(9.0, 15.0)
-				var d := rng.randf_range(7.0, 11.0)
-				var h := rng.randf_range(4.2, 6.2)
-				wall_xfs.append(Transform3D(Basis(Vector3.UP, yaw).scaled(Vector3(w, h, d)),
-						Vector3(p.x, y + h * 0.45, p.y)))
-				roof_xfs.append(Transform3D(Basis(Vector3.UP, yaw).scaled(Vector3(w * 0.72, 3.2, d * 0.72)),
-						Vector3(p.x, y + h + 1.4, p.y)))
-			for i in range(180):
-				var p: Vector2 = _pick_outer.call(false)
-				var y := _height(map_name, p.x, p.y)
-				var s := rng.randf_range(6.0, 12.0)
-				tree_xfs.append(Transform3D(Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(Vector3(s, s * 1.25, s)),
-						Vector3(p.x, y + s * 0.5, p.y)))
-				tree_cols.append(Color(rng.randf_range(0.14, 0.24), rng.randf_range(0.24, 0.36), rng.randf_range(0.10, 0.16)))
-			_add_bg_mm.call("BgVillageWalls", unit_box, Color(0.76, 0.72, 0.64), wall_xfs)
-			_add_bg_mm.call("BgVillageRoofs", cone, Color(0.54, 0.26, 0.18), roof_xfs)
-			_add_bg_mm.call("BgVillageWoods", cone, Color.WHITE, tree_xfs, tree_cols)
-
-		"wetlands":
-			# Endless marsh delta: distant backwater lagoons, reed-covered islets & marsh trees.
-			var lagoon_xfs: Array = []
-			var islet_xfs: Array = []
-			var tree_xfs: Array = []
-			var wl := water_level(map_name)
-			for i in range(48):
-				var p: Vector2 = _pick_outer.call(false)
-				var yaw := rng.randf_range(0.0, TAU)
-				var sx := rng.randf_range(55.0, 140.0)
-				var sz := rng.randf_range(35.0, 95.0)
-				lagoon_xfs.append(Transform3D(Basis(Vector3.UP, yaw).scaled(Vector3(sx, 0.3, sz)),
-						Vector3(p.x, wl + 0.08, p.y)))
-			for i in range(160):
-				var p: Vector2 = _pick_outer.call(false)
-				var s := rng.randf_range(7.0, 16.0)
-				islet_xfs.append(Transform3D(Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(Vector3(s, 1.4, s * 0.8)),
-						Vector3(p.x, wl + 0.4, p.y)))
-				var ts := rng.randf_range(4.5, 9.5)
-				tree_xfs.append(Transform3D(Basis().scaled(Vector3(ts * 0.7, ts * 1.4, ts * 0.7)),
-						Vector3(p.x + rng.randf_range(-4.0, 4.0), wl + ts * 0.6, p.y + rng.randf_range(-4.0, 4.0))))
-			_add_bg_mm.call("BgWetLagoons", unit_box, Color(0.11, 0.24, 0.25), lagoon_xfs, [], true)
-			_add_bg_mm.call("BgWetIslets", unit_cyl, Color(0.22, 0.27, 0.14), islet_xfs)
-			_add_bg_mm.call("BgWetTrees", cone, Color(0.14, 0.21, 0.11), tree_xfs)
+	var tree_xfs: Array = []
+	var tree_cols: Array = []
+	var hill_xfs: Array = []
+	var hill_cols: Array = []
+	for i in range(28):
+		var p: Vector2 = _pick_outer.call()
+		var yaw := rng.randf_range(0.0, TAU)
+		var dir := Vector2(cos(yaw), sin(yaw))
+		var count := rng.randi_range(4, 7)
+		var dist_t := clampf((p.length() - min_r) / maxf(max_r - min_r, 1.0), 0.0, 1.0)
+		var fog_blend := lerpf(0.38, 0.78, dist_t)
+		for j in range(count):
+			var q := p + dir * (float(j) * 12.0)
+			if absf(q.x) < half_edge + 14.0 and absf(q.y) < half_edge + 14.0:
+				continue
+			var y := _height(map_name, q.x, q.y)
+			var s := rng.randf_range(5.0, 9.5)
+			tree_xfs.append(Transform3D(Basis(Vector3.UP, yaw).scaled(Vector3(s * 1.15, s * 0.95, s * 1.15)),
+					Vector3(q.x, y + s * 0.35, q.y)))
+			tree_cols.append(base_tree.lerp(haze_col, fog_blend))
+	for i in range(24):
+		var p: Vector2 = _pick_outer.call()
+		var y := _height(map_name, p.x, p.y)
+		var w := rng.randf_range(28.0, 56.0)
+		var h := rng.randf_range(4.5, 11.0)
+		var dist_t := clampf((p.length() - min_r) / maxf(max_r - min_r, 1.0), 0.0, 1.0)
+		hill_xfs.append(Transform3D(Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(Vector3(w, h, w * 0.72)),
+				Vector3(p.x, y + h * 0.15, p.y)))
+		hill_cols.append(base_hill.lerp(haze_col, lerpf(0.45, 0.82, dist_t)))
+	_add_bg_mm.call("BgHorizonTreeline", tree_xfs, tree_cols)
+	_add_bg_mm.call("BgHorizonHills", hill_xfs, hill_cols)
 
 
 ## Static freight train + rails: the strongest composition anchor from the
@@ -1246,31 +1237,68 @@ static func _build_industrial_complex(root: Node3D) -> void:
 
 ## Handcrafted river + bridge for the industrial valley.  The terrain height
 ## carves the channel; this adds the water ribbon and a concrete road bridge.
+static var _water_normal_cache: NoiseTexture2D = null
+
+
+static func _water_normal_tex() -> NoiseTexture2D:
+	if _water_normal_cache != null:
+		return _water_normal_cache
+	var noise := FastNoiseLite.new()
+	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	noise.frequency = 0.045
+	noise.fractal_octaves = 4
+	noise.fractal_gain = 0.55
+	var normal_tex := NoiseTexture2D.new()
+	normal_tex.width = 256
+	normal_tex.height = 256
+	normal_tex.seamless = true
+	normal_tex.as_normal_map = true
+	normal_tex.bump_strength = 7.0
+	normal_tex.noise = noise
+	_water_normal_cache = normal_tex
+	return _water_normal_cache
+
+
 static func _build_industrial_river(root: Node3D) -> void:
-	var steps := 96
-	var half_w := 20.0
+	var steps := 64
+	var half_w := 14.0
 	var y := -2.2
 	var verts := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var uvs := PackedVector2Array()
 	var indices := PackedInt32Array()
 	for i in range(steps + 1):
-		var x := -307.2 + 614.4 * float(i) / float(steps)
-		var zc := 252.0 + 18.0 * sin(x * 0.011)
+		var x := -OUTER_HALF + OUTER_SIZE * float(i) / float(steps)
+		var zc := -170.0 + 10.0 * sin(x * 0.015)
 		verts.append(Vector3(x, y, zc - half_w))
 		verts.append(Vector3(x, y, zc + half_w))
+		normals.append(Vector3.UP)
+		normals.append(Vector3.UP)
+		uvs.append(Vector2(float(i) * 0.5, 0.0))
+		uvs.append(Vector2(float(i) * 0.5, 1.0))
 	for i in range(steps):
 		var b := i * 2
 		indices.append_array([b, b + 2, b + 1, b + 1, b + 2, b + 3])
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	var water := StandardMaterial3D.new()
-	water.albedo_color = Color(0.10, 0.26, 0.32)
-	water.roughness = 0.12
-	water.metallic = 0.0
-	water.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var water := ShaderMaterial.new()
+	water.shader = WATER_SHADER
+	water.set_shader_parameter("deep_color", Color(0.015, 0.055, 0.088))
+	water.set_shader_parameter("shallow_color", Color(0.045, 0.145, 0.195))
+	water.set_shader_parameter("opacity", 0.94)
+	water.set_shader_parameter("ripple_scale", 0.03)
+	water.set_shader_parameter("ripple_strength", 0.42)
+	water.set_shader_parameter("ripple_speed", 0.75)
+	water.set_shader_parameter("wave_height", 0.035)
+	water.set_shader_parameter("sky_reflect", Color(0.36, 0.54, 0.80))
+	water.set_shader_parameter("sky_amount", 0.65)
+	water.set_shader_parameter("ripple_normal", _water_normal_tex())
 	var mi := MeshInstance3D.new()
 	mi.name = "RiverWater"
 	mi.mesh = mesh
@@ -1278,10 +1306,10 @@ static func _build_industrial_river(root: Node3D) -> void:
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(mi)
 
-	# Concrete bridge across the channel at the map centre.
+	# Concrete bridge across the northern industrial channel.
 	var conc := _mat(Color(0.56, 0.54, 0.49), 0.9)
 	var steel := _mat(Color(0.24, 0.25, 0.26), 0.8)
-	var zc0 := 252.0
+	var zc0 := -170.0
 	_add_box(root, Vector3(0.0, 1.4, zc0), Vector3(36.0, 1.2, 17.0), conc,
 			0.0, true)
 	for px in [-14.0, 14.0]:
@@ -1326,21 +1354,21 @@ static func _spawn_handcrafted_assets(root: Node3D, map_name: String) -> void:
 	var specs := {
 		"industrial": [
 			["res://Assets/handcrafted/factory_complex.glb",
-				Vector3(-200.0, _height("industrial", -200.0, -180.0) - 0.15, -180.0)],
+				Vector3(-105.0, _height("industrial", -105.0, -98.0) - 0.15, -98.0), 28.0, true],
 			["res://Assets/handcrafted/freight_train.glb",
-				Vector3(0.0, _height("industrial", 0.0, -15.0) - 0.10, -15.0)],
+				Vector3(0.0, _height("industrial", 0.0, -15.0) - 0.10, -15.0), 16.0, false],
 		],
 		"village": [
 			["res://Assets/handcrafted/village_house.glb",
-				Vector3(60.0, _height("village", 60.0, -110.0) - 0.15, -110.0)],
+				Vector3(54.0, _height("village", 54.0, -96.0) - 0.15, -96.0), 18.0, true],
 		],
 		"steppe": [
 			["res://Assets/handcrafted/farm_complex.glb",
-				Vector3(40.0, _height("steppe", 40.0, 146.0) - 0.15, 146.0)],
+				Vector3(-28.0, _height("steppe", -28.0, 124.0) - 0.15, 124.0), 18.0, true],
 		],
 		"wetlands": [
 			["res://Assets/handcrafted/wetlands_dock.glb",
-				Vector3(-60.0, _height("wetlands", -60.0, -140.0) - 0.10, -140.0)],
+				Vector3(-56.0, _height("wetlands", -56.0, -118.0) - 0.10, -118.0), 18.0, true],
 		],
 	}
 	for spec in specs.get(map_name, []):
@@ -1350,10 +1378,17 @@ static func _spawn_handcrafted_assets(root: Node3D, map_name: String) -> void:
 		var ps := load(path) as PackedScene
 		if ps == null:
 			continue
+		var pos: Vector3 = spec[1]
+		var rad: float = float(spec[2])
+		var reserve_slot: bool = bool(spec[3])
+		if reserve_slot:
+			try_reserve_structure(root, map_name, Vector2(pos.x, pos.z), rad, 26.0, true)
+		else:
+			reserve_area(Vector2(pos.x, pos.z), rad)
 		var n := ps.instantiate()
 		n.name = "Handcrafted_" + path.get_file().get_basename()
 		root.add_child(n)
-		n.position = spec[1]
+		n.position = pos
 		_apply_triplanar(n)
 		if path.ends_with("factory_complex.glb"):
 			_replace_factory_chimney(root, n)
@@ -1361,6 +1396,8 @@ static func _spawn_handcrafted_assets(root: Node3D, map_name: String) -> void:
 			_replace_farm_silos(root, n)
 		_hide_handcrafted_windows(n)
 		_add_handcrafted_collision(n)
+		add_contact_shadow(root, map_name, Vector2(pos.x, pos.z), rad,
+				path.get_file().get_basename())
 
 
 ## The authored factory chimney is a closed square stack with no openings; a
@@ -1378,8 +1415,10 @@ static func _replace_factory_chimney(root: Node3D, factory: Node3D) -> void:
 	# replacement stands just east of the hall, clear of its wall and roof, so
 	# both the top and the base arches are open to the outside air.
 	var center := Vector3(-90.0, 0.0, -146.0)
+	reserve_area(Vector2(center.x, center.z), 9.0)
 	center.y = _height("industrial", center.x, center.z)
-	var local_base := root.to_local(center)
+	var root_inv := root.transform.affine_inverse()
+	var local_base := root_inv * center
 	var height := 32.0
 	var radius := 4.0
 	var mat := _pbr("brick", Color(0.50, 0.23, 0.15), 0.38)
@@ -1390,34 +1429,36 @@ static func _replace_factory_chimney(root: Node3D, factory: Node3D) -> void:
 	for h in [7.6, 19.5, 31.2]:
 		_add_ring(root, local_base + Vector3(0.0, h, 0.0),
 				radius + 0.05, 0.15, mat)
-	# Hyperboloid open-top cooling tower at (-72, -214) replacing the capped GLB tower.
+	# Hyperboloid open-top cooling tower near the factory yard (inside ±150 m).
 	var concrete := _pbr("concrete", Color(0.76, 0.74, 0.69), 0.30)
 	var steel := _pbr("steel", Color(0.70, 0.72, 0.74), 0.22)
 	var rust := _pbr("steel", Color(0.48, 0.28, 0.18), 0.34)
 	var tower_inner := _pbr("concrete", Color(0.56, 0.54, 0.50), 0.40)
-	var ct_pos := Vector3(-72.0, _height("industrial", -72.0, -214.0), -214.0)
+	var ct_pos := Vector3(-68.0, _height("industrial", -68.0, -126.0), -126.0)
+	reserve_area(Vector2(ct_pos.x, ct_pos.z), 18.0)
 	var ct_profile: Array[Vector2] = [
 		Vector2(14.5, 0.0), Vector2(13.5, 4.0), Vector2(11.2, 12.0),
 		Vector2(10.5, 19.0), Vector2(11.3, 25.0), Vector2(12.2, 30.0),
 	]
-	_open_tower_profile(root, root.to_local(ct_pos), ct_profile, 0.80,
+	_open_tower_profile(root, root_inv * ct_pos, ct_profile, 0.80,
 			concrete, tower_inner,
 			{"deg": 65.0, "min_h": 0.0, "max_h": 7.5, "count": 2},
 			"FactoryCoolingTower")
-	# Standalone open-top cylindrical silos placed in open yard clear of roof eaves and workshops.
+	# Standalone open-top cylindrical silos clustered near the factory yard inside ±150 m.
 	var silo_inner := _pbr("concrete", Color(0.62, 0.60, 0.56), 0.38)
 	var fac_silos: Array[Vector2] = [
-		Vector2(-140.0, 20.0),
-		Vector2(140.0, -50.0),
+		Vector2(-128.0, -56.0),
+		Vector2(-68.0, -74.0),
 	]
 	for i in range(fac_silos.size()):
 		var fsp := fac_silos[i]
+		reserve_area(fsp, 9.0)
 		var spos := Vector3(fsp.x, _height("industrial", fsp.x, fsp.y), fsp.y)
-		_open_tower(root, root.to_local(spos), 4.5, 0.72, 19.0, steel, silo_inner,
+		_open_tower(root, root_inv * spos, 4.5, 0.72, 19.0, steel, silo_inner,
 				{"deg": 70.0, "min_h": 0.0, "max_h": 4.2, "count": 2},
 				"FactorySilo%d" % i)
 		for sh in [6.2, 12.5, 18.4]:
-			_add_ring(root, root.to_local(spos) + Vector3(0.0, sh, 0.0),
+			_add_ring(root, root_inv * spos + Vector3(0.0, sh, 0.0),
 					4.56, 0.12, rust)
 
 
@@ -1431,19 +1472,19 @@ static func _replace_farm_silos(root: Node3D, farm: Node3D) -> void:
 	var steel := _pbr("steel", Color(0.72, 0.74, 0.75), 0.20)
 	var rust := _pbr("steel", Color(0.48, 0.30, 0.19), 0.34)
 	var silo_inner := _pbr("concrete", Color(0.62, 0.60, 0.56), 0.38)
-	# Standalone grain silos (поодиноко) in open paddocks clear of tracks, tree lines and workshops.
+	var root_inv := root.transform.affine_inverse()
 	var farm_silo_coords: Array[Vector2] = [
-		Vector2(-180.0, 220.0),
-		Vector2(240.0, -120.0),
+		Vector2(-52.0, 124.0),
 	]
 	for i in range(farm_silo_coords.size()):
 		var fsp := farm_silo_coords[i]
+		reserve_area(fsp, 9.5)
 		var spos := Vector3(fsp.x, _height("steppe", fsp.x, fsp.y), fsp.y)
-		_open_tower(root, root.to_local(spos), 4.6, 0.72, 20.5, steel, silo_inner,
+		_open_tower(root, root_inv * spos, 4.6, 0.72, 20.5, steel, silo_inner,
 				{"deg": 70.0, "min_h": 0.0, "max_h": 4.2, "count": 2},
 				"SteppeFarmSilo%d" % i)
 		for sh in [6.5, 13.5, 19.8]:
-			_add_ring(root, root.to_local(spos) + Vector3(0.0, sh, 0.0),
+			_add_ring(root, root_inv * spos + Vector3(0.0, sh, 0.0),
 					4.66, 0.15, rust)
 
 
@@ -1646,21 +1687,21 @@ static func _build_crop_fields(root: Node3D, map_name: String) -> void:
 	var placed := 0
 	var fields: Array = []
 	for _i in range(22):
-		var x := rng.randf_range(-250.0, 250.0)
-		var z := rng.randf_range(-250.0, 250.0)
+		var x := rng.randf_range(-155.0, 155.0)
+		var z := rng.randf_range(-155.0, 155.0)
 		if _hall_clear_zone(map_name, x, z):
 			continue
 		if map_name == "industrial" \
-				and Vector2(x, z).distance_to(Vector2(-200.0, -180.0)) < 155.0:
+				and Vector2(x, z).distance_to(Vector2(-105.0, -98.0)) < 75.0:
 			continue
 		if map_name == "village" \
-				and Vector2(x, z).distance_to(Vector2(60.0, -110.0)) < 70.0:
+				and Vector2(x, z).distance_to(Vector2(54.0, -96.0)) < 55.0:
 			continue
 		if map_name == "steppe" \
-				and Vector2(x, z).distance_to(Vector2(40.0, 146.0)) < 80.0:
+				and Vector2(x, z).distance_to(Vector2(36.0, 128.0)) < 60.0:
 			continue
 		if map_name == "wetlands" \
-				and Vector2(x, z).distance_to(Vector2(-60.0, -140.0)) < 70.0:
+				and Vector2(x, z).distance_to(Vector2(-56.0, -118.0)) < 55.0:
 			continue
 		var w := rng.randf_range(38.0, 68.0)
 		var d := rng.randf_range(30.0, 52.0)
@@ -1716,76 +1757,64 @@ static func _dress_handcrafted_sites(root: Node3D, map_name: String) -> void:
 	var centers: Array = []
 	match map_name:
 		"industrial":
-			centers = [Vector2(-200.0, -180.0), Vector2(50.0, 80.0)]
+			centers = [Vector2(-105.0, -98.0), Vector2(46.0, 68.0)]
 		"village":
-			centers = [Vector2(60.0, -110.0), Vector2(192.0, 58.0)]
+			centers = [Vector2(54.0, -96.0), Vector2(88.0, 52.0)]
 		"steppe":
-			centers = [Vector2(40.0, 146.0)]
+			centers = [Vector2(36.0, 128.0)]
 		"wetlands":
-			centers = [Vector2(-60.0, -140.0)]
+			centers = [Vector2(-56.0, -118.0)]
 		_:
 			return
-	var bush_mesh := FOLIAGE.make_canopy_mesh(5, 2, 0.42, 0.55, 0.65)
-	var bush_mat := FOLIAGE.make_wind_material(Color(0.12, 0.16, 0.06))
 	var rock_mesh := FOLIAGE.make_canopy_mesh(5, 3, 0.30, 1.0, 1.2)
 	var rock_mat := _mat(Color(0.44, 0.42, 0.38), 0.95)
 	var rng := RandomNumberGenerator.new()
 	for c in centers:
 		var cc: Vector2 = c
 		rng.seed = hash(map_name) + int(cc.x) * 31 + int(cc.y) * 17
-		var bx: Array = []
 		var rx: Array = []
-		for _i in range(45):
+		for _i in range(14):
 			var a := rng.randf_range(0.0, TAU)
-			var r := rng.randf_range(28.0, 85.0)
-			var x: float = cc.x + cos(a) * r
-			var z: float = cc.y + sin(a) * r
+			var r := rng.randf_range(22.0, 56.0)
+			var x: float = clampf(cc.x + cos(a) * r, -162.0, 162.0)
+			var z: float = clampf(cc.y + sin(a) * r, -162.0, 162.0)
 			if _hall_clear_zone(map_name, x, z) or _structure_clear_zone(map_name, x, z):
 				continue
 			var y := _height(map_name, x, z)
-			var s := rng.randf_range(0.5, 1.3)
-			bx.append(Transform3D(Basis(Vector3.UP, rng.randf_range(0.0, TAU))
-					.scaled(Vector3(s, s * 0.8, s)), Vector3(x, y + 0.1, z)))
-		for _i in range(22):
-			var a := rng.randf_range(0.0, TAU)
-			var r := rng.randf_range(22.0, 70.0)
-			var x: float = cc.x + cos(a) * r
-			var z: float = cc.y + sin(a) * r
-			if _hall_clear_zone(map_name, x, z) or _structure_clear_zone(map_name, x, z):
-				continue
-			var y := _height(map_name, x, z)
-			var s := rng.randf_range(0.25, 0.7)
+			var s := rng.randf_range(0.25, 0.65)
 			rx.append(Transform3D(Basis(Vector3.UP, rng.randf_range(0.0, TAU))
 					.scaled(Vector3(s, s * 0.6, s)), Vector3(x, y + 0.05, z)))
-		_multimesh(root, "SiteBushes_%d_%d" % [int(cc.x), int(cc.y)],
-				bush_mesh, bush_mat, bx, true)
 		_multimesh(root, "SiteRocks_%d_%d" % [int(cc.x), int(cc.y)],
 				rock_mesh, rock_mat, rx, false)
 
 
-## Rust/crack decal quads on the south facades of the main halls.  They are
-## unshaded alpha quads (six draws per map) and break the flat concrete look.
-## Mobile-only ground tint patches: large low-alpha quads laid flat over the
-## terrain to break repeating grass tiling. Deterministic, height-field driven
-## and cheap; transparent quads are not merged by the static batcher, so each
-## tint costs a handful of draws.
+## Ground tint patches laid softly over the terrain on LOW+ presets to break
+## grass/soil repetition without texture cost or batch merging.
 static func _add_mobile_ground_patches(root: Node3D, map_name: String) -> void:
 	var plans := {
 		"steppe": [
-			Vector2(-90.0, -120.0), Vector2(150.0, -170.0), Vector2(235.0, 60.0),
-			Vector2(-220.0, -40.0), Vector2(40.0, 190.0), Vector2(-240.0, -200.0),
+			Vector2(-75.0, -95.0), Vector2(115.0, -110.0), Vector2(142.0, 35.0),
+			Vector2(-135.0, -25.0), Vector2(30.0, 138.0), Vector2(-135.0, -135.0),
+			Vector2(-35.0, 62.0), Vector2(140.0, -42.0), Vector2(-95.0, 118.0),
+			Vector2(18.0, -48.0), Vector2(138.0, 132.0), Vector2(-148.0, 48.0),
 		],
 		"village": [
-			Vector2(-60.0, -140.0), Vector2(120.0, 200.0), Vector2(235.0, 120.0),
-			Vector2(-240.0, 140.0), Vector2(80.0, -210.0), Vector2(-180.0, -60.0),
+			Vector2(-52.0, -110.0), Vector2(95.0, 135.0), Vector2(142.0, 88.0),
+			Vector2(-108.0, 118.0), Vector2(68.0, -138.0), Vector2(-95.0, -42.0),
+			Vector2(-24.0, 28.0), Vector2(132.0, -24.0), Vector2(22.0, 138.0),
+			Vector2(-68.0, 145.0), Vector2(148.0, 140.0), Vector2(-88.0, -135.0),
 		],
 		"industrial": [
-			Vector2(-120.0, 195.0), Vector2(140.0, -180.0), Vector2(240.0, -60.0),
-			Vector2(-245.0, -60.0), Vector2(-40.0, -215.0), Vector2(220.0, 190.0),
+			Vector2(-92.0, 132.0), Vector2(105.0, -118.0), Vector2(145.0, -38.0),
+			Vector2(-145.0, -35.0), Vector2(-32.0, -132.0), Vector2(132.0, 128.0),
+			Vector2(-18.0, 42.0), Vector2(118.0, 18.0), Vector2(-138.0, 88.0),
+			Vector2(34.0, -82.0), Vector2(-68.0, -132.0), Vector2(148.0, -110.0),
 		],
 		"wetlands": [
-			Vector2(-120.0, 190.0), Vector2(160.0, 200.0), Vector2(240.0, -40.0),
-			Vector2(-240.0, -120.0), Vector2(20.0, -210.0), Vector2(-200.0, -40.0),
+			Vector2(-88.0, 132.0), Vector2(128.0, 135.0), Vector2(144.0, -28.0),
+			Vector2(-142.0, -92.0), Vector2(24.0, -135.0), Vector2(-128.0, -22.0),
+			Vector2(-32.0, 68.0), Vector2(132.0, -98.0), Vector2(18.0, 136.0),
+			Vector2(-145.0, 86.0), Vector2(98.0, -24.0), Vector2(-62.0, -142.0),
 		],
 	}
 	var tints := {
@@ -1796,18 +1825,16 @@ static func _add_mobile_ground_patches(root: Node3D, map_name: String) -> void:
 	}
 	var patch_tints: Array = tints.get(map_name, [Color(0.4, 0.4, 0.3, 0.12)])
 	var placed := 0
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(map_name) + 8821
 	for i in range(plans.get(map_name, []).size()):
 		var base: Vector2 = plans[map_name][i]
-		# Authored landmarks, reserved stunt zones and water can swallow a
-		# planned patch.  Spiral to nearby dry ground instead of dropping the
-		# patch outright, otherwise a map can end up with two tints and lose
-		# the large-scale ground variation entirely.
 		var site := _patch_site(map_name, base)
 		if site == Vector2.INF:
 			continue
 		var gy := mesh_surface_height(map_name, site.x, site.y)
 		var quad := QuadMesh.new()
-		quad.size = Vector2(randf_range(38.0, 74.0), randf_range(30.0, 56.0))
+		quad.size = Vector2(rng.randf_range(28.0, 48.0), rng.randf_range(22.0, 40.0))
 		var mat := StandardMaterial3D.new()
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		mat.albedo_color = patch_tints[i % patch_tints.size()]
@@ -1819,8 +1846,9 @@ static func _add_mobile_ground_patches(root: Node3D, map_name: String) -> void:
 		mi.material_override = mat
 		mi.position = Vector3(site.x, gy + 0.06, site.y)
 		mi.rotation.x = -PI * 0.5
-		mi.rotation.z = randf_range(0.0, TAU)
+		mi.rotation.z = rng.randf_range(0.0, TAU)
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.set_meta("no_batch", true)
 		root.add_child(mi)
 		placed += 1
 	print("[MobilePatches] ", map_name, " placed=", placed)
@@ -1829,19 +1857,23 @@ static func _add_mobile_ground_patches(root: Node3D, map_name: String) -> void:
 static func _patch_site(map_name: String, base: Vector2) -> Vector2:
 	var water := water_level(map_name)
 	for ring in range(0, 8):
-		var ring_r := 20.0 * float(ring)
+		var ring_r := 14.0 * float(ring)
 		var steps := 1 if ring == 0 else 10
 		for i in range(steps):
 			var a := TAU * float(i) / float(steps) + float(ring) * 0.6
 			var c := base + Vector2(cos(a), sin(a)) * ring_r
-			if absf(c.x) > 248.0 or absf(c.y) > 248.0:
+			if absf(c.x) > 155.0 or absf(c.y) > 155.0:
 				continue
 			if _hall_clear_zone(map_name, c.x, c.y) \
 					or _structure_clear_zone(map_name, c.x, c.y):
 				continue
-			if mesh_surface_height(map_name, c.x, c.y) <= water + 0.25:
+			if mesh_surface_height(map_name, c.x, c.y) <= water + 0.20:
 				continue
 			return c
+	# Deterministic fallback so >= 8 patches always spawn inside compact bounds.
+	var fb := Vector2(clampf(base.x, -155.0, 155.0), clampf(base.y, -155.0, 155.0))
+	if not _hall_clear_zone(map_name, fb.x, fb.y) and mesh_surface_height(map_name, fb.x, fb.y) > water - 0.1:
+		return fb
 	return Vector2.INF
 
 
@@ -1853,22 +1885,24 @@ static func _add_wall_decals(root: Node3D, map_name: String) -> void:
 	if rust == null:
 		return
 	var spots: Array = []
-	match map_name:
-		"industrial":
-			spots = [Vector3(-222.0, 4.0, -166.4), Vector3(-205.0, 9.0, -166.4),
-					Vector3(-188.0, 3.0, -166.4), Vector3(12.0, 4.0, 52.2),
-					Vector3(45.0, 8.0, 52.2), Vector3(78.0, 3.0, 52.2)]
-		"village":
-			spots = [Vector3(150.0, 3.0, 31.2), Vector3(190.0, 7.0, 31.2),
-					Vector3(225.0, 3.0, 31.2)]
-		"steppe":
-			spots = [Vector3(55.0, 3.0, 88.2), Vector3(95.0, 8.0, 88.2),
-					Vector3(135.0, 3.0, 88.2)]
-		"wetlands":
-			spots = [Vector3(45.0, 3.0, 33.2), Vector3(85.0, 7.0, 33.2),
-					Vector3(125.0, 3.0, 33.2)]
-		_:
-			return
+	var site: Dictionary = HALL_SITES.get(map_name, {})
+	if site.is_empty():
+		return
+	var hc: Vector2 = site["center"]
+	var hz_front: float = hc.y - float((site["half"] as Vector2).y) * 0.68
+	var base_gy: float = _height(map_name, hc.x, hc.y)
+	spots = [
+		Vector3(hc.x - 28.0, base_gy + 3.5, hz_front),
+		Vector3(hc.x, base_gy + 7.5, hz_front),
+		Vector3(hc.x + 28.0, base_gy + 3.5, hz_front),
+	]
+	if map_name == "industrial":
+		var fy := _height("industrial", -105.0, -98.0)
+		spots.append_array([
+			Vector3(-122.0, fy + 3.8, -84.0),
+			Vector3(-105.0, fy + 8.0, -84.0),
+			Vector3(-88.0, fy + 3.0, -84.0),
+		])
 	for i in range(spots.size()):
 		var q := QuadMesh.new()
 		q.size = Vector2(7.0, 4.5)
@@ -2037,16 +2071,16 @@ static func _mobile_ground_palette(map_name: String, source: Dictionary) -> Dict
 static func _build_mobile_beacons(root: Node3D, map_name: String) -> void:
 	var specs := {
 		"steppe": [
-			Vector2(145.0, 225.0), Vector2(245.0, -70.0), Vector2(-235.0, 90.0),
+			Vector2(125.0, 145.0), Vector2(142.0, -55.0), Vector2(-135.0, 62.0),
 		],
 		"village": [
-			Vector2(235.0, 205.0), Vector2(-235.0, -205.0), Vector2(40.0, -235.0),
+			Vector2(138.0, 138.0), Vector2(-108.0, -125.0), Vector2(18.0, -142.0),
 		],
 		"industrial": [
-			Vector2(235.0, 195.0), Vector2(-235.0, -205.0), Vector2(235.0, -210.0),
+			Vector2(138.0, 132.0), Vector2(-135.0, -132.0), Vector2(138.0, -132.0),
 		],
 		"wetlands": [
-			Vector2(235.0, 205.0), Vector2(-240.0, 40.0), Vector2(220.0, 225.0),
+			Vector2(138.0, 132.0), Vector2(-138.0, 28.0), Vector2(-28.0, 142.0),
 		],
 	}
 	var lights := [Color(0.95, 0.26, 0.18), Color(1.0, 0.62, 0.16),
@@ -2067,7 +2101,7 @@ static func _build_mobile_beacons(root: Node3D, map_name: String) -> void:
 
 static func _resolve_mobile_beacon_site(map_name: String, base: Vector2) -> Vector2:
 	for ring in range(0, 10):
-		var radius := 0.0 if ring == 0 else 20.0 * float(ring)
+		var radius := 0.0 if ring == 0 else 16.0 * float(ring)
 		var steps := 1 if ring == 0 else 16
 		for i in range(steps):
 			var a := TAU * float(i) / float(steps) + float(ring) * 0.31
@@ -2078,70 +2112,58 @@ static func _resolve_mobile_beacon_site(map_name: String, base: Vector2) -> Vect
 
 
 static func _is_clear_beacon_site(map_name: String, x: float, z: float) -> bool:
-	if absf(x) > 265.0 or absf(z) > 265.0:
+	if absf(x) > 158.0 or absf(z) > 158.0:
 		return false
 	if _hall_clear_zone(map_name, x, z) or _structure_clear_zone(map_name, x, z) \
 			or _farm_clear_zone(map_name, x, z):
 		return false
 	var water := float(water_level(map_name))
 	var ground := float(mesh_surface_height(map_name, x, z))
-	if ground < water + 1.6:
+	if ground < water + 1.2:
 		return false
-	var e := 7.0
+	var e := 6.0
 	var h0 := float(mesh_surface_height(map_name, x - e, z))
 	var h1 := float(mesh_surface_height(map_name, x + e, z))
 	var h2 := float(mesh_surface_height(map_name, x, z - e))
 	var h3 := float(mesh_surface_height(map_name, x, z + e))
 	if maxf(maxf(h0, h1), maxf(h2, h3)) - minf(minf(h0, h1), minf(h2, h3)) > 7.5:
 		return false
-	var roads: Array = _road_points(map_name)
-	for line in roads:
-		var pts: PackedVector2Array = line
-		for i in range(pts.size() - 1):
-			if Geometry2D.get_closest_point_to_segment(Vector2(x, z),
-					pts[i], pts[i + 1]).distance_to(Vector2(x, z)) < 26.0:
-				return false
-	var mil_script = load("res://scripts/util/military_structures.gd")
-	if mil_script != null and mil_script.spawned_positions.has(map_name):
-		for mp in mil_script.spawned_positions[map_name]:
-			if Vector2(x, z).distance_to(Vector2(mp)) < 45.0:
-				return false
+	if _road_factor(map_name, x, z) >= 0.22:
+		return false
 	return true
 
 
-## One unique mobile hero landmark per map, built from the same box/cylinder
-## kit as the authored POIs. They sit on clear ground, are collidable, and are
-## registered in _poi_positions so later scatter passes keep their berth.
+## Three unique signature hero landmarks per map, reserved through the shared
+## structure registry so they maintain wide flight corridors and sit inside ±158 m.
 static func _build_mobile_hero_landmarks(root: Node3D, map_name: String) -> void:
 	var specs := {
 		"steppe": [
-			["wind_turbine", Vector2(-175.0, 220.0)],
-			["fuel_depot", Vector2(225.0, -215.0)],
-			["silo_bank", Vector2(-240.0, -60.0)],
+			["wind_turbine", Vector2(-110.0, 95.0)],
+			["fuel_depot", Vector2(132.0, -110.0)],
+			["silo_bank", Vector2(-128.0, -28.0)],
 		],
 		"village": [
-			["grain_elevator", Vector2(-180.0, 205.0)],
-			["church", Vector2(-240.0, 80.0)],
-			["market_stalls", Vector2(240.0, -135.0)],
+			["grain_elevator", Vector2(-72.0, -125.0)],
+			["church", Vector2(-75.0, -45.0)],
+			["market_stalls", Vector2(138.0, -115.0)],
 		],
 		"industrial": [
-			["flare_stack", Vector2(235.0, -120.0)],
-			["pipe_rack", Vector2(-235.0, 195.0)],
-			["water_cistern", Vector2(-240.0, 125.0)],
+			["flare_stack", Vector2(138.0, -95.0)],
+			["pipe_rack", Vector2(-118.0, 118.0)],
+			["water_cistern", Vector2(-128.0, 32.0)],
 		],
 		"wetlands": [
-			# The old edge coordinates sat in open water after the marsh
-			# shoreline pass.  Keep the same three silhouettes but start them
-			# on the nearest dry shelf so the hero layer cannot vanish.
-			["lighthouse", Vector2(215.0, 175.0)],
-			["boathouse", Vector2(-200.0, 180.0)],
-			["pier_house", Vector2(-120.0, -100.0)],
+			["lighthouse", Vector2(135.0, 115.0)],
+			["boathouse", Vector2(-122.0, 112.0)],
+			["pier_house", Vector2(-95.0, -45.0)],
 		],
 	}
 	var list: Array = specs.get(map_name, [])
 	for entry in list:
-		var site := _resolve_mobile_beacon_site(map_name, entry[1])
-		if site.x < -900.0:
+		var site := _reserve_near_site(root, map_name, entry[1], 14.0, 28.0, false)
+		if site == Vector2.INF:
+			site = _reserve_near_site(root, map_name, entry[1], 12.0, 25.0, false)
+		if site == Vector2.INF:
 			print("[MobileHero] ", map_name, " rejected ", entry[1])
 			continue
 		match String(entry[0]):
@@ -2170,7 +2192,7 @@ static func _build_mobile_hero_landmarks(root: Node3D, map_name: String) -> void
 			"pier_house":
 				_add_mobile_pier_house(root, map_name, site)
 		_poi_positions.append(site)
-		reserve_area(site, 30.0)
+		add_contact_shadow(root, map_name, site, 14.0, "MobileHero_" + String(entry[0]))
 		print("[MobileHero] ", map_name, " ", entry[0], " at ", site)
 
 
@@ -2639,7 +2661,7 @@ static func _spawn_cottage(root: Node3D, variant: String, p: Vector2, y: float,
 			_add_mesh_collision(body, col_mi)
 		var bb: AABB = mi.get_aabb()
 		if bb.size.y > 2.0:
-			body.set_meta("roof_aabb", mi.global_transform * bb)
+			body.set_meta("roof_aabb", _local_transform_to_root(mi, null) * bb)
 			var rcs := CollisionShape3D.new()
 			var rshape := BoxShape3D.new()
 			rshape.size = Vector3(maxf(bb.size.x - 0.4, 2.0), 0.7, maxf(bb.size.z - 0.4, 2.0))
@@ -2792,9 +2814,9 @@ static func _apply_cottage_materials(node: Node, style: int = 0) -> void:
 ## floating in the sky when viewed from the air.
 static func _build_horizon_ring(root: Node3D, map_name: String,
 		_mat: ShaderMaterial) -> void:
-	const EXTENT := 1843.2
-	const STEP := 38.4
-	const HOLE := 307.2
+	const EXTENT := 960.0
+	const STEP := 24.0
+	const HOLE := 188.0
 	var cells := int(EXTENT * 2.0 / STEP)
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
@@ -2803,7 +2825,7 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 	var indices := PackedInt32Array()
 	var base := -EXTENT
 	var wl := water_level(map_name)
-	var haze_col := Color(0.56, 0.63, 0.69)
+	var haze_col := Color(0.58, 0.65, 0.72)
 	var grass := Color(0.24, 0.30, 0.14)
 	var dry := Color(0.36, 0.34, 0.21)
 	var rock := Color(0.32, 0.30, 0.25)
@@ -2812,22 +2834,22 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 			grass = Color(0.29, 0.30, 0.14)
 			dry = Color(0.42, 0.36, 0.20)
 			rock = Color(0.36, 0.32, 0.24)
-			haze_col = Color(0.62, 0.63, 0.58)
+			haze_col = Color(0.66, 0.67, 0.62)
 		"village":
 			grass = Color(0.21, 0.30, 0.13)
 			dry = Color(0.34, 0.32, 0.18)
 			rock = Color(0.30, 0.28, 0.24)
-			haze_col = Color(0.56, 0.63, 0.69)
+			haze_col = Color(0.58, 0.65, 0.72)
 		"industrial":
 			grass = Color(0.20, 0.24, 0.15)
 			dry = Color(0.30, 0.29, 0.25)
 			rock = Color(0.28, 0.28, 0.26)
-			haze_col = Color(0.52, 0.58, 0.63)
+			haze_col = Color(0.56, 0.62, 0.68)
 		"wetlands":
 			grass = Color(0.15, 0.22, 0.11)
 			dry = Color(0.22, 0.24, 0.15)
 			rock = Color(0.10, 0.19, 0.20)
-			haze_col = Color(0.54, 0.61, 0.60)
+			haze_col = Color(0.56, 0.64, 0.64)
 	for j in range(cells + 1):
 		for i in range(cells + 1):
 			var wx := base + float(i) * STEP
@@ -2854,7 +2876,7 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 			else:
 				col = col.lerp(rock, slope * 0.52)
 			var dist := Vector2(wx, wz).length()
-			var far_haze := smoothstep(900.0, EXTENT * 1.15, dist) * 0.52
+			var far_haze := smoothstep(260.0, EXTENT * 0.92, dist) * 0.72
 			col = col.lerp(haze_col, far_haze)
 			colors.append(col)
 	for j in range(cells):
@@ -2907,39 +2929,18 @@ static func _build_water(root: Node3D, map_name: String) -> void:
 	var level := water_level(map_name)
 	if level < -100.0:
 		return
-	# Animated water: two crossing ripple trains drive the normal, the fresnel
-	# term drives both the colour and the opacity, and the vertex stage adds a
-	# centimetre-scale swell so the shoreline silhouette is not razor straight.
 	var mat := ShaderMaterial.new()
 	mat.shader = WATER_SHADER
-	# The Black Sea palette from the TAC-05 Crimean hydroelectric mission is
-	# now the single water look on every map: deep navy in the middle, teal at
-	# the banks, a bright sky reflection at grazing angles and a stronger
-	# opacity so the riverbed never reads as flat green paint.
 	mat.set_shader_parameter("deep_color", Color(0.012, 0.045, 0.080))
 	mat.set_shader_parameter("shallow_color", Color(0.035, 0.135, 0.185))
 	mat.set_shader_parameter("opacity", 0.95)
 	mat.set_shader_parameter("ripple_scale", 0.025)
-	mat.set_shader_parameter("ripple_strength", 0.50)
+	mat.set_shader_parameter("ripple_strength", 0.48)
 	mat.set_shader_parameter("ripple_speed", 0.85)
-	mat.set_shader_parameter("wave_height", 0.05)
-	mat.set_shader_parameter("sky_reflect", Color(0.30, 0.47, 0.72))
-	mat.set_shader_parameter("sky_amount", 0.55)
-	# Seamless noise normal: two scrolling samples in the shader replace the
-	# regular sine ripples that looked like corrugated metal.
-	var noise := FastNoiseLite.new()
-	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	noise.frequency = 0.045
-	noise.fractal_octaves = 4
-	noise.fractal_gain = 0.55
-	var normal_tex := NoiseTexture2D.new()
-	normal_tex.width = 256
-	normal_tex.height = 256
-	normal_tex.seamless = true
-	normal_tex.as_normal_map = true
-	normal_tex.bump_strength = 7.0
-	normal_tex.noise = noise
-	mat.set_shader_parameter("ripple_normal", normal_tex)
+	mat.set_shader_parameter("wave_height", 0.045)
+	mat.set_shader_parameter("sky_reflect", Color(0.36, 0.55, 0.80))
+	mat.set_shader_parameter("sky_amount", 0.68)
+	mat.set_shader_parameter("ripple_normal", _water_normal_tex())
 
 	var mi := MeshInstance3D.new()
 	mi.name = "Water"
@@ -2947,19 +2948,18 @@ static func _build_water(root: Node3D, map_name: String) -> void:
 	root.add_child(mi)
 
 	if map_name == "village":
-		# A ribbon that follows the carved river channel.
-		var steps := 128
+		var steps := 96
 		var verts := PackedVector3Array()
 		var normals := PackedVector3Array()
 		var uvs := PackedVector2Array()
 		var indices := PackedInt32Array()
 		for i in range(steps + 1):
-			var z := -307.2 + float(i) * (614.4 / float(steps))
-			var x := -170.0 + 35.0 * sin(z * 0.008)
-			var dir := Vector2(35.0 * 0.008 * cos(z * 0.008), 1.0).normalized()
+			var z := -OUTER_HALF + float(i) * (OUTER_SIZE / float(steps))
+			var x := -140.0 + 18.0 * sin(z * 0.011)
+			var dir := Vector2(18.0 * 0.011 * cos(z * 0.011), 1.0).normalized()
 			var n := Vector2(-dir.y, dir.x)
-			var left := Vector2(x, z) + n * 30.0
-			var right := Vector2(x, z) - n * 30.0
+			var left := Vector2(x, z) + n * 24.0
+			var right := Vector2(x, z) - n * 24.0
 			verts.append(Vector3(left.x, level, left.y))
 			verts.append(Vector3(right.x, level, right.y))
 			normals.append(Vector3.UP)
@@ -2982,7 +2982,7 @@ static func _build_water(root: Node3D, map_name: String) -> void:
 		mi.mesh = mesh
 	else:
 		var plane := PlaneMesh.new()
-		plane.size = Vector2(640.0, 640.0)
+		plane.size = Vector2(OUTER_SIZE, OUTER_SIZE)
 		plane.subdivide_width = 16
 		plane.subdivide_depth = 16
 		plane.material = mat
@@ -2997,32 +2997,32 @@ static func _road_points(map_name: String) -> Array:
 	match map_name:
 		"village":
 			return [
-				PackedVector2Array([Vector2(-255, 235), Vector2(-180, 210), Vector2(-100, 195),
-						Vector2(0, 170), Vector2(40, 80), Vector2(20, -40), Vector2(-40, -145),
-						Vector2(-75, -255)]),
-				PackedVector2Array([Vector2(-250, 60), Vector2(-150, 40), Vector2(-20, 60),
-						Vector2(120, 40), Vector2(245, 65)]),
+				PackedVector2Array([Vector2(-180, 178), Vector2(-120, 155), Vector2(-45, 132),
+						Vector2(10, 108), Vector2(28, 46), Vector2(12, -32), Vector2(-32, -108),
+						Vector2(-58, -182)]),
+				PackedVector2Array([Vector2(-182, -12), Vector2(-110, -24), Vector2(-20, -10),
+						Vector2(95, -22), Vector2(182, -14)]),
 			]
 		"industrial":
 			return [
-				PackedVector2Array([Vector2(-260, 200), Vector2(-185, 180), Vector2(-100, 165),
-						Vector2(-30, 108), Vector2(-34, 24), Vector2(60, -120), Vector2(40, -245)]),
-				PackedVector2Array([Vector2(-255, -40), Vector2(-170, -30), Vector2(-20, -45),
-						Vector2(150, -30), Vector2(255, -48)]),
+				PackedVector2Array([Vector2(-182, 160), Vector2(-128, 144), Vector2(-68, 126),
+						Vector2(-22, 84), Vector2(-24, 16), Vector2(44, -88), Vector2(28, -182)]),
+				PackedVector2Array([Vector2(-182, -32), Vector2(-118, -24), Vector2(-16, -34),
+						Vector2(108, -24), Vector2(182, -36)]),
 			]
 		"wetlands":
 			return [
-				PackedVector2Array([Vector2(-255, 210), Vector2(-215, 165), Vector2(-190, 105),
-						Vector2(-155, 20), Vector2(-60, -20), Vector2(80, -10),
-						Vector2(185, 30), Vector2(255, 85)]),
-				PackedVector2Array([Vector2(-230, -230), Vector2(-195, -120), Vector2(-175, 20),
-						Vector2(-120, 140), Vector2(-40, 230)]),
+				PackedVector2Array([Vector2(-182, 156), Vector2(-148, 118), Vector2(-132, 74),
+						Vector2(-108, 12), Vector2(-42, -18), Vector2(54, -8),
+						Vector2(132, 22), Vector2(182, 62)]),
+				PackedVector2Array([Vector2(-164, -166), Vector2(-138, -88), Vector2(-124, 14),
+						Vector2(-86, 102), Vector2(-30, 172)]),
 			]
 		_:
 			return [
-				PackedVector2Array([Vector2(-255, 225), Vector2(-205, 195), Vector2(-135, 170),
-						Vector2(-55, 135), Vector2(30, 60), Vector2(80, -40), Vector2(90, -160),
-						Vector2(65, -255)]),
+				PackedVector2Array([Vector2(-182, 166), Vector2(-142, 142), Vector2(-95, 122),
+						Vector2(-40, 96), Vector2(22, 42), Vector2(56, -28), Vector2(64, -112),
+						Vector2(46, -182)]),
 			]
 
 
@@ -3418,120 +3418,106 @@ static func _build_landmarks(root: Node3D, map_name: String) -> void:
 static func _build_blender_landmarks(root: Node3D, map_name: String) -> void:
 	match map_name:
 		"village":
-			# Rural map: modern office/hospital towers removed; the handcrafted
-			# cottage/mill cluster and the village hall carry the skyline.
-			# Bridge deck must meet both banks; the river meanders along X here.
-			var river_x := -170.0 + 35.0 * sin(40.0 * 0.008)
+			var river_x := -140.0 + 18.0 * sin(40.0 * 0.011)
 			var bridge_y := _bank_height(map_name, river_x, 40.0, 23.0) - 3.85 + 0.15
 			var concrete_bridge := ASSETS.spawn(root, "concrete_bridge",
 					Vector3(river_x, bridge_y, 40.0), 0.0)
 			_wrap_landmark(root, concrete_bridge, 1900.0, 550)
-			var river_x2 := -170.0 + 35.0 * sin(150.0 * 0.008)
-			var bridge_y2 := _bank_height(map_name, river_x2, 150.0, 12.5) - 3.08 + 0.12
+			reserve_area(Vector2(river_x, 40.0), 24.0)
+			var river_x2 := -140.0 + 18.0 * sin(140.0 * 0.011)
+			var bridge_y2 := _bank_height(map_name, river_x2, 140.0, 12.5) - 3.08 + 0.12
 			var wooden_bridge := ASSETS.spawn(root, "wooden_bridge",
-					Vector3(river_x2, bridge_y2, 150.0), 0.0)
+					Vector3(river_x2, bridge_y2, 140.0), 0.0)
 			_wrap_landmark(root, wooden_bridge, 1200.0, 400)
-			_destructible_on(root, map_name, "checkpoint", Vector2(28, 195), -0.2, 900.0, 300)
-			_destructible_on(root, map_name, "observation_post", Vector2(-252, -58), 0.5, 800.0, 250)
-			_destructible_on(root, map_name, "bunker", Vector2(-108, 22), 0.1, 1200.0, 400)
-			_destructible_on(root, map_name, "bunker", Vector2(162, 20), -0.3, 1200.0, 400)
-			for p in [Vector2(-10, 165), Vector2(35, 160), Vector2(72, 150),
-					Vector2(-150, 70), Vector2(-170, 20)]:
-				_asset_on(root, map_name, "hedgehog", p, float(p.x) * 0.01)
-			_asset_on(root, map_name, "sandbag_wall", Vector2(-210, 102), 0.08)
-			_asset_on(root, map_name, "sandbag_wall", Vector2(32, 202), -0.2)
-			_asset_on(root, map_name, "vegetation/oak_hero", Vector2(48, -48), 0.7)
-			_asset_on(root, map_name, "vegetation/oak_hero", Vector2(-178, 74), 1.4)
-			_asset_on(root, map_name, "vegetation/pine_hero", Vector2(240, 212), 0.3)
-			_asset_on(root, map_name, "vegetation/pine_hero", Vector2(-245, -172), 1.1)
+			reserve_area(Vector2(river_x2, 140.0), 16.0)
+			var cp_site := _reserve_near_site(root, map_name, Vector2(18.0, 136.0), 10.0, 28.0, true)
+			if cp_site != Vector2.INF:
+				_destructible_on(root, map_name, "checkpoint", cp_site, -0.2, 900.0, 300)
+				add_contact_shadow(root, map_name, cp_site, 10.0, "VillageCheckpoint")
+			var bk_site := _reserve_near_site(root, map_name, Vector2(-72.0, 24.0), 10.0, 28.0, false)
+			if bk_site != Vector2.INF:
+				_destructible_on(root, map_name, "bunker", bk_site, 0.1, 1200.0, 400)
+				add_contact_shadow(root, map_name, bk_site, 10.0, "VillageBunker")
+			for p in [Vector2(-12.0, 124.0), Vector2(-115.0, 62.0), Vector2(-110.0, 24.0)]:
+				if not _hall_clear_zone(map_name, p.x, p.y):
+					_asset_on(root, map_name, "hedgehog", p, float(p.x) * 0.01)
+			_asset_on(root, map_name, "sandbag_wall", Vector2(-95.0, 88.0), 0.08)
+			_asset_on(root, map_name, "vegetation/oak_hero", Vector2(36.0, -48.0), 0.7)
+			_asset_on(root, map_name, "vegetation/oak_hero", Vector2(-112.0, 74.0), 1.4)
+			_asset_on(root, map_name, "vegetation/pine_hero", Vector2(142.0, 138.0), 0.3)
 
 			var MS = load("res://scripts/util/military_structures.gd")
 			if MS != null:
 				MS.spawn_map_military_objects(root, map_name)
 
 		"industrial":
-			# Road checkpoint & grand entry arch placed cleanly along the western approach road (-100, 170)
-			# away from the hero hall facade so flight paths and roof approaches remain unobstructed.
-			_destructible_on(root, map_name, "arch", Vector2(-100, 170), 0.55, 900.0, 300)
-			_destructible_on(root, map_name, "checkpoint", Vector2(-135, 185), 0.35, 900.0, 300)
-			_destructible_on(root, map_name, "bunker", Vector2(-240, -155), 0.35, 1200.0, 400)
-			_destructible_on(root, map_name, "observation_post", Vector2(-242, 132), 0.8, 800.0, 250)
-			for p in [Vector2(130, 92), Vector2(205, 92), Vector2(168, 54),
-					Vector2(-155, 195), Vector2(-80, 155)]:
+			var arch_site := _reserve_near_site(root, map_name, Vector2(-42.0, 128.0), 12.0, 28.0, true)
+			if arch_site != Vector2.INF:
+				_destructible_on(root, map_name, "arch", arch_site, 0.55, 900.0, 300)
+				add_contact_shadow(root, map_name, arch_site, 12.0, "IndArch")
+			for p in [Vector2(-68.0, 135.0), Vector2(128.0, 48.0), Vector2(-118.0, 96.0)]:
 				_asset_on(root, map_name, "hedgehog", p, float(p.y) * 0.01)
-			_asset_on(root, map_name, "sandbag_wall", Vector2(-128, 178), 0.35)
-			_asset_on(root, map_name, "sandbag_wall", Vector2(-240, -145), 0.35)
-			_asset_on(root, map_name, "rocks", Vector2(-225, -138), 0.4)
-			_asset_on(root, map_name, "rocks", Vector2(235, 158), 1.2)
-			_asset_on(root, map_name, "vegetation/pine_hero", Vector2(-248, 190), 0.4)
-			_asset_on(root, map_name, "vegetation/pine_hero", Vector2(245, 195), 2.2)
-			_asset_on(root, map_name, "vegetation/oak_hero", Vector2(22, 200), 1.0)
+			_asset_on(root, map_name, "sandbag_wall", Vector2(-92.0, 128.0), 0.35)
+			_asset_on(root, map_name, "vegetation/pine_hero", Vector2(-142.0, 132.0), 0.4)
+			_asset_on(root, map_name, "vegetation/oak_hero", Vector2(18.0, 146.0), 1.0)
 
 			var MC_ind = load("res://scripts/util/moving_crane.gd")
 			if MC_ind != null:
-				# Dynamic traveling gantry crane over the container yard
-				var cy1 := _height(map_name, 65.0, 10.0)
-				var gantry_crane: Node3D = MC_ind.create_gantry_crane(Vector3(65.0, cy1, 10.0), 0.0, 68.0)
-				root.add_child(gantry_crane)
-				# Dynamic rotating high-mast construction tower crane
-				var cy2 := _height(map_name, -140.0, 20.0)
-				var tower_crane: Node3D = MC_ind.create_rotating_tower_crane(Vector3(-140.0, cy2, 20.0), 0.25)
-				root.add_child(tower_crane)
+				var c1 := _reserve_near_site(root, map_name, Vector2(78.0, -48.0), 14.0, 28.0, false)
+				if c1 != Vector2.INF:
+					var cy1 := _height(map_name, c1.x, c1.y)
+					root.add_child(MC_ind.create_gantry_crane(Vector3(c1.x, cy1, c1.y), 0.0, 44.0))
+					add_contact_shadow(root, map_name, c1, 16.0, "GantryCrane")
+				var c2 := _reserve_near_site(root, map_name, Vector2(-118.0, 18.0), 14.0, 28.0, false)
+				if c2 != Vector2.INF:
+					var cy2 := _height(map_name, c2.x, c2.y)
+					root.add_child(MC_ind.create_rotating_tower_crane(Vector3(c2.x, cy2, c2.y), 0.25))
+					add_contact_shadow(root, map_name, c2, 14.0, "TowerCrane")
 
 			var MS_ind = load("res://scripts/util/military_structures.gd")
 			if MS_ind != null:
 				MS_ind.spawn_map_military_objects(root, map_name)
 
 		"wetlands":
-			ASSETS.spawn(root, "destroyed_bridge", Vector3(0.0, water_level(map_name), -90.0), 0.0)
-			ASSETS.spawn(root, "wooden_bridge", Vector3(120.0, water_level(map_name) - 0.15, -90.0), PI * 0.5)
-			# Second crossing off the hall's west approach so the first frame has
-			# water, reeds and a broken span instead of an empty bank.
-			ASSETS.spawn(root, "destroyed_bridge", Vector3(16.0, water_level(map_name), 22.0), 0.0)
-			_destructible_on(root, map_name, "bunker", Vector2(10, 54), 0.18, 1200.0, 400)
-			_destructible_on(root, map_name, "bunker", Vector2(190, 80), -0.4, 1200.0, 400)
-			_destructible_on(root, map_name, "bunker", Vector2(-190, -40), 1.1, 1200.0, 400)
-			_asset_on(root, map_name, "sandbag_wall", Vector2(20, 58), 0.12)
-			_asset_on(root, map_name, "hedgehog", Vector2(2, 62), 0.3)
-			_asset_on(root, map_name, "hedgehog", Vector2(24, 68), 0.6)
-			for p in [Vector2(-230, 20), Vector2(250, 15), Vector2(-60, 150)]:
-				_destructible_on(root, map_name, "bunker", p, float(p.x) * 0.008, 1200.0, 400)
-			_destructible_on(root, map_name, "checkpoint", Vector2(202, 132), 0.4, 900.0, 300)
-			_destructible_on(root, map_name, "observation_post", Vector2(-162, 192), 0.6, 800.0, 250)
-			for p in [Vector2(-40, 92), Vector2(0, 82), Vector2(42, 96),
-					Vector2(92, 102), Vector2(142, 82), Vector2(-150, 62)]:
+			ASSETS.spawn(root, "destroyed_bridge", Vector3(0.0, water_level(map_name), -82.0), 0.0)
+			ASSETS.spawn(root, "wooden_bridge", Vector3(102.0, water_level(map_name) - 0.15, -82.0), PI * 0.5)
+			ASSETS.spawn(root, "destroyed_bridge", Vector3(14.0, water_level(map_name), 18.0), 0.0)
+			reserve_area(Vector2(0.0, -82.0), 16.0)
+			reserve_area(Vector2(102.0, -82.0), 16.0)
+			reserve_area(Vector2(14.0, 18.0), 16.0)
+			var wb1 := _reserve_near_site(root, map_name, Vector2(-12.0, 48.0), 10.0, 28.0, false)
+			if wb1 != Vector2.INF:
+				_destructible_on(root, map_name, "bunker", wb1, 0.18, 1200.0, 400)
+				add_contact_shadow(root, map_name, wb1, 10.0, "WetBunker1")
+			var wb2 := _reserve_near_site(root, map_name, Vector2(138.0, -32.0), 10.0, 28.0, false)
+			if wb2 != Vector2.INF:
+				_destructible_on(root, map_name, "observation_post", wb2, -0.4, 800.0, 250)
+				add_contact_shadow(root, map_name, wb2, 10.0, "WetObs")
+			for p in [Vector2(-32.0, 82.0), Vector2(0.0, 76.0), Vector2(124.0, 78.0), Vector2(-118.0, 56.0)]:
 				_asset_on(root, map_name, "hedgehog", p, float(p.x) * 0.012)
-			_asset_on(root, map_name, "sandbag_wall", Vector2(-230, 32), 0.2)
-			_asset_on(root, map_name, "sandbag_wall", Vector2(250, 27), -0.3)
-			_asset_on(root, map_name, "sandbag_wall", Vector2(202, 140), 0.4)
-			_asset_on(root, map_name, "vegetation/pine_hero", Vector2(235, 205), 0.8)
-			_asset_on(root, map_name, "vegetation/pine_hero", Vector2(-245, 210), 1.8)
-			_asset_on(root, map_name, "vegetation/oak_hero", Vector2(158, 222), 2.6)
+			_asset_on(root, map_name, "sandbag_wall", Vector2(-22.0, 54.0), 0.12)
+			_asset_on(root, map_name, "vegetation/pine_hero", Vector2(142.0, 140.0), 0.8)
+			_asset_on(root, map_name, "vegetation/oak_hero", Vector2(-138.0, 142.0), 1.8)
 
 			var MS_wet = load("res://scripts/util/military_structures.gd")
 			if MS_wet != null:
 				MS_wet.spawn_map_military_objects(root, map_name)
 
 		_:
-			# Bunkers along the trench line, placed with wide spacing (>100m) clear of silos, radar and workshops
-			for p in [Vector2(-110, -120), Vector2(40, -90), Vector2(150, -120)]:
-				_destructible_on(root, map_name, "bunker", p, float(p.x) * 0.002, 1200.0, 400)
-			_destructible_on(root, map_name, "observation_post", Vector2(-42, -172), 0.4, 800.0, 250)
-			_destructible_on(root, map_name, "checkpoint", Vector2(-124, 96), 0.3, 900.0, 300)
-			for p in [Vector2(-245, -10), Vector2(-210, -14), Vector2(-175, -8),
-					Vector2(82, -12), Vector2(122, -9), Vector2(162, -13),
-					Vector2(202, -8), Vector2(235, -12)]:
+			var sb1 := _reserve_near_site(root, map_name, Vector2(-95.0, -108.0), 11.0, 28.0, false)
+			if sb1 != Vector2.INF:
+				_destructible_on(root, map_name, "bunker", sb1, -0.2, 1200.0, 400)
+				add_contact_shadow(root, map_name, sb1, 11.0, "SteppeBunker")
+			var sb2 := _reserve_near_site(root, map_name, Vector2(-42.0, -135.0), 10.0, 28.0, false)
+			if sb2 != Vector2.INF:
+				_destructible_on(root, map_name, "observation_post", sb2, 0.4, 800.0, 250)
+				add_contact_shadow(root, map_name, sb2, 10.0, "SteppeObs")
+			for p in [Vector2(-145.0, -10.0), Vector2(-95.0, -12.0), Vector2(72.0, -12.0), Vector2(128.0, -10.0)]:
 				_asset_on(root, map_name, "hedgehog", p, float(p.x) * 0.01)
-			_asset_on(root, map_name, "sandbag_wall", Vector2(-215, -70), 0.2)
-			_asset_on(root, map_name, "sandbag_wall", Vector2(44, -80), -0.1)
-			_asset_on(root, map_name, "sandbag_wall", Vector2(240, -60), 0.45)
-			_asset_on(root, map_name, "rocks", Vector2(-248, 138), 0.7)
-			_asset_on(root, map_name, "rocks", Vector2(248, 162), 1.9)
-			_asset_on(root, map_name, "vegetation/oak_hero", Vector2(-240, 112), 0.6)
-			_asset_on(root, map_name, "vegetation/oak_hero", Vector2(-88, 162), 1.8)
-			_asset_on(root, map_name, "vegetation/pine_hero", Vector2(242, 164), 0.3)
-			_asset_on(root, map_name, "vegetation/pine_hero", Vector2(-248, -150), 1.2)
-			_asset_on(root, map_name, "vegetation/pine_hero", Vector2(22, -215), 2.4)
+			_asset_on(root, map_name, "sandbag_wall", Vector2(-128.0, -62.0), 0.2)
+			_asset_on(root, map_name, "vegetation/oak_hero", Vector2(-148.0, 96.0), 0.6)
+			_asset_on(root, map_name, "vegetation/pine_hero", Vector2(142.0, 128.0), 0.3)
+			_asset_on(root, map_name, "vegetation/pine_hero", Vector2(20.0, -148.0), 2.4)
 
 			var MS_stp = load("res://scripts/util/military_structures.gd")
 			if MS_stp != null:
@@ -3545,19 +3531,19 @@ static func _add_map_mist(root: Node3D, map_name: String) -> void:
 	var specs: Array = []
 	match map_name:
 		"village":
-			var rx := -170.0 + 35.0 * sin(60.0 * 0.008)
+			var rx := -140.0 + 18.0 * sin(60.0 * 0.011)
 			specs = [
-				[Vector2(rx, 60.0), Vector3(70.0, 8.0, 220.0), 0.018],
+				[Vector2(rx, 20.0), Vector3(64.0, 8.0, 190.0), 0.018],
 			]
 		"wetlands":
 			specs = [
-				[Vector2(40.0, -60.0), Vector3(240.0, 6.0, 120.0), 0.020],
-				[Vector2(-120.0, 90.0), Vector3(150.0, 5.0, 100.0), 0.014],
+				[Vector2(20.0, -50.0), Vector3(210.0, 6.0, 110.0), 0.020],
+				[Vector2(-95.0, 75.0), Vector3(130.0, 5.0, 90.0), 0.014],
 			]
 		"steppe":
 			specs = [
-				[Vector2(40.0, 40.0), Vector3(260.0, 7.0, 140.0), 0.012],
-				[Vector2(50.0, 150.0), Vector3(130.0, 6.0, 70.0), 0.008],
+				[Vector2(30.0, 35.0), Vector3(220.0, 7.0, 120.0), 0.012],
+				[Vector2(36.0, 128.0), Vector3(110.0, 6.0, 65.0), 0.008],
 			]
 	for spec in specs:
 		var p: Vector2 = spec[0]
@@ -3592,26 +3578,24 @@ static func _asset_on(root: Node3D, map_name: String, asset_name: String,
 ## A single large tree from the shared Blender vegetation library.  Same trunk
 ## and leaf-card materials as the MultiMesh belts, just scaled for hero trees.
 static func _spawn_library_tree(root: Node3D, map_name: String, p: Vector2,
-		pine: bool, yaw: float, scale_f: float) -> Node3D:
-	if _structure_clear_zone(map_name, p.x, p.y) or _hall_clear_zone(map_name, p.x, p.y):
+		_pine: bool, yaw: float, scale_f: float) -> Node3D:
+	if _tree_clear_zone(map_name, p.x, p.y) or _hall_clear_zone(map_name, p.x, p.y) \
+			or _farm_clear_zone(map_name, p.x, p.y):
 		return null
 	var variants := VEGETATION.trees()
 	if variants.is_empty():
 		return null
 	var variant: Dictionary = {}
 	for v in variants:
-		if bool(v.get("pine", false)) == pine:
+		if not bool(v.get("pine", false)):
 			variant = v
 			break
 	if variant.is_empty():
 		return null
-	var s := (2.6 if pine else 3.0) * maxf(scale_f, 0.25)
+	var s := clampf(1.25 * maxf(scale_f, 0.5), 1.15, 1.65)
 	var xf := Transform3D(Basis(Vector3.UP, yaw).scaled(Vector3.ONE * s),
 			Vector3(p.x, _height(map_name, p.x, p.y), p.y))
-	if pine:
-		(_hero_tree_slots["pine"] as Array).append(xf)
-	else:
-		(_hero_tree_slots["oak"] as Array).append(xf)
+	(_hero_tree_slots["oak"] as Array).append(xf)
 	return null
 
 
@@ -3622,11 +3606,39 @@ static func _flush_library_trees(root: Node3D) -> void:
 	var variants := VEGETATION.trees()
 	if variants.is_empty():
 		return
-	var xfs: Array = []
-	xfs.append_array(_hero_tree_slots["oak"] as Array)
-	xfs.append_array(_hero_tree_slots["pine"] as Array)
+	var raw_xfs: Array = []
+	raw_xfs.append_array(_hero_tree_slots["oak"] as Array)
+	raw_xfs.append_array(_hero_tree_slots["pine"] as Array)
 	(_hero_tree_slots["oak"] as Array).clear()
 	(_hero_tree_slots["pine"] as Array).clear()
+	if raw_xfs.is_empty():
+		return
+	var wl := water_level(_current_map)
+	var xfs: Array = []
+	for item in raw_xfs:
+		var xf: Transform3D = item
+		var px := xf.origin.x
+		var pz := xf.origin.z
+		if absf(px) > 168.0 or absf(pz) > 168.0:
+			continue
+		if _road_factor(_current_map, px, pz) >= 0.16:
+			continue
+		if _height(_current_map, px, pz) < wl + 0.45:
+			continue
+		if _tutorial_clear_zone(px, pz) or _hall_clear_zone(_current_map, px, pz) \
+				or _farm_clear_zone(_current_map, px, pz) \
+				or _tree_clear_zone(_current_map, px, pz):
+			continue
+		var p2 := Vector2(px, pz)
+		var too_close := false
+		for prev in _placed_tree_positions:
+			if p2.distance_to(prev) < 10.5:
+				too_close = true
+				break
+		if too_close:
+			continue
+		_placed_tree_positions.append(p2)
+		xfs.append(xf)
 	if xfs.is_empty():
 		return
 	var variant: Dictionary = {}
@@ -3684,7 +3696,7 @@ static func _wrap_landmark(root: Node3D, inst: Node3D, hp: float, pts: int) -> v
 	var dl := DESTRUCTIBLE_LANDMARK.new()
 	dl.name = "Destructible_" + String(inst.name)
 	root.add_child(dl)
-	dl.global_position = inst.global_position
+	dl.position = _local_transform_to_root(inst, root).origin
 	dl.setup(inst, hp, pts)
 	var level := root.get_parent()
 	if level != null and level.has_method("_on_building_destroyed"):
@@ -3697,253 +3709,140 @@ static func _bank_height(map_name: String, x: float, z: float, half_span: float)
 
 
 static func _build_steppe(root: Node3D, map_name: String) -> void:
-	# Farmstead by the training outpost: farm_complex.glb stands alone on this pad
-	# with all sides completely open and unobstructed for freestyle flying.
-	# Two more farmsteads across the map: the steppe must read as settled
-	# farmland everywhere, not only around the training spawn.
-	_spawn_cottage(root, "cottage_a", Vector2(-205, 40), _height(map_name, -205, 40), 0.4, 0)
-	_spawn_cottage(root, "barn_a", Vector2(-225, 22), _height(map_name, -225, 22), 0.1, 2)
-	_spawn_cottage(root, "cottage_b", Vector2(225, -40), _height(map_name, 225, -40), -0.3, 3)
-	_spawn_cottage(root, "barn_a", Vector2(245, -58), _height(map_name, 245, -58), -0.6, 1)
-	for p in [Vector2(-195, 30), Vector2(235, -30)]:
+	# Compact farmstead inside ±155 m with clear flight corridor around all buildings.
+	var farm_site := _reserve_near_site(root, map_name, Vector2(-128.0, 38.0), 18.0, 28.0, false)
+	if farm_site != Vector2.INF:
+		var fy := footprint_surface_height(map_name, farm_site, 12.0, 10.0, 0.4) - 0.15
+		_spawn_cottage(root, "cottage_a", farm_site, fy, 0.4, 0)
 		ASSETS.spawn_prop(root, "prop_hay",
-				Vector3(p.x, _height(map_name, p.x, p.y), p.y), 0.0, 1.0)
+				Vector3(farm_site.x + 8.0, _height(map_name, farm_site.x + 8.0, farm_site.y - 6.0), farm_site.y - 6.0), 0.0, 1.0)
 		ASSETS.spawn_prop(root, "prop_fence",
-				Vector3(p.x + 8.0, _height(map_name, p.x + 8.0, p.y), p.y), 0.0, 1.0)
-	# Farm track from the north field into the yard.
-	_ribbon(root, PackedVector2Array([Vector2(58, 182), Vector2(50, 156),
-			Vector2(40, 138)]), 3.0, _pbr("dirt", Color(0.80, 0.66, 0.50), 0.30), 0.06)
+				Vector3(farm_site.x + 12.0, _height(map_name, farm_site.x + 12.0, farm_site.y - 6.0), farm_site.y - 6.0), 0.0, 1.0)
+		add_contact_shadow(root, map_name, farm_site, 16.0, "SteppeFarmstead")
+	# Farm track from the field into the compacted farm yard.
+	_ribbon(root, PackedVector2Array([Vector2(54, 168), Vector2(46, 148),
+			Vector2(36, 128)]), 3.0, _pbr("dirt", Color(0.80, 0.66, 0.50), 0.30), 0.06)
 	for off in [-1.1, 1.1]:
-		_ribbon(root, PackedVector2Array([Vector2(58.0 + off, 182), Vector2(50.0 + off, 156),
-				Vector2(40.0 + off, 138)]), 0.42,
+		_ribbon(root, PackedVector2Array([Vector2(54.0 + off, 168), Vector2(46.0 + off, 148),
+				Vector2(36.0 + off, 128)]), 0.42,
 				_pbr("dirt", Color(0.45, 0.36, 0.27), 0.40), 0.075)
-	_add_burnt_tank(root, map_name, Vector2(-120, -75), 0.6)
-	_add_burnt_tank(root, map_name, Vector2(140, -85), 1.2)
-	# Burnt armour along the trench line.
-	for p in [Vector2(-170, -110), Vector2(-60, -25), Vector2(95, -100),
-			Vector2(195, -55), Vector2(-240, -20)]:
+	# Burnt armour strictly inside ±150 m along the trench line.
+	for p in [Vector2(-132, -98), Vector2(-58, -28), Vector2(88, -96),
+			Vector2(142, -52), Vector2(-148, -18)]:
 		_add_burnt_tank(root, map_name, p, 0.6)
 
-	# Windbreak shelterbelt.
-	_add_windbreak(root, map_name, Vector2(-230, 120), Vector2(220, 145))
+	# Windbreak shelterbelt compacted inside playable grass bounds.
+	_add_windbreak(root, map_name, Vector2(-158, 108), Vector2(156, 126))
 
-	# Active Military Early Warning Radar Station (dynamic 360-deg scanner, zero FPS cost)
-	var radar_pos := Vector3(-225.0, _height(map_name, -225.0, -210.0), -210.0)
-	var radar := MOVING_RADAR.create_radar(radar_pos, 0.4)
-	root.add_child(radar)
-	for p in [Vector2(-243, -190), Vector2(-207, -230)]:
-		_asset_on(root, map_name, "vegetation/pine_hero", p, float(p.x) * 0.02)
-	for p in [Vector2(-245, -225), Vector2(-210, -195)]:
-		_asset_on(root, map_name, "vegetation/oak_hero", p, float(p.y) * 0.02)
-	for p in [Vector2(-213, -202), Vector2(-237, -218)]:
-		_asset_on(root, map_name, "hedgehog", p, float(p.y) * 0.01)
-	for p in [Vector2(-219, -198), Vector2(-231, -222)]:
-		ASSETS.spawn_prop(root, "prop_crate", Vector3(p.x, _height(map_name, p.x, p.y), p.y), 0.3)
+	# Active Military Early Warning Radar Station inside ±152 m.
+	var radar_site := _reserve_near_site(root, map_name, Vector2(-132.0, -132.0), 14.0, 28.0, false)
+	if radar_site != Vector2.INF:
+		var radar_pos := Vector3(radar_site.x, _height(map_name, radar_site.x, radar_site.y), radar_site.y)
+		var radar := MOVING_RADAR.create_radar(radar_pos, 0.4)
+		root.add_child(radar)
+		add_contact_shadow(root, map_name, radar_site, 12.0, "SteppeRadar")
+		for off in [Vector2(-9.0, 7.0), Vector2(9.0, -8.0)]:
+			var tp: Vector2 = radar_site + (off as Vector2)
+			_asset_on(root, map_name, "vegetation/pine_hero", tp, tp.x * 0.02)
+		for off in [Vector2(-7.0, -6.0), Vector2(7.0, 6.0)]:
+			var hp: Vector2 = radar_site + (off as Vector2)
+			_asset_on(root, map_name, "hedgehog", hp, hp.y * 0.01)
+		ASSETS.spawn_prop(root, "prop_crate",
+				Vector3(radar_site.x + 5.0, _height(map_name, radar_site.x + 5.0, radar_site.y - 4.0), radar_site.y - 4.0), 0.3)
 
 
 static func _build_village(root: Node3D, map_name: String) -> void:
-	# PBR village palette.  These reuse the authored landmark texture sets, so
-	# the houses no longer read as flat beige boxes next to the detailed GLBs.
+	# PBR village palette for the curated village landmarks.
 	var wall_plaster := _pbr("plaster", Color(0.96, 0.92, 0.86), 0.20)
 	var wall_brick := _pbr("brick", Color(0.94, 0.88, 0.82), 0.24)
-	var wall_burnt := _pbr("plaster", Color(0.24, 0.22, 0.19), 0.28)
 	var roof_tile := _pbr("roof", Color(0.96, 0.91, 0.86), 0.26)
 	var roof_metal := _pbr("steel", Color(0.46, 0.48, 0.46), 0.24)
 	var stone := _pbr("concrete", Color(0.84, 0.82, 0.76), 0.22)
 	var wood := _pbr("wood", Color(0.86, 0.78, 0.66), 0.30)
 	var dark := _mat(Color(0.08, 0.08, 0.07), 0.85)
 	var glass := _mat(Color(0.035, 0.055, 0.070), 0.10, 0.35)
+	var wl := water_level(map_name)
 
-	# Church with bell tower - the map landmark.
-	var cp := Vector2(20, -70)
-	var cy := _height(map_name, cp.x, cp.y)
-	_add_box(root, Vector3(cp.x, cy + 0.35, cp.y), Vector3(14.2, 0.7, 23.2), stone, 0.0, true)
-	_add_box(root, Vector3(cp.x, cy + 5.0, cp.y), Vector3(13.0, 10.0, 22.0), wall_brick, 0.0, true)
-	_add_prism(root, Vector3(cp.x, cy + 11.2, cp.y), Vector3(14.4, 3.4, 23.4), roof_tile, 0.0)
-	_add_box(root, Vector3(cp.x, cy + 11.0, cp.y - 12.0), Vector3(7.0, 22.0, 7.0), wall_brick, 0.0, true)
-	_add_prism(root, Vector3(cp.x, cy + 23.5, cp.y - 12.0), Vector3(8.0, 4.0, 8.0), roof_metal, 0.0)
-	_add_box(root, Vector3(cp.x, cy + 26.0, cp.y - 12.0), Vector3(0.16, 2.6, 0.16), dark, 0.0, false)
-	_add_box(root, Vector3(cp.x, cy + 26.4, cp.y - 12.0), Vector3(1.4, 0.16, 0.16), dark, 0.0, false)
-	# Buttresses, arched window frames and the west door.
-	for z in [-8.0, -2.0, 4.0, 9.0]:
-		for sx in [-1.0, 1.0]:
-			_add_box(root, Vector3(cp.x + sx * 6.85, cy + 3.4, cp.y + z),
-					Vector3(0.55, 6.8, 1.1), stone, 0.0, true)
-			_add_box(root, Vector3(cp.x + sx * 6.53, cy + 5.0, cp.y + z),
-					Vector3(0.08, 2.5, 0.95), glass, 0.0, false)
-	_add_box(root, Vector3(cp.x, cy + 1.35, cp.y + 11.05), Vector3(1.8, 2.7, 0.22),
-			wood, 0.0, false)
-	_add_box(root, Vector3(cp.x, cy + 2.8, cp.y + 11.12), Vector3(2.2, 0.18, 0.34),
-			roof_tile, 0.0, false)
+	# Church with bell tower - reserved with clear flight corridor.
+	var cp := _reserve_near_site(root, map_name, Vector2(18.0, -68.0), 15.0, 28.0, false)
+	if cp != Vector2.INF:
+		var cy := _height(map_name, cp.x, cp.y)
+		_add_box(root, Vector3(cp.x, cy + 0.35, cp.y), Vector3(14.2, 0.7, 23.2), stone, 0.0, true)
+		_add_box(root, Vector3(cp.x, cy + 5.0, cp.y), Vector3(13.0, 10.0, 22.0), wall_brick, 0.0, true)
+		_add_prism(root, Vector3(cp.x, cy + 11.2, cp.y), Vector3(14.4, 3.4, 23.4), roof_tile, 0.0)
+		_add_box(root, Vector3(cp.x, cy + 11.0, cp.y - 12.0), Vector3(7.0, 22.0, 7.0), wall_brick, 0.0, true)
+		_add_prism(root, Vector3(cp.x, cy + 23.5, cp.y - 12.0), Vector3(8.0, 4.0, 8.0), roof_metal, 0.0)
+		_add_box(root, Vector3(cp.x, cy + 26.0, cp.y - 12.0), Vector3(0.16, 2.6, 0.16), dark, 0.0, false)
+		_add_box(root, Vector3(cp.x, cy + 26.4, cp.y - 12.0), Vector3(1.4, 0.16, 0.16), dark, 0.0, false)
+		for z in [-8.0, -2.0, 4.0, 9.0]:
+			for sx in [-1.0, 1.0]:
+				_add_box(root, Vector3(cp.x + sx * 6.85, cy + 3.4, cp.y + z),
+						Vector3(0.55, 6.8, 1.1), stone, 0.0, true)
+				_add_box(root, Vector3(cp.x + sx * 6.53, cy + 5.0, cp.y + z),
+						Vector3(0.08, 2.5, 0.95), glass, 0.0, false)
+		_add_box(root, Vector3(cp.x, cy + 1.35, cp.y + 11.05), Vector3(1.8, 2.7, 0.22),
+				wood, 0.0, false)
+		_add_box(root, Vector3(cp.x, cy + 2.8, cp.y + 11.12), Vector3(2.2, 0.18, 0.34),
+				roof_tile, 0.0, false)
+		add_contact_shadow(root, map_name, cp, 15.0, "VillageChurch")
 
-	# Dynamic Scenic Windmill atop the village bluff (zero FPS cost)
-	var windmill_pos := Vector3(-110.0, _height(map_name, -110.0, 115.0), 115.0)
-	var windmill := MOVING_WINDMILL.create_windmill(windmill_pos, -0.2)
-	root.add_child(windmill)
+	# Dynamic Scenic Windmill atop the west bluff inside ±152 m.
+	var wm_site := _reserve_near_site(root, map_name, Vector2(-95.0, 118.0), 12.0, 28.0, false)
+	if wm_site != Vector2.INF:
+		var windmill_pos := Vector3(wm_site.x, _height(map_name, wm_site.x, wm_site.y), wm_site.y)
+		var windmill := MOVING_WINDMILL.create_windmill(windmill_pos, -0.2)
+		root.add_child(windmill)
+		add_contact_shadow(root, map_name, wm_site, 12.0, "VillageWindmill")
 
-	# Dynamic River Patrol Boat cruising the village water channel (zero FPS cost)
-	var village_river_wps: Array[Vector3] = [
-		Vector3(30.0, -0.4, -45.0),
-		Vector3(95.0, -0.4, -65.0),
-		Vector3(165.0, -0.4, -55.0),
-		Vector3(230.0, -0.4, -80.0),
-		Vector3(165.0, -0.4, -55.0),
-		Vector3(95.0, -0.4, -65.0),
-	]
-	var v_boat := MOVING_PATROL_BOAT.create_patrol_boat(village_river_wps, -0.4, 0.0)
+	# Dynamic River Patrol Boat cruising the real village river channel (x ≈ -140 + 18*sin(z*0.011)).
+	var village_river_wps: Array[Vector3] = []
+	for rz in [-145.0, -70.0, 0.0, 75.0, 145.0, 75.0, 0.0, -70.0]:
+		var rx := -140.0 + 18.0 * sin(rz * 0.011)
+		village_river_wps.append(Vector3(rx, wl, rz))
+	var v_boat := MOVING_PATROL_BOAT.create_patrol_boat(village_river_wps, wl, 0.0)
 	root.add_child(v_boat)
 
-	# Houses and ruins.
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 4411
-	var houses := [
-		# Main cottage street through the showcase spawn: both sides of z=70,
-		# plus a back row, so the lane reads as a real village rather than four
-		# isolated houses in a field.
-		Vector2(12, 70), Vector2(42, 70), Vector2(66, 70), Vector2(90, 70),
-		Vector2(114, 70), Vector2(138, 70),
-		Vector2(30, 46), Vector2(54, 46), Vector2(78, 46), Vector2(104, 46),
-		Vector2(128, 46), Vector2(152, 40),
-		Vector2(36, 96), Vector2(60, 96), Vector2(88, 96), Vector2(114, 96),
-		Vector2(140, 96),
-		# Scattered farmsteads across the map.
-		Vector2(-80, -30), Vector2(-40, -100), Vector2(70, -40), Vector2(120, -110),
-		Vector2(-140, -140), Vector2(-190, -60), Vector2(180, 10), Vector2(-120, 40),
-		Vector2(30, 110), Vector2(-60, 140), Vector2(160, 150),
-		# Remote farmsteads across the compacted 614 m map.
-		Vector2(-245, 60), Vector2(-248, -175), Vector2(248, 120),
-		Vector2(235, -210), Vector2(-235, 225), Vector2(245, 235),
-		Vector2(140, -245),
-	]
-	for i in range(houses.size()):
-		var p: Vector2 = houses[i]
-		# The hero grain-elevator / repair hall now owns the east end of the
-		# lane.  Do not grow a cottage through its wall.
-		if _hall_clear_zone(map_name, p.x, p.y):
-			continue
-		var yaw := 0.0 if i <= 16 else rng.randf_range(-0.35, 0.35)
-		var w := rng.randf_range(7.0, 11.0)
-		var d := rng.randf_range(6.0, 9.0)
-		var h := rng.randf_range(3.2, 4.6)
-		var y := footprint_surface_height(map_name, p, w, d, yaw) - 0.25
-		var burnt := i > 16 and i % 8 == 5
-		var house_mat: Material = wall_brick if i % 2 == 1 else wall_plaster
-		if burnt:
-			# Blown-out walls: two L-shaped stubs, no roof.
-			_add_box(root, Vector3(p.x - w * 0.3, y + h * 0.5, p.y), Vector3(w * 0.4, h, 0.35),
-					wall_burnt, yaw, true)
-			_add_box(root, Vector3(p.x, y + h * 0.35, p.y + d * 0.45), Vector3(w, h * 0.7, 0.35),
-					wall_burnt, yaw, true)
-			_add_box(root, Vector3(p.x + w * 0.35, y + h * 0.25, p.y), Vector3(0.35, h * 0.5, d * 0.7),
-					wall_burnt, yaw, true)
-			for k in range(3):
-				_add_box(root, Vector3(p.x - w * 0.2 + float(k) * 2.2, y + 0.25, p.y + d * 0.2),
-						Vector3(1.8, 0.35, 0.4), dark, yaw + 0.2 * float(k), false)
-		else:
-			# Authored cottage/barn kit.  Glass panes are stripped from the
-			# mesh before the trimesh collider is built, so the long-facade
-			# windows are genuine openings; the old hollow boxes remain only
-			# for the burnt ruins.
-			var variant := "cottage_b" if i % 5 == 0 else "cottage_a"
-			_spawn_cottage(root, variant, p, y, yaw, i)
-			_add_cottage_yard(root, p, y, w, d, yaw, stone, wood)
+	# One curated cottage + barn homestead cleanly outside HeroHall and road bounds.
+	var farm_site := _reserve_near_site(root, map_name, Vector2(-34.0, 56.0), 14.0, 28.0, false)
+	if farm_site != Vector2.INF:
+		var fy := footprint_surface_height(map_name, farm_site, 10.0, 9.0, 0.15) - 0.15
+		_spawn_cottage(root, "cottage_a", farm_site, fy, 0.15, 0)
+		_add_cottage_yard(root, farm_site, fy, 9.5, 8.0, 0.15, stone, wood)
+		add_contact_shadow(root, map_name, farm_site, 14.0, "VillageCottage")
+		var well_p := farm_site + Vector2(10.0, -6.0)
+		_add_well(root, well_p, _height(map_name, well_p.x, well_p.y), stone, wood, roof_tile)
+		for entry in [
+			["prop_hay", Vector2(11.0, 5.0), 0.3, 1.0],
+			["prop_logs", Vector2(-8.0, -7.0), 0.9, 0.9],
+			["prop_barrel", Vector2(8.0, 8.0), 0.2, 1.0],
+			["prop_fence", Vector2(5.0, -10.0), 0.0, 1.0],
+		]:
+			var pp: Vector2 = farm_site + (entry[1] as Vector2)
+			if _height(map_name, pp.x, pp.y) > wl + 0.6:
+				ASSETS.spawn_prop(root, String(entry[0]),
+						Vector3(pp.x, _height(map_name, pp.x, pp.y), pp.y),
+						float(entry[2]), float(entry[3]))
 
-	# A pair of authored barns gives the lane agricultural scale.
-	var by1 := footprint_surface_height(map_name, Vector2(36, 58), 12.0, 10.0, 0.0) - 0.25
-	_spawn_cottage(root, "barn_a", Vector2(36, 58), by1, 0.0, 2)
-	if not _hall_clear_zone(map_name, 126.0, 96.0):
-		var by2 := footprint_surface_height(map_name, Vector2(126, 96), 12.0, 10.0, PI) - 0.25
-		_spawn_cottage(root, "barn_a", Vector2(126, 96), by2, PI, 3)
-
-	# Village dressing: well, fences, power line.
-	_add_well(root, Vector2(8, 42), _height(map_name, 8, 42), stone, wood, roof_tile)
-	_add_well(root, Vector2(86, 62), _height(map_name, 86, 62), stone, wood, roof_tile)
-	for p in [Vector2(-64, 4), Vector2(104, 92), Vector2(-156, -104)]:
+	for p in [Vector2(-64, 4), Vector2(-112, -88)]:
 		_add_power_pole(root, p, _height(map_name, p.x, p.y), wood, stone)
-	# Farmyard props from the shared Blender props library.  They add the
-	# mid-scale detail that was completely missing from the empty field.
-	for entry in [
-		["prop_hay", Vector2(60, 74), 1.0, 0.3],
-		["prop_hay", Vector2(122, 62), 0.9, 1.2],
-		["prop_hay", Vector2(82, 40), 1.1, 0.7],
-		["prop_barrel", Vector2(82, 74), 1.0, 0.2],
-		["prop_barrel", Vector2(98, 74), 1.0, 1.1],
-		["prop_crate", Vector2(84, 66), 1.0, 0.4],
-		["prop_crate", Vector2(96, 66), 1.0, 1.5],
-		["prop_logs", Vector2(58, 66), 0.9, 0.3],
-		["prop_barrel", Vector2(62, 65), 1.0, 0.0],
-		["prop_crate", Vector2(64, 65), 0.9, 0.5],
-		["prop_logs", Vector2(72, 42), 1.0, 0.6],
-		["prop_logs", Vector2(122, 50), 1.0, 0.2],
-		["prop_tires", Vector2(108, 94), 1.0, 0.8],
-		["prop_fence", Vector2(74, 63), 1.0, 0.0],
-		["prop_fence", Vector2(108, 53), 1.0, 0.0],
-		# Foreground dressing on the showcase lane: a fence line, woodpile,
-		# barrels and hay so the spawn view has a layered foreground instead of
-		# an empty dirt field.
-		["prop_fence", Vector2(54, 80), 0.0, 1.0],
-		["prop_fence", Vector2(58, 80), 0.0, 1.0],
-		["prop_fence", Vector2(62, 80), 0.0, 1.0],
-		["prop_fence", Vector2(70, 80), 0.0, 1.0],
-		["prop_fence", Vector2(74, 80), 0.0, 1.0],
-		["prop_logs", Vector2(58, 85), 0.0, 1.1],
-		["prop_barrel", Vector2(76, 85), 0.4, 1.0],
-		["prop_hay", Vector2(46, 89), 0.2, 1.1],
-		["prop_car_wreck", Vector2(102, 78), 0.4, 1.0],
-	]:
-		var prop_name: String = entry[0]
-		var pp: Vector2 = entry[1]
-		if _hall_clear_zone(map_name, pp.x, pp.y):
-			continue
-		var s_val: float = float(entry[3]) if float(entry[3]) > 0.05 else 1.0
-		var y_val: float = float(entry[2])
-		ASSETS.spawn_prop(root, prop_name,
-				Vector3(pp.x, _height(map_name, pp.x, pp.y), pp.y),
-				y_val, s_val)
-	# The showcase cottage lane: a dirt path from the training spawn to the
-	# hero house, with two mature oaks framing the view.
-	_ribbon(root, PackedVector2Array([Vector2(90, 116), Vector2(90, 72),
-			Vector2(96, 42)]), 2.6, _pbr("dirt", Color(0.58, 0.48, 0.38), 0.30), 0.06)
-	# Cottage street path under the spawn, running the length of the lane.
-	_ribbon(root, PackedVector2Array([Vector2(66, 118), Vector2(66, 70),
-			Vector2(64, 34)]), 3.0, _pbr("dirt", Color(0.58, 0.48, 0.38), 0.30), 0.06)
-	# The main village street (z=58): packed dirt with two darker wheel ruts,
-	# ending at the factory gate so the lane has a destination.
-	_ribbon(root, PackedVector2Array([Vector2(8, 58), Vector2(145, 58)]), 5.2,
-			_pbr("dirt", Color(0.50, 0.42, 0.34), 0.30), 0.06)
-	for rz in [56.3, 59.7]:
-		_ribbon(root, PackedVector2Array([Vector2(8, rz), Vector2(145, rz)]), 0.55,
-				_pbr("dirt", Color(0.34, 0.28, 0.22), 0.40), 0.075)
-	for p in [Vector2(50, 82), Vector2(84, 84), Vector2(56, 110)]:
-		if not _hall_clear_zone(map_name, p.x, p.y):
-			_asset_on(root, map_name, "vegetation/oak_hero", p, float(p.x) * 0.02, 0.0, 0.62)
-	# Street framing: two mature oaks in the yards and the skyline trees behind
-	# the back row (smaller scale keeps the trunks off the street).
-	for p in [Vector2(32, 74), Vector2(158, 66), Vector2(96, 104)]:
-		if not _hall_clear_zone(map_name, p.x, p.y):
-			_asset_on(root, map_name, "vegetation/oak_hero", p, float(p.x) * 0.03, 0.0, 0.62)
-	for p in [Vector2(42, 56), Vector2(128, 58), Vector2(54, 116), Vector2(126, 114)]:
-		if not _hall_clear_zone(map_name, p.x, p.y):
-			_asset_on(root, map_name, "vegetation/pine_hero", p, float(p.y) * 0.03, 0.0, 0.68)
-	# Outskirts: simple PBR farmhouses on a ring so the aerial view reads as a
-	# settled village, not a single street in a field.  Authored cottages stay
-	# in the playable centre; these are cheap batched boxes/prisms.
-	for i in range(30):
-		var a := TAU * float(i) / 30.0 + 0.11
-		var r := 240.0 + float(i % 3) * 60.0
-		var p := Vector2(cos(a) * r, sin(a) * r)
-		if _height(map_name, p.x, p.y) < water_level(map_name) + 0.9:
-			continue
-		if _hall_clear_zone(map_name, p.x, p.y):
-			continue
-		_add_simple_house(root, map_name, p, a + PI * 0.5,
-				7.0 + float(i % 4), 6.0 + float(i % 3),
-				3.2 + float(i % 3) * 0.4,
-				wall_brick if i % 3 == 0 else wall_plaster,
-				roof_metal if i % 4 == 0 else roof_tile, stone)
 
-	# Burnt vehicles on the road.
-	for p in [Vector2(-30, 175), Vector2(60, 120), Vector2(-130, 20)]:
+	# Dirt track linking the village homestead to the southern approach inside ±155 m.
+	_ribbon(root, PackedVector2Array([Vector2(-48, 134), Vector2(-36, 94),
+			Vector2(-24, 58)]), 3.4, _pbr("dirt", Color(0.56, 0.46, 0.36), 0.30), 0.06)
+	for off in [-1.2, 1.2]:
+		_ribbon(root, PackedVector2Array([Vector2(-48 + off, 134), Vector2(-36 + off, 94),
+				Vector2(-24 + off, 58)]), 0.45,
+				_pbr("dirt", Color(0.36, 0.29, 0.23), 0.40), 0.075)
+
+	for p in [Vector2(18, 128), Vector2(-14, 108), Vector2(142, 138)]:
+		if not _hall_clear_zone(map_name, p.x, p.y) and not _structure_clear_zone(map_name, p.x, p.y):
+			_asset_on(root, map_name, "vegetation/oak_hero", p, float(p.x) * 0.02, 0.0, 0.65)
+	for p in [Vector2(-118, 132), Vector2(126, 124), Vector2(138, -112)]:
+		if not _hall_clear_zone(map_name, p.x, p.y) and not _structure_clear_zone(map_name, p.x, p.y):
+			_asset_on(root, map_name, "vegetation/pine_hero", p, float(p.y) * 0.03, 0.0, 0.68)
+
+	# Burnt vehicles inside compact road corridor.
+	for p in [Vector2(-28, 136), Vector2(-92, 18)]:
 		_add_burnt_tank(root, map_name, p, 1.1)
 
 
@@ -4268,14 +4167,18 @@ static func _poi_site(map_name: String, p: Vector2) -> Vector2:
 		for i in range(steps):
 			var a := TAU * float(i) / float(steps)
 			var c := p + Vector2(cos(a), sin(a)) * radius
-			if absf(c.x) > 255.0 or absf(c.y) > 255.0:
+			if absf(c.x) > 158.0 or absf(c.y) > 158.0:
+				continue
+			if _road_factor(map_name, c.x, c.y) >= 0.22:
 				continue
 			if _height(map_name, c.x, c.y) <= wl + 0.6:
 				continue
 			if _hall_clear_zone(map_name, c.x, c.y):
 				continue
+			if _structure_clear_zone(map_name, c.x, c.y, 10.0):
+				continue
 			return c
-	return p
+	return Vector2(clampf(p.x, -152.0, 152.0), clampf(p.y, -152.0, 152.0))
 
 
 static func _add_collision_box(parent: Node3D, pos: Vector3, size: Vector3,
@@ -4309,26 +4212,29 @@ static func _build_unique_pois(root: Node3D, map_name: String) -> void:
 	_poi_positions.clear()
 	match map_name:
 		"industrial":
-			_poi_water_tower(root, map_name, Vector2(235.0, 165.0))
+			_poi_water_tower(root, map_name, Vector2(138.0, 134.0))
 		"village":
-			_poi_transformer_yard(root, map_name, Vector2(245.0, -40.0))
+			_poi_transformer_yard(root, map_name, Vector2(134.0, -48.0))
 		"steppe":
-			_poi_burnt_armour(root, map_name, Vector2(-225.0, 115.0))
+			_poi_burnt_armour(root, map_name, Vector2(-132.0, 118.0))
 		"wetlands":
-			_poi_watchtower(root, map_name, Vector2(195.0, 70.0))
+			_poi_watchtower(root, map_name, Vector2(132.0, 68.0))
 		_:
 			return
 
 
 ## Industrial: a tall riveted water tower - the map's navigation landmark.
 static func _poi_water_tower(root: Node3D, map_name: String, p: Vector2) -> Node3D:
-	var site := _poi_site(map_name, p)
+	var site := _reserve_near_site(root, map_name, p, 12.0, 28.0, false)
+	if site == Vector2.INF:
+		site = _poi_site(map_name, p)
 	var gy := footprint_surface_height(map_name, site, 9.0, 9.0, 0.0)
 	var node := Node3D.new()
 	node.name = "POI_WaterTower_" + map_name
 	node.position = Vector3(site.x, gy, site.y)
 	root.add_child(node)
 	_poi_positions.append(site)
+	add_contact_shadow(root, map_name, site, 11.0, "POI_WaterTower")
 	var concrete := _pbr("hall_concrete", Color(0.78, 0.76, 0.70), 0.16)
 	var steel := _pbr("hall_metal", Color(0.58, 0.62, 0.64), 0.14)
 	var rust := _pbr("hall_rust", Color(0.78, 0.62, 0.50), 0.20)
@@ -4381,7 +4287,9 @@ static func _poi_water_tower(root: Node3D, map_name: String, p: Vector2) -> Node
 
 ## Village: fenced transformer substation with a pole line.
 static func _poi_transformer_yard(root: Node3D, map_name: String, p: Vector2) -> Node3D:
-	var site := _poi_site(map_name, p)
+	var site := _reserve_near_site(root, map_name, p, 13.0, 28.0, false)
+	if site == Vector2.INF:
+		site = _poi_site(map_name, p)
 	var gy := footprint_surface_height(map_name, site, 16.0, 12.0, 0.0)
 	var node := Node3D.new()
 	node.name = "POI_TransformerYard_" + map_name
@@ -4389,6 +4297,7 @@ static func _poi_transformer_yard(root: Node3D, map_name: String, p: Vector2) ->
 	node.rotation.y = 0.35
 	root.add_child(node)
 	_poi_positions.append(site)
+	add_contact_shadow(root, map_name, site, 13.0, "POI_TransformerYard")
 	var concrete := _pbr("hall_concrete", Color(0.74, 0.72, 0.68), 0.16)
 	var steel := _pbr("hall_metal", Color(0.50, 0.55, 0.57), 0.16)
 	var rust := _pbr("hall_rust", Color(0.66, 0.52, 0.42), 0.18)
@@ -4469,7 +4378,9 @@ static func _poi_transformer_yard(root: Node3D, map_name: String, p: Vector2) ->
 ## Steppe: a knocked-out armour pair beside the road - a readable POI and
 ## hard cover at the same time.
 static func _poi_burnt_armour(root: Node3D, map_name: String, p: Vector2) -> void:
-	var site := _poi_site(map_name, p)
+	var site := _reserve_near_site(root, map_name, p, 13.0, 28.0, false)
+	if site == Vector2.INF:
+		site = _poi_site(map_name, p)
 	var MS = load("res://scripts/util/military_structures.gd")
 	if MS == null:
 		return
@@ -4481,13 +4392,17 @@ static func _poi_burnt_armour(root: Node3D, map_name: String, p: Vector2) -> voi
 	if tank != null:
 		tank.name = "POI_BurntTank_" + map_name
 		_poi_positions.append(site)
-	var btr_site := _poi_site(map_name, site + Vector2(11.0, 7.0))
+		add_contact_shadow(root, map_name, site, 11.0, "POI_BurntTank")
+	var btr_target := Vector2(clampf(site.x + 11.0, -154.0, 154.0),
+			clampf(site.y + 7.0, -154.0, 154.0))
+	var btr_site := _poi_site(map_name, btr_target)
 	var gy2 := footprint_surface_height(map_name, btr_site, 10.0, 10.0, 0.0)
 	var btr = MS.build_burnt_btr_hull(root,
 			Vector3(btr_site.x, gy2 - 0.45, btr_site.y), 1.65)
 	if btr != null:
 		btr.name = "POI_BurntBTR_" + map_name
 		_poi_positions.append(btr_site)
+		reserve_area(btr_site, 15.0)
 	# Scorch ring ties the pair together as one scene event.
 	var scorch := Decal.new()
 	scorch.name = "POI_Scorch"
@@ -4514,7 +4429,9 @@ static func _poi_burnt_armour(root: Node3D, map_name: String, p: Vector2) -> voi
 ## Wetlands: a wooden watch tower on the dry bank plus a half-sunk BTR in the
 ## channel.  Gives the marsh map a vertical silhouette and a story.
 static func _poi_watchtower(root: Node3D, map_name: String, p: Vector2) -> void:
-	var site := _poi_site(map_name, p)
+	var site := _reserve_near_site(root, map_name, p, 12.0, 28.0, false)
+	if site == Vector2.INF:
+		site = _poi_site(map_name, p)
 	var MS = load("res://scripts/util/military_structures.gd")
 	if MS == null:
 		return
@@ -4524,13 +4441,17 @@ static func _poi_watchtower(root: Node3D, map_name: String, p: Vector2) -> void:
 	if tower != null:
 		tower.name = "POI_Watchtower_" + map_name
 		_poi_positions.append(site)
-	var wreck_site := _poi_site(map_name, site + Vector2(-24.0, 18.0))
+		add_contact_shadow(root, map_name, site, 11.0, "POI_Watchtower")
+	var wreck_target := Vector2(clampf(site.x - 24.0, -154.0, 154.0),
+			clampf(site.y + 18.0, -154.0, 154.0))
+	var wreck_site := _poi_site(map_name, wreck_target)
 	var wreck_y := water_level(map_name) - 0.35
 	var wreck = MS.build_burnt_btr_hull(root,
 			Vector3(wreck_site.x, wreck_y, wreck_site.y), 2.35)
 	if wreck != null:
 		wreck.name = "POI_SunkenBTR_" + map_name
 		_poi_positions.append(wreck_site)
+		reserve_area(wreck_site, 15.0)
 	print("[FrontlineTerrain] POI watchtower at ", site)
 
 
@@ -4567,11 +4488,11 @@ static func _trim_small_shadow_casters(root: Node3D) -> void:
 	var trimmed := 0
 	for node in root.find_children("*", "MeshInstance3D", true, false):
 		var mi := node as MeshInstance3D
-		if mi == null or mi.mesh == null:
+		if mi == null or mi.mesh == null or _is_batch_excluded(mi):
 			continue
 		if mi.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
 			continue
-		var box: AABB = mi.global_transform * mi.get_aabb()
+		var box: AABB = _local_transform_to_root(mi, root) * mi.get_aabb()
 		var longest := maxf(box.size.x, maxf(box.size.y, box.size.z))
 		if longest < 1.6:
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -4822,8 +4743,10 @@ static func _build_hall_sites(root: Node3D, map_name: String) -> void:
 	hall.position = Vector3(center.x, floor_top - 0.70 * scale_f, center.y)
 	hall.rotation.y = float(site["yaw"])
 	hall.scale = Vector3.ONE * scale_f
+	try_reserve_structure(root, map_name, center, 34.0, 26.0, true)
 	root.add_child(hall)
 	_apply_hall_materials(hall, theme)
+	add_contact_shadow(root, map_name, center, 44.0, "HeroHall_" + map_name)
 
 	# The authored glass sheet closes every window bay with a transparent
 	# surface.  It never had collision, but it reads as a barrier; hide it so
@@ -4941,7 +4864,7 @@ static func _add_hall_lighting(root: Node3D, hall: Node3D, site: Dictionary,
 		var marker := markers[i] as Node3D
 		if marker == null:
 			continue
-		var p := marker.global_position
+		var p := _local_transform_to_root(marker, root).origin
 		if p.y < floor_y + 4.0:
 			continue
 		var target := Vector3(p.x + 2.4, floor_y, p.z + 1.2)
@@ -4956,7 +4879,7 @@ static func _add_hall_lighting(root: Node3D, hall: Node3D, site: Dictionary,
 		spot.shadow_enabled = made < 3 and not qa_no_spot_shadow
 		spot.shadow_bias = 0.035
 		lights.add_child(spot)
-		spot.look_at(target, Vector3.UP)
+		_apply_look_at(spot, target, Vector3.UP)
 		made += 1
 	# Fallback for the older hall asset: five shafts down the nave.
 	if made == 0 and not qa_no_spots:
@@ -4973,18 +4896,16 @@ static func _add_hall_lighting(root: Node3D, hall: Node3D, site: Dictionary,
 			spot.light_volumetric_fog_energy = 4.0
 			spot.shadow_enabled = made < 3
 			lights.add_child(spot)
-			spot.look_at(target, Vector3.UP)
+			_apply_look_at(spot, target, Vector3.UP)
 			made += 1
 
-	# Guaranteed hero shafts in the first half of the nave.  The marker pass
-	# above follows the authored skylights; this pass puts dramatic, visible
-	# cones exactly where the spawn camera looks, independent of the marker
-	# order.  It is the difference between "a warehouse" and the reference.
+	# Guaranteed hero shafts in the first half of the nave.
+	var hall_xf := _local_transform_to_root(hall, root)
 	var roof_h := float(site.get("roof_height", 18.0))
 	for lx in [-half.x * 0.35, half.x * 0.12]:
 		for lz in [-half.y * 0.24, half.y * 0.24]:
-			var src := hall.to_global(Vector3(lx, roof_h, lz))
-			var dst := hall.to_global(Vector3(lx + 7.0, 1.0, lz + 4.0))
+			var src := hall_xf * Vector3(lx, roof_h, lz)
+			var dst := hall_xf * Vector3(lx + 7.0, 1.0, lz + 4.0)
 			var shaft := SpotLight3D.new()
 			shaft.position = src
 			shaft.spot_range = 62.0
@@ -4996,7 +4917,7 @@ static func _add_hall_lighting(root: Node3D, hall: Node3D, site: Dictionary,
 			shaft.shadow_enabled = made < 5 and not qa_no_spot_shadow
 			shaft.shadow_bias = 0.03
 			lights.add_child(shaft)
-			shaft.look_at(dst, Vector3.UP)
+			_apply_look_at(shaft, dst, Vector3.UP)
 			if qa_no_spots:
 				continue
 			var pool := OmniLight3D.new()
@@ -5009,8 +4930,8 @@ static func _add_hall_lighting(root: Node3D, hall: Node3D, site: Dictionary,
 			made += 1
 	# One unmistakable central shaft: the reference's hero beam.
 	var hero_x := half.x * 0.44
-	var hero_src := hall.to_global(Vector3(hero_x, roof_h, 0.0))
-	var hero_dst := hall.to_global(Vector3(hero_x + 8.0, 1.0, 2.0))
+	var hero_src := hall_xf * Vector3(hero_x, roof_h, 0.0)
+	var hero_dst := hall_xf * Vector3(hero_x + 8.0, 1.0, 2.0)
 	var hero := SpotLight3D.new()
 	hero.position = hero_src
 	hero.spot_range = 64.0
@@ -5022,7 +4943,7 @@ static func _add_hall_lighting(root: Node3D, hall: Node3D, site: Dictionary,
 	hero.shadow_enabled = not qa_no_spot_shadow
 	hero.shadow_bias = 0.03
 	lights.add_child(hero)
-	hero.look_at(hero_dst, Vector3.UP)
+	_apply_look_at(hero, hero_dst, Vector3.UP)
 	# The old solid god-ray cylinder is intentionally removed: it read as a
 	# white pillar hanging in the nave and the user asked to take it out.
 	# The spotlights still carve light pools on the floor without a visible beam.
@@ -5095,8 +5016,9 @@ static func _add_hall_lighting(root: Node3D, hall: Node3D, site: Dictionary,
 		var lamp := lamp_node as Node3D
 		if lamp == null:
 			continue
+		var lamp_pos := _local_transform_to_root(lamp, root).origin
 		var omni := OmniLight3D.new()
-		omni.position = lamp.global_position
+		omni.position = lamp_pos
 		omni.omni_range = 18.0
 		omni.light_energy = 0.9
 		omni.light_color = Color(1.0, 0.66, 0.34)
@@ -5113,7 +5035,7 @@ static func _add_hall_lighting(root: Node3D, hall: Node3D, site: Dictionary,
 		bulb_mat.emission = Color(1.0, 0.55, 0.22)
 		bulb_mat.emission_energy_multiplier = 3.0
 		bulb.material_override = bulb_mat
-		bulb.position = lamp.global_position
+		bulb.position = lamp_pos
 		bulb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		lights.add_child(bulb)
 
@@ -5140,7 +5062,7 @@ static func _add_god_ray(parent: Node3D, from: Vector3, to: Vector3,
 	holder.name = "GodRay"
 	holder.position = (from + to) * 0.5
 	parent.add_child(holder)
-	holder.look_at(to, Vector3.UP)
+	_apply_look_at(holder, to, Vector3.UP)
 	var mesh := CylinderMesh.new()
 	mesh.top_radius = 0.58
 	mesh.bottom_radius = 2.4
@@ -5209,9 +5131,11 @@ static func _add_hall_foliage(root: Node3D, hall: Node3D, site: Dictionary,
 		var yaw := rng.randf() * TAU
 		var basis := Basis(Vector3.UP, yaw).scaled(
 				Vector3(s, rng.randf_range(0.9, 1.6), s))
-		var p := hall.to_global(Vector3(lx, floor_local, lz))
+		var hall_xf := _local_transform_to_root(hall, root)
+		var p := hall_xf * Vector3(lx, floor_local, lz)
 		xforms.append(Transform3D(basis, p))
 	# Guaranteed foreground overgrowth on both sides of the spawn lane.
+	var hall_xf_fg := _local_transform_to_root(hall, root)
 	for side in [-1, 1]:
 		for i in range(16):
 			var lx := local_spawn.x - rng.randf_range(8.0, 22.0)
@@ -5219,8 +5143,7 @@ static func _add_hall_foliage(root: Node3D, hall: Node3D, site: Dictionary,
 			var s := rng.randf_range(1.0, 1.9)
 			var b := Basis(Vector3.UP, rng.randf() * TAU).scaled(
 					Vector3(s, rng.randf_range(1.0, 1.7), s))
-			xforms.append(Transform3D(b, hall.to_global(
-					Vector3(lx, floor_local, lz))))
+			xforms.append(Transform3D(b, hall_xf_fg * Vector3(lx, floor_local, lz)))
 	mm.instance_count = xforms.size()
 	for i in xforms.size():
 		mm.set_instance_transform(i, xforms[i])
@@ -5255,8 +5178,7 @@ static func _add_hall_foliage(root: Node3D, hall: Node3D, site: Dictionary,
 			var s := rng.randf_range(0.9, 1.5)
 			var b := Basis(Vector3.UP, rng.randf() * TAU).scaled(
 					Vector3(s, rng.randf_range(3.0, 6.5), s))
-			reed_xf.append(Transform3D(b, hall.to_global(
-					Vector3(lx, 0.88, lz))))
+			reed_xf.append(Transform3D(b, hall_xf_fg * Vector3(lx, 0.88, lz)))
 		reed_mm.instance_count = reed_xf.size()
 		for i in reed_xf.size():
 			reed_mm.set_instance_transform(i, reed_xf[i])
@@ -5282,7 +5204,7 @@ static func _add_hall_foliage(root: Node3D, hall: Node3D, site: Dictionary,
 		bm.size = Vector3(sx, sy, sz)
 		chunk.mesh = bm
 		chunk.material_override = rubble_mat
-		chunk.position = hall.to_global(Vector3(lx, 0.72 + sy * 0.5, lz))
+		chunk.position = hall_xf_fg * Vector3(lx, 0.72 + sy * 0.5, lz)
 		chunk.rotation = Vector3(rng.randf_range(-0.5, 0.5),
 				rng.randf_range(0, TAU), rng.randf_range(-0.5, 0.5))
 		chunk.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
@@ -5293,8 +5215,8 @@ static func _add_hall_foliage(root: Node3D, hall: Node3D, site: Dictionary,
 		bm2.size = Vector3(0.35, 0.35, rng.randf_range(6.0, 9.0))
 		beam.mesh = bm2
 		beam.material_override = _pbr("hall_rust", Color(0.9, 0.78, 0.68), 0.4)
-		beam.position = hall.to_global(Vector3(
-				local_spawn.x - 19.0 - i * 3.0, 1.0, -2.5 + i * 5.0))
+		beam.position = hall_xf_fg * Vector3(
+				local_spawn.x - 19.0 - i * 3.0, 1.0, -2.5 + i * 5.0)
 		beam.rotation = Vector3(rng.randf_range(-0.4, 0.4),
 				rng.randf_range(-0.8, 0.8), rng.randf_range(-0.5, 0.5))
 		root.add_child(beam)
@@ -5316,7 +5238,7 @@ static func _add_hall_foliage(root: Node3D, hall: Node3D, site: Dictionary,
 				decal.name = "HallMoss"
 				decal.texture_albedo = moss_tex
 				decal.size = Vector3(r, 3.2, r)
-				decal.position = hall.to_global(Vector3(lx, 1.65, lz))
+				decal.position = hall_xf_fg * Vector3(lx, 1.65, lz)
 				decal.albedo_mix = 0.74
 				decal.modulate = Color(0.56, 0.76, 0.42, 1.0)
 				decal.upper_fade = 0.55
@@ -5334,7 +5256,7 @@ static func _add_hall_foliage(root: Node3D, hall: Node3D, site: Dictionary,
 					decal2.name = "HallSpawnMoss"
 					decal2.texture_albedo = moss_tex
 					decal2.size = Vector3(r, 3.2, r)
-					decal2.position = hall.to_global(Vector3(lx, 1.65, lz))
+					decal2.position = hall_xf_fg * Vector3(lx, 1.65, lz)
 					decal2.albedo_mix = 0.70
 					decal2.modulate = Color(0.58, 0.78, 0.44, 1.0)
 					decal2.upper_fade = 0.55
@@ -5350,7 +5272,7 @@ static func _add_hall_foliage(root: Node3D, hall: Node3D, site: Dictionary,
 				var md := Decal.new()
 				md.texture_albedo = moss_tex
 				md.size = Vector3(mr, 3.6, mr)
-				md.position = hall.to_global(Vector3(mx, 1.75, mz))
+				md.position = hall_xf_fg * Vector3(mx, 1.75, mz)
 				md.albedo_mix = 0.72
 				md.modulate = Color(0.60, 0.80, 0.46, 1.0)
 				md.upper_fade = 0.55
@@ -5362,7 +5284,10 @@ static func _add_hall_foliage(root: Node3D, hall: Node3D, site: Dictionary,
 	# A handful of young trees have rooted in the debris.  Reuse the authored
 	# wind-tree meshes at sapling scale instead of a second vegetation library.
 	var trees := VEGETATION.trees()
-	if not trees.is_empty():
+	var broadleaf := trees.filter(func(v): return not bool(v.get("pine", false)))
+	if broadleaf.is_empty():
+		broadleaf = trees
+	if not broadleaf.is_empty():
 		var spots := [
 			Vector2(-half.x * 0.42, -half.y * 0.48),
 			Vector2(half.x * 0.34, half.y * 0.46),
@@ -5371,7 +5296,7 @@ static func _add_hall_foliage(root: Node3D, hall: Node3D, site: Dictionary,
 		]
 		for i in spots.size():
 			var local: Vector2 = spots[i]
-			var variant: Dictionary = trees[i % trees.size()]
+			var variant: Dictionary = broadleaf[i % broadleaf.size()]
 			var tree := Node3D.new()
 			tree.name = "HallSapling"
 			var trunk := MeshInstance3D.new()
@@ -5382,7 +5307,7 @@ static func _add_hall_foliage(root: Node3D, hall: Node3D, site: Dictionary,
 			tree.add_child(leaves)
 			var s := rng.randf_range(0.26, 0.42)
 			tree.scale = Vector3.ONE * s
-			tree.position = hall.to_global(Vector3(local.x, floor_local, local.y))
+			tree.position = hall_xf_fg * Vector3(local.x, floor_local, local.y)
 			tree.rotation.y = rng.randf() * TAU
 			root.add_child(tree)
 
@@ -5403,8 +5328,7 @@ static func _add_hall_foliage(root: Node3D, hall: Node3D, site: Dictionary,
 		var s := rng.randf_range(0.22, 0.62)
 		var b := Basis(Vector3.UP, rng.randf() * TAU).scaled(
 				Vector3(s, s * rng.randf_range(0.7, 1.2), s))
-		bush_xf.append(Transform3D(b, hall.to_global(
-				Vector3(lx, floor_local + 0.25, lz))))
+		bush_xf.append(Transform3D(b, hall_xf_fg * Vector3(lx, floor_local + 0.25, lz)))
 	bush_mm.instance_count = bush_xf.size()
 	for i in bush_xf.size():
 		bush_mm.set_instance_transform(i, bush_xf[i])
@@ -5471,10 +5395,11 @@ static func _add_hall_props(root: Node3D, hall: Node3D, site: Dictionary,
 			["prop_oil_drum", Vector2(34.0, -13.0), 0.0, 1.0],
 		],
 	}
+	var hall_xf_props := _local_transform_to_root(hall, root)
 	for entry in sets.get(map_name, []):
 		var name := String(entry[0])
 		var local: Vector2 = entry[1]
-		var pos := hall.to_global(Vector3(local.x, 0.70, local.y))
+		var pos := hall_xf_props * Vector3(local.x, 0.70, local.y)
 		ASSETS.spawn_prop(root, name, pos, float(entry[2]) + hall.rotation.y,
 				float(entry[3]))
 
@@ -5605,20 +5530,19 @@ static func _build_wetlands(root: Node3D, map_name: String) -> void:
 	var dark := _mat(Color(0.10, 0.10, 0.09), 1.0)
 	var wl := water_level(map_name)
 
-	# Dynamic Combat River Patrol Boat cruising the wetlands channel (zero FPS cost)
+	# Dynamic Combat River Patrol Boat cruising the wetlands channel inside ±145 m.
 	var wet_boat_wps: Array[Vector3] = [
-		Vector3(-140.0, wl, 45.0),
-		Vector3(-40.0, wl, 85.0),
-		Vector3(60.0, wl, 70.0),
-		Vector3(150.0, wl, 35.0),
-		Vector3(60.0, wl, 15.0),
+		Vector3(-130.0, wl, 42.0),
+		Vector3(-40.0, wl, 80.0),
+		Vector3(55.0, wl, 68.0),
+		Vector3(140.0, wl, 34.0),
+		Vector3(55.0, wl, 16.0),
 		Vector3(-40.0, wl, 20.0),
 	]
 	var wet_patrol_boat := MOVING_PATROL_BOAT.create_patrol_boat(wet_boat_wps, wl, 0.0)
 	root.add_child(wet_patrol_boat)
 
-	# Timber boardwalk leads straight into the flooded pump-station door: the
-	# first frame is a wet approach, then the dark nave of the hall.
+	# Timber boardwalk leads straight into the flooded pump-station door.
 	for i in range(13):
 		var px := 6.0 + float(i) * 2.1
 		var py := maxf(_height(map_name, px, 60.0), wl) + 0.28
@@ -5628,27 +5552,22 @@ static func _build_wetlands(root: Node3D, map_name: String) -> void:
 				_add_cylinder(root, Vector3(px, py - 0.55, 60.0 + sz), 0.09, 1.3,
 						wood, 0.0, false)
 
-	# Sunken barges.
-	for p in [Vector2(-120, -40), Vector2(180, -140), Vector2(250, 58)]:
-		var y := _height(map_name, p.x, p.y)
-		_add_box(root, Vector3(p.x, maxf(y, wl) + 0.7, p.y), Vector3(18.0, 2.6, 6.0), rust, 0.25, true)
-		_add_box(root, Vector3(p.x, maxf(y, wl) + 2.2, p.y + 1.0), Vector3(6.0, 2.2, 3.4),
-				concrete, 0.25, false)
-		_add_cylinder(root, Vector3(p.x + 6.0, maxf(y, wl) + 2.4, p.y), 0.5, 4.0, dark, 0.0, false)
-	# Half-sunken barge in the channel off the hall's west approach, and a
-	# knocked-out APC on the bank: two strong mid-ground silhouettes.
-	_add_box(root, Vector3(18.0, wl + 0.65, 30.0), Vector3(16.0, 2.4, 5.5), rust, 0.35, true)
-	_add_box(root, Vector3(18.0, wl + 2.0, 30.8), Vector3(5.0, 2.0, 3.0), concrete, 0.35, false)
-	_add_cylinder(root, Vector3(24.0, wl + 2.2, 30.0), 0.45, 3.6, dark, 0.0, false)
+	# One curated sunken barge inside ±150 m reserved cleanly.
+	var barge_p := Vector2(-115.0, -38.0)
+	for cand in [Vector2(-115.0, -38.0), Vector2(-132.0, -20.0), Vector2(120.0, -118.0)]:
+		if try_reserve_structure(root, map_name, cand, 13.0, 28.0, false):
+			barge_p = cand
+			break
+	var by := _height(map_name, barge_p.x, barge_p.y)
+	_add_box(root, Vector3(barge_p.x, maxf(by, wl) + 0.7, barge_p.y), Vector3(18.0, 2.6, 6.0), rust, 0.25, true)
+	_add_box(root, Vector3(barge_p.x, maxf(by, wl) + 2.2, barge_p.y + 1.0), Vector3(6.0, 2.2, 3.4),
+			concrete, 0.25, false)
+	_add_cylinder(root, Vector3(barge_p.x + 6.0, maxf(by, wl) + 2.4, barge_p.y), 0.5, 4.0, dark, 0.0, false)
+	add_contact_shadow(root, map_name, barge_p, 13.0, "WetlandsBarge")
 	ASSETS.spawn_prop(root, "prop_apc",
 			Vector3(16.0, _height(map_name, 16.0, 70.0), 70.0), 1.15, 1.0)
 
-	# The blown bridge and concrete pillboxes are authored GLB assets; see
-	# _build_blender_landmarks().
-	# Reeds: dense clumps in the marsh.  A clump mesh (six blades) reads as a
-	# reed bed at 10-100 m, where single 6 cm boxes looked like scattered
-	# sticks.  They use the grass wind shader so the marsh breathes with the
-	# same gust as the fields while staying rooted in the water.
+	# Reeds: emergent marsh clumps strictly inside ±176 m.
 	var reed_mesh := FOLIAGE.create_grass_mesh(6, 2.8)
 	var reed_mat := ShaderMaterial.new()
 	reed_mat.shader = GRASS_SHADER
@@ -5661,21 +5580,16 @@ static func _build_wetlands(root: Node3D, map_name: String) -> void:
 	rng.seed = 771
 	var transforms: Array = []
 	var colors: Array = []
-	# Reeds must stand in the emergent band, not 2 m under the surface: a broad
-	# underwater band spent most instances behind the water shader and left a
-	# handful of yellow stalks on screen.  Three clumps per seed make a bed
-	# 2-4 m wide while keeping the instance count inside the 120 FPS budget.
-	for i in range(4800):
-		var p := Vector2(rng.randf_range(-275.0, 275.0), rng.randf_range(-275.0, 275.0))
+	for i in range(2800):
+		var p := Vector2(rng.randf_range(-176.0, 176.0), rng.randf_range(-176.0, 176.0))
 		var h := _height(map_name, p.x, p.y)
 		if h > wl + 0.40 or h < wl - 0.55:
 			continue
-		# Leave the flooded nave and the entry corridor readable.
 		if _hall_clear_zone(map_name, p.x, p.y) and absf(p.y - 60.0) < 9.5:
 			continue
 		if p.distance_to(Vector2(38.0, 60.0)) < 10.0:
 			continue
-		var clumps := rng.randi_range(2, 4)
+		var clumps := rng.randi_range(2, 3)
 		for k in range(clumps):
 			var q := p + Vector2(rng.randf_range(-1.3, 1.3), rng.randf_range(-1.3, 1.3))
 			var basis := Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(
@@ -5684,9 +5598,7 @@ static func _build_wetlands(root: Node3D, map_name: String) -> void:
 			transforms.append(Transform3D(basis, Vector3(q.x, h, q.y)))
 			var warm := rng.randf_range(0.86, 1.02)
 			colors.append(Color(warm * 0.94, warm, warm * rng.randf_range(0.80, 0.94)))
-	# Reed bed framing the spawn boardwalk: dense clumps in the shallow band
-	# directly in front of the camera, where the procedural scatter is thin.
-	for i in range(260):
+	for i in range(180):
 		var q := Vector2(rng.randf_range(20.0, 44.0), rng.randf_range(38.0, 52.0))
 		if absf(q.x - 30.0) < 1.6 and q.y > 46.0:
 			continue
@@ -5697,15 +5609,21 @@ static func _build_wetlands(root: Node3D, map_name: String) -> void:
 		var rwarm := rng.randf_range(0.86, 1.02)
 		colors.append(Color(rwarm * 0.94, rwarm, rwarm * rng.randf_range(0.80, 0.94)))
 	_multimesh(root, "Reeds", reed_mesh, reed_mat, transforms, false, colors)
-	# Dry-bank outpost near the training spawn.
-	_asset_on(root, map_name, "observation_post", Vector2(8, 154), 0.2)
-	_asset_on(root, map_name, "sandbag_wall", Vector2(30, 160), -0.1)
-	for p in [Vector2(-18, 188), Vector2(48, 184), Vector2(72, 204)]:
-		_asset_on(root, map_name, "vegetation/oak_hero", p, float(p.x) * 0.02)
-	for p in [Vector2(18, 198), Vector2(44, 190)]:
-		_asset_on(root, map_name, "hedgehog", p, float(p.y) * 0.01)
-	for p in [Vector2(24, 184), Vector2(36, 186)]:
-		ASSETS.spawn_prop(root, "prop_crate", Vector3(p.x, _height(map_name, p.x, p.y), p.y), 0.3)
+
+	# Dry-bank outpost near the southern edge inside ±158 m.
+	var op_site := _reserve_near_site(root, map_name, Vector2(8.0, 146.0), 10.0, 28.0, false)
+	if op_site != Vector2.INF:
+		_asset_on(root, map_name, "observation_post", op_site, 0.2)
+		add_contact_shadow(root, map_name, op_site, 10.0, "WetlandsOutpost")
+		_asset_on(root, map_name, "sandbag_wall", op_site + Vector2(14.0, 4.0), -0.1)
+		for off in [Vector2(-14.0, 8.0), Vector2(20.0, -6.0)]:
+			var tp: Vector2 = op_site + (off as Vector2)
+			_asset_on(root, map_name, "vegetation/oak_hero", tp, tp.x * 0.02)
+		for off in [Vector2(8.0, 10.0), Vector2(-8.0, -8.0)]:
+			var hp: Vector2 = op_site + (off as Vector2)
+			_asset_on(root, map_name, "hedgehog", hp, hp.y * 0.01)
+		ASSETS.spawn_prop(root, "prop_crate",
+				Vector3(op_site.x + 6.0, _height(map_name, op_site.x + 6.0, op_site.y - 5.0), op_site.y - 5.0), 0.3)
 
 
 static func _add_hall(root: Node3D, map_name: String, p: Vector2, w: float, h: float,
@@ -5944,17 +5862,17 @@ static func _add_windbreak(_root: Node3D, map_name: String, a: Vector2,
 	var wl := water_level(map_name)
 	var t := 0.0
 	while t < length:
-		for row_v in [-3.2, 3.2]:
-			if rng.randf() < 0.16:
+		for row_v in [0.0]:
+			if rng.randf() < 0.12:
 				continue
 			var row := float(row_v)
-			var p := a + dir * (t + rng.randf_range(-1.6, 1.6)) \
-					+ n * (row + rng.randf_range(-1.8, 1.8))
+			var p := a + dir * (t + rng.randf_range(-1.8, 1.8)) \
+					+ n * (row + rng.randf_range(-2.2, 2.2))
 			var h := _height(map_name, p.x, p.y)
 			if h < wl + 0.4:
 				continue
 			positions.append(Vector3(p.x, h, p.y))
-		t += rng.randf_range(3.4, 5.4)
+		t += rng.randf_range(15.0, 20.0)
 	# The belt has to survive the instance cap, so it goes first.
 	_windbreak_positions[map_name] = positions
 
@@ -5963,25 +5881,25 @@ static func _add_windbreak(_root: Node3D, map_name: String, a: Vector2,
 ## farmland and give the aerial view structure without unique assets.
 static func _hedgerows(map_name: String) -> Array:
 	var lines: Array = []
-	var zlines := [-200.0, 200.0]
+	var zlines := [-148.0, 148.0]
 	match map_name:
 		"village":
-			zlines = [-195.0, 210.0]
+			zlines = [-144.0, 152.0]
 		"wetlands":
-			zlines = [-190.0, 190.0]
+			zlines = [-142.0, 142.0]
 	for z in zlines:
 		var pts := PackedVector2Array()
-		var x := -255.0
-		while x <= 255.0:
-			pts.append(Vector2(x, z + 6.0 * sin(x * 0.02)))
-			x += 13.0
+		var x := -166.0
+		while x <= 166.0:
+			pts.append(Vector2(x, z + 5.0 * sin(x * 0.025)))
+			x += 20.0
 		lines.append(pts)
-	for xline in [-210.0, 210.0]:
+	for xline in [-156.0, 156.0]:
 		var pts := PackedVector2Array()
-		var z := -255.0
-		while z <= 255.0:
-			pts.append(Vector2(xline + 6.0 * sin(z * 0.02), z))
-			z += 13.0
+		var z := -166.0
+		while z <= 166.0:
+			pts.append(Vector2(xline + 5.0 * sin(z * 0.025), z))
+			z += 20.0
 		lines.append(pts)
 	return lines
 
@@ -5993,33 +5911,33 @@ static func _treelines(map_name: String) -> Array:
 	match map_name:
 		"village":
 			return [
-				PackedVector2Array([Vector2(-245, -40), Vector2(-180, -85), Vector2(-115, -60),
-						Vector2(-45, -95), Vector2(40, -70), Vector2(130, -105), Vector2(235, -80)]),
-				PackedVector2Array([Vector2(-245, 205), Vector2(-145, 230), Vector2(-35, 215),
-						Vector2(95, 235), Vector2(225, 215)]),
-				PackedVector2Array([Vector2(-90, -200), Vector2(-40, -150), Vector2(10, -100)]),
+				PackedVector2Array([Vector2(-168, -38), Vector2(-122, -74), Vector2(-74, -52),
+						Vector2(-26, -84), Vector2(36, -62), Vector2(104, -88), Vector2(166, -70)]),
+				PackedVector2Array([Vector2(-168, 138), Vector2(-95, 156), Vector2(-20, 146),
+						Vector2(76, 158), Vector2(164, 142)]),
+				PackedVector2Array([Vector2(-86, -158), Vector2(-42, -120), Vector2(8, -88)]),
 			]
 		"industrial":
 			return [
-				PackedVector2Array([Vector2(-250, -245), Vector2(-130, -230), Vector2(0, -245),
-						Vector2(130, -225), Vector2(250, -240)]),
-				PackedVector2Array([Vector2(-245, 200), Vector2(-130, 212), Vector2(0, 200),
-						Vector2(130, 212), Vector2(245, 200)]),
+				PackedVector2Array([Vector2(-170, -162), Vector2(-88, -152), Vector2(0, -162),
+						Vector2(88, -152), Vector2(170, -160)]),
+				PackedVector2Array([Vector2(-168, 142), Vector2(-86, 152), Vector2(0, 142),
+						Vector2(86, 152), Vector2(168, 142)]),
 			]
 		"wetlands":
 			return [
-				PackedVector2Array([Vector2(-245, 160), Vector2(-140, 178), Vector2(-35, 165),
-						Vector2(100, 185), Vector2(235, 170)]),
-				PackedVector2Array([Vector2(-235, -210), Vector2(-120, -195), Vector2(0, -220),
-						Vector2(120, -200), Vector2(235, -215)]),
+				PackedVector2Array([Vector2(-170, 132), Vector2(-96, 148), Vector2(-24, 138),
+						Vector2(76, 152), Vector2(166, 140)]),
+				PackedVector2Array([Vector2(-168, -152), Vector2(-84, -142), Vector2(0, -158),
+						Vector2(84, -144), Vector2(168, -154)]),
 			]
 		_:
 			return [
-				PackedVector2Array([Vector2(-250, 130), Vector2(-160, 150), Vector2(-70, 135),
-						Vector2(50, 158), Vector2(150, 140), Vector2(250, 152)]),
-				PackedVector2Array([Vector2(-245, -210), Vector2(-135, -195), Vector2(-20, -220),
-						Vector2(120, -205), Vector2(245, -215)]),
-				PackedVector2Array([Vector2(-140, -40), Vector2(-150, 60), Vector2(-170, 160)]),
+				PackedVector2Array([Vector2(-170, 116), Vector2(-104, 134), Vector2(-38, 120),
+						Vector2(45, 138), Vector2(115, 124), Vector2(170, 134)]),
+				PackedVector2Array([Vector2(-168, -150), Vector2(-92, -140), Vector2(-15, -156),
+						Vector2(85, -144), Vector2(168, -152)]),
+				PackedVector2Array([Vector2(-132, -38), Vector2(-140, 48), Vector2(-154, 132)]),
 			]
 
 
@@ -6030,9 +5948,9 @@ static func _tutorial_clear_zone(x: float, z: float) -> bool:
 	var st := Engine.get_main_loop() as SceneTree
 	if st != null and st.root != null:
 		var g := st.root.get_node_or_null("Global")
-		if g != null and g.get("play_mode") == 2:
+		if g != null and int(g.get("play_mode")) == 3:
 			is_tut = true
-	return is_tut and absf(x + 48.0) < 42.0 and z > 20.0 and z < 260.0
+	return is_tut and absf(x + 48.0) < 42.0 and z > 20.0 and z < 176.0
 
 
 ## Keep every authored hall interior and apron free of scattered trees and
@@ -6058,23 +5976,18 @@ static func _hall_clear_zone(map_name: String, x: float, z: float) -> bool:
 ## cottage wall or block the spawn view.
 static func _farm_clear_zone(map_name: String, x: float, z: float) -> bool:
 	if map_name == "steppe":
-		if Vector2(x, z).distance_to(Vector2(52.0, 150.0)) < 34.0:
+		if Vector2(x, z).distance_to(Vector2(36.0, 128.0)) < 30.0:
 			return true
-		if Vector2(x, z).distance_to(Vector2(-220.0, 30.0)) < 26.0:
-			return true
-		if Vector2(x, z).distance_to(Vector2(235.0, -45.0)) < 26.0:
+		if Vector2(x, z).distance_to(Vector2(76.0, -78.0)) < 24.0:
 			return true
 		return false
 	if map_name == "wetlands":
-		return Vector2(x, z).distance_to(Vector2(30.0, 60.0)) < 14.0
+		return Vector2(x, z).distance_to(Vector2(8.0, 146.0)) < 16.0
 	if map_name == "village":
-		# Keep the whole cottage street clear of scattered trees: their 2.5 m
-		# trunks read as dark blocks at close range.
-		if absf(z - 58.0) < 16.0 and x > 20.0 and x < 186.0:
+		if absf(z - 58.0) < 16.0 and x > 14.0 and x < 156.0:
 			return true
-		for c in [Vector2(-245, 60), Vector2(-248, -175), Vector2(248, 120),
-				Vector2(235, -210), Vector2(-235, 225), Vector2(245, 235),
-				Vector2(140, -245)]:
+		for c in [Vector2(-98, 42), Vector2(-128, -96), Vector2(118, 92),
+				Vector2(112, -118), Vector2(-118, 124)]:
 			if Vector2(x, z).distance_to(c) < 17.0:
 				return true
 		return false
@@ -6083,61 +5996,161 @@ static func _farm_clear_zone(map_name: String, x: float, z: float) -> bool:
 
 ## Dedicated clear zones around all silos, cooling towers, chimneys, radar, and military structures
 ## so no tree, bush, fence or clutter can clip into or spawn inside them.
-static func _structure_clear_zone(map_name: String, x: float, z: float) -> bool:
+static func _structure_clear_zone(map_name: String, x: float, z: float,
+		extra_pad: float = 0.0) -> bool:
 	var p := Vector2(x, z)
-	# Signature POIs get a generous berth so no tree, fence or bush grows
-	# through a water-tower leg or a substation fence.
 	for poi in _poi_positions:
-		if p.distance_to(poi) < 26.0:
+		if p.distance_to(poi) < 20.0 + extra_pad:
 			return true
 	for zone in _reserved_zones:
-		if p.distance_to(zone["pos"]) < float(zone["radius"]):
+		if p.distance_to(zone["pos"]) < float(zone["radius"]) + extra_pad:
 			return true
-	# Check all 30 military trick structures dynamically
+	for reg_list in _structure_registry.values():
+		for entry in reg_list:
+			if p.distance_to(entry["pos"]) < float(entry["radius"]) + 4.0 + extra_pad:
+				return true
 	var mil_script = load("res://scripts/util/military_structures.gd")
 	if mil_script != null and mil_script.spawned_positions.has(map_name):
 		var mil_list: Array = mil_script.spawned_positions[map_name]
 		for mp in mil_list:
-			if p.distance_to(mp) < 24.0:
+			if p.distance_to(mp) < 18.0 + extra_pad:
 				return true
+	var site: Dictionary = HALL_SITES.get(map_name, {})
+	if not site.is_empty():
+		var c: Vector2 = site["center"]
+		var half: Vector2 = site["half"]
+		if absf(x - c.x) < half.x + 8.0 + extra_pad and absf(z - c.y) < half.y + 8.0 + extra_pad:
+			return true
+		var spawn := Vector2(site.get("spawn", Vector2(c.x, c.y + half.y + 20.0)))
+		if p.distance_to(spawn) < 24.0 + extra_pad:
+			return true
 
 	match map_name:
 		"industrial":
-			# Cooling towers (both procedural & handcrafted)
-			if p.distance_to(Vector2(155.0, 30.0)) < 26.0:
+			if p.distance_to(Vector2(-105.0, -98.0)) < 26.0 + extra_pad:
 				return true
-			if p.distance_to(Vector2(-72.0, -214.0)) < 26.0:
+			if p.distance_to(Vector2(-90.0, -146.0)) < 15.0 + extra_pad:
 				return true
-			if p.distance_to(Vector2(-245.0, 155.0)) < 26.0:
+			if p.distance_to(Vector2(26.0, -32.0)) < 18.0 + extra_pad:
 				return true
-			# Chimneys
-			if p.distance_to(Vector2(-55.0, 35.0)) < 15.0:
-				return true
-			if p.distance_to(Vector2(-90.0, -146.0)) < 15.0:
-				return true
-			# Standalone silos
-			if p.distance_to(Vector2(26.0, -32.0)) < 18.0:
-				return true
-			if p.distance_to(Vector2(-50.0, 0.0)) < 18.0:
-				return true
-			if p.distance_to(Vector2(-140.0, 20.0)) < 18.0:
-				return true
-			if p.distance_to(Vector2(140.0, -50.0)) < 18.0:
+			if p.distance_to(Vector2(-50.0, 0.0)) < 18.0 + extra_pad:
 				return true
 		"steppe":
-			# Standalone farm grain silos & paddock
-			if p.distance_to(Vector2(-180.0, 220.0)) < 20.0:
+			if p.distance_to(Vector2(-28.0, 124.0)) < 22.0 + extra_pad:
 				return true
-			if p.distance_to(Vector2(240.0, -120.0)) < 20.0:
-				return true
-			# Radar station
-			if p.distance_to(Vector2(-225.0, -210.0)) < 24.0:
+			if p.distance_to(Vector2(76.0, -78.0)) < 24.0 + extra_pad:
 				return true
 		"village":
-			# Windmill bluff
-			if p.distance_to(Vector2(-110.0, 115.0)) < 24.0:
+			if p.distance_to(Vector2(-92.0, 102.0)) < 24.0 + extra_pad:
 				return true
 	return false
+
+
+static func _tree_clear_zone(map_name: String, x: float, z: float) -> bool:
+	var p := Vector2(x, z)
+	for poi in _poi_positions:
+		if p.distance_to(poi) < 14.0:
+			return true
+	for zone in _reserved_zones:
+		if p.distance_to(zone["pos"]) < float(zone["radius"]) + 1.0:
+			return true
+	for reg_list in _structure_registry.values():
+		for entry in reg_list:
+			if p.distance_to(entry["pos"]) < float(entry["radius"]) + 4.5:
+				return true
+	var mil_script = load("res://scripts/util/military_structures.gd")
+	if mil_script != null and mil_script.spawned_positions.has(map_name):
+		var mil_list: Array = mil_script.spawned_positions[map_name]
+		for mp in mil_list:
+			if p.distance_to(mp) < 15.0:
+				return true
+	match map_name:
+		"industrial":
+			if p.distance_to(Vector2(-105.0, -98.0)) < 24.0 \
+					or p.distance_to(Vector2(-90.0, -146.0)) < 11.0 \
+					or p.distance_to(Vector2(26.0, -32.0)) < 11.0 \
+					or p.distance_to(Vector2(-50.0, 0.0)) < 11.0:
+				return true
+		"steppe":
+			if p.distance_to(Vector2(-28.0, 124.0)) < 20.0 \
+					or p.distance_to(Vector2(-52.0, 124.0)) < 10.0:
+				return true
+		"village":
+			if p.distance_to(Vector2(54.0, -96.0)) < 18.0 \
+					or p.distance_to(Vector2(-34.0, 56.0)) < 13.0:
+				return true
+		"wetlands":
+			if p.distance_to(Vector2(-56.0, -118.0)) < 18.0:
+				return true
+	return false
+
+
+static var _low_canopy_cache: Dictionary = {}
+
+
+static func _append_canopy_lobe(st: SurfaceTool, center: Vector3, radii: Vector3,
+		dark_col: Color, bright_col: Color, lon_segs: int = 8, lat_segs: int = 5) -> void:
+	for lat in range(lat_segs):
+		var v0 := float(lat) / float(lat_segs)
+		var v1 := float(lat + 1) / float(lat_segs)
+		var phi0 := (v0 - 0.5) * PI
+		var phi1 := (v1 - 0.5) * PI
+		for lon in range(lon_segs):
+			var u0 := float(lon) / float(lon_segs)
+			var u1 := float(lon + 1) / float(lon_segs)
+			var th0 := u0 * TAU
+			var th1 := u1 * TAU
+			var dirs := [
+				Vector3(cos(phi0) * cos(th0), sin(phi0), cos(phi0) * sin(th0)),
+				Vector3(cos(phi0) * cos(th1), sin(phi0), cos(phi0) * sin(th1)),
+				Vector3(cos(phi1) * cos(th1), sin(phi1), cos(phi1) * sin(th1)),
+				Vector3(cos(phi1) * cos(th0), sin(phi1), cos(phi1) * sin(th0)),
+			]
+			var tris := [0, 1, 2, 0, 2, 3]
+			for idx in tris:
+				var d: Vector3 = dirs[idx]
+				var pos := center + Vector3(d.x * radii.x, d.y * radii.y, d.z * radii.z)
+				var top_w := clampf((d.y + 1.0) * 0.5, 0.0, 1.0)
+				st.set_normal(d.normalized())
+				st.set_color(dark_col.lerp(bright_col, top_w))
+				st.add_vertex(pos)
+
+
+static func _make_low_canopy_mesh(ref_leaves: Mesh, is_pine: bool) -> ArrayMesh:
+	var key := "%s|%d" % [str(ref_leaves.get_rid()), 1 if is_pine else 0]
+	if _low_canopy_cache.has(key):
+		return _low_canopy_cache[key]
+	var aabb := ref_leaves.get_aabb()
+	var center := aabb.position + aabb.size * 0.5
+	var ext := aabb.size * 0.5
+	var dark_c := Color(0.11, 0.19, 0.08) if is_pine else Color(0.14, 0.23, 0.09)
+	var bright_c := Color(0.22, 0.34, 0.15) if is_pine else Color(0.32, 0.43, 0.17)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	if is_pine:
+		_append_canopy_lobe(st, center + Vector3(0.0, -ext.y * 0.32, 0.0),
+				Vector3(ext.x * 0.92, ext.y * 0.48, ext.z * 0.92), dark_c, bright_c)
+		_append_canopy_lobe(st, center + Vector3(0.0, ext.y * 0.12, 0.0),
+				Vector3(ext.x * 0.72, ext.y * 0.44, ext.z * 0.72), dark_c, bright_c)
+		_append_canopy_lobe(st, center + Vector3(0.0, ext.y * 0.52, 0.0),
+				Vector3(ext.x * 0.46, ext.y * 0.38, ext.z * 0.46), dark_c, bright_c)
+	else:
+		_append_canopy_lobe(st, center + Vector3(-ext.x * 0.22, -ext.y * 0.08, -ext.z * 0.12),
+				Vector3(ext.x * 0.78, ext.y * 0.76, ext.z * 0.78), dark_c, bright_c)
+		_append_canopy_lobe(st, center + Vector3(ext.x * 0.24, ext.y * 0.05, ext.z * 0.18),
+				Vector3(ext.x * 0.72, ext.y * 0.72, ext.z * 0.72), dark_c, bright_c)
+		_append_canopy_lobe(st, center + Vector3(0.0, ext.y * 0.28, 0.0),
+				Vector3(ext.x * 0.68, ext.y * 0.66, ext.z * 0.68), dark_c, bright_c)
+	st.generate_normals()
+	var mesh := st.commit()
+	var mat := StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	mat.roughness = 0.88
+	mat.metallic = 0.0
+	mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	mesh.surface_set_material(0, mat)
+	_low_canopy_cache[key] = mesh
+	return mesh
 
 
 static func _build_treelines(root: Node3D, map_name: String) -> void:
@@ -6167,9 +6180,9 @@ static func _build_treelines(root: Node3D, map_name: String) -> void:
 	# They sit outside the flight-school strip (x �70) but fill the otherwise
 	# empty foreground at the combat spawn.  Added before the cap so they are
 	# never truncated on UFDS.
-	var edge_z := [168.0, 190.0, 212.0, 234.0, 254.0]
+	var edge_z := [130.0, 148.0, 164.0]
 	for z in edge_z:
-		for x in [-96.0, 96.0]:
+		for x in [-92.0, 92.0]:
 			var edge_h := _height(map_name, x, z)
 			if edge_h < wl + 0.4:
 				continue
@@ -6177,16 +6190,15 @@ static func _build_treelines(root: Node3D, map_name: String) -> void:
 	# A few proper Blender copses frame the open approach without touching the
 	# x �70 training strip.  They give the foreground depth that the retired
 	# procedural lollipops used to fake.
-	var copse_centres := [Vector2(-78, 186), Vector2(78, 196), Vector2(-88, 214),
-			Vector2(84, 228), Vector2(-76, 246), Vector2(82, 252),
-			Vector2(-96, 234), Vector2(96, 182)]
+	var copse_centres := [Vector2(-78, 134), Vector2(78, 142), Vector2(-88, 154),
+			Vector2(84, 160), Vector2(-72, 166), Vector2(96, 126)]
 	for centre in copse_centres:
 		var centre_v: Vector2 = centre
-		for j in range(4):
-			var cx: float = centre_v.x + rng.randf_range(-8.0, 8.0)
-			var cz: float = centre_v.y + rng.randf_range(-8.0, 8.0)
+		for j in range(2):
+			var cx: float = centre_v.x + rng.randf_range(-11.0, 11.0)
+			var cz: float = centre_v.y + rng.randf_range(-11.0, 11.0)
 			var ch := _height(map_name, cx, cz)
-			if ch < wl + 0.4:
+			if ch < wl + 0.45:
 				continue
 			positions.append(Vector3(cx, ch, cz))
 
@@ -6201,115 +6213,118 @@ static func _build_treelines(root: Node3D, map_name: String) -> void:
 			var n := Vector2(-dir.y, dir.x)
 			var t := 0.0
 			while t < length:
-				for band in [-4.0, 4.0, 9.0]:
-					if rng.randf() < 0.35:
+				for band in [0.0]:
+					if rng.randf() < 0.15:
 						continue
-					var band_off := float(band) + rng.randf_range(-2.0, 2.0)
+					var band_off := float(band) + rng.randf_range(-3.0, 3.0)
 					var p := a + dir * t + n * band_off
 					var h := _height(map_name, p.x, p.y)
-					if h < wl + 0.4:
+					if h < wl + 0.45:
 						continue
 					positions.append(Vector3(p.x, h, p.y))
-				t += rng.randf_range(4.0, 8.0)
+				t += rng.randf_range(16.0, 22.0)
 
-	# Scattered orchard / copse clumps (compact 40% smaller arena).
-	var clumps := 20 if map_name == "village" else 14
+	# Scattered orchard / copse clumps inside compact grass perimeter.
+	var clumps := 12 if map_name in ["village", "wetlands"] else 10
 	for i in range(clumps):
-		var c := Vector2(rng.randf_range(-255.0, 255.0), rng.randf_range(-255.0, 255.0))
-		if Vector2(c.x, c.y).distance_to(Vector2(0, 175)) < 48.0:
+		var c := Vector2(rng.randf_range(-160.0, 160.0), rng.randf_range(-160.0, 160.0))
+		if Vector2(c.x, c.y).distance_to(Vector2(0, 152)) < 32.0:
 			continue
-		for j in range(rng.randi_range(6, 18)):
-			var p := c + Vector2(rng.randf_range(-20.0, 20.0), rng.randf_range(-20.0, 20.0))
+		for j in range(rng.randi_range(4, 6)):
+			var p := c + Vector2(rng.randf_range(-24.0, 24.0), rng.randf_range(-24.0, 24.0))
+			if absf(p.x) > 166.0 or absf(p.y) > 166.0:
+				continue
 			var h := _height(map_name, p.x, p.y)
-			if h < wl + 0.4:
+			if h < wl + 0.45:
 				continue
 			positions.append(Vector3(p.x, h, p.y))
+	# Evenly distributed single trees across the green arena so no quadrant looks bare.
+	for gx in range(-5, 6):
+		for gz in range(-5, 6):
+			var px := float(gx) * 28.0 + rng.randf_range(-10.0, 10.0)
+			var pz := float(gz) * 28.0 + rng.randf_range(-10.0, 10.0)
+			if absf(px) > 164.0 or absf(pz) > 164.0:
+				continue
+			var gh := _height(map_name, px, pz)
+			if gh < wl + 0.45:
+				continue
+			positions.append(Vector3(px, gh, pz))
 
 	# Keep the flight-school runway clear of trees (visual + trunk collision).
 	var is_tut := false
 	var st := Engine.get_main_loop() as SceneTree
 	if st != null and st.root != null:
 		var g := st.root.get_node_or_null("Global")
-		if g != null and g.get("play_mode") == 2:
+		if g != null and int(g.get("play_mode")) == 3:
 			is_tut = true
 	if is_tut:
 		positions = positions.filter(func(p):
 			return not _tutorial_clear_zone(p.x, p.z))
-	# Clear halls, farmsteads, silos, chimneys, cooling towers, and radar stations
+	# Clear halls, farmsteads, silos, chimneys, cooling towers, roads, and out-of-bounds edges
 	positions = positions.filter(func(p):
-		return not _hall_clear_zone(map_name, p.x, p.z) \
+		return absf(p.x) <= 168.0 and absf(p.z) <= 168.0 \
+			and p.y >= wl + 0.45 \
+			and _road_factor(map_name, p.x, p.z) < 0.16 \
+			and not _hall_clear_zone(map_name, p.x, p.z) \
 			and not _farm_clear_zone(map_name, p.x, p.z) \
-			and not _structure_clear_zone(map_name, p.x, p.z))
-	# Cap the instance count so 120 FPS holds on mid-range GPUs.  Every tree is
-	# a full Blender mesh (trunk + alpha-cut leaf cards) instanced per variant,
-	# so one variant is still a single pair of draw calls.
+			and not _tree_clear_zone(map_name, p.x, p.z))
+	var spaced_positions: Array = []
+	for cand_v in positions:
+		var cand: Vector3 = cand_v
+		var c2 := Vector2(cand.x, cand.z)
+		var ok := true
+		for prev in _placed_tree_positions:
+			if c2.distance_to(prev) < 10.5:
+				ok = false
+				break
+		if ok:
+			_placed_tree_positions.append(c2)
+			spaced_positions.append(cand)
+	positions = spaced_positions
 	var q_lvl := QualityManager.get_active_level()
-	var tree_cap := 650
+	var tree_cap := 260
 	if q_lvl == QualityManager.Level.LOW:
-		tree_cap = 260
+		tree_cap = 160
 	elif q_lvl == QualityManager.Level.MEDIUM:
-		tree_cap = 400
+		tree_cap = 200
 	if positions.size() > tree_cap:
 		positions.resize(tree_cap)
-	# Alpha-cut leaf cards and the branch-heavy trunks are expensive in the
-	# shadow pass (a MultiMesh is culled as one huge AABB, so every tree is
-	# rendered into both cascades).  LOW/MEDIUM/UFDS keep no tree-cast shadows;
-	# the cinematic HIGH profile keeps the full trunk + crown shadows.
-	var tree_shadows := q_lvl == 2
+	var tree_shadows := q_lvl == QualityManager.Level.HIGH
 	if OS.has_environment("QA_NO_TREE_SHADOW"):
 		tree_shadows = false
 	var canopy_shadows := tree_shadows
-	var veg_range := 1400.0
-	match q_lvl:
-		0:
-			veg_range = 520.0
-		1:
-			veg_range = 820.0
-		3:
-			veg_range = 650.0
-		4:
-			veg_range = 420.0
-		5:
-			veg_range = 240.0
-		6:
-			veg_range = 160.0
+	var veg_range := float(QualityManager.get_value("veg_range", 560.0))
 
-	# Bucket every position into one of the five mesh variants.  The last two
-	# entries are conifers, the rest are broadleaves.
-	var conifer_first := maxi(0, variants.size() - 2)
-	var broadleaf_last := maxi(0, conifer_first - 1)
+	# Single unified high-quality broadleaf foliage style across all maps & presets.
+	var broadleaf := variants.filter(func(v): return not bool(v.get("pine", false)))
+	if broadleaf.is_empty():
+		broadleaf = variants
 	var buckets: Dictionary = {}
-	for v in variants:
+	for v in broadleaf:
 		buckets[v["name"]] = []
 	for pos in positions:
-		var v: Dictionary
-		if rng.randf() < 0.34:
-			v = variants[rng.randi_range(conifer_first, variants.size() - 1)]
-		else:
-			v = variants[rng.randi_range(0, broadleaf_last)]
-		# The shared Blender trees were authored at a smaller unit scale than the
-		# old placeholder forest, so the belts read as bushes.  Bring them up to
-		# mature-tree size: 9-17 m crowns instead of 6-9 m.
-		var scale := rng.randf_range(0.95, 1.70)
+		var v: Dictionary = broadleaf[rng.randi_range(0, broadleaf.size() - 1)]
+		var scale := rng.randf_range(1.05, 1.55)
 		var yaw := rng.randf_range(0.0, TAU)
 		var xf := Transform3D(Basis(Vector3.UP, yaw).scaled(
 				Vector3(scale, scale, scale)), pos)
 		buckets[v["name"]].append(xf)
 
-	for v in variants:
+	for v in broadleaf:
 		var xfs: Array = buckets[v["name"]]
 		if xfs.is_empty():
 			continue
-		var leaf_mat := (v["leaves"] as ArrayMesh).surface_get_material(0) as ShaderMaterial
-		if leaf_mat != null and q_lvl == QualityManager.Level.HIGH:
-			leaf_mat.set_shader_parameter("leaf_detail",
-					0.16 if v["pine"] else 0.32)
+		var leaf_mesh: Mesh = v["leaves"]
+		var leaf_mat := (leaf_mesh as ArrayMesh).surface_get_material(0) as ShaderMaterial
+		if leaf_mat != null:
+			var detail_lvl := 0.32 if q_lvl == QualityManager.Level.HIGH else (0.24 if q_lvl == QualityManager.Level.MEDIUM else 0.16)
+			leaf_mat.set_shader_parameter("leaf_detail", detail_lvl)
 		var trunk_node := _multimesh(root, v["name"] + "_Trunks",
 				v["trunk"], null, xfs, tree_shadows)
 		var leaf_node: MultiMeshInstance3D = null
 		if not OS.has_environment("QA_NO_LEAVES"):
 			leaf_node = _multimesh(root, v["name"] + "_Leaves",
-					v["leaves"], null, xfs, canopy_shadows)
+					leaf_mesh, null, xfs, canopy_shadows)
 		for node in [trunk_node, leaf_node]:
 			if node != null:
 				node.visibility_range_end = veg_range
@@ -6334,7 +6349,7 @@ static func _add_tree_colliders(root: Node3D, buckets: Dictionary) -> void:
 		for xf in xfs:
 			var t: Transform3D = xf
 			var s: float = t.basis.get_scale().x
-			if absf(t.origin.x) > 275.0 or absf(t.origin.z) > 275.0:
+			if absf(t.origin.x) > PLAYABLE_HALF_BOUND or absf(t.origin.z) > PLAYABLE_HALF_BOUND:
 				continue
 			var cell := Vector2i(int(floor(t.origin.x / 96.0)),
 					int(floor(t.origin.z / 96.0)))
@@ -6541,9 +6556,10 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 		return
 	var q_lvl := QualityManager.get_active_level()
 	var high_detail := q_lvl == QualityManager.Level.HIGH
-	var medium_detail := q_lvl == QualityManager.Level.MEDIUM
-	var rock_target := 650 if high_detail else (420 if medium_detail else 160)
-	var flower_target := 1100 if high_detail else (650 if medium_detail else 260)
+	var tuft_mult := float(QualityManager.get_value("grass_tuft_mult", 0.55 if high_detail else 0.35))
+	var detail_lvl := int(QualityManager.get_value("ground_detail_level", 1 if q_lvl != QualityManager.Level.LOW else 0))
+	var rock_target := 220 if high_detail else (150 if detail_lvl > 0 else 100)
+	var flower_target := 420 if high_detail else (260 if detail_lvl > 0 else 160)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(map_name) + 4242
 	var wl := water_level(map_name)
@@ -6554,21 +6570,26 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 	var rock_xf: Array = []
 	var rock_col: Array = []
 	var tries := rock_target * 6
-	var rock_radius := 255.0 if high_detail else (190.0 if medium_detail else 120.0)
+	var rock_radius := 162.0 if high_detail else (148.0 if detail_lvl > 0 else 120.0)
 	while rock_xf.size() < rock_target and tries > 0:
 		tries -= 1
 		var x := rng.randf_range(-rock_radius, rock_radius)
 		var z := rng.randf_range(-rock_radius, rock_radius)
+		if _road_factor(map_name, x, z) > 0.32 or _hall_clear_zone(map_name, x, z) \
+				or _structure_clear_zone(map_name, x, z):
+			continue
 		var y := mesh_surface_height(map_name, x, z)
-		# Keep the immediate shoreline clear: a dense line of boulders on the
-		# waterline read as scattered bin bags rather than a river bank.
 		if y < wl + 0.9:
 			continue
 		var s := rng.randf_range(0.10, 0.55)
+		var fp := footprint_surface_height(map_name, Vector2(x, z),
+				maxf(s * 1.6, 1.5), maxf(s * 1.6, 1.5), 0.0)
+		if absf(fp - y) > 0.45:
+			continue
 		var b := Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(
 				Vector3(s * rng.randf_range(1.0, 1.6), s * rng.randf_range(0.45, 0.75),
 						s * rng.randf_range(0.9, 1.4)))
-		rock_xf.append(Transform3D(b, Vector3(x, y + s * 0.18, z)))
+		rock_xf.append(Transform3D(b, Vector3(x, minf(y, fp) - 0.03, z)))
 		var g := rng.randf_range(0.38, 0.64)
 		rock_col.append(Color(g * 1.04, g * 0.99, g * 0.90))
 
@@ -6576,12 +6597,15 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 	var flower_mesh := FOLIAGE.make_canopy_mesh(4, 2, 0.25, 1.0, 1.0)
 	var flower_xf: Array = []
 	var flower_col: Array = []
-	var flower_radius := 245.0 if high_detail else (170.0 if medium_detail else 110.0)
+	var flower_radius := 160.0 if high_detail else (144.0 if detail_lvl > 0 else 115.0)
 	tries = flower_target * 5
 	while flower_xf.size() < flower_target and tries > 0:
 		tries -= 1
 		var x := rng.randf_range(-flower_radius, flower_radius)
 		var z := rng.randf_range(-flower_radius, flower_radius)
+		if _road_factor(map_name, x, z) > 0.28 or _hall_clear_zone(map_name, x, z) \
+				or _structure_clear_zone(map_name, x, z):
+			continue
 		var y := mesh_surface_height(map_name, x, z)
 		if y < wl + 0.30:
 			continue
@@ -6596,10 +6620,8 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 		else:
 			flower_col.append(Color(0.72, 0.58, 0.62))
 
-	# Low scrub / bush clumps between the stones and flowers.  One MultiMesh
-	# adds a natural middle layer across the fields without more draw calls.
-	var bush_target := 850 if high_detail else (220 if medium_detail else 65)
-	var bush_radius := 245.0 if high_detail else (160.0 if medium_detail else 100.0)
+	var bush_target := 240 if high_detail else (130 if detail_lvl > 0 else 55)
+	var bush_radius := 162.0 if high_detail else (146.0 if detail_lvl > 0 else 108.0)
 	var bush_mesh := FOLIAGE.make_canopy_mesh(5, 2, 0.42, 0.55, 0.65)
 	var bush_mat := FOLIAGE.make_wind_material(
 			Color(0.11, 0.16, 0.055) if map_name == "wetlands" \
@@ -6610,13 +6632,16 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 		tries_bush -= 1
 		var bx := rng.randf_range(-bush_radius, bush_radius)
 		var bz := rng.randf_range(-bush_radius, bush_radius)
+		if _road_factor(map_name, bx, bz) > 0.28 or _hall_clear_zone(map_name, bx, bz) \
+				or _structure_clear_zone(map_name, bx, bz):
+			continue
 		var by := mesh_surface_height(map_name, bx, bz)
 		if by < wl + 0.35:
 			continue
-		var bs := rng.randf_range(0.35, 1.05)
+		var bs := rng.randf_range(0.18, 0.45)
 		bush_xf.append(Transform3D(Basis(Vector3.UP, rng.randf_range(0.0, TAU))
-				.scaled(Vector3(bs * 1.4, bs * rng.randf_range(0.55, 0.85),
-						bs * 1.4)), Vector3(bx, by + bs * 0.18, bz)))
+				.scaled(Vector3(bs * 1.4, bs * rng.randf_range(0.45, 0.65),
+						bs * 1.4)), Vector3(bx, by + bs * 0.12, bz)))
 	_multimesh(root, "GroundScrub", bush_mesh, bush_mat, bush_xf, false)
 
 	var rock_mat := _mat(Color(0.52, 0.50, 0.45), 1.0)
@@ -6630,12 +6655,8 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 	_multimesh(root, "Wildflowers", flower_mesh, flower_mat, flower_xf, false,
 			flower_col)
 
-	# Mid-distance field tufts.  The animated DenseGrassFoliage only covers the
-	# first 16-23 m, so beyond that the terrain read as a flat painted carpet.
-	# These 4-blade tufts are one draw call, fade out by distance and give the
-	# fields the broken, grassy texture visible in the reference.
-	var tuft_target := 4200 if high_detail else (1800 if medium_detail else 700)
-	var tuft_radius := 220.0 if high_detail else (145.0 if medium_detail else 95.0)
+	var tuft_target := maxi(700, int(round(4200.0 * tuft_mult)))
+	var tuft_radius := 166.0 if high_detail else (152.0 if detail_lvl > 0 else 132.0)
 	var tuft_base := Color(0.15, 0.20, 0.08)
 	var tuft_tip := Color(0.36, 0.42, 0.18)
 	match map_name:
@@ -6664,7 +6685,9 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 		tries -= 1
 		var x := rng.randf_range(-tuft_radius, tuft_radius)
 		var z := rng.randf_range(-tuft_radius, tuft_radius)
-		var y := _height(map_name, x, z)
+		if _road_factor(map_name, x, z) > 0.25:
+			continue
+		var y := mesh_surface_height(map_name, x, z)
 		if y < wl + 0.15:
 			continue
 		var s := rng.randf_range(0.8, 1.9)
@@ -6689,37 +6712,32 @@ static func _build_debris(root: Node3D, map_name: String) -> void:
 	if OS.has_environment("QA_NO_PROPS"):
 		return
 	var q_lvl := QualityManager.get_active_level()
-	var per_site := 26 if q_lvl == QualityManager.Level.HIGH else \
-			(10 if q_lvl == QualityManager.Level.MEDIUM else 3)
+	var per_site := 8 if q_lvl == QualityManager.Level.HIGH else \
+			(5 if q_lvl == QualityManager.Level.MEDIUM else 2)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(map_name) + 5150
 	var wl := water_level(map_name)
 	var centers: Array = []
 	match map_name:
 		"industrial":
-			centers = [Vector2(50, 80), Vector2(-120, -40), Vector2(-30, -120),
-					Vector2(60, -80), Vector2(168, 86), Vector2(24, 176),
-					Vector2(-210, 20), Vector2(120, -30), Vector2(-260, 60),
-					Vector2(240, 120)]
+			centers = [Vector2(48, 76), Vector2(-115, -36), Vector2(-28, -116),
+					Vector2(60, -80), Vector2(138, 82), Vector2(24, 146),
+					Vector2(-148, 18), Vector2(116, -30)]
 		"village":
-			centers = [Vector2(20, -70), Vector2(-210, 90), Vector2(-112, 188),
+			centers = [Vector2(20, -68), Vector2(-142, 84), Vector2(-108, 144),
 					Vector2(66, 70), Vector2(104, 46), Vector2(138, 70),
-					Vector2(-60, 140), Vector2(160, 150), Vector2(-140, -140),
-					Vector2(180, 10)]
+					Vector2(-60, 136), Vector2(-132, -132)]
 		"wetlands":
 			centers = [Vector2(10, 54), Vector2(30, 36), Vector2(0, -90),
-					Vector2(-60, 150), Vector2(-230, 20), Vector2(250, 15),
-					Vector2(120, -90), Vector2(-120, -40), Vector2(180, -140),
-					Vector2(200, 130)]
+					Vector2(-60, 142), Vector2(-148, 20), Vector2(146, 15),
+					Vector2(116, -90), Vector2(-118, -38)]
 		_:
-			centers = [Vector2(52, 150), Vector2(30, 132), Vector2(-170, -110),
-					Vector2(-60, -25), Vector2(95, -100), Vector2(195, -55),
-					Vector2(-240, -20), Vector2(-205, 40), Vector2(235, -40),
-					Vector2(40, -90)]
-	# Random clusters keep the treatment from collapsing into islands.
-	for i in range(7):
-		centers.append(Vector2(rng.randf_range(-245.0, 245.0),
-				rng.randf_range(-245.0, 245.0)))
+			centers = [Vector2(36, 128), Vector2(-136, -104), Vector2(-58, -28),
+					Vector2(88, -96), Vector2(148, -52), Vector2(-142, -18),
+					Vector2(-128, 114), Vector2(40, -90)]
+	for i in range(4):
+		centers.append(Vector2(rng.randf_range(-152.0, 152.0),
+				rng.randf_range(-152.0, 152.0)))
 
 	var chunk_xf: Array = []
 	var chunk_col: Array = []
@@ -6791,7 +6809,7 @@ static func _build_props(root: Node3D, map_name: String) -> void:
 	rng.seed = hash(map_name) + 2027
 	var water := water_level(map_name)
 	var q := QualityManager.get_active_level()
-	var per_type := 5 if q == QualityManager.Level.HIGH else \
+	var per_type := 3 if q == QualityManager.Level.HIGH else \
 			(2 if q == QualityManager.Level.MEDIUM else 1)
 	var is_combat := false
 	var st_p := Engine.get_main_loop() as SceneTree
@@ -6806,9 +6824,6 @@ static func _build_props(root: Node3D, map_name: String) -> void:
 	prop_mat.vertex_color_use_as_albedo = true
 	prop_mat.roughness = 0.9
 	prop_mat.metallic = 0.08
-	# Weak presets keep the ten most common prop types (one draw call each) and
-	# drop the long tail of rare crates/barrels.  This is 10 fewer draws on the
-	# 60 FPS UHD profiles while the battlefield landmarks stay untouched.
 	var prop_names: Array = meshes.keys()
 	if q == QualityManager.Level.LOW and prop_names.size() > 10:
 		prop_names = prop_names.slice(0, 10)
@@ -6819,8 +6834,10 @@ static func _build_props(root: Node3D, map_name: String) -> void:
 		var tries := 0
 		while xfs.size() < per_type and tries < 120:
 			tries += 1
-			var x := rng.randf_range(-250.0, 250.0)
-			var z := rng.randf_range(-250.0, 250.0)
+			var x := rng.randf_range(-155.0, 155.0)
+			var z := rng.randf_range(-155.0, 155.0)
+			if _road_factor(map_name, x, z) >= 0.25:
+				continue
 			if _tutorial_clear_zone(x, z):
 				continue
 			if _hall_clear_zone(map_name, x, z) or _structure_clear_zone(map_name, x, z):
@@ -7247,7 +7264,7 @@ static func _fix_untextured_white(root: Node3D) -> void:
 
 	for node in root.find_children("*", "MeshInstance3D", true, false):
 		var mi := node as MeshInstance3D
-		if mi == null or mi.mesh == null:
+		if mi == null or mi.mesh == null or _is_batch_excluded(mi):
 			continue
 		var n_low := (String(mi.name) + " " + String(mi.get_parent().name)).to_lower()
 		# Skip natural terrain/foliage/sky/water elements
@@ -7374,7 +7391,7 @@ static func _texture_flat_large_meshes(root: Node3D) -> void:
 	var seen := {}
 	for node in root.find_children("*", "MeshInstance3D", true, false):
 		var mi := node as MeshInstance3D
-		if mi == null or mi.mesh == null:
+		if mi == null or mi.mesh == null or _is_batch_excluded(mi):
 			continue
 		var nm := String(mi.name).to_lower()
 		if nm.contains("horizon") or nm.contains("mountain") or nm.contains("terrain") \
@@ -7386,7 +7403,7 @@ static func _texture_flat_large_meshes(root: Node3D) -> void:
 		# coloured boxes named cont0..cont8.  They are only ~6 m long, so the
 		# large-mesh pass used to skip them and they read as plastic blocks.
 		var is_container := nm.begins_with("cont") and steel_albedo != null
-		var box: AABB = mi.global_transform * mi.get_aabb()
+		var box: AABB = _local_transform_to_root(mi, root) * mi.get_aabb()
 		if not is_container and maxf(box.size.x, maxf(box.size.y, box.size.z)) < 8.0:
 			continue
 		for s in range(mi.mesh.get_surface_count()):
@@ -7498,9 +7515,22 @@ static func prepare_city(city: Node3D) -> void:
 		# the city root (keeping its world transform) before the visual merge.
 		var col := mi.get_node_or_null("__city_collision") as Node3D
 		if col != null:
-			col.reparent(city, true)
+			_reparent_keep_local_to(col, city)
 			moved += 1
 	print("[CityPrep] collision moved=", moved)
+
+
+static func _is_batch_excluded(node: Node) -> bool:
+	var cur := node
+	while cur != null:
+		if cur.has_meta("no_batch"):
+			return true
+		var n := str(cur.name)
+		if n.begins_with("MobileGroundPatch") or n.begins_with("SmokePlume") \
+				or n.begins_with("ContactShadow") or n == "MobilePropPack":
+			return true
+		cur = cur.get_parent()
+	return false
 
 
 static func batch_static_fast(root: Node3D) -> void:
@@ -7508,7 +7538,7 @@ static func batch_static_fast(root: Node3D) -> void:
 	var victims: Array[Node] = []
 	for node in root.find_children("*", "MeshInstance3D", true, false):
 		var mi := node as MeshInstance3D
-		if mi == null or mi.mesh == null or not mi.visible:
+		if mi == null or mi.mesh == null or not mi.visible or _is_batch_excluded(mi):
 			continue
 		if not mi.skeleton.is_empty():
 			continue
@@ -7516,7 +7546,7 @@ static func batch_static_fast(root: Node3D) -> void:
 			continue
 		if mi.mesh is ArrayMesh and (mi.mesh as ArrayMesh).get_blend_shape_count() > 0:
 			continue
-		var xf := root.global_transform.affine_inverse() * mi.global_transform
+		var xf := _local_transform_to_root(mi, root)
 		var appended := false
 		for s in range(mi.mesh.get_surface_count()):
 			var mat: Material = mi.material_override
@@ -7580,7 +7610,7 @@ static func _batch_static_meshes(root: Node3D, unbounded := false) -> void:
 		if mi.mesh is ImmediateMesh:
 			continue
 		if not mi.visible or mi.has_meta("batch_box") or mi.has_meta("batch_cyl") \
-				or mi.has_meta("batch_prism") or mi.has_meta("no_batch"):
+				or mi.has_meta("batch_prism") or _is_batch_excluded(mi):
 			continue
 		if mi.mesh is ArrayMesh \
 				and (mi.mesh as ArrayMesh).surface_get_primitive_type(0) != Mesh.PRIMITIVE_TRIANGLES:
@@ -7589,7 +7619,8 @@ static func _batch_static_meshes(root: Node3D, unbounded := false) -> void:
 			continue
 		if mi.mesh is ArrayMesh and (mi.mesh as ArrayMesh).get_blend_shape_count() > 0:
 			continue
-		var box: AABB = mi.global_transform * mi.get_aabb()
+		var xf := _local_transform_to_root(mi, root)
+		var box: AABB = xf * mi.get_aabb()
 		if not unbounded and maxf(box.size.x, maxf(box.size.y, box.size.z)) > 1200.0:
 			continue
 		var arrays := mi.mesh.surface_get_arrays(0)
@@ -7605,11 +7636,10 @@ static func _batch_static_meshes(root: Node3D, unbounded := false) -> void:
 			continue
 		var cell := Vector2i(0, 0)
 		if not unbounded:
-			# Coarser 512 m merge cells: the map is 1 km, so 16 cells still cull
-			# well while halving the number of static batches.  The authored city
-			# is one compact block, so it uses a single unbounded group instead.
-			cell = Vector2i(int(floor(mi.global_position.x / 307.2)),
-					int(floor(mi.global_position.z / 307.2)))
+			# Coarser 512 m merge cells: the map is compact, so cell culling
+			# still bounds batches cleanly without requiring scene-tree status.
+			cell = Vector2i(int(floor(xf.origin.x / 307.2)),
+					int(floor(xf.origin.z / 307.2)))
 		var flags := "%d%d%d" % [
 			1 if arrays[Mesh.ARRAY_TEX_UV] != null else 0,
 			1 if arrays[Mesh.ARRAY_COLOR] != null else 0,
@@ -7634,7 +7664,6 @@ static func _batch_static_meshes(root: Node3D, unbounded := false) -> void:
 				"src": [],
 			}
 		var g: Dictionary = groups[key]
-		var xf := root.global_transform.affine_inverse() * mi.global_transform
 		# A handful of authored Village decorations carry a zero scale on one
 		# axis (invisible helper meshes).  Inverting that basis spams
 		# "Condition det == 0" six times per load; skip them instead.
@@ -7720,7 +7749,7 @@ static func _batch_static_meshes(root: Node3D, unbounded := false) -> void:
 			if is_instance_valid(source):
 				for child in source.get_children():
 					if child is StaticBody3D:
-						(child as Node3D).reparent(root, true)
+						_reparent_keep_local_to(child as Node3D, root)
 				source.queue_free()
 				merged += 1
 	print("[FrontlineTerrain] merged ", merged, " decoration meshes into ",
@@ -7741,13 +7770,14 @@ static func _batch_multisurface_meshes(root: Node3D) -> void:
 		if mi.mesh is ImmediateMesh:
 			continue
 		if not mi.visible or mi.has_meta("batch_box") or mi.has_meta("batch_cyl") \
-				or mi.has_meta("batch_prism") or mi.has_meta("no_batch"):
+				or mi.has_meta("batch_prism") or _is_batch_excluded(mi):
 			continue
 		if not mi.skeleton.is_empty():
 			continue
 		if mi.mesh is ArrayMesh and (mi.mesh as ArrayMesh).get_blend_shape_count() > 0:
 			continue
-		var box: AABB = mi.global_transform * mi.get_aabb()
+		var xf := _local_transform_to_root(mi, root)
+		var box: AABB = xf * mi.get_aabb()
 		if maxf(box.size.x, maxf(box.size.y, box.size.z)) > 80.0:
 			continue
 		var surfaces := []
@@ -7778,10 +7808,9 @@ static func _batch_multisurface_meshes(root: Node3D) -> void:
 			surfaces.append({"arrays": arrays, "mat": sm})
 		if not ok or surfaces.is_empty():
 			continue
-		var xf := root.global_transform.affine_inverse() * mi.global_transform
 		var nb := xf.basis.inverse().transposed()
-		var cell := Vector2i(int(floor(mi.global_position.x / 128.0)),
-				int(floor(mi.global_position.z / 128.0)))
+		var cell := Vector2i(int(floor(xf.origin.x / 128.0)),
+				int(floor(xf.origin.z / 128.0)))
 		for entry in surfaces:
 			var arrays: Array = entry["arrays"]
 			var sm: StandardMaterial3D = entry["mat"]
@@ -7884,7 +7913,7 @@ static func _batch_multisurface_meshes(root: Node3D) -> void:
 		if is_instance_valid(v):
 			for child in v.get_children():
 				if child is StaticBody3D:
-					(child as Node3D).reparent(root, true)
+					_reparent_keep_local_to(child as Node3D, root)
 			v.queue_free()
 	print("[FrontlineTerrain] merged ", victims.size(),
 			" multi-surface landmarks into ", batches, " draw calls")
@@ -7893,6 +7922,8 @@ static func _batch_multisurface_meshes(root: Node3D) -> void:
 static func _collect_batchable(node: Node, root: Node3D, groups: Dictionary,
 		victims: Array[Node]) -> void:
 	for child in node.get_children():
+		if _is_batch_excluded(child):
+			continue
 		if child is MeshInstance3D:
 			var mi := child as MeshInstance3D
 			var kind := ""
@@ -7923,7 +7954,7 @@ static func _collect_batchable(node: Node, root: Node3D, groups: Dictionary,
 					groups[key] = {"kind": kind, "mat": mat, "xforms": [],
 							"colors": [], "shadow": shadow,
 							"use_color": use_color}
-				var xf := root.global_transform.affine_inverse() * mi.global_transform
+				var xf := _local_transform_to_root(mi, root)
 				xf.basis = xf.basis * Basis.from_scale(size)
 				(groups[key]["xforms"] as Array).append(xf)
 				if use_color:
@@ -7948,83 +7979,94 @@ static func _material_key(mat: Material, include_color := true) -> String:
 
 
 static func _add_smoke_plumes(root: Node3D, map_name: String, _base_y: float) -> void:
-	# Cheap, readable smoke: three stacked soft billboards per plume plus an
-	# additive fire glow at the base.  The radial alpha texture is what makes
-	# them read as smoke instead of hard-edged rectangles.
-	var smoke_mat := StandardMaterial3D.new()
-	smoke_mat.albedo_color = Color(0.20, 0.19, 0.18, 0.62)
-	smoke_mat.albedo_texture = _soft_smoke_texture()
-	smoke_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	smoke_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	smoke_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	smoke_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	smoke_mat.disable_receive_shadows = true
-	var fire_mat := StandardMaterial3D.new()
-	fire_mat.albedo_color = Color(1.0, 0.5, 0.16, 0.8)
-	fire_mat.albedo_texture = _soft_smoke_texture()
-	fire_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	fire_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	fire_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	fire_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	fire_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	fire_mat.disable_receive_shadows = true
-	var quad := QuadMesh.new()
-	quad.size = Vector2(16.0, 26.0)
-	var fire_quad := QuadMesh.new()
-	fire_quad.size = Vector2(8.0, 6.0)
+	var tex := _soft_smoke_texture()
+	var layer_count := 6
+	var smoke_mats: Array[StandardMaterial3D] = []
+	var smoke_quads: Array[QuadMesh] = []
+	for i in range(layer_count):
+		var frac := float(i) / float(layer_count - 1)
+		var sm := StandardMaterial3D.new()
+		sm.albedo_color = Color(0.28, 0.30, 0.33, 0.20).lerp(
+				Color(0.58, 0.60, 0.64, 0.05), frac)
+		sm.albedo_texture = tex
+		sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		sm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		sm.cull_mode = BaseMaterial3D.CULL_DISABLED
+		sm.disable_receive_shadows = true
+		smoke_mats.append(sm)
+		var qm := QuadMesh.new()
+		var w := lerpf(9.0, 22.0, frac)
+		qm.size = Vector2(w, w * 1.05)
+		smoke_quads.append(qm)
+
+	var ember_mat := StandardMaterial3D.new()
+	ember_mat.albedo_color = Color(0.85, 0.40, 0.14, 0.14)
+	ember_mat.albedo_texture = tex
+	ember_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	ember_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ember_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	ember_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	ember_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	ember_mat.disable_receive_shadows = true
+	var ember_quad := QuadMesh.new()
+	ember_quad.size = Vector2(3.2, 2.0)
+
 	var spots: Array = []
 	match map_name:
 		"village":
-			spots = [Vector2(20, -70), Vector2(-210, 90), Vector2(120, -110),
-					Vector2(150, 20), Vector2(230, 90)]
+			spots = [Vector2(18.0, -68.0), Vector2(-92.0, 18.0), Vector2(124.0, 96.0)]
 		"industrial":
-			spots = [Vector2(-120, -40), Vector2(-170, -75), Vector2(60, -80),
-					Vector2(90, 30), Vector2(-60, 20)]
+			spots = [Vector2(-105.0, -98.0), Vector2(60.0, -80.0), Vector2(-118.0, 18.0)]
 		"wetlands":
-			spots = [Vector2(-120, -40), Vector2(180, -140), Vector2(40, 10),
-					Vector2(140, 90)]
+			spots = [Vector2(-115.0, -38.0), Vector2(132.0, 68.0), Vector2(-42.0, 48.0)]
 		_:
-			spots = [Vector2(-170, -110), Vector2(95, -100), Vector2(205, -55),
-					Vector2(150, 80), Vector2(240, 140)]
-	for p in spots:
+			spots = [Vector2(-128.0, 114.0), Vector2(88.0, -96.0), Vector2(-58.0, -28.0)]
+
+	for idx in range(spots.size()):
+		var p: Vector2 = spots[idx]
 		var y := _height(map_name, p.x, p.y)
 		var plume := SmokePlume.new()
-		plume.position = Vector3(p.x, y + 8.0, p.y)
+		plume.name = "SmokePlume%d" % idx
+		plume.set_meta("no_batch", true)
+		plume.position = Vector3(p.x, y + 0.5, p.y)
 		plume.setup(float(p.x) * 0.11 + float(p.y) * 0.07)
 		root.add_child(plume)
-		for i in range(3):
+		for i in range(layer_count):
+			var frac := float(i) / float(layer_count - 1)
+			var h := 4.0 + frac * 32.0
+			var x_drift := lerpf(0.0, 9.0, frac * frac)
+			var z_drift := lerpf(0.0, 4.0, frac * frac)
 			var mi := MeshInstance3D.new()
-			mi.mesh = quad
-			mi.material_override = smoke_mat
-			mi.position = Vector3(float(i) * 3.0, float(i) * 16.0, 0.0)
+			mi.mesh = smoke_quads[i]
+			mi.material_override = smoke_mats[i]
+			mi.position = Vector3(x_drift, h, z_drift)
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			mi.set_meta("no_batch", true)
 			plume.add_child(mi)
-			plume.register_quad(mi, float(i) * 16.0)
-		# Flickering fire glow at the base.
-		var fire := MeshInstance3D.new()
-		fire.mesh = fire_quad
-		fire.material_override = fire_mat
-		fire.position = Vector3(0.0, 1.2, 0.0)
-		fire.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		plume.add_child(fire)
-		plume.register_quad(fire, 0.6)
+			plume.register_quad(mi, h, x_drift, z_drift)
+		var ember := MeshInstance3D.new()
+		ember.mesh = ember_quad
+		ember.material_override = ember_mat
+		ember.position = Vector3(0.0, 0.55, 0.0)
+		ember.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		ember.set_meta("no_batch", true)
+		plume.add_child(ember)
+		plume.register_quad(ember, 0.55, 0.0, 0.0)
 
 
-static func _soft_smoke_texture() -> GradientTexture2D:
-	var gradient := Gradient.new()
-	gradient.set_color(0, Color(1, 1, 1, 1))
-	gradient.set_color(1, Color(1, 1, 1, 0))
-	gradient.add_point(0.2, Color(1, 1, 1, 0.86))
-	gradient.add_point(0.5, Color(1, 1, 1, 0.46))
-	gradient.add_point(0.78, Color(1, 1, 1, 0.14))
-	var tex := GradientTexture2D.new()
-	tex.gradient = gradient
-	tex.fill = GradientTexture2D.FILL_RADIAL
-	tex.fill_from = Vector2(0.5, 0.5)
-	tex.fill_to = Vector2(0.5, 0.0)
-	tex.width = 128
-	tex.height = 128
-	return tex
+static func _soft_smoke_texture() -> ImageTexture:
+	var size := 64
+	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	var inv_half := 2.0 / float(size - 1)
+	for py in range(size):
+		var dy := float(py) * inv_half - 1.0
+		for px in range(size):
+			var dx := float(px) * inv_half - 1.0
+			var r2 := dx * dx + dy * dy
+			var alpha := 0.0 if r2 >= 1.0 else exp(-r2 * 4.5) * (1.0 - r2)
+			img.set_pixel(px, py, Color(1.0, 1.0, 1.0, clampf(alpha, 0.0, 1.0)))
+	return ImageTexture.create_from_image(img)
 
 
 

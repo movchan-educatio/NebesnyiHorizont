@@ -4,6 +4,7 @@ build/
 dist_*/
 installer_output/
 qa_shots/
+qa_out/
 screenshots/
 
 # Local binaries

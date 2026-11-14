@@ -45,9 +45,7 @@ static func build(root: Node3D, map_name: String, factor: float,
 	_theme = _make_theme(map_name)
 	_shadows = factor >= 0.99
 	_colliders.clear()
-	var total := 100
-	if factor < 0.7:
-		total = maxi(20, int(round(100.0 * factor)))
+	var total := maxi(10, int(round(28.0 * factor)))
 	var spots := _make_spots(root, map_name, total, reserved)
 	if spots.is_empty():
 		return
@@ -66,6 +64,7 @@ static func build(root: Node3D, map_name: String, factor: float,
 		var cat: int = idx % 10
 		var variant: int = int(idx / 10)
 		var spot: Vector2 = spots[i]
+		FT.reserve_area(spot, 2.0)
 		_yaw = _rng.randf_range(0.0, TAU)
 		_basis = Basis(Vector3.UP, _yaw)
 		_scale = _rng.randf_range(1.05, 1.32)
@@ -146,36 +145,33 @@ static func _make_spots(root: Node3D, map_name: String, count: int,
 					_rng.randf_range(-13.0, 13.0))
 			if _center_ok(p, centers, reserved):
 				centers.append(p)
-	# Rest random.
+	# Rest random inside compact ±155 m grass bounds.
 	var tries := 0
-	while centers.size() < 20 and tries < 300:
+	while centers.size() < 16 and tries < 240:
 		tries += 1
-		var p := Vector2(_rng.randf_range(-252.0, 252.0),
-				_rng.randf_range(-252.0, 252.0))
+		var p := Vector2(_rng.randf_range(-155.0, 155.0),
+				_rng.randf_range(-155.0, 155.0))
 		if _center_ok(p, centers, reserved):
 			centers.append(p)
 	var spots: Array = []
 	if centers.is_empty():
 		return spots
-	# Distribute props evenly across the natural thematic centers (roads, yards, ruins)
-	# rather than dumping 40 items into a single dense grid in an open field.
 	var per_cluster := maxi(2, int(ceil(float(count) * 0.75 / float(centers.size()))))
 	for center in centers:
 		var cc: Vector2 = center
 		for k in range(per_cluster):
 			if spots.size() >= count:
 				break
-			var p := cc + Vector2(_rng.randf_range(-7.0, 7.0),
-					_rng.randf_range(-7.0, 7.0))
-			if _ok(p, spots, reserved, 4.0):
+			var p := cc + Vector2(_rng.randf_range(-16.0, 16.0),
+					_rng.randf_range(-16.0, 16.0))
+			if _ok(p, spots, reserved, 10.5):
 				spots.append(p)
-	# Fill any shortfall with standalone props scattered across the map.
 	tries = 0
 	while spots.size() < count and tries < count * 30:
 		tries += 1
-		var p := Vector2(_rng.randf_range(-255.0, 255.0),
-				_rng.randf_range(-255.0, 255.0))
-		if _ok(p, spots, reserved, 7.0):
+		var p := Vector2(_rng.randf_range(-156.0, 156.0),
+				_rng.randf_range(-156.0, 156.0))
+		if _ok(p, spots, reserved, 10.5):
 			spots.append(p)
 	return spots
 
@@ -186,12 +182,10 @@ static func _depot_center(site: Dictionary, centers: Array,
 		return null
 	var c: Vector2 = site["center"]
 	var half: Vector2 = site["half"]
-	# Prefer an open field south of the hall: the old +42 m depot landed inside
-	# the steppe windbreak and was completely hidden by tree trunks.
-	var base := Vector2(c.x + half.x + 78.0, c.y - 55.0)
-	for cand in [base, base + Vector2(0.0, 110.0),
-			base + Vector2(34.0, 0.0), base + Vector2(-28.0, 20.0),
-			Vector2(c.x - half.x - 72.0, c.y - 50.0)]:
+	var base := Vector2(c.x + half.x + 56.0, c.y - 42.0)
+	for cand in [base, base + Vector2(0.0, 84.0),
+			base + Vector2(28.0, 0.0), base + Vector2(-24.0, 18.0),
+			Vector2(c.x - half.x - 52.0, c.y - 36.0)]:
 		var p: Vector2 = cand
 		if _center_ok(p, centers, reserved):
 			return p
@@ -199,14 +193,16 @@ static func _depot_center(site: Dictionary, centers: Array,
 
 
 static func _center_ok(p: Vector2, centers: Array, reserved: Array) -> bool:
-	if absf(p.x) > 260.0 or absf(p.y) > 260.0:
+	if absf(p.x) > 160.0 or absf(p.y) > 160.0:
+		return false
+	if FT._road_factor(_map, p.x, p.y) >= 0.25:
 		return false
 	var y: float = FT.height_at(_map, p.x, p.y)
 	if y < FT.water_level(_map) + 0.35:
 		return false
 	if FT._hall_clear_zone(_map, p.x, p.y):
 		return false
-	if FT._structure_clear_zone(_map, p.x, p.y):
+	if FT._structure_clear_zone(_map, p.x, p.y, 8.0):
 		return false
 	if (_map == "steppe" or _map == "village") \
 			and FT._tutorial_clear_zone(p.x, p.y):
@@ -222,14 +218,16 @@ static func _center_ok(p: Vector2, centers: Array, reserved: Array) -> bool:
 
 static func _ok(p: Vector2, spots: Array, reserved: Array,
 		min_sep: float = 7.0) -> bool:
-	if absf(p.x) > 265.0 or absf(p.y) > 265.0:
+	if absf(p.x) > 160.0 or absf(p.y) > 160.0:
+		return false
+	if FT._road_factor(_map, p.x, p.y) >= 0.25:
 		return false
 	var y: float = FT.height_at(_map, p.x, p.y)
 	if y < FT.water_level(_map) + 0.35:
 		return false
 	if FT._hall_clear_zone(_map, p.x, p.y):
 		return false
-	if FT._structure_clear_zone(_map, p.x, p.y):
+	if FT._structure_clear_zone(_map, p.x, p.y, 8.0):
 		return false
 	if (_map == "steppe" or _map == "village") \
 			and FT._tutorial_clear_zone(p.x, p.y):

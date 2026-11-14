@@ -47,6 +47,26 @@ var fpv_video_mode: int = FpvVideoMode.ANALOG_58
 var fpv_effects_enabled := false
 
 
+func _ready() -> void:
+	var tree := get_tree()
+	if tree != null and not tree.node_added.is_connected(_on_tree_node_added):
+		tree.node_added.connect(_on_tree_node_added)
+
+
+func _on_tree_node_added(node: Node) -> void:
+	if node == null or not is_inside_tree():
+		return
+	var tree := get_tree()
+	if tree != null and node == tree.current_scene:
+		call_deferred("_apply_runtime", node)
+
+
+func _exit_tree() -> void:
+	var tree := get_tree()
+	if tree != null and tree.node_added.is_connected(_on_tree_node_added):
+		tree.node_added.disconnect(_on_tree_node_added)
+
+
 func _is_weak_gpu() -> bool:
 	var adapter := RenderingServer.get_video_adapter_name().to_lower()
 	return adapter.contains("intel") and (adapter.contains("uhd") or adapter.contains("hd graphics"))
@@ -340,7 +360,62 @@ func update_quality() -> void:
 	var current_scene := get_tree().current_scene
 	if current_scene != null:
 		QualityManagerScript.apply_to_scene(current_scene, lvl)
+	call_deferred("_apply_runtime", current_scene)
 	emit_signal("quality_changed", lvl)
+
+
+func _apply_runtime(scene: Node = null) -> void:
+	if not is_inside_tree():
+		return
+	var vp := get_viewport()
+	var lvl := clampi(int(graphics_settings.get("quality", QualityPreset.LOW)), 0,
+			QualityPreset.HIGH)
+	if vp != null and DisplayServer.get_name() != "headless":
+		if lvl == QualityPreset.LOW:
+			if not is_equal_approx(vp.scaling_3d_scale, 0.67):
+				vp.scaling_3d_scale = 0.67
+			if not is_equal_approx(vp.fsr_sharpness, 0.85):
+				vp.fsr_sharpness = 0.85
+			if vp.msaa_3d != Viewport.MSAA_DISABLED:
+				vp.msaa_3d = Viewport.MSAA_DISABLED
+		elif lvl == QualityPreset.HIGH:
+			# Guard against MSAA 4X + FXAA + Volumetric Fog stalls on HIGH preset.
+			if int(graphics_settings.get("msaa", GameMSAA.X2)) > GameMSAA.X2:
+				graphics_settings["msaa"] = GameMSAA.X2
+			if vp.msaa_3d != Viewport.MSAA_2X:
+				vp.msaa_3d = Viewport.MSAA_2X
+			if vp.screen_space_aa != Viewport.SCREEN_SPACE_AA_DISABLED:
+				vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+	var target_scene := scene if scene != null and is_instance_valid(scene) else get_tree().current_scene
+	if target_scene != null and is_instance_valid(target_scene):
+		_apply_runtime_environment(target_scene, lvl)
+
+
+func _apply_runtime_environment(root: Node, lvl: int) -> void:
+	var envs: Array[Environment] = []
+	for n in root.find_children("*", "WorldEnvironment", true, false):
+		var we := n as WorldEnvironment
+		if we != null and we.environment != null:
+			envs.append(we.environment)
+	for n in root.find_children("*", "Camera3D", true, false):
+		var cam := n as Camera3D
+		if cam != null and cam.environment != null:
+			envs.append(cam.environment)
+	var vp := root.get_viewport()
+	if vp != null and vp.world_3d != null and vp.world_3d.environment != null:
+		envs.append(vp.world_3d.environment)
+	for env in envs:
+		if env.volumetric_fog_enabled:
+			env.volumetric_fog_enabled = false
+		if lvl == QualityPreset.HIGH:
+			if not env.fog_enabled:
+				env.fog_enabled = true
+			if env.fog_height < 6.0:
+				env.fog_height = 8.0
+			if env.fog_height_density <= 0.001:
+				env.fog_height_density = 0.015
+			if env.fog_aerial_perspective < 0.5:
+				env.fog_aerial_perspective = 0.65
 
 
 func apply_quality_preset(level: int) -> void:

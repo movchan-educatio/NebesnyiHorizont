@@ -19,40 +19,40 @@ extends RefCounted
 
 const STUNTS := {
 	"industrial": [
-		{"builder": "build_shipping_container_complex", "base": Vector2(158.0, 102.0),
-			"yaw": 0.35, "reserve": 34.0},
-		{"builder": "build_pipeline_overpass", "base": Vector2(-118.0, 32.0),
-			"yaw": 1.15, "reserve": 30.0},
+		{"builder": "build_shipping_container_complex", "base": Vector2(124.0, 86.0),
+			"yaw": 0.35, "reserve": 13.0, "clear": 20.0},
+		{"builder": "build_pipeline_overpass", "base": Vector2(-112.0, -34.0),
+			"yaw": 1.15, "reserve": 12.0, "clear": 18.0},
 	],
 	"village": [
-		{"builder": "build_fpv_slalom_gate_course", "base": Vector2(198.0, 118.0),
-			"yaw": 0.15, "reserve": 42.0},
-		{"builder": "build_damaged_hangar_arch", "base": Vector2(-162.0, 108.0),
-			"yaw": -0.25, "reserve": 30.0},
+		{"builder": "build_fpv_slalom_gate_course", "base": Vector2(128.0, 118.0),
+			"yaw": 0.15, "reserve": 14.0, "clear": 22.0},
+		{"builder": "build_damaged_hangar_arch", "base": Vector2(-118.0, 92.0),
+			"yaw": -0.25, "reserve": 12.0, "clear": 18.0},
 	],
 	"steppe": [
-		{"builder": "build_fpv_slalom_gate_course", "base": Vector2(72.0, 198.0),
-			"yaw": 0.0, "reserve": 42.0},
-		{"builder": "build_hardened_trench_bunker", "base": Vector2(-152.0, 168.0),
-			"yaw": 0.8, "reserve": 28.0},
+		{"builder": "build_fpv_slalom_gate_course", "base": Vector2(-120.0, 110.0),
+			"yaw": 0.0, "reserve": 14.0, "clear": 22.0},
+		{"builder": "build_hardened_trench_bunker", "base": Vector2(118.0, -108.0),
+			"yaw": 0.8, "reserve": 12.0, "clear": 18.0},
 	],
 	"wetlands": [
-		{"builder": "build_concrete_pipe_culvert_course", "base": Vector2(-148.0, 104.0),
-			"yaw": 0.4, "reserve": 34.0},
-		{"builder": "build_pipeline_overpass", "base": Vector2(138.0, -124.0),
-			"yaw": 1.8, "reserve": 30.0},
+		{"builder": "build_concrete_pipe_culvert_course", "base": Vector2(-118.0, 96.0),
+			"yaw": 0.4, "reserve": 13.0, "clear": 20.0},
+		{"builder": "build_pipeline_overpass", "base": Vector2(116.0, -108.0),
+			"yaw": 1.8, "reserve": 12.0, "clear": 18.0},
 	],
 }
 
 const DRESS_ANCHORS := {
-	"industrial": [Vector2(48, 128), Vector2(172, 66), Vector2(-84, 96),
-			Vector2(-178, 18), Vector2(148, -82), Vector2(-212, 118)],
-	"village": [Vector2(20, 74), Vector2(138, 72), Vector2(-168, 74),
-			Vector2(218, 12), Vector2(92, -48), Vector2(-132, -118)],
-	"steppe": [Vector2(66, 122), Vector2(-136, 92), Vector2(182, 74),
-			Vector2(-188, 18), Vector2(92, -56), Vector2(212, 178)],
-	"wetlands": [Vector2(18, 70), Vector2(132, 88), Vector2(-148, 44),
-			Vector2(162, -28), Vector2(-86, -126), Vector2(-168, 158)],
+	"industrial": [Vector2(48, 124), Vector2(132, 62), Vector2(-84, 92),
+			Vector2(-138, 18), Vector2(128, -78), Vector2(-142, 112)],
+	"village": [Vector2(20, 74), Vector2(124, 72), Vector2(-128, 72),
+			Vector2(142, 14), Vector2(88, -48), Vector2(-124, -108)],
+	"steppe": [Vector2(66, 116), Vector2(-118, 88), Vector2(134, 68),
+			Vector2(-138, 18), Vector2(88, -54), Vector2(136, 132)],
+	"wetlands": [Vector2(18, 68), Vector2(122, 84), Vector2(-128, 42),
+			Vector2(132, -26), Vector2(-82, -116), Vector2(-136, 128)],
 }
 
 const DRESS_PROPS := {
@@ -71,20 +71,18 @@ const DRESS_PROPS := {
 }
 
 const HANDCRAFTED_AVOID := {
-	"industrial": [Vector2(-200, -180), Vector2(0, -15), Vector2(-125, 80)],
-	"village": [Vector2(60, -110), Vector2(36, 58), Vector2(126, 96)],
-	"steppe": [Vector2(40, 146), Vector2(225, -40), Vector2(245, -58)],
-	"wetlands": [Vector2(-60, -140), Vector2(6, 60), Vector2(18, 22)],
+	"industrial": [Vector2(-105, -98), Vector2(0, -15), Vector2(-92, 56)],
+	"village": [Vector2(54, -96), Vector2(36, 58), Vector2(126, 96)],
+	"steppe": [Vector2(36, 128), Vector2(76, -78), Vector2(142, -52)],
+	"wetlands": [Vector2(-56, -118), Vector2(8, 146), Vector2(18, 22)],
 }
 
-## Mobile-only extra dressing anchors: two more themed clusters per map so the
-## open fields between landmarks never read as empty. Placement still goes
-## through the normal clear checks and the same MultiMesh batching.
+## Mobile-only extra dressing anchors inside the compact 384 m playable arena.
 const MOBILE_EXTRA_ANCHORS := {
-	"industrial": [Vector2(225, 165), Vector2(-220, -195)],
-	"village": [Vector2(215, -195), Vector2(-225, 195)],
-	"steppe": [Vector2(215, 205), Vector2(-230, -195)],
-	"wetlands": [Vector2(-235, 165), Vector2(215, -195)],
+	"industrial": [Vector2(140, 125), Vector2(-140, -135)],
+	"village": [Vector2(135, -132), Vector2(-142, 132)],
+	"steppe": [Vector2(138, 136), Vector2(-140, -128)],
+	"wetlands": [Vector2(-140, 128), Vector2(138, -132)],
 }
 
 
@@ -102,8 +100,9 @@ static func build(root: Node3D, map_name: String, quality: int = -1) -> void:
 	rng.seed = hash(map_name) * 977 + 41
 	var stunt_sites: Array[Vector2] = []
 	for spec in STUNTS[map_name]:
-		var site := _find_site(terrain, military, map_name,
-				spec["base"], float(spec["reserve"]) * 0.7)
+		var site := _find_reserved_site(terrain, military, root, map_name,
+				spec["base"], float(spec.get("clear", 20.0)),
+				float(spec.get("reserve", 13.0)))
 		if site.x < -900.0:
 			continue
 		var yaw := float(spec["yaw"])
@@ -114,7 +113,8 @@ static func build(root: Node3D, map_name: String, quality: int = -1) -> void:
 		if node != null:
 			node.name = "Enriched_" + String(node.name)
 			stunt_sites.append(site)
-			terrain.reserve_area(site, float(spec["reserve"]))
+			terrain.reserve_area(site, float(spec.get("clear", 20.0)))
+			terrain.add_contact_shadow(root, map_name, site, 14.0, node.name)
 	# Battle-Dressing clusters are anchored around the stunts and the authored
 	# road/farm hotspots, giving every map a lived-in layered foreground.
 	var anchors: Array[Vector2] = []
@@ -134,8 +134,8 @@ static func build(root: Node3D, map_name: String, quality: int = -1) -> void:
 	var anchor_tries := 0
 	while anchors.size() < 6 and anchor_tries < 220:
 		anchor_tries += 1
-		var p := Vector2(rng.randf_range(-245.0, 245.0),
-				rng.randf_range(-245.0, 245.0))
+		var p := Vector2(rng.randf_range(-152.0, 152.0),
+				rng.randf_range(-152.0, 152.0))
 		if _is_clear_prop(terrain, military, map_name, p.x, p.y, 6.0):
 			anchors.append(p)
 	if anchors.is_empty():
@@ -143,11 +143,9 @@ static func build(root: Node3D, map_name: String, quality: int = -1) -> void:
 	var mesh_set := PropAssets.meshes()
 	var names: Array = DRESS_PROPS.get(map_name, []).filter(
 			func(n): return mesh_set.has(str(n)))
-	var budget := 7 if q == QualityManager.Level.LOW else \
-			(15 if q == QualityManager.Level.MEDIUM else 24)
-	if OS.get_name() == "iOS" or OS.has_feature("mobile") \
-			or OS.has_environment("MOBILE_UI"):
-		budget = int(round(budget * 1.3))
+	var budget := 4 if q == QualityManager.Level.LOW else \
+			(6 if q == QualityManager.Level.MEDIUM else 8)
+	var placed_dress: Array[Vector2] = []
 	var placed := 0
 	for prop_name in names:
 		var mesh: Mesh = mesh_set[str(prop_name)]
@@ -160,8 +158,16 @@ static func build(root: Node3D, map_name: String, quality: int = -1) -> void:
 			var radius := rng.randf_range(6.0, 30.0)
 			var ang := rng.randf_range(0.0, TAU)
 			var p := anchor + Vector2(cos(ang), sin(ang)) * radius
-			if not _is_clear_prop(terrain, military, map_name, p.x, p.y, 3.0):
+			if not _is_clear_prop(terrain, military, map_name, p.x, p.y, 4.0):
 				continue
+			var overlap := false
+			for prev in placed_dress:
+				if p.distance_to(prev) < 7.5:
+					overlap = true
+					break
+			if overlap:
+				continue
+			placed_dress.append(p)
 			var support := float(terrain.mesh_surface_height(map_name, p.x, p.y))
 			var s := rng.randf_range(0.82, 1.22)
 			var sy := rng.randf_range(0.9, 1.15) * s
@@ -181,6 +187,7 @@ static func build(root: Node3D, map_name: String, quality: int = -1) -> void:
 			node.visibility_range_end_margin = 50.0
 			node.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 			placed += xfs.size()
+	_add_road_markers(terrain, root, map_name, q)
 	print("[MapEnricher] ", map_name, " stunts=", stunt_sites.size(),
 			" dressing=", placed, " anchors=", anchors.size())
 	if OS.has_environment("DRONE_ENRICH_DEBUG"):
@@ -215,6 +222,75 @@ static func _dress_material(terrain, prop_name: String) -> Material:
 			return m
 
 
+static func _find_reserved_site(terrain, military, root: Node3D, map_name: String,
+		base: Vector2, clearance: float, reserve_radius: float) -> Vector2:
+	for ring in range(0, 10):
+		var radius := 0.0 if ring == 0 else 16.0 * float(ring)
+		var steps := 1 if ring == 0 else 16
+		for i in range(steps):
+			var a := TAU * float(i) / float(steps) + float(ring) * 0.35
+			var p := base + Vector2(cos(a), sin(a)) * radius
+			if absf(p.x) > 158.0 or absf(p.y) > 158.0:
+				continue
+			if not _is_clear_prop(terrain, military, map_name, p.x, p.y, clearance):
+				continue
+			if bool(terrain.try_reserve_structure(root, map_name, p,
+					reserve_radius, 28.0, false)):
+				return p
+	return Vector2(-9999.0, -9999.0)
+
+
+static func _add_road_markers(terrain, root: Node3D, map_name: String, q: int) -> void:
+	var xfs: Array[Transform3D] = []
+	var water := float(terrain.water_level(map_name))
+	var roads: Array = terrain._road_points(map_name)
+	for line in roads:
+		var pts: PackedVector2Array = line
+		for i in range(pts.size() - 1):
+			var a := pts[i]
+			var b := pts[i + 1]
+			var seg := b - a
+			var len_seg := seg.length()
+			if len_seg < 12.0:
+				continue
+			var dir := seg / len_seg
+			var perp := Vector2(-dir.y, dir.x)
+			var dist := 16.0
+			var side := 1.0
+			while dist < len_seg - 8.0:
+				var mp := a + dir * dist + perp * (side * 8.2)
+				side = -side
+				dist += 34.0
+				if absf(mp.x) > 158.0 or absf(mp.y) > 158.0:
+					continue
+				if terrain._hall_clear_zone(map_name, mp.x, mp.y) \
+						or terrain._structure_clear_zone(map_name, mp.x, mp.y):
+					continue
+				if float(terrain._road_factor(map_name, mp.x, mp.y)) > 0.55:
+					continue
+				var gy := float(terrain.mesh_surface_height(map_name, mp.x, mp.y))
+				if gy < water + 0.35:
+					continue
+				var yaw := atan2(dir.x, dir.y)
+				xfs.append(Transform3D(Basis(Vector3.UP, yaw),
+						Vector3(mp.x, gy + 1.15, mp.y)))
+	if xfs.is_empty():
+		return
+	var post_mesh := CylinderMesh.new()
+	post_mesh.top_radius = 0.08
+	post_mesh.bottom_radius = 0.11
+	post_mesh.height = 2.4
+	post_mesh.radial_segments = 6
+	post_mesh.rings = 1
+	var post_mat: Material = terrain._pbr("wood", Color(0.56, 0.46, 0.34), 0.35)
+	var mmi: MultiMeshInstance3D = terrain._multimesh(root,
+			"BattleDressing_RoadMarkers", post_mesh, post_mat, xfs, false)
+	if mmi != null:
+		mmi.visibility_range_end = 420.0 if q == QualityManager.Level.LOW else 680.0
+		mmi.visibility_range_end_margin = 40.0
+		mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+
+
 static func _find_site(terrain, military, map_name: String, base: Vector2,
 		clearance: float) -> Vector2:
 	for ring in range(0, 9):
@@ -230,11 +306,13 @@ static func _find_site(terrain, military, map_name: String, base: Vector2,
 
 static func _is_clear_prop(terrain, military, map_name: String, x: float,
 		z: float, clearance: float) -> bool:
-	if absf(x) > 265.0 or absf(z) > 265.0:
+	if absf(x) > 158.0 or absf(z) > 158.0:
+		return false
+	if float(terrain._road_factor(map_name, x, z)) >= 0.22:
 		return false
 	if terrain._hall_clear_zone(map_name, x, z):
 		return false
-	if terrain._structure_clear_zone(map_name, x, z):
+	if terrain._structure_clear_zone(map_name, x, z, clearance):
 		return false
 	if terrain._farm_clear_zone(map_name, x, z):
 		return false
@@ -244,14 +322,14 @@ static func _is_clear_prop(terrain, military, map_name: String, x: float,
 		return false
 	# Keep clear of the authored handcrafted pads.
 	for c in HANDCRAFTED_AVOID.get(map_name, []):
-		if Vector2(x, z).distance_to(c) < 48.0:
+		if Vector2(x, z).distance_to(c) < 42.0:
 			return false
 	for poi in terrain._poi_positions:
-		if Vector2(x, z).distance_to(poi) < maxf(30.0, clearance):
+		if Vector2(x, z).distance_to(poi) < maxf(28.0, clearance):
 			return false
 	# Do not drop crates in the middle of a road.  Stunt footprints need a much
-	# larger berth so a 56 m slalom run cannot straddle the carriageway.
-	if _near_road(terrain, map_name, Vector2(x, z), maxf(11.0, clearance)):
+	# larger berth so a slalom run cannot straddle the carriageway.
+	if _near_road(terrain, map_name, Vector2(x, z), maxf(9.0, minf(clearance, 18.0))):
 		return false
 	# Keep the stunt footprint from straddling a cliff.
 	var e := 7.0
@@ -263,7 +341,7 @@ static func _is_clear_prop(terrain, military, map_name: String, x: float,
 		return false
 	# Existing military/POI positions have a 24 m radius; the caller-provided
 	# clearance protects the actual stunt footprint.
-	if clearance > 24.0:
+	if clearance > 20.0:
 		for pos in military.spawned_positions.get(map_name, []):
 			if Vector2(x, z).distance_to(pos) < clearance:
 				return false

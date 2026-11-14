@@ -32,179 +32,109 @@ const LANDMARK_LOD := 1500.0
 ## [prop, Vector2(x, z), yaw degrees, scale]
 const SITES := {
 	"steppe": [
-		["checkpoint_booth", Vector2(215, 195), 15.0, 1.0],
-		["sandbag_nest", Vector2(195, 185), 40.0, 1.0],
-		["ammo_crates", Vector2(208, 178), 0.0, 1.0],
-		["fuel_barrels", Vector2(222, 185), 20.0, 1.0],
-		["watchtower", Vector2(-195, 155), 0.0, 1.0],
-		["power_pole", Vector2(-185, 132), 0.0, 1.0],
-		["power_pole", Vector2(-155, 112), 0.0, 1.0],
-		["haystack", Vector2(-115, 190), 30.0, 1.0],
-		["haystack", Vector2(-102, 205), 70.0, 1.0],
-		["haystack", Vector2(30, 198), 10.0, 1.0],
-		["barn_small", Vector2(-135, 165), 0.0, 1.0],
-		["silo_small", Vector2(-148, 192), 0.0, 1.0],
-		["greenhouse", Vector2(85, 188), 0.0, 1.0],
-		["truck_wreck", Vector2(160, 185), 35.0, 1.0],
-		["tent_military", Vector2(185, 108), 10.0, 1.0],
-		["antenna_mast", Vector2(225, 95), 0.0, 1.0],
-		["jersey_barriers", Vector2(205, 72), 15.0, 1.0],
-		["tank_traps", Vector2(175, 82), 0.0, 1.0],
-		["fence_section", Vector2(135, 196), 0.0, 1.0],
-		["ruined_wall", Vector2(-215, 42), 20.0, 1.0],
+		["checkpoint_booth", Vector2(138, 132), 15.0, 1.0],
+		["sandbag_nest", Vector2(118, 126), 40.0, 1.0],
+		["watchtower", Vector2(-132, 108), 0.0, 1.0],
+		["power_pole", Vector2(-124, 84), 0.0, 1.0],
+		["haystack", Vector2(-82, 134), 30.0, 1.0],
+		["haystack", Vector2(22, 140), 10.0, 1.0],
+		["silo_small", Vector2(-114, 138), 0.0, 1.0],
+		["greenhouse", Vector2(62, 136), 0.0, 1.0],
+		["truck_wreck", Vector2(132, 82), 35.0, 1.0],
+		["antenna_mast", Vector2(142, 52), 0.0, 1.0],
+		["tank_traps", Vector2(118, 32), 0.0, 1.0],
+		["ruined_wall", Vector2(-140, 28), 20.0, 1.0],
 	],
 	"village": [
-		["bus_stop", Vector2(-165, 175), 10.0, 1.0],
-		["well_house", Vector2(-185, 115), 0.0, 1.0],
-		["barn_small", Vector2(-150, 198), 25.0, 1.0],
-		["haystack", Vector2(205, 162), 0.0, 1.0],
-		["haystack", Vector2(185, 188), 40.0, 1.0],
-		["fence_section", Vector2(-198, 28), 0.0, 1.0],
-		["fence_section", Vector2(-172, 16), 0.0, 1.0],
-		["power_pole", Vector2(210, -20), 0.0, 1.0],
-		["power_pole", Vector2(185, 0), 0.0, 1.0],
-		["truck_wreck", Vector2(155, 162), 30.0, 1.0],
-		["water_tower_small", Vector2(-215, 185), 0.0, 1.0],
-		["greenhouse", Vector2(138, 188), 0.0, 1.0],
-		["sandbag_nest", Vector2(-132, 162), 55.0, 1.0],
-		["checkpoint_booth", Vector2(-115, 198), 0.0, 1.0],
-		["ammo_crates", Vector2(-130, 186), 0.0, 1.0],
-		["fuel_barrels", Vector2(-102, 186), 0.0, 1.0],
-		["tent_military", Vector2(205, 108), 20.0, 1.0],
-		["jersey_barriers", Vector2(175, 95), 15.0, 1.0],
-		["ruined_wall", Vector2(128, -162), 60.0, 1.0],
-		["watchtower", Vector2(16, 198), 0.0, 1.0],
+		["bus_stop", Vector2(-118, 122), 10.0, 1.0],
+		["well_house", Vector2(-134, 82), 0.0, 1.0],
+		["haystack", Vector2(136, 114), 0.0, 1.0],
+		["fence_section", Vector2(-136, 20), 0.0, 1.0],
+		["power_pole", Vector2(140, -16), 0.0, 1.0],
+		["truck_wreck", Vector2(112, 124), 30.0, 1.0],
+		["water_tower_small", Vector2(-142, 136), 0.0, 1.0],
+		["greenhouse", Vector2(88, 138), 0.0, 1.0],
+		["checkpoint_booth", Vector2(-84, 138), 0.0, 1.0],
+		["tent_military", Vector2(138, 72), 20.0, 1.0],
+		["ruined_wall", Vector2(96, -122), 60.0, 1.0],
+		["watchtower", Vector2(14, 140), 0.0, 1.0],
 	],
 	"industrial": [
-		["container_stack", Vector2(205, 172), 0.0, 1.0],
-		["container_stack", Vector2(210, 138), 90.0, 1.0],
-		["truck_wreck", Vector2(175, 182), 30.0, 1.0],
-		["truck_wreck", Vector2(158, 196), 50.0, 1.0],
-		["apc_wreck", Vector2(-198, 182), 15.0, 1.0],
-		["fuel_barrels", Vector2(188, 155), 0.0, 1.0],
-		["fuel_barrels", Vector2(-180, 166), 0.0, 1.0],
-		["checkpoint_booth", Vector2(-210, 138), 0.0, 1.0],
-		["fence_section", Vector2(-175, 194), 0.0, 1.0],
-		["fence_section", Vector2(-150, 202), 0.0, 1.0],
-		["fence_section", Vector2(138, -185), 0.0, 1.0],
-		["power_pole", Vector2(-205, 38), 0.0, 1.0],
-		["power_pole", Vector2(-185, 14), 0.0, 1.0],
-		["antenna_mast", Vector2(215, 65), 0.0, 1.0],
-		["jersey_barriers", Vector2(198, 28), 15.0, 1.0],
-		["jersey_barriers", Vector2(185, 8), 15.0, 1.0],
-		["tank_traps", Vector2(172, -38), 0.0, 1.0],
-		["ammo_crates", Vector2(-162, 125), 0.0, 1.0],
-		["ruined_wall", Vector2(-220, -28), 0.0, 1.0],
-		["water_tower_small", Vector2(220, -52), 0.0, 1.0],
+		["container_stack", Vector2(138, 118), 0.0, 1.0],
+		["truck_wreck", Vector2(114, 134), 30.0, 1.0],
+		["apc_wreck", Vector2(-134, 126), 15.0, 1.0],
+		["fuel_barrels", Vector2(132, 88), 0.0, 1.0],
+		["checkpoint_booth", Vector2(-138, 92), 0.0, 1.0],
+		["fence_section", Vector2(-112, 138), 0.0, 1.0],
+		["fence_section", Vector2(98, -132), 0.0, 1.0],
+		["power_pole", Vector2(-138, 28), 0.0, 1.0],
+		["antenna_mast", Vector2(142, 46), 0.0, 1.0],
+		["jersey_barriers", Vector2(132, 14), 15.0, 1.0],
+		["tank_traps", Vector2(118, -28), 0.0, 1.0],
+		["water_tower_small", Vector2(142, -52), 0.0, 1.0],
 	],
 	"wetlands": [
-		["watchtower", Vector2(205, 185), 0.0, 1.0],
-		["bus_stop", Vector2(-185, 185), 10.0, 1.0],
-		["fence_section", Vector2(-210, 148), 0.0, 1.0],
-		["fence_section", Vector2(-185, 136), 0.0, 1.0],
-		["fence_section", Vector2(205, 95), 0.0, 1.0],
-		["power_pole", Vector2(-155, 202), 0.0, 1.0],
-		["power_pole", Vector2(-130, 212), 0.0, 1.0],
-		["haystack", Vector2(162, 196), 30.0, 1.0],
-		["haystack", Vector2(138, 212), 60.0, 1.0],
-		["barn_small", Vector2(-215, 95), 0.0, 1.0],
-		["well_house", Vector2(-198, 65), 0.0, 1.0],
-		["truck_wreck", Vector2(192, 162), 20.0, 1.0],
-		["sandbag_nest", Vector2(-162, 112), 40.0, 1.0],
-		["checkpoint_booth", Vector2(-128, 202), 0.0, 1.0],
-		["tent_military", Vector2(185, 125), 10.0, 1.0],
-		["fuel_barrels", Vector2(168, 144), 0.0, 1.0],
-		["ruined_wall", Vector2(-230, -112), 0.0, 1.0],
-		["antenna_mast", Vector2(185, -138), 0.0, 1.0],
-		["jersey_barriers", Vector2(-95, 185), 0.0, 1.0],
-		["tank_traps", Vector2(125, 185), 0.0, 1.0],
+		["watchtower", Vector2(138, 126), 0.0, 1.0],
+		["bus_stop", Vector2(-128, 128), 10.0, 1.0],
+		["fence_section", Vector2(-140, 98), 0.0, 1.0],
+		["power_pole", Vector2(-104, 140), 0.0, 1.0],
+		["haystack", Vector2(112, 138), 30.0, 1.0],
+		["barn_small", Vector2(-142, 64), 0.0, 1.0],
+		["well_house", Vector2(-134, 34), 0.0, 1.0],
+		["truck_wreck", Vector2(130, 96), 20.0, 1.0],
+		["checkpoint_booth", Vector2(-78, 138), 0.0, 1.0],
+		["ruined_wall", Vector2(-140, -82), 0.0, 1.0],
+		["antenna_mast", Vector2(132, -98), 0.0, 1.0],
+		["tank_traps", Vector2(84, 136), 0.0, 1.0],
 	],
 }
 
-## Five large landmarks per map: [landmark, Vector2(x, z), yaw degrees]
+## Two perimeter landmarks per map in open outer corners: [landmark, Vector2(x, z), yaw degrees]
 const LARGE_SITES := {
 	"steppe": [
-		["grain_elevator", Vector2(-205, 205), 25.0],
-		["farm_complex", Vector2(-118, 224), 0.0],
-		["warehouse", Vector2(208, 218), 200.0],
-		["fuel_depot", Vector2(105, -205), 45.0],
-		["factory_plant", Vector2(-225, -115), 90.0],
+		["warehouse", Vector2(138, 138), 200.0],
+		["fuel_depot", Vector2(78, -136), 45.0],
 	],
 	"village": [
-		["grain_elevator", Vector2(195, 202), 20.0],
-		["farm_complex", Vector2(-200, 206), 0.0],
-		["warehouse", Vector2(-212, -196), 120.0],
-		["fuel_depot", Vector2(52, 216), 0.0],
-		["factory_plant", Vector2(185, -195), 80.0],
+		["warehouse", Vector2(-128, -126), 120.0],
+		["fuel_depot", Vector2(134, -128), 0.0],
 	],
 	"industrial": [
-		["factory_plant", Vector2(-215, 182), 45.0],
-		["warehouse", Vector2(208, 178), 200.0],
-		["warehouse", Vector2(-155, -212), 0.0],
-		["fuel_depot", Vector2(212, -205), 30.0],
-		["factory_plant", Vector2(-202, -198), 135.0],
+		["warehouse", Vector2(134, 120), 200.0],
+		["fuel_depot", Vector2(136, -134), 30.0],
 	],
 	"wetlands": [
-		["cargo_ship", Vector2(145, -125), 15.0],
-		["warehouse", Vector2(198, 205), 210.0],
-		["farm_complex", Vector2(-208, 195), 0.0],
-		["fuel_depot", Vector2(58, 218), 0.0],
-		["grain_elevator", Vector2(-218, -185), 60.0],
+		["cargo_ship", Vector2(98, -88), 15.0],
+		["warehouse", Vector2(132, 134), 210.0],
 	],
 }
 
-## Ten hand-sculpted war-wear GLBs per map.  These are larger than the small
-## prop kit, so they sit in the open middle ring and double as stunt openings;
-## the baked albedo material is kept as-is (no vertex-colour override).
+## Four hand-sculpted war-wear GLBs per map (one per quadrant, well separated).
 ## [glb, Vector2(x, z), yaw degrees]
 const FORGE_SITES := {
 	"steppe": [
-		["steppe_01_lep_pylon_leaning", Vector2(-60, 55), 20.0],
-		["steppe_03_lep_collapsed_arch", Vector2(60, -40), 15.0],
-		["steppe_09_harvester_skeleton", Vector2(-130, -60), 30.0],
-		["steppe_12_bunker_dot_breached", Vector2(140, 30), 0.0],
-		["steppe_13_pillbox_trench_bridge", Vector2(30, 20), 10.0],
-		["steppe_14_radar_revetment_wall", Vector2(-150, 115), 0.0],
-		["steppe_15_watchtower_steppe", Vector2(90, 150), 0.0],
-		["steppe_18_gully_bridge_broken", Vector2(-40, 180), 0.0],
-		["steppe_23_rozhnovsky_tower_standing", Vector2(60, 100), 0.0],
-		["steppe_29_concrete_slab_fort", Vector2(-160, -140), 45.0],
+		["steppe_01_lep_pylon_leaning", Vector2(-64, 44), 20.0],
+		["steppe_03_lep_collapsed_arch", Vector2(58, -44), 15.0],
+		["steppe_12_bunker_dot_breached", Vector2(118, 24), 0.0],
+		["steppe_29_concrete_slab_fort", Vector2(-118, -96), 45.0],
 	],
 	"village": [
-		["village_01_khata_breached_roof", Vector2(-80, 130), 10.0],
-		["village_02_brick_house_split", Vector2(30, 150), 0.0],
-		["village_04_kolkhoz_hangar_holed", Vector2(-130, -80), 75.0],
-		["village_07_silo_twin_bridge", Vector2(60, -120), 0.0],
-		["village_10_house_of_culture_portico", Vector2(-90, 0), 90.0],
-		["village_13_brick_church_belfry", Vector2(60, 140), 0.0],
-		["village_15_river_bridge_wooden", Vector2(-40, -160), 15.0],
-		["village_17_azs_canopy_wreck", Vector2(130, 170), 200.0],
-		["village_19_cowbarn_rafters_slalom", Vector2(-150, 100), 0.0],
-		["village_27_windmill_timber_frame", Vector2(120, -60), 0.0],
+		["village_01_khata_breached_roof", Vector2(-82, 88), 10.0],
+		["village_13_brick_church_belfry", Vector2(48, 114), 0.0],
+		["village_15_river_bridge_wooden", Vector2(-36, -118), 15.0],
+		["village_27_windmill_timber_frame", Vector2(108, -54), 0.0],
 	],
 	"industrial": [
-		["industrial_03_smokestack_breached_flue", Vector2(-100, 30), 0.0],
-		["industrial_04_gantry_crane_portal", Vector2(150, -60), 45.0],
-		["industrial_07_unfinished_workshop_3f", Vector2(-150, -60), 0.0],
-		["industrial_10_pipe_rack_overpass", Vector2(0, -80), 90.0],
-		["industrial_13_cooling_tower_breached", Vector2(-170, 120), 0.0],
-		["industrial_17_workshop_truss_roof", Vector2(100, 160), 0.0],
-		["industrial_19_loading_ramp_canopy", Vector2(160, 100), 180.0],
-		["industrial_23_hangar_rib_tunnel", Vector2(-60, -160), 0.0],
-		["industrial_24_blast_furnace_shell", Vector2(100, -160), 0.0],
-		["industrial_27_transformer_yard_portal", Vector2(-140, 190), 180.0],
+		["industrial_04_gantry_crane_portal", Vector2(116, -48), 45.0],
+		["industrial_10_pipe_rack_overpass", Vector2(-18, -68), 90.0],
+		["industrial_19_loading_ramp_canopy", Vector2(122, 68), 180.0],
+		["industrial_23_hangar_rib_tunnel", Vector2(-48, -124), 0.0],
 	],
 	"wetlands": [
-		["swamp_01_flooded_pumping_station", Vector2(-60, 150), 0.0],
-		["swamp_03_half_sunk_river_barge", Vector2(-120, -60), 15.0],
-		["swamp_04_wooden_trestle_causeway", Vector2(30, -160), 0.0],
-		["swamp_07_flooded_bunker_stilts", Vector2(-160, 40), 0.0],
-		["swamp_09_rotting_watchtower_marsh", Vector2(130, -60), 0.0],
-		["swamp_11_flooded_power_pylon", Vector2(160, 150), 0.0],
-		["swamp_15_abandoned_hydro_lock", Vector2(-80, -120), 0.0],
-		["swamp_18_camo_radar_mound_marsh", Vector2(60, 190), 0.0],
-		["swamp_22_marsh_boardwalk_tower", Vector2(0, 0), 45.0],
-		["swamp_27_military_bailey_truss_span", Vector2(-210, -60), 90.0],
+		["swamp_01_flooded_pumping_station", Vector2(-56, 116), 0.0],
+		["swamp_03_half_sunk_river_barge", Vector2(-90, -46), 15.0],
+		["swamp_04_wooden_trestle_causeway", Vector2(28, -118), 0.0],
+		["swamp_09_rotting_watchtower_marsh", Vector2(108, -46), 0.0],
 	],
 }
 
@@ -230,18 +160,19 @@ static func build(root: Node3D, map_name: String) -> Node3D:
 	var terrain = load("res://scripts/util/frontline_terrain.gd")
 	var pack := Node3D.new()
 	pack.name = "MobilePropPack"
+	pack.set_meta("no_batch", true)
 	root.add_child(pack)
 	var placed: Array[Dictionary] = []
-	for entry in SITES[map_name]:
-		_place(root, pack, terrain, map_name, entry, placed, false)
+	# Place landmarks & forge assets before small props so large footprints claim
+	# open corridors cleanly within ±155 m.
+	for entry in LARGE_SITES.get(map_name, []):
+		_place(root, pack, terrain, map_name, entry, placed, true)
 	var forge_count := 0
 	for entry in FORGE_SITES.get(map_name, []):
 		if _place_forge(root, pack, terrain, map_name, entry, placed):
 			forge_count += 1
-	# Landmarks go last: their far-edge berths have priority over the new
-	# middle-ring forge layer.
-	for entry in LARGE_SITES.get(map_name, []):
-		_place(root, pack, terrain, map_name, entry, placed, true)
+	for entry in SITES[map_name]:
+		_place(root, pack, terrain, map_name, entry, placed, false)
 	pack.set_meta("placed", placed.size())
 	pack.set_meta("small", SITES[map_name].size())
 	pack.set_meta("large", LARGE_SITES.get(map_name, []).size())
@@ -287,7 +218,8 @@ static func _place(root: Node3D, pack: Node3D, terrain, map_name: String,
 	inst.position = Vector3(site.x, base_y, site.y)
 	inst.rotation.y = yaw
 	inst.scale = Vector3.ONE * scl
-	inst.force_update_transform()
+	if inst.is_inside_tree():
+		inst.force_update_transform()
 	_apply_material(inst, prop_name)
 	var lod := LANDMARK_LOD if large else float(LOD_END.get(prop_name, 420.0))
 	for child in inst.find_children("*", "MeshInstance3D", true, false):
@@ -301,6 +233,8 @@ static func _place(root: Node3D, pack: Node3D, terrain, map_name: String,
 	inst.set_meta("pack_ground", ground)
 	inst.set_meta("pack_large", large)
 	inst.set_meta("pack_floating", floating)
+	if terrain != null:
+		terrain.call("reserve_area", site, radius + (4.5 if (large or radius >= 3.5) else 1.5))
 	placed.append({"pos": site, "radius": radius, "name": prop_name,
 			"large": large})
 
@@ -345,7 +279,8 @@ static func _place_forge(root: Node3D, pack: Node3D, terrain, map_name: String,
 	inst.position = Vector3(site.x, base_y, site.y)
 	inst.rotation.y = yaw
 	inst.scale = Vector3.ONE * scl
-	inst.force_update_transform()
+	if inst.is_inside_tree():
+		inst.force_update_transform()
 	var box := _local_aabb(inst)
 	var lod := clampf(650.0 + box.size.y * 12.0, 650.0, 1200.0)
 	for child in inst.find_children("*", "MeshInstance3D", true, false):
@@ -363,6 +298,8 @@ static func _place_forge(root: Node3D, pack: Node3D, terrain, map_name: String,
 	inst.set_meta("pack_large", false)
 	inst.set_meta("pack_floating", floating)
 	inst.set_meta("pack_forge", true)
+	if terrain != null:
+		terrain.call("reserve_area", site, radius + 4.5)
 	placed.append({"pos": site, "radius": radius, "name": prop_name,
 			"large": false, "forge": true})
 	return true
@@ -391,7 +328,9 @@ static func _forge_radius(prop_name: String) -> float:
 	var dummy := scene.instantiate() as Node3D
 	var box := _local_aabb(dummy)
 	dummy.free()
-	var r := maxf(box.size.x, box.size.z) * 0.5
+	var rx := maxf(absf(box.position.x), absf(box.position.x + box.size.x))
+	var rz := maxf(absf(box.position.z), absf(box.position.z + box.size.z))
+	var r := maxf(rx, rz)
 	_radii[key] = maxf(r, 1.0)
 	return _radii[key]
 
@@ -405,50 +344,85 @@ static func _forge_has_opening(prop_name: String) -> bool:
 
 ## Spiral search for a site that is on dry land, outside halls/POIs and at a
 ## real distance from every already placed object.
+static func _is_ground_site_valid(terrain, map_name: String, root: Node3D,
+		c: Vector2, radius: float, placed: Array[Dictionary],
+		min_ground_y: float, res_gap: float) -> bool:
+	if absf(c.x) > 155.0 or absf(c.y) > 155.0:
+		return false
+	if float(terrain.call("_road_factor", map_name, c.x, c.y)) >= 0.22:
+		return false
+	var ground: float = terrain.call("mesh_surface_height", map_name, c.x, c.y)
+	if ground <= min_ground_y:
+		return false
+	if bool(terrain.call("_hall_clear_zone", map_name, c.x, c.y)):
+		return false
+	var sites_dict = terrain.get("HALL_SITES")
+	if sites_dict is Dictionary:
+		var hsite: Dictionary = (sites_dict as Dictionary).get(map_name, {})
+		if not hsite.is_empty():
+			var spawn := Vector2(hsite.get("spawn", Vector2.ZERO))
+			if spawn != Vector2.ZERO and c.distance_to(spawn) < radius + 26.0:
+				return false
+			var hcenter := Vector2(hsite.get("center", Vector2.ZERO))
+			if radius >= 3.5:
+				var ov_cam := hcenter + Vector2(-95.0, 125.0)
+				var ov_mid := hcenter + Vector2(-52.0, 72.0)
+				if c.distance_to(ov_cam) < radius + 34.0 or c.distance_to(ov_mid) < radius + 24.0:
+					return false
+	if bool(terrain.call("_structure_clear_zone", map_name, c.x, c.y,
+			radius + minf(res_gap, 5.0))):
+		return false
+	if not _far_from_existing(root, terrain, c, radius, res_gap):
+		return false
+	var min_sep := 5.0 if res_gap < 2.0 else -1.0
+	return _far_from_placed(placed, c, radius, min_sep)
+
+
 static func _find_ground_site(terrain, map_name: String, base: Vector2,
 		radius: float, placed: Array[Dictionary], root: Node3D) -> Vector2:
 	var water: float = float(terrain.call("water_level", map_name))
-	for ring in range(0, 10):
-		var ring_r := 14.0 * float(ring)
-		var steps := 1 if ring == 0 else 12
-		for i in range(steps):
-			var a := TAU * float(i) / float(steps) + float(ring) * 0.7
-			var c := base + Vector2(cos(a), sin(a)) * ring_r
-			if absf(c.x) > 260.0 or absf(c.y) > 260.0:
-				continue
-			var ground: float = terrain.call("mesh_surface_height", map_name, c.x, c.y)
-			if ground <= water + 0.7:
-				continue
-			if bool(terrain.call("_hall_clear_zone", map_name, c.x, c.y)):
-				continue
-			if bool(terrain.call("_structure_clear_zone", map_name, c.x, c.y)):
-				continue
-			if not _far_from_existing(root, c, radius):
-				continue
-			if not _far_from_placed(placed, c, radius):
-				continue
-			return c
+	var water_margins := [0.7, 0.25] if map_name == "wetlands" else [0.7]
+	var a_seed := base.angle() if base.length_squared() > 1.0 else 0.0
+	var gap_tiers := [20.0, 14.0, 10.0] if radius >= 3.5 else [12.0, 8.0, 5.0]
+	for wm in water_margins:
+		var min_y := water + float(wm)
+		for c0 in [base, Vector2.ZERO]:
+			var center: Vector2 = c0
+			for res_gap in gap_tiers:
+				var max_rings := 22 if center == base else 28
+				var ring_step := 9.0 if center == base else 8.0
+				var steps_per_ring := 16 if center == base else 24
+				for ring in range(0, max_rings):
+					var ring_r := ring_step * float(ring)
+					var steps := 1 if ring == 0 else steps_per_ring
+					for i in range(steps):
+						var a := a_seed + TAU * float(i) / float(steps) + float(ring) * 0.65
+						var c: Vector2 = center + Vector2(cos(a), sin(a)) * ring_r
+						if _is_ground_site_valid(terrain, map_name, root, c,
+								radius, placed, min_y, float(res_gap)):
+							return c
 	return Vector2.INF
 
 
 static func _find_water_site(terrain, map_name: String, base: Vector2,
 		radius: float, yaw: float, placed: Array[Dictionary]) -> Vector2:
 	var water: float = float(terrain.call("water_level", map_name))
-	# Hulls are long and narrow: probe along the ship's own axis, not a circle,
-	# otherwise a narrow river can never satisfy the test.
 	var axis := Vector2(cos(yaw), -sin(yaw))
 	var probes: Array[float] = [-0.7, -0.35, 0.0, 0.35, 0.7]
-	for ring in range(0, 14):
-		var ring_r := 30.0 * float(ring)
-		var steps := 1 if ring == 0 else 12
+	for ring in range(0, 18):
+		var ring_r := 14.0 * float(ring)
+		var steps := 1 if ring == 0 else 16
 		for i in range(steps):
 			var a := TAU * float(i) / float(steps) + float(ring) * 0.5
 			var c := base + Vector2(cos(a), sin(a)) * ring_r
-			if absf(c.x) > 255.0 or absf(c.y) > 255.0:
+			if absf(c.x) > 155.0 or absf(c.y) > 155.0:
 				continue
 			var wet := true
 			for f in probes:
 				var probe := c + axis * (radius * f)
+				if absf(probe.x) > 158.0 or absf(probe.y) > 158.0:
+					wet = false
+					break
 				if float(terrain.call("mesh_surface_height", map_name,
 						probe.x, probe.y)) > water - 0.25:
 					wet = false
@@ -459,23 +433,45 @@ static func _find_water_site(terrain, map_name: String, base: Vector2,
 
 
 static func _far_from_placed(placed: Array[Dictionary], c: Vector2,
-		radius: float) -> bool:
+		radius: float, min_gap_override: float = -1.0) -> bool:
 	for p in placed:
 		var other: Vector2 = p["pos"]
-		if c.distance_to(other) < radius + float(p["radius"]) + 2.0:
+		var pr: float = float(p["radius"])
+		var gap: float
+		if radius >= 3.5 and pr >= 3.5:
+			gap = 24.0 if min_gap_override < 0.0 else maxf(min_gap_override, 20.0)
+		elif radius >= 3.5 or pr >= 3.5:
+			gap = 14.0 if min_gap_override < 0.0 else maxf(min_gap_override, 12.0)
+		else:
+			gap = 12.0 if min_gap_override < 0.0 else maxf(min_gap_override, 8.0)
+		if c.distance_to(other) < radius + pr + gap:
 			return false
 	return true
 
 
-## Keeps new objects away from the authored heroes, beacons, POIs and halls.
-static func _far_from_existing(root: Node3D, c: Vector2, radius: float) -> bool:
-	var checks := [["MobileHero", 16.0], ["MobileBeacon", 10.0], ["POI_", 14.0],
-			["Enriched_", 8.0]]
+## Keeps new objects away from authored heroes, beacons, POIs, halls and reserved structures.
+static func _far_from_existing(root: Node3D, terrain, c: Vector2,
+		radius: float, min_res_gap: float = 12.0) -> bool:
+	var checks := [["MobileHero", 24.0], ["MobileBeacon", 12.0], ["POI_", 20.0],
+			["Enriched_", 12.0], ["Handcrafted_", 24.0]]
 	for spec in checks:
 		for n in root.find_children(String(spec[0]) + "*", "Node3D", true, false):
-			var np := (n as Node3D).global_position
+			var np := (n as Node3D).transform.origin if terrain == null \
+					else (terrain.call("_local_transform_to_root", n, root) as Transform3D).origin
 			if Vector2(np.x, np.z).distance_to(c) < radius + float(spec[1]):
 				return false
+	if terrain != null:
+		for res in terrain.get_reserved_structures(root):
+			var rp: Vector2 = res["pos"]
+			var rr: float = float(res["radius"])
+			if rp.distance_to(c) < rr + radius + min_res_gap:
+				return false
+		var ms = load("res://scripts/util/military_structures.gd")
+		if ms != null:
+			var mname := String(terrain.get("_current_map"))
+			for mp in ms.spawned_positions.get(mname, []):
+				if (mp as Vector2).distance_to(c) < radius + maxf(min_res_gap, 14.0):
+					return false
 	return true
 
 
@@ -489,7 +485,9 @@ static func _radius(prop_name: String, large: bool) -> float:
 	var dummy := scene.instantiate() as Node3D
 	var box := _local_aabb(dummy)
 	dummy.free()
-	var r := maxf(box.size.x, box.size.z) * 0.5
+	var rx := maxf(absf(box.position.x), absf(box.position.x + box.size.x))
+	var rz := maxf(absf(box.position.z), absf(box.position.z + box.size.z))
+	var r := maxf(rx, rz)
 	_radii[key] = maxf(r, 1.0)
 	return _radii[key]
 
@@ -526,7 +524,13 @@ static func _local_aabb(node: Node3D) -> AABB:
 		var mi := child as MeshInstance3D
 		if mi.mesh == null:
 			continue
-		var b: AABB = mi.transform * mi.get_aabb()
+		var xf := Transform3D.IDENTITY
+		var cur: Node = mi
+		while cur != null and cur != node:
+			if cur is Node3D:
+				xf = (cur as Node3D).transform * xf
+			cur = cur.get_parent()
+		var b: AABB = xf * mi.get_aabb()
 		box = b if first else box.merge(b)
 		first = false
 	return box

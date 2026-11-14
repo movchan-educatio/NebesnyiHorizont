@@ -79,11 +79,39 @@ void fragment() {
 			+ texture(rock_albedo, uv).rgb * rock_tint.rgb * rock_w
 			+ texture(mud_albedo, uv).rgb * mud_tint.rgb * mud_w;
 
-	// Broad patch contrast from the vertex colour instead of fBm noise.
+	// Dual-scale world-space procedural macro noise (0.021 & 0.067) to eliminate
+	// visible repeating grass/soil texture squares on LOW without extra samplers.
+	vec2 np1 = v_world.xz * 0.021;
+	vec2 ni1 = floor(np1);
+	vec2 nf1 = np1 - ni1;
+	vec2 nu1 = nf1 * nf1 * (3.0 - 2.0 * nf1);
+	vec4 nh1 = fract(sin(vec4(
+			dot(ni1, vec2(127.1, 311.7)),
+			dot(ni1 + vec2(1.0, 0.0), vec2(127.1, 311.7)),
+			dot(ni1 + vec2(0.0, 1.0), vec2(127.1, 311.7)),
+			dot(ni1 + vec2(1.0, 1.0), vec2(127.1, 311.7)))) * 43758.5453);
+	float macro_a = mix(mix(nh1.x, nh1.y, nu1.x), mix(nh1.z, nh1.w, nu1.x), nu1.y);
+
+	vec2 np2 = v_world.xz * 0.067 + vec2(13.7, 29.3);
+	vec2 ni2 = floor(np2);
+	vec2 nf2 = np2 - ni2;
+	vec2 nu2 = nf2 * nf2 * (3.0 - 2.0 * nf2);
+	vec4 nh2 = fract(sin(vec4(
+			dot(ni2, vec2(127.1, 311.7)),
+			dot(ni2 + vec2(1.0, 0.0), vec2(127.1, 311.7)),
+			dot(ni2 + vec2(0.0, 1.0), vec2(127.1, 311.7)),
+			dot(ni2 + vec2(1.0, 1.0), vec2(127.1, 311.7)))) * 43758.5453);
+	float macro_b = mix(mix(nh2.x, nh2.y, nu2.x), mix(nh2.z, nh2.w, nu2.x), nu2.y);
+
+	float proc_macro = clamp(macro_a * 0.60 + macro_b * 0.40, 0.0, 1.0);
+	float micro_wave = 0.5 + 0.5 * sin(v_world.x * 0.31 + v_world.z * 0.27)
+			* cos(v_world.z * 0.37 - v_world.x * 0.23);
+	float micro_var = clamp(grain * 0.65 + micro_wave * 0.35, 0.0, 1.0);
 	float macro_lum = mix(1.0 - macro_contrast, 1.0 + macro_contrast,
-			clamp(macro * 0.75 + grain * 0.25, 0.0, 1.0));
-	float micro_lum = mix(0.92, 1.08, grain);
-	albedo *= macro_lum * micro_lum;
+			clamp(macro * 0.45 + proc_macro * 0.45 + grain * 0.10, 0.0, 1.0));
+	float micro_lum = mix(0.93, 1.07, clamp(proc_macro * 0.65 + micro_var * 0.35, 0.0, 1.0));
+	vec3 hue_mod = mix(vec3(0.96, 1.02, 0.96), vec3(1.04, 0.99, 0.95), macro_b);
+	albedo *= macro_lum * micro_lum * hue_mod;
 
 	float wet = clamp(mud_w * 1.5 + (1.0 - smoothstep(wet_height, wet_height + 1.2,
 			v_world.y)) * mud_amount, 0.0, 1.0);

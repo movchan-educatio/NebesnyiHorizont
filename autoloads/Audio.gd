@@ -11,12 +11,50 @@ var audio_settings := {"master_volume": 1.0, "music_volume": 0.55, "sfx_volume":
 const MENU_THEME := "res://Assets/Audio/menu_theme_loop.wav"
 const MENU_CLICK := "res://Assets/Audio/menu_click.wav"
 
+const RADIO_DIR := "res://Assets/Audio/radio/"
+const RADIO_LINE_FILES := {
+	"01": "radio_01_bort_target_spotted.wav",
+	"1": "radio_01_bort_target_spotted.wav",
+	"target_spotted": "radio_01_bort_target_spotted.wav",
+	"bort_target_spotted": "radio_01_bort_target_spotted.wav",
+	"radio_01_bort_target_spotted": "radio_01_bort_target_spotted.wav",
+	"02": "radio_02_hq_cleared_hot.wav",
+	"2": "radio_02_hq_cleared_hot.wav",
+	"cleared_hot": "radio_02_hq_cleared_hot.wav",
+	"hq_cleared_hot": "radio_02_hq_cleared_hot.wav",
+	"radio_02_hq_cleared_hot": "radio_02_hq_cleared_hot.wav",
+	"03": "radio_03_bort_direct_hit.wav",
+	"3": "radio_03_bort_direct_hit.wav",
+	"direct_hit": "radio_03_bort_direct_hit.wav",
+	"bort_direct_hit": "radio_03_bort_direct_hit.wav",
+	"radio_03_bort_direct_hit": "radio_03_bort_direct_hit.wav",
+	"04": "radio_04_hq_rtb.wav",
+	"4": "radio_04_hq_rtb.wav",
+	"rtb": "radio_04_hq_rtb.wav",
+	"hq_rtb": "radio_04_hq_rtb.wav",
+	"radio_04_hq_rtb": "radio_04_hq_rtb.wav",
+}
+
+## Five cockpit/combat sub-buses under Master exposed to Settings sliders.
+const SUB_BUSES := ["Engine", "Wind", "Combat", "Radio", "Warning"]
+
 ## Dedicated buses let the mission mix the cockpit by priority instead of
 ## letting wind, engines and gunfire all fight over Master.
 const AUDIO_BUSES := ["Music", "Engine", "Wind", "Combat", "Radio", "Warning"]
 
 var _music: AudioStreamPlayer = null
 var _click: AudioStreamPlayer = null
+var _radio_player: AudioStreamPlayer = null
+var _shockwave_player: AudioStreamPlayer = null
+var _radio_cache: Dictionary = {}
+var _shockwave_stream: AudioStreamWAV = null
+var _subbus_volumes: Dictionary = {
+	"Engine": 1.0,
+	"Wind": 1.0,
+	"Combat": 1.0,
+	"Radio": 1.0,
+	"Warning": 1.0,
+}
 var _music_tween: Tween = null
 var _application_suspended := false
 var _resume_bus_mutes: Array[bool] = []
@@ -114,12 +152,214 @@ func _ensure_audio_buses() -> void:
 		AudioServer.set_bus_volume_db(index, 0.0)
 
 
+func set_subbus_volume_linear(bus_name: String, linear: float) -> void:
+	_ensure_audio_buses()
+	var clamped := clampf(linear, 0.0, 1.5)
+	_subbus_volumes[bus_name] = clamped
+	var idx := AudioServer.get_bus_index(bus_name)
+	if idx < 0:
+		return
+	var muted := clamped <= 0.001
+	AudioServer.set_bus_mute(idx, muted)
+	AudioServer.set_bus_volume_db(idx, -80.0 if muted else linear_to_db(clamped))
+
+
+func get_subbus_volume_linear(bus_name: String) -> float:
+	_ensure_audio_buses()
+	if _subbus_volumes.has(bus_name):
+		return float(_subbus_volumes[bus_name])
+	var idx := AudioServer.get_bus_index(bus_name)
+	if idx < 0:
+		return 1.0
+	if AudioServer.is_bus_mute(idx):
+		return 0.0
+	return db_to_linear(AudioServer.get_bus_volume_db(idx))
+
+
+func play_radio_line(line_key: String) -> float:
+	_ensure_audio_buses()
+	var stream := _get_radio_stream(line_key)
+	if stream == null:
+		stream = _build_ptt_fallback_stream()
+	var dur := stream.get_length()
+	if _radio_player == null or not is_instance_valid(_radio_player):
+		_radio_player = AudioStreamPlayer.new()
+		_radio_player.name = "RadioCommsPlayer"
+		_radio_player.bus = &"Radio"
+		_radio_player.process_mode = Node.PROCESS_MODE_ALWAYS
+		add_child(_radio_player)
+	_radio_player.stop()
+	_radio_player.stream = stream
+	_radio_player.volume_db = 0.0
+	_radio_player.play()
+	return dur
+
+
+func play_recon_shockwave(volume_db: float = -4.0) -> void:
+	_ensure_audio_buses()
+	if _shockwave_stream == null:
+		_shockwave_stream = _build_shockwave_stream()
+	if _shockwave_player == null or not is_instance_valid(_shockwave_player):
+		_shockwave_player = AudioStreamPlayer.new()
+		_shockwave_player.name = "ReconShockwavePlayer"
+		_shockwave_player.bus = &"Combat"
+		_shockwave_player.process_mode = Node.PROCESS_MODE_ALWAYS
+		add_child(_shockwave_player)
+	_shockwave_player.stop()
+	_shockwave_player.stream = _shockwave_stream
+	_shockwave_player.volume_db = volume_db
+	_shockwave_player.play()
+
+
+func _get_radio_stream(line_key: String) -> AudioStream:
+	var key := line_key.strip_edges().to_lower()
+	if key.ends_with(".wav"):
+		key = key.substr(0, key.length() - 4)
+	var fname := String(RADIO_LINE_FILES.get(key, ""))
+	if fname.is_empty():
+		return null
+	if _radio_cache.has(fname):
+		return _radio_cache[fname] as AudioStream
+	var res_path := RADIO_DIR + fname
+	var stream: AudioStream = null
+	if FileAccess.file_exists(res_path):
+		stream = _load_pcm16_wav(res_path)
+	if stream == null and ResourceLoader.exists(res_path):
+		var res := ResourceLoader.load(res_path)
+		if res is AudioStream:
+			stream = res as AudioStream
+	if stream != null:
+		_radio_cache[fname] = stream
+	return stream
+
+
+func _load_pcm16_wav(res_path: String) -> AudioStreamWAV:
+	var raw := FileAccess.get_file_as_bytes(res_path)
+	if raw.size() < 44:
+		return null
+	if raw.slice(0, 4).get_string_from_ascii() != "RIFF" or raw.slice(8, 12).get_string_from_ascii() != "WAVE":
+		return null
+	var offset := 12
+	var channels := 1
+	var sample_rate := 22050
+	var bits_per_sample := 16
+	var pcm_data := PackedByteArray()
+	while offset + 8 <= raw.size():
+		var chunk_id := raw.slice(offset, offset + 4).get_string_from_ascii()
+		var chunk_size := int(raw.decode_u32(offset + 4))
+		var chunk_start := offset + 8
+		var chunk_end := mini(chunk_start + chunk_size, raw.size())
+		if chunk_id == "fmt " and chunk_size >= 16 and chunk_end <= raw.size():
+			channels = int(raw.decode_u16(chunk_start + 2))
+			sample_rate = int(raw.decode_u32(chunk_start + 4))
+			bits_per_sample = int(raw.decode_u16(chunk_start + 14))
+		elif chunk_id == "data":
+			pcm_data = raw.slice(chunk_start, chunk_end)
+			break
+		offset = chunk_start + chunk_size + (chunk_size & 1)
+	if pcm_data.is_empty():
+		return null
+	var wav := AudioStreamWAV.new()
+	wav.format = AudioStreamWAV.FORMAT_16_BITS if bits_per_sample == 16 else AudioStreamWAV.FORMAT_8_BITS
+	wav.mix_rate = maxi(sample_rate, 8000)
+	wav.stereo = channels >= 2
+	wav.data = pcm_data
+	return wav
+
+
+func _build_ptt_fallback_stream() -> AudioStreamWAV:
+	var sr := 22050
+	var dur := 1.2
+	var count := int(dur * float(sr))
+	var pcm := PackedByteArray()
+	pcm.resize(count * 2)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 90125
+	for i in range(count):
+		var t := float(i) / float(sr)
+		var sig := rng.randf_range(-0.04, 0.04)
+		if t < 0.045:
+			sig += sin(TAU * 1180.0 * t) * 0.35
+		elif t > dur - 0.12:
+			sig += sin(TAU * 760.0 * t) * 0.28 * exp(-(t - (dur - 0.12)) * 18.0)
+		var s := clampi(int(round(sig * 32767.0)), -32768, 32767)
+		pcm.encode_s16(i * 2, s)
+	var wav := AudioStreamWAV.new()
+	wav.format = AudioStreamWAV.FORMAT_16_BITS
+	wav.mix_rate = sr
+	wav.stereo = false
+	wav.data = pcm
+	return wav
+
+
+func _build_shockwave_stream() -> AudioStreamWAV:
+	var sr := 22050
+	var dur := 1.35
+	var count := int(dur * float(sr))
+	var pcm := PackedByteArray()
+	pcm.resize(count * 2)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 34301
+	var phase := 0.0
+	var lp_noise := 0.0
+	for i in range(count):
+		var t := float(i) / float(sr)
+		var freq := 24.0 + 91.0 * exp(-t * 9.5)
+		phase += TAU * freq / float(sr)
+		var boom := sin(phase) * 0.72 * exp(-t * 3.1)
+		var cutoff := 180.0 + 1420.0 * exp(-t * 3.8)
+		var alpha := clampf((TAU * cutoff / float(sr)) / (1.0 + TAU * cutoff / float(sr)), 0.01, 0.9)
+		lp_noise = lerpf(lp_noise, rng.randf_range(-1.0, 1.0), alpha)
+		var attack := clampf(t / 0.018, 0.0, 1.0)
+		var rumble := lp_noise * 0.55 * exp(-t * 2.2)
+		var sample := tanh((boom + rumble) * attack * 1.25) * 0.88
+		pcm.encode_s16(i * 2, clampi(int(round(sample * 32767.0)), -32768, 32767))
+	var wav := AudioStreamWAV.new()
+	wav.format = AudioStreamWAV.FORMAT_16_BITS
+	wav.mix_rate = sr
+	wav.stereo = false
+	wav.data = pcm
+	return wav
+
+
+func _exit_tree() -> void:
+	var tree := get_tree()
+	if tree != null and tree.node_added.is_connected(_on_node_added):
+		tree.node_added.disconnect(_on_node_added)
+	if _music_tween != null:
+		_music_tween.kill()
+		_music_tween = null
+	for p in [_music, _click, _radio_player, _shockwave_player]:
+		if p != null and is_instance_valid(p):
+			p.stop()
+			p.stream = null
+			if p.get_parent() == self:
+				remove_child(p)
+			p.free()
+	_music = null
+	_click = null
+	_radio_player = null
+	_shockwave_player = null
+	_radio_cache.clear()
+	_shockwave_stream = null
+	var sfx = load("res://combat/sfx.gd")
+	if sfx != null and sfx.has_method("clear_caches"):
+		sfx.call("clear_caches")
+
+
 ## Restore the cockpit mix before a new level or the menu theme after a sortie.
 func reset_mission_buses() -> void:
 	for bus_name in AUDIO_BUSES:
 		var index := AudioServer.get_bus_index(bus_name)
 		if index >= 0:
-			AudioServer.set_bus_volume_db(index, 0.0)
+			if _subbus_volumes.has(bus_name):
+				var lin := clampf(float(_subbus_volumes[bus_name]), 0.0, 1.5)
+				var muted := lin <= 0.001
+				AudioServer.set_bus_mute(index, muted)
+				AudioServer.set_bus_volume_db(index, -80.0 if muted else linear_to_db(lin))
+			else:
+				AudioServer.set_bus_mute(index, false)
+				AudioServer.set_bus_volume_db(index, 0.0)
 
 
 ## The imported menu theme has loop_mode disabled.  Force a forward loop over

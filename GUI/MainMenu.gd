@@ -37,7 +37,7 @@ const DronePropellerSystem = preload("res://scripts/util/DronePropellerSystem.gd
 const LocScript = preload("res://scripts/util/localization_manager.gd")
 
 # Selection state
-var _selected_mode: int = Global.PlayMode.COMBAT
+var _selected_mode: int = Global.PlayMode.TUTORIAL
 var _selected_mission: int = 1
 var _selected_map := "village"
 
@@ -69,6 +69,11 @@ var _top_title_lbl: Label = null
 var _top_vtx_lbl: Label = null
 var _rc_status_lbl: Label = null
 var _top_palette_btn: Button = null
+var _lang_btn: Button = null
+var _gc_btn: Button = null
+var _daily_lbl: Label = null
+var _quick_tut_btn: Button = null
+var _foot_status_lbl: Label = null
 var _settings_overlay: Control = null
 var _mode_copy: Dictionary = {}
 
@@ -114,21 +119,21 @@ const BRIEFINGS := {
 		"code": "TAC-01",
 		"name": "ПІХОТА В УКРИТТЯХ",
 		"op_name": "ОПЕРАЦІЯ «ЧИСТЕ ПОЛЕ»",
-		"sector": "Рубіж «Дніпро-1» · MGRS 36U VB 4218 9012 (Донеччина)",
+		"sector": "Сектор «Альфа-1» · Навчальний рубіж",
 		"time": "20:00 хв",
 		"diff": "ЛЕГКА",
-		"desc": "Виявлення та знищення живої сили противника в окопах та бліндажах.",
-		"intel": "Розвідкою БПЛА виявлено передові спостережні пункти та вогневі позиції окупантів у лісосмузі вздовж польової дороги. Піхота закріпилася в польових укриттях та траншеях, спостерігаючи за рубежем підходу наших підрозділів.",
+		"desc": "Виявлення та ураження умовних цілей в окопах та бліндажах.",
+		"intel": "Розвідкою БПЛА виявлено передові спостережні пункти та навчальні вогневі позиції в лісосмузі вздовж польової дороги. Умовний противник закріпився в польових укриттях та траншеях.",
 		"tasks": [
-			"Виявити та ліквідувати 6 одиниць живої сили противника",
-			"Здійснити скиди або пікірувати камікадзе прямо у фортифікаційні споруди",
-			"Уникати зустрічного автоматного вогню на гранично малих висотах"
+			"Виявити та знешкодити 6 умовних цілей у навчальному секторі",
+			"Виконати точне скидання або керований захід у фортифікаційні споруди",
+			"Уникати зустрічного вогню на гранично малих висотах"
 		],
 		"threats": [
 			"Стрілецька зброя (АК-74 / ПКМ) — прицільний радіус до 45м",
 			"Маскування під кронами дерев та в польових траншеях"
 		],
-		"drone": "7\" Квадрокоптер зі скидами (ВОГ-17) або 8\" Ударний Камікадзе",
+		"drone": "7\" Квадрокоптер зі скидами (ВОГ-17) або 8\" Ударний FPV",
 		"weather": "Вітер: помірний 3–5 м/с · Видимість 100% · Світла пора доби",
 		"rewards": [
 			"★★★ Золотий Хрест (Ас): Час < 4:00 або складна ліквідація на рівні «Ас»",
@@ -140,11 +145,11 @@ const BRIEFINGS := {
 		"code": "TAC-02",
 		"name": "КОЛОНА БРОНЕТЕХНІКИ",
 		"op_name": "ОПЕРАЦІЯ «СТАЛЕВИЙ ПРИМАРК»",
-		"sector": "Траса E40 · MGRS 36U VB 4782 8841 (Бахмутський напрямок)",
+		"sector": "Маршрут S-40 · Навчальний коридор",
 		"time": "20:00 хв",
 		"diff": "СЕРЕДНЯ",
-		"desc": "Знищення танка Т-72Б та бронетранспортера БТР-82А на марші.",
-		"intel": "Ворожа бронегрупа у складі основного танка Т-72Б та колісного БТР-82А висувається автодорогою для підтримки штурмової піхоти. Техніка рухається колоною під прикриттям великокаліберного кулемета та 30-мм автоматичної гармати.",
+		"desc": "Ураження макетів танка Т-72Б та БТР-82А на марші.",
+		"intel": "Навчальна бронегрупа у складі танка Т-72Б та колісного БТР-82А висувається маршрутом у степовому секторі. Техніка рухається колоною під прикриттям бортових систем.",
 		"tasks": [
 			"Знищити головний танк Т-72Б (удар у дах башти або корму двигуна)",
 			"Уразити бронетранспортер БТР-82А (бортова проекція або відсік МТО)",
@@ -155,7 +160,7 @@ const BRIEFINGS := {
 			"Зенітний кулемет Корд на командирській вежі Т-72Б",
 			"Комбінована броня та динамічний захист «Контакт-1»"
 		],
-		"drone": "10\" Важкий ударний дрон-камікадзе з кумулятивною БЧ (ПГ-7ВР)",
+		"drone": "10\" Важкий ударний FPV з кумулятивним макетом БЧ (ПГ-7ВР)",
 		"weather": "Вітер: поривчастий 5–8 м/с · Локальне задимлення палаючої посадки",
 		"rewards": [
 			"★★★ Золотий Хрест (Ас): Час < 5:00 або рівень «Ас»",
@@ -170,8 +175,8 @@ const BRIEFINGS := {
 		"sector": "Повітряний ешелон 140м · Русло річки · Азимут 085°",
 		"time": "20:00 хв",
 		"diff": "ВАЖКА",
-		"desc": "Низьковисотне перехоплення ворожої армійської авіації.",
-		"intel": "Ударний вертоліт окупантів Мі-8/Ка-52 баражує на наднизькій висоті (140м) зі швидкістю понад 130 км/год вздовж річкового русла, прикриваючи відступ своїх військ. Необхідно зайти на зустрічно-пересічний курс.",
+		"desc": "Низьковисотне перехоплення повітряної цілі.",
+		"intel": "Навчальний гелікоптер типу Мі-8/Ка-52 баражує на наднизькій висоті (140м) зі швидкістю понад 130 км/год вздовж річкового русла. Необхідно зайти на зустрічно-пересічний курс.",
 		"tasks": [
 			"Набрати висоту понад 140 метрів по вектору руху борту",
 			"Здійснити лобовий або верхній таран несучого гвинта або кабіни екіпажу",
@@ -192,13 +197,13 @@ const BRIEFINGS := {
 	},
 	4: {
 		"code": "TAC-04",
-		"name": "БПЛА SHAHED-136",
+		"name": "БАРАЖУЮЧИЙ БПЛА-136",
 		"op_name": "ОПЕРАЦІЯ «ЧИСТЕ НЕБО»",
 		"sector": "Ешелон 80–120 м · курс 240° · швидкість 185 км/год",
 		"time": "20:00 хв",
 		"diff": "ЕКСТРЕМ",
-		"desc": "Повітряне перехоплення далекобійного дрона-камікадзе «Шахед».",
-		"intel": "Радіолокаційними постами зафіксовано одиночний ударний дрон-камікадзе Shahed-136 («Герань-2»), що прямує на критичний енергетичний вузол. Крейсерська швидкість 185 км/год за автопілотом. Час на реакцію обмежений.",
+		"desc": "Повітряне перехоплення високошвидкісної БПЛА-мішені «Дельта-136».",
+		"intel": "Радіолокаційними постами полігону зафіксовано одиночний високошвидкісний БПЛА-мішень «Дельта-136», що прямує на захищений енерговузол. Крейсерська швидкість 185 км/год за автопілотом. Час на реакцію обмежений.",
 		"tasks": [
 			"Вийти на точку рандеву з випередженням курсу цілі",
 			"Розігнати перехоплювач до максимальної швидкості у похилому пікіруванні",
@@ -207,14 +212,14 @@ const BRIEFINGS := {
 		"threats": [
 			"Гранична швидкість цілі (185 км/год)",
 			"Обмежене вікно перехоплення до виходу з радіусу телеметрії",
-			"Детонація 50 кг бойової частини при зіткненні"
+			"Висока кінетична енергія при зіткненні"
 		],
 		"drone": "7\" FPV-перехоплювач з екстремальним TWR (10:1)",
 		"weather": "Сутінки, слабкий боковий вітер",
 		"rewards": [
 			"★★★ Золотий Хрест (Ас): Час < 3:00 або рівень «Ас»",
 			"★★ Срібна відзнака: Час < 6:00 або рівень «Оператор»",
-			"★ Бронзова відзнака: Перехоплення та знищення Shahed-136"
+			"★ Бронзова відзнака: Перехоплення БПЛА «Дельта-136»"
 		]
 	}
 }
@@ -223,46 +228,46 @@ const BRIEFINGS_EN := {
 	1: {
 		"name": "INFANTRY IN COVER",
 		"op_name": "OPERATION \"CLEAR FIELD\"",
-		"sector": "Dnipro-1 Line · MGRS 36U VB 4218 9012 · Donetsk region",
-		"intel": "Recon has identified forward observation posts and firing positions in a tree line along a farm road. Enemy infantry are entrenched in field shelters and trenches overlooking the approach route.",
-		"tasks": ["Locate and neutralize six enemy personnel", "Strike or drop payloads into fortified positions", "Avoid small-arms fire at very low altitude"],
-		"threats": ["Small arms (AK-74 / PKM), effective range up to 45 m", "Camouflaged positions under trees and in trenches"],
+		"sector": "Sector Alpha-1 · Training Range",
+		"intel": "Recon has identified forward observation posts and range positions in a tree line along a farm road. Simulated OPFOR targets are positioned in field shelters and trenches overlooking the approach route.",
+		"tasks": ["Locate and neutralize six range targets", "Strike or drop payloads into fortified positions", "Avoid defensive fire at very low altitude"],
+		"threats": ["Small arms fire, effective range up to 45 m", "Camouflaged positions under trees and in trenches"],
 		"drone": "7-inch quad with VOG-17 drop system or an 8-inch strike quad",
 		"weather": "Moderate wind: 3–5 m/s · Visibility: clear · Daylight",
-		"rewards": ["★★★ Gold Cross (Ace): under 4:00 or complete on Ace", "★★ Silver award: under 8:00 or complete on Operator", "★ Bronze award: eliminate all six targets"]
+		"rewards": ["★★★ Gold Cross (Ace): under 4:00 or complete on Ace", "★★ Silver award: under 8:00 or complete on Operator", "★ Bronze award: clear all six range targets"]
 	},
 	2: {
 		"name": "ARMORED COLUMN",
 		"op_name": "OPERATION \"STEEL PHANTOM\"",
-		"sector": "E40 highway · MGRS 36U VB 4782 8841 · Bakhmut direction",
-		"intel": "An enemy armor group—one T-72B tank and one BTR-82A APC—is moving along the highway to reinforce assault troops. The column is protected by a heavy machine gun and a 30 mm autocannon.",
-		"tasks": ["Destroy the lead T-72B (turret roof or rear engine deck)", "Disable the BTR-82A from the side or engine compartment", "Stop the column before it reaches its deployment line"],
-		"threats": ["BTR-82A 2A72 30 mm autocannon", "Kord anti-aircraft machine gun on the T-72B", "Composite armor and Kontakt-1 reactive armor"],
-		"drone": "10-inch heavy strike quad with PG-7VR shaped-charge payload",
+		"sector": "Route S-40 · Training Corridor",
+		"intel": "A simulated OPFOR armor group—one T-72B tank and one BTR-82A APC—is moving along the training route. The column is escorted by onboard defensive systems.",
+		"tasks": ["Disable the lead T-72B (turret roof or rear engine deck)", "Disable the BTR-82A from the side or engine compartment", "Stop the column before it reaches its deployment line"],
+		"threats": ["BTR-82A 30 mm autocannon", "Turret machine gun on the T-72B", "Composite and reactive armor plating"],
+		"drone": "10-inch heavy strike quad with shaped-charge payload",
 		"weather": "Gusty wind: 5–8 m/s · Local smoke over the tree line",
-		"rewards": ["★★★ Gold Cross (Ace): under 5:00 or complete on Ace", "★★ Silver award: under 9:00 or complete on Operator", "★ Bronze award: destroy the entire armor group"]
+		"rewards": ["★★★ Gold Cross (Ace): under 5:00 or complete on Ace", "★★ Silver award: under 9:00 or complete on Operator", "★ Bronze award: disable the entire armor group"]
 	},
 	3: {
 		"name": "ATTACK HELICOPTER",
 		"op_name": "OPERATION \"WINGS CLIPPED\"",
 		"sector": "Air corridor · 140 m AGL · Riverbed · Heading 085°",
-		"intel": "An enemy Mi-8 / Ka-52 attack helicopter is flying low along the river, covering the withdrawal of ground forces. Intercept on a crossing or head-on course.",
+		"intel": "A simulated Mi-8 / Ka-52 helicopter target is flying low along the river. Intercept on a crossing or head-on course.",
 		"tasks": ["Climb above 140 m along the aircraft's flight vector", "Intercept the rotor or cockpit on a crossing course", "Compensate for severe rotor-wash turbulence"],
-		"threats": ["Closing speed above 130 km/h", "Strong rotor downwash may destabilize the quad", "Door-mounted machine-gun crew"],
+		"threats": ["Closing speed above 130 km/h", "Strong rotor downwash may destabilize the quad", "Side defensive fire arcs"],
 		"drone": "7–8-inch high-speed interceptor (3000 KV, TWR 8.5:1)",
 		"weather": "Turbulence · Ridge updrafts and hot-air currents",
 		"rewards": ["★★★ Gold Cross (Ace): under 3:30 or complete on Ace", "★★ Silver award: under 7:00 or complete on Operator", "★ Bronze award: intercept the helicopter"]
 	},
 	4: {
-		"name": "SHAHED-136 UAV",
+		"name": "LOITERING UAV-136",
 		"op_name": "OPERATION \"CLEAR SKY\"",
 		"sector": "Air corridor · 80–120 m AGL · Heading 240° · 185 km/h",
-		"intel": "Radar posts have detected a Shahed-136 (Geran-2) attack UAV heading toward a critical power facility. It is flying on autopilot at 185 km/h; the interception window is short.",
+		"intel": "Range radar has detected a Delta-136 target UAV heading toward a simulated power node. It is flying on autopilot at 185 km/h; the interception window is short.",
 		"tasks": ["Reach the rendezvous point ahead of the target", "Build speed in a shallow dive", "Intercept the pusher propeller or wing root"],
-		"threats": ["Target speed: 185 km/h", "Short interception window before telemetry is lost", "50 kg warhead on impact"],
+		"threats": ["Target speed: 185 km/h", "Short interception window before telemetry is lost", "High kinetic energy on impact"],
 		"drone": "7-inch FPV interceptor with extreme thrust-to-weight ratio (10:1)",
 		"weather": "Twilight · Light crosswind",
-		"rewards": ["★★★ Gold Cross (Ace): under 3:00 or complete on Ace", "★★ Silver award: under 6:00 or complete on Operator", "★ Bronze award: intercept the Shahed-136"]
+		"rewards": ["★★★ Gold Cross (Ace): under 3:00 or complete on Ace", "★★ Silver award: under 6:00 or complete on Operator", "★ Bronze award: intercept the Delta-136 UAV"]
 	}
 }
 
@@ -347,8 +352,6 @@ class _TacticalMapCanvas extends Control:
 			_draw_combat_recon(sz, center, base_pos, font)
 		elif mode == Global.PlayMode.TRAINING:
 			_draw_training_recon(sz, center, base_pos, font)
-		elif mode == Global.PlayMode.SPEED:
-			_draw_speed_recon(sz, center, base_pos, font)
 		elif mode == Global.PlayMode.TUTORIAL:
 			_draw_tutorial_recon(sz, center, base_pos, font)
 
@@ -409,14 +412,14 @@ class _TacticalMapCanvas extends Control:
 			_draw_map_text(font, Vector2(center.x - 20, sz.y - 6), "ПЕРЕХОПЛЕННЯ В ПОВІТРІ", 11, amber, HORIZONTAL_ALIGNMENT_CENTER)
 
 		elif mission_id == 4:
-			# TAC-04: SHAHED-136
+			# TAC-04: DELTA-136
 			var sh_pos := center + Vector2(75, -20)
 			draw_line(sh_pos + Vector2(7, 0), sh_pos + Vector2(-7, -5), tgt_red, 1.6)
 			draw_line(sh_pos + Vector2(-7, -5), sh_pos + Vector2(-3, 0), tgt_red, 1.6)
 			draw_line(sh_pos + Vector2(-3, 0), sh_pos + Vector2(-7, 5), tgt_red, 1.6)
 			draw_line(sh_pos + Vector2(-7, 5), sh_pos + Vector2(7, 0), tgt_red, 1.6)
 			draw_line(sh_pos, sh_pos + Vector2(-48, 18), tgt_red, 1.4)
-			_draw_map_text(font, sh_pos + Vector2(11, -3), "ШАХЕД-136", 11, tgt_red)
+			_draw_map_text(font, sh_pos + Vector2(11, -3), "ДЕЛЬТА-136", 11, tgt_red)
 			_draw_map_text(font, sh_pos + Vector2(11, 7), "185 км/год · КУРС 240°", 10, tgt_red)
 			_draw_map_text(font, Vector2(center.x - 20, sz.y - 6), "ШВИДКІСНИЙ ПЕРЕХОПЛЮВАЧ", 11, tgt_red, HORIZONTAL_ALIGNMENT_CENTER)
 
@@ -435,31 +438,7 @@ class _TacticalMapCanvas extends Control:
 		])
 		draw_polyline(pts, Color(0.35, 0.6, 0.4, 0.35), 1.8)
 		_draw_map_text(font, Vector2(center.x + 10, center.y + 18), "РУСЛО ДОЛИНИ", 10, Color(0.65, 0.8, 0.65, 0.7))
-		_draw_map_text(font, Vector2(center.x - 20, sz.y - 6), "БЕЗ БОЙОВИХ ЗАГРОЗ · ВІЛЬНИЙ ПОЛІТ", 11, green, HORIZONTAL_ALIGNMENT_CENTER)
-
-	func _draw_speed_recon(sz: Vector2, center: Vector2, base_pos: Vector2, font: Font) -> void:
-		var cyan := Color(0.2, 0.9, 0.8, 0.9)
-		var amber := Color(0.92, 0.69, 0.21, 0.9)
-		var gates := [
-			center + Vector2(-50, 12),
-			center + Vector2(-20, -28),
-			center + Vector2(35, -32),
-			center + Vector2(85, -12),
-			center + Vector2(70, 24),
-			center + Vector2(10, 28)
-		]
-		var line_pts := PackedVector2Array()
-		for g in gates:
-			line_pts.append(g)
-		line_pts.append(gates[0])
-		draw_polyline(line_pts, Color(0.2, 0.75, 0.85, 0.30), 1.8)
-
-		for i in range(gates.size()):
-			var gp: Vector2 = gates[i]
-			draw_circle(gp, 3.5, cyan)
-			draw_arc(gp, 6.0, 0.0, TAU, 14, amber, 1.0)
-			_draw_map_text(font, gp + Vector2(5, 3), ("CP-%d" if MenuUI.is_english() else "КП-%d") % (i + 1), 10, cyan)
-		_draw_map_text(font, Vector2(center.x - 20, sz.y - 6), "6 КОНТРОЛЬНИХ ВОРІТ · ТРАСА НА ЧАС", 11, amber, HORIZONTAL_ALIGNMENT_CENTER)
+		_draw_map_text(font, Vector2(center.x - 20, sz.y - 6), "БЕЗ БОЙОВИХ ЗАГРОЗ · ВІЛЬНИЙ ПОЛІТ І ТРАСА", 11, green, HORIZONTAL_ALIGNMENT_CENTER)
 
 	func _draw_tutorial_recon(sz: Vector2, center: Vector2, base_pos: Vector2, font: Font) -> void:
 		var green := Color(0.35, 0.95, 0.45, 0.9)
@@ -510,7 +489,9 @@ func _ready() -> void:
 	# in-memory defaults, even before a drone scene has loaded the config.
 	GameSettings.load_hud_config()
 	Audio.play_menu_music()
-	_selected_mode = int(Global.menu_settings.get("selected_mode", Global.play_mode))
+	_selected_mode = Global.sanitize_play_mode(
+			int(Global.menu_settings.get("selected_mode", Global.play_mode)))
+	Global.play_mode = _selected_mode
 	_selected_mission = clampi(int(Global.menu_settings.get("selected_mission", 1)), 1, 5)
 	_selected_map = str(Global.menu_settings.get("selected_map", "village"))
 	if not SELECTABLE_MAPS.has(_selected_map):
@@ -527,10 +508,11 @@ func _ready() -> void:
 	elif OS.has_environment("DRONE_TUTORIAL") or (OS.has_environment("DRONE_PLAY_MODE") and OS.get_environment("DRONE_PLAY_MODE").to_lower() == "tutorial"):
 		_selected_mode = Global.PlayMode.TUTORIAL
 		_selected_special = 0
-	elif OS.has_environment("DRONE_PLAY_MODE") and OS.get_environment("DRONE_PLAY_MODE").to_lower() == "chaos":
-		_selected_mode = Global.PlayMode.CHAOS
-		_selected_map = "industrial"
+	elif OS.has_environment("DRONE_PLAY_MODE") and OS.get_environment("DRONE_PLAY_MODE").to_lower() == "training":
+		_selected_mode = Global.PlayMode.TRAINING
 		_selected_special = 0
+	elif OS.has_environment("DRONE_PLAY_MODE") and OS.get_environment("DRONE_PLAY_MODE").to_lower() == "combat":
+		_selected_mode = Global.PlayMode.COMBAT
 	Global.special_mission = _selected_special
 	if _selected_mode == Global.PlayMode.COMBAT and not OS.has_environment("DRONE_COMBAT_MISSION"):
 		_selected_mission = mini(_selected_mission, Global.campaign_unlocked_mission())
@@ -616,26 +598,18 @@ func _build() -> void:
 	left_box.add_child(mode_grid)
 
 	var tut_star: String = " ★" if Global.is_tutorial_completed() else ""
-	var combat_mode_btn := _build_mode_btn("⚔️ Бойові", "⚔️ Combat", "5 завдань", "5 missions", Global.PlayMode.COMBAT)
-	var tut_btn := _build_mode_btn("🎓 Школа" + tut_star, "🎓 Academy" + tut_star, "10 модулів", "10 modules", Global.PlayMode.TUTORIAL)
-	var train_btn := _build_mode_btn("🌲 Вільний", "🌲 Free Flight", "Полігон", "Range", Global.PlayMode.TRAINING)
-	var speed_btn := _build_mode_btn("🏁 На Час", "🏁 Time Trial", "КП трек", "Checkpoint course", Global.PlayMode.SPEED)
-	var chaos_btn := _build_mode_btn("💥 Хаос", "💥 Chaos", "2 фракції", "2 factions", Global.PlayMode.CHAOS)
-	mode_grid.add_child(combat_mode_btn)
+	var tut_btn := _build_mode_btn("🎓 Туторіал" + tut_star, "🎓 Tutorial" + tut_star, "10 модулів", "10 modules", Global.PlayMode.TUTORIAL)
+	var train_btn := _build_mode_btn("🌲 Тренування", "🌲 Training", "Полігон + траса", "Range + course", Global.PlayMode.TRAINING)
+	var combat_mode_btn := _build_mode_btn("⚔️ Бойовий", "⚔️ Combat", "4 місії + 6 СО", "4 missions + 6 ops", Global.PlayMode.COMBAT)
 	mode_grid.add_child(tut_btn)
 	mode_grid.add_child(train_btn)
-	mode_grid.add_child(speed_btn)
-	mode_grid.add_child(chaos_btn)
-	_mode_buttons[Global.PlayMode.COMBAT] = combat_mode_btn
+	mode_grid.add_child(combat_mode_btn)
 	_mode_buttons[Global.PlayMode.TUTORIAL] = tut_btn
 	_mode_buttons[Global.PlayMode.TRAINING] = train_btn
-	_mode_buttons[Global.PlayMode.SPEED] = speed_btn
-	_mode_buttons[Global.PlayMode.CHAOS] = chaos_btn
-	_ribbon_buttons[Global.PlayMode.COMBAT] = combat_mode_btn
+	_mode_buttons[Global.PlayMode.COMBAT] = combat_mode_btn
 	_ribbon_buttons[Global.PlayMode.TUTORIAL] = tut_btn
 	_ribbon_buttons[Global.PlayMode.TRAINING] = train_btn
-	_ribbon_buttons[Global.PlayMode.SPEED] = speed_btn
-	_ribbon_buttons[Global.PlayMode.CHAOS] = chaos_btn
+	_ribbon_buttons[Global.PlayMode.COMBAT] = combat_mode_btn
 
 	# Frontline map selector.  The four procedural Ukrainian maps live in
 	# sceneries/*Level.tscn; "valley" keeps the original map.
@@ -667,7 +641,7 @@ func _build() -> void:
 		{"id": 1, "code": "TAC-01", "name": "1. Піхота в окопах", "desc": "Виявлення та ліквідація живої сили", "diff": "Легка", "col": MenuUI.FPV_GREEN},
 		{"id": 2, "code": "TAC-02", "name": "2. Колона бронетехніки", "desc": "Ураження танка Т-72Б та БТР-82А", "diff": "Середня", "col": MenuUI.FPV_AMBER},
 		{"id": 3, "code": "TAC-03", "name": "3. Гелікоптер у русі", "desc": "Перехоплення низьковисотної авіації", "diff": "Важка", "col": MenuUI.FPV_AMBER},
-		{"id": 4, "code": "TAC-04", "name": "4. БПЛА «Шахед-136»", "desc": "Швидкісне знищення камікадзе", "diff": "Екстрим", "col": MenuUI.FPV_RED},
+		{"id": 4, "code": "TAC-04", "name": "4. БПЛА «Дельта-136»", "desc": "Швидкісне перехоплення БПЛА", "diff": "Екстрим", "col": MenuUI.FPV_RED},
 	]
 	for md in m_defs:
 		var m_btn := _build_mission_btn(md)
@@ -739,11 +713,13 @@ func _build() -> void:
 	foot_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bottom_bar.add_child(foot_spacer)
 
-	var foot_status := Label.new()
-	foot_status.text = "НЕБЕСНИЙ ГОРИЗОНТ · БОЙОВИЙ FPV-СИМУЛЯТОР · v1.6.0-test"
-	foot_status.add_theme_font_size_override("font_size", 11)
-	foot_status.add_theme_color_override("font_color", MenuUI.FPV_MUTED)
-	bottom_bar.add_child(foot_status)
+	_foot_status_lbl = Label.new()
+	_foot_status_lbl.text = _ui_text(
+			"НЕБЕСНИЙ ГОРИЗОНТ · ТАКТИЧНИЙ FPV-СИМУЛЯТОР · v1.6.0-test",
+			"NEBESNYI HORIZONT · TACTICAL FPV SIMULATOR · v1.6.0-test")
+	_foot_status_lbl.add_theme_font_size_override("font_size", 11)
+	_foot_status_lbl.add_theme_color_override("font_color", MenuUI.FPV_MUTED)
+	bottom_bar.add_child(_foot_status_lbl)
 
 	var foot_spacer2 := Control.new()
 	foot_spacer2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -801,6 +777,24 @@ func _build_recon_card() -> Control:
 	_campaign_progress_lbl.add_theme_color_override("font_color", MenuUI.FPV_CYAN)
 	_campaign_progress_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vbox.add_child(_campaign_progress_lbl)
+
+	_daily_lbl = Label.new()
+	_daily_lbl.add_theme_font_size_override("font_size", 10)
+	_daily_lbl.add_theme_color_override("font_color", MenuUI.FPV_AMBER)
+	_daily_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(_daily_lbl)
+
+	if not Global.is_tutorial_completed():
+		_quick_tut_btn = MenuUI.feel_button(_ui_text(
+				"🎓 ШВИДКИЙ СТАРТ: ПЕРШИЙ ПОЛІТ (ANGLE)",
+				"🎓 QUICK START: FIRST FLIGHT (ANGLE)"), 32, false)
+		_quick_tut_btn.add_theme_font_size_override("font_size", 11)
+		_quick_tut_btn.add_theme_color_override("font_color", MenuUI.FPV_CYAN)
+		_quick_tut_btn.pressed.connect(func():
+			_select_mode(Global.PlayMode.TUTORIAL)
+			_launch_current_selection()
+		)
+		vbox.add_child(_quick_tut_btn)
 
 	# Quick Difficulty Selector Row
 	var diff_box := VBoxContainer.new()
@@ -1070,6 +1064,7 @@ func _special_mission_def(mission_id: int) -> Dictionary:
 
 
 func _select_mode(mode: int) -> void:
+	mode = Global.sanitize_play_mode(mode)
 	_selected_mode = mode
 	Global.play_mode = mode
 	_selected_special = 0
@@ -1079,17 +1074,6 @@ func _select_mode(mode: int) -> void:
 		_selected_mission = mini(_selected_mission, Global.campaign_unlocked_mission())
 	Global.menu_settings["selected_mode"] = mode
 	Global.save_menu_settings()
-	if mode == Global.PlayMode.CHAOS:
-		_selected_map = "industrial"
-		Global.menu_settings["selected_map"] = "industrial"
-		Global.save_menu_settings()
-		for key in _map_buttons.keys():
-			var b: Button = _map_buttons[key]
-			if b != null and is_instance_valid(b):
-				b.button_pressed = (str(key) == "industrial")
-	if _selected_mode != Global.PlayMode.COMBAT:
-		_update_selection_ui()
-		return
 	_update_selection_ui()
 
 
@@ -1267,25 +1251,23 @@ func _update_selection_ui() -> void:
 	# Update Briefing text & Launch button
 	var is_en := (LocScript.get_language() == LocScript.Language.EN)
 	if _selected_mode == Global.PlayMode.TUTORIAL:
-		_map_title_lbl.text = "FLIGHT SCHOOL · PILOT TRAINING" if is_en else "ШКОЛА ПІЛОТА · КУРС ОПЕРАТОРА"
-		_map_obj_lbl.text = "10 modules: controls, arm/disarm, throttle, altitude hold, yaw, gates, slalom, window pass, braking and landing." if is_en else "10 модулів: стіки, увімкнення/вимкнення двигунів, газ, утримання висоти, рискання, ворота, слалом, проліт крізь вікно, гальмування та посадка."
+		_map_title_lbl.text = "TUTORIAL · PILOT ACADEMY" if is_en else "ТУТОРІАЛ · ШКОЛА ПІЛОТА"
+		var angle_note := ""
+		if Global.should_use_gentle_angle_assist():
+			angle_note = " · Gentle Angle assist ON" if is_en else " · М’яка стабілізація Angle УВІМК."
+		_map_obj_lbl.text = ("10 modules: controls, arm/disarm, throttle, altitude hold, yaw, gates, slalom, window pass, braking and landing." if is_en else "10 модулів: стіки, увімкнення/вимкнення двигунів, газ, утримання висоти, рискання, ворота, слалом, проліт крізь вікно, гальмування та посадка.") + angle_note
 		_map_stats_lbl.text = "MODULES: 10/10  •  ERROR ASSISTANT: ACTIVE  •  CERTIFICATE: AVAILABLE" if is_en else "МОДУЛІВ: 10/10  •  АСИСТЕНТ ПОМИЛОК: АКТИВНИЙ  •  СЕРТИФІКАТ: ДОСТУПНИЙ"
-		_launch_btn.text = "▶  START FPV PILOT COURSE" if is_en else "▶  ПОЧАТИ КУРС ПІЛОТА FPV"
+		_launch_btn.text = "▶  START FPV TUTORIAL" if is_en else "▶  ПОЧАТИ ТУТОРІАЛ FPV"
 	elif _selected_mode == Global.PlayMode.TRAINING:
-		_map_title_lbl.text = "PROVING GROUND · FREE FLIGHT" if is_en else "НАВЧАЛЬНИЙ ПОЛІГОН · ВІЛЬНИЙ ПОЛІТ"
-		_map_obj_lbl.text = "Free flight training, stick calibration and tactical maneuvering." if is_en else "Вільний тренувальний політ, калібрування стіків та маневрування."
-		_map_stats_lbl.text = "TIME LIMIT: UNLIMITED  •  DAMAGE: DISABLED" if is_en else "ЧАС: БЕЗЛІМІТ  •  ПОШКОДЖЕННЯ: ВИМКНЕНО"
-		_launch_btn.text = "▶  START MISSION: FREE FLIGHT" if is_en else "▶  ПОЧАТИ ВИЛІТ: ВІЛЬНИЙ ПОЛІТ"
-	elif _selected_mode == Global.PlayMode.SPEED:
-		_map_title_lbl.text = "TIME TRIAL · CHECKPOINT COURSE" if is_en else "ТРАСА НА ЧАС · КОНТРОЛЬНІ ВОРОТА"
-		_map_obj_lbl.text = "Complete 6 checkpoint gates at maximum speed." if is_en else "Проходження 6 контрольних воріт на граничній швидкості."
-		_map_stats_lbl.text = "MODE: TIME TRIAL  •  GATES: 6/6" if is_en else "РЕЖИМ: НА ЧАС  •  ВОРОТА: 6/6"
-		_launch_btn.text = "▶  START MISSION: TIME TRIAL" if is_en else "▶  ПОЧАТИ ВИЛІТ: ШВИДКІСНА ТРАСА"
-	elif _selected_mode == Global.PlayMode.CHAOS:
-		_map_title_lbl.text = "БОЙОВИЙ ХАОС · ПРОМЗОНА" if not is_en else "COMBAT CHAOS · INDUSTRIAL ZONE"
-		_map_obj_lbl.text = "Дві військові групи ведуть автономний бій: піхота, бронетехніка, артилерія, вирви та руйнування будівель." if not is_en else "Two military groups fight autonomously: infantry, armour, artillery, craters and collapsing buildings."
-		_map_stats_lbl.text = "СИНІ 12 + 5 БМ · ЧЕРВОНІ 12 + 5 БМ · ФРОНТ 190 М" if not is_en else "BLUE 12 + 5 AFV · RED 12 + 5 AFV · 190 M FRONT"
-		_launch_btn.text = "▶  ПОЧАТИ БОЙОВИЙ ХАОС" if not is_en else "▶  START COMBAT CHAOS"
+		var trec := Global.get_training_record("course")
+		var rank_info := ""
+		if bool(trec.get("completed", false)):
+			var s_str := "★".repeat(int(trec.get("stars", 1)))
+			rank_info = ("  •  COURSE BEST: %.1fs %s [%s]" if is_en else "  •  РЕКОРД ТРАСИ: %.1f с %s [%s]") % [float(trec.get("best_time", 0.0)), s_str, str(trec.get("best_rank", "B"))]
+		_map_title_lbl.text = "TRAINING · PROVING GROUND & COURSE" if is_en else "ТРЕНУВАННЯ · ПОЛІГОН ТА ТРАСА"
+		_map_obj_lbl.text = "Free flight training, stick calibration, checkpoint course timer and Ghost replay." if is_en else "Вільний політ, калібрування стіків, тренувальна траса на час і політ із Привидом."
+		_map_stats_lbl.text = ("TIME LIMIT: UNLIMITED  •  DAMAGE: DISABLED" if is_en else "ЧАС: БЕЗЛІМІТ  •  ПОШКОДЖЕННЯ: ВИМКНЕНО") + rank_info
+		_launch_btn.text = "▶  START TRAINING" if is_en else "▶  ПОЧАТИ ТРЕНУВАННЯ"
 	elif _selected_special > 0:
 		var sdef := _special_mission_def(_selected_special)
 		var s_name := str(sdef.get("name", "СПЕЦОПЕРАЦІЯ"))
@@ -1302,46 +1284,61 @@ func _update_selection_ui() -> void:
 		var diff_str := MenuUI.translate_text(Global.get_difficulty_name())
 		match _selected_mission:
 			1:
-				_map_title_lbl.text = "TAC-01: TRENCH LINE · INFANTRY" if is_en else "TAC-01: Окопна лінія · Піхота"
-				_map_obj_lbl.text = "Locate and neutralize 6 enemy personnel in fortified trenches." if is_en else "Виявити та ліквідувати 6 одиниць живої сили в укриттях."
-				_map_stats_lbl.text = ("Targets: 6 infantry  ·  Time: %s  ·  Diff: %s" if is_en else "Цілей: 6 піхотинців  ·  Час: %s  ·  Складність: %s") % [t_limit_str, diff_str]
+				_map_title_lbl.text = "TAC-01: TRENCH LINE · PERSONNEL" if is_en else "TAC-01: Окопна лінія · Умовний противник"
+				_map_obj_lbl.text = "Locate and neutralize 6 targets in fortified trenches." if is_en else "Виявити та знешкодити 6 умовних цілей в укриттях."
+				_map_stats_lbl.text = ("Targets: 6  ·  Time: %s  ·  Diff: %s" if is_en else "Цілей: 6  ·  Час: %s  ·  Складність: %s") % [t_limit_str, diff_str]
 				_launch_btn.text = "▶  START MISSION: TAC-01" if is_en else "▶  ПОЧАТИ ВИЛІТ: TAC-01"
 			2:
-				_map_title_lbl.text = "TAC-02: ROAD TO BAKHMUT · ARMOR" if is_en else "TAC-02: Дорога на Бахмут · Бронетехніка"
-				_map_obj_lbl.text = "Eliminate T-72B tank and BTR-82A APC on the move." if is_en else "Знищити танк Т-72Б та бронетранспортер БТР-82А на марші."
+				_map_title_lbl.text = "TAC-02: ROUTE S-40 · ARMOR" if is_en else "TAC-02: Маршрут S-40 · Бронетехніка"
+				_map_obj_lbl.text = "Disable T-72B tank and BTR-82A APC on the move." if is_en else "Знешкодити танк Т-72Б та бронетранспортер БТР-82А на марші."
 				_map_stats_lbl.text = ("Targets: 1 tank + 1 APC  ·  Time: %s  ·  Diff: %s" if is_en else "Цілей: 1 танк + 1 БТР  ·  Час: %s  ·  Складність: %s") % [t_limit_str, diff_str]
 				_launch_btn.text = "▶  START MISSION: TAC-02" if is_en else "▶  ПОЧАТИ ВИЛІТ: TAC-02"
 			3:
 				_map_title_lbl.text = "TAC-03: LOW ALTITUDE · HELICOPTER" if is_en else "TAC-03: Низька висота · Гелікоптер"
-				_map_obj_lbl.text = "Intercept low-flying enemy attack helicopter." if is_en else "Перехопити низьколетючий ворожий ударний гелікоптер."
+				_map_obj_lbl.text = "Intercept low-flying attack helicopter target." if is_en else "Перехопити низьколетючий ударний гелікоптер."
 				_map_stats_lbl.text = ("Target: Helicopter (140m)  ·  Time: %s  ·  Diff: %s" if is_en else "Ціль: гелікоптер (140м)  ·  Час: %s  ·  Складність: %s") % [t_limit_str, diff_str]
 				_launch_btn.text = "▶  START MISSION: TAC-03" if is_en else "▶  ПОЧАТИ ВИЛІТ: TAC-03"
 			4:
-				_map_title_lbl.text = "TAC-04: HEADING 240° · SHAHED-136" if is_en else "TAC-04: Курс 240° · Шахед-136"
-				_map_obj_lbl.text = "Intercept incoming high-speed Shahed-136 suicide drone." if is_en else "Лобове/наздоганяюче перехоплення швидкісного БПЛА «Шахед-136»."
-				_map_stats_lbl.text = ("Target: Shahed-136 (185 km/h)  ·  Time: %s  ·  Difficulty: %s" if is_en else "Ціль: Шахед-136 (185 км/год)  ·  Час: %s  ·  Складність: %s") % [t_limit_str, diff_str]
+				_map_title_lbl.text = "TAC-04: HEADING 240° · DELTA-136" if is_en else "TAC-04: Курс 240° · Дельта-136"
+				_map_obj_lbl.text = "Intercept incoming high-speed Delta-136 target UAV." if is_en else "Перехоплення швидкісного БПЛА-мішені «Дельта-136»."
+				_map_stats_lbl.text = ("Target: Delta-136 (185 km/h)  ·  Time: %s  ·  Difficulty: %s" if is_en else "Ціль: Дельта-136 (185 км/год)  ·  Час: %s  ·  Складність: %s") % [t_limit_str, diff_str]
 				_launch_btn.text = "▶  START MISSION: TAC-04" if is_en else "▶  ПОЧАТИ ВИЛІТ: TAC-04"
 	if _launch_btn != null:
 		match _selected_mode:
 			Global.PlayMode.TUTORIAL:
-				_launch_btn.text = "▶  ПОЧАТИ КУРС"
+				_launch_btn.text = "▶  START TUTORIAL" if is_en else "▶  ПОЧАТИ ТУТОРІАЛ"
 			Global.PlayMode.TRAINING:
-				_launch_btn.text = "▶  ПОЧАТИ ПОЛІТ"
-			Global.PlayMode.SPEED:
-				_launch_btn.text = "▶  ПОЧАТИ ГОНКУ"
-			Global.PlayMode.CHAOS:
-				_launch_btn.text = "▶  ПОЧАТИ БОЙОВИЙ ХАОС"
+				_launch_btn.text = "▶  START TRAINING" if is_en else "▶  ПОЧАТИ ТРЕНУВАННЯ"
 			_:
 				if _selected_special > 0:
-					_launch_btn.text = "▶  ПОЧАТИ СПЕЦОПЕРАЦІЮ: %s" \
+					_launch_btn.text = ("▶  START SPECIAL OP: %s" if is_en else "▶  ПОЧАТИ СПЕЦОПЕРАЦІЮ: %s") \
 							% Global.get_special_mission_name(_selected_special)
 				else:
-					_launch_btn.text = "▶  ПОЧАТИ МІСІЮ"
+					_launch_btn.text = "▶  START MISSION" if is_en else "▶  ПОЧАТИ МІСІЮ"
 
 	if _launch_btn != null and _selected_mode != Global.PlayMode.TUTORIAL:
 		# Make the destination map explicit: the mission buttons and the map
 		# picker are separate, and the old menu gave no clue which scene loads.
 		_launch_btn.text += "  ·  " + str(_selected_map).to_upper()
+	if _daily_lbl != null:
+		var dc := Global.get_daily_challenge()
+		var dc_title := str(dc.get("title_en" if is_en else "title_uk", ""))
+		var dc_status := ("DONE" if is_en else "ВИКОНАНО") if bool(dc.get("completed", false)) else ("+%d PTS" if is_en else "+%d ОЧК.") % int(dc.get("bonus_score", 500))
+		_daily_lbl.text = ("★ DAILY: %s · %s" if is_en else "★ ВИКЛИК ДНЯ: %s · %s") % [dc_title, dc_status]
+	if _quick_tut_btn != null:
+		_quick_tut_btn.visible = not Global.is_tutorial_completed()
+		_quick_tut_btn.text = "🎓 QUICK START: FIRST FLIGHT (ANGLE)" if is_en else "🎓 ШВИДКИЙ СТАРТ: ПЕРШИЙ ПОЛІТ (ANGLE)"
+	if _gc_btn != null:
+		var gc_ready := Global.is_game_center_available()
+		_gc_btn.text = "🏆 GC" if is_en else "🏆 Рейтинг"
+		_gc_btn.tooltip_text = Global.get_leaderboard_summary(is_en)
+		_gc_btn.modulate = Color.WHITE if gc_ready else Color(0.82, 0.90, 0.85, 0.85)
+	if _lang_btn != null:
+		_lang_btn.text = "🌐 EN → UA" if is_en else "🌐 UA → EN"
+	if _top_title_lbl != null:
+		_top_title_lbl.text = "SORTIE SETUP" if is_en else "Підготовка до вильоту"
+	if _foot_status_lbl != null:
+		_foot_status_lbl.text = "NEBESNYI HORIZONT · TACTICAL FPV SIMULATOR · v1.6.0-test" if is_en else "НЕБЕСНИЙ ГОРИЗОНТ · ТАКТИЧНИЙ FPV-СИМУЛЯТОР · v1.6.0-test"
 
 	if _quick_diff_container != null:
 		_quick_diff_container.visible = (_selected_mode == Global.PlayMode.COMBAT)
@@ -1625,12 +1622,6 @@ func _launch_current_selection() -> void:
 	else:
 		Global.special_mission = 0
 	var map_id := _selected_map
-	if _selected_mode == Global.PlayMode.CHAOS:
-		# Chaos is authored specifically around the industrial complex.
-		map_id = "industrial"
-		if not DroneCatalog.is_combat(Global.drone_preset):
-			QuadSettings.custom_rates = false
-			DroneCatalog.apply(DroneCatalog.first_combat_index())
 	var scene_path: String = FRONTLINE_LEVELS.get(map_id, LEVEL)
 	# The flight school has a fixed training strip on the north field of the
 	# village map; the selected combat map must not move the course into water
@@ -2033,11 +2024,8 @@ func _update_drone_intel() -> void:
 	var idx := Global.drone_preset
 	var total := DroneCatalog.count()
 	var p := DroneCatalog.preset(idx)
-	var drone_name := str(p["name"])
-	if is_en:
-		drone_name = str(p.get("name_en", MenuUI.translate_text(drone_name)))
-	var drone_preset_name := drone_name.to_upper()
-	var drone_tag := MenuUI.translate_text(str(p.get("tag", "")))
+	var drone_preset_name := DroneCatalog.get_drone_name(idx).to_upper()
+	var drone_tag := DroneCatalog.get_drone_tag(idx)
 	if is_en:
 		_drone_title_lbl.text = "ACTIVE CRAFT [%d/%d]:  %s  [%s]" % [idx + 1, total, drone_preset_name, drone_tag]
 	else:
@@ -2051,9 +2039,9 @@ func _update_drone_intel() -> void:
 	if not is_combat:
 		ammo_text = "NONE" if is_en else "ВІДСУТНІЙ"
 	elif has_drop:
-		ammo_text = "%s [DROP]" % str(p.get("drop_name", "%dx VOG-17" % ammo)) if is_en else "%s [СКИД]" % str(p.get("drop_name", "%dх ВОГ-17" % ammo))
+		ammo_text = ("%s [DROP]" if is_en else "%s [СКИД]") % DroneCatalog.get_drone_drop_name(idx)
 	else:
-		ammo_text = "%dx KAMIKAZE" % ammo if is_en else "%dх БЧ КАМІКАДЗЕ" % ammo
+		ammo_text = ("%dx TACTICAL PAYLOAD" if is_en else "%dх ТАКТ. НАВАНТ.") % ammo
 	if is_en:
 		_drone_sub_lbl.text = "⚖️ MASS: %.2f kg  ·  ⚡ MOTORS: %d KV  ·  🚀 TWR: %.1f:1  ·  💣 %s" % [
 			total_mass, int(p.get("kv", 2200)), float(p.get("twr", 6.0)), ammo_text
@@ -2111,9 +2099,9 @@ func _build_3d_drone_card() -> Control:
 	_sub_viewport.own_world_3d = true
 	_sub_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	# The preview is a separate viewport: it does NOT inherit the root
-	# viewport's MSAA.  Without this the drone silhouette is stair-stepped.
-	_sub_viewport.msaa_3d = Viewport.MSAA_4X
-	_sub_viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA
+	# viewport's MSAA. 2x MSAA keeps edges crisp without driver stalls.
+	_sub_viewport.msaa_3d = Viewport.MSAA_2X
+	_sub_viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
 	_viewport_container.add_child(_sub_viewport)
 
 	_setup_3d_scene()
@@ -2389,11 +2377,32 @@ func _build_top_telemetry_bar() -> Control:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hbox.add_child(spacer)
 
+	_gc_btn = MenuUI.feel_button(_ui_text("🏆 Рейтинг", "🏆 GC"), 34, false)
+	_gc_btn.custom_minimum_size.x = 104
+	_gc_btn.pressed.connect(func():
+		Global.open_game_center_leaderboard()
+		if _daily_lbl != null:
+			_daily_lbl.text = Global.get_leaderboard_summary(MenuUI.is_english())
+	)
+	hbox.add_child(_gc_btn)
+
+	_lang_btn = MenuUI.feel_button(_ui_text("🌐 UA → EN", "🌐 EN → UA"), 34, false)
+	_lang_btn.custom_minimum_size.x = 112
+	_lang_btn.pressed.connect(_on_toggle_language)
+	hbox.add_child(_lang_btn)
+
 	var settings_btn := MenuUI.feel_button(_ui_text("⚙ Налаштування", "⚙ Settings"), 34, false)
 	settings_btn.custom_minimum_size.x = 126
 	settings_btn.pressed.connect(_open_settings_overlay)
 	hbox.add_child(settings_btn)
 	return bar
+
+
+func _on_toggle_language() -> void:
+	LocScript.toggle_language()
+	_refresh_mode_button_labels()
+	_update_selection_ui()
+	MenuUI.localize_tree(self)
 
 
 func _open_settings_overlay() -> void:
@@ -2426,10 +2435,9 @@ func _build_ufds_ribbon() -> Control:
 	ribbon.add_child(h)
 
 	var tabs := [
-		{"key": Global.PlayMode.COMBAT, "icon": "⚔️", "title": "Бойові місії", "en": "Combat Sorties", "action": func(): _select_mode(Global.PlayMode.COMBAT)},
-		{"key": Global.PlayMode.TUTORIAL, "icon": "🎓", "title": "Школа пілота", "en": "Flight School", "action": func(): _select_mode(Global.PlayMode.TUTORIAL)},
-		{"key": Global.PlayMode.TRAINING, "icon": "🌲", "title": "Вільний політ", "en": "Free Flight", "action": func(): _select_mode(Global.PlayMode.TRAINING)},
-		{"key": Global.PlayMode.SPEED, "icon": "🏁", "title": "На Час", "en": "Time Trial", "action": func(): _select_mode(Global.PlayMode.SPEED)},
+		{"key": Global.PlayMode.TUTORIAL, "icon": "🎓", "title": "Туторіал", "en": "Tutorial", "action": func(): _select_mode(Global.PlayMode.TUTORIAL)},
+		{"key": Global.PlayMode.TRAINING, "icon": "🌲", "title": "Тренування", "en": "Training", "action": func(): _select_mode(Global.PlayMode.TRAINING)},
+		{"key": Global.PlayMode.COMBAT, "icon": "⚔️", "title": "Бойовий", "en": "Combat", "action": func(): _select_mode(Global.PlayMode.COMBAT)},
 		{"key": "hangar", "icon": "🛸", "title": "Ангар", "en": "Fleet Hangar", "action": func(): _go(DRONE_SCREEN)},
 		{"key": "calibration", "icon": "🕹️", "title": "Калібрування", "en": "RC Calibration", "action": func(): _go(CALIBRATION_SCREEN)},
 		{"key": "settings", "icon": "⚙️", "title": "Налаштування", "en": "Settings", "action": func(): _go(GRAPHICS_SCREEN)}
@@ -2582,4 +2590,14 @@ func _begin_loading(path: String) -> void:
 
 func _process_loading(_delta: float) -> void:
 	pass
+
+
+func _exit_tree() -> void:
+	if _model_holder != null and is_instance_valid(_model_holder):
+		for c in _model_holder.get_children():
+			if is_instance_valid(c):
+				c.queue_free()
+	_settings_overlay = null
+	_loading_layer = null
+	_loading_bar = null
 

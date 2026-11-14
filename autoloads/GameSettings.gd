@@ -59,7 +59,12 @@ var hud_config := {"fps": 20, "crosshair": false, "ladder": false,
 		"mobile_distance_units": "km",
 		"mobile_rate_profiles": {},
 		"mobile_drone_tint": "ХАКІ",
-		"mobile_drone_parts": {}}
+		"mobile_drone_parts": {},
+		"language": "ua",
+		"controller_preset": "",
+		"rc_expo": 0.20,
+		"rc_super_rate": 0.70,
+		"rc_deadzone": 0.02}
 
 
 func load_hud_config() -> void:
@@ -98,8 +103,18 @@ func load_hud_config() -> void:
 							and (value is int or value is float):
 						hud_config[key] = maxi(int(value), 1)
 					elif key in ["mobile_pilot_name", "mobile_distance_units",
-							"mobile_drone_tint"] and value is String:
+							"mobile_drone_tint", "controller_preset"] and value is String:
 						hud_config[key] = value
+					elif key == "language" and value is String:
+						var lang_val := String(value).strip_edges().to_lower()
+						if lang_val in ["ua", "en"]:
+							hud_config[key] = lang_val
+					elif key == "rc_expo" and (value is int or value is float):
+						hud_config[key] = clampf(float(value), 0.0, 0.80)
+					elif key == "rc_super_rate" and (value is int or value is float):
+						hud_config[key] = clampf(float(value), 0.0, 0.95)
+					elif key == "rc_deadzone" and (value is int or value is float):
+						hud_config[key] = clampf(float(value), 0.0, 0.20)
 					elif key == "mobile_render_scale" and (value is int or value is float):
 						hud_config[key] = clampi(int(value), 50, 100)
 					elif key in ["mobile_stream_mode", "mobile_ghost", "mobile_racing_line"] \

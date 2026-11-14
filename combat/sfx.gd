@@ -1072,3 +1072,42 @@ static func play_radio(parent: Node, _text: String = "", volume_db: float = -7.0
 	parent.add_child(player)
 	player.play()
 	player.finished.connect(player.queue_free)
+
+
+static func clear_caches() -> void:
+	_boom_stream = null
+	_shot_stream = null
+	_rifle_stream = null
+	_radio_stream = null
+	_cannon_stream = null
+	_autocannon_stream = null
+	_track_stream = null
+	_fire_stream = null
+	_artillery_stream = null
+	_servo_stream = null
+	_engine_stream = null
+	_wind_stream = null
+	_beeper_stream = null
+	_drop_stream = null
+	_music_stream = null
+	_combat_music = null
+	_footstep_stream = null
+	_soldier_death_stream = null
+	_drone_impact_stream = null
+	_fpv_stream = null
+	_tank_stream = null
+	_bmp_stream = null
+	_apc_stream = null
+	_truck_stream = null
+	_heli_stream = null
+	_shahed_stream = null
+	_motor_5in_stream = null
+	_motor_8in_stream = null
+	_motor_usv_stream = null
+	_motor_pusher_stream = null
+	_motor_jet_stream = null
+	_motor_hexa_stream = null
+	_motor_7in_stream = null
+	_thunder_stream = null
+	_alert_streams.clear()
+	_ew_crackle_stream = null

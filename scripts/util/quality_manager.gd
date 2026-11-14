@@ -1,4 +1,4 @@
-﻿class_name QualityManager
+class_name QualityManager
 extends RefCounted
 
 ## Three graphics presets.  Kept deliberately simple: LOW for weak/integrated
@@ -29,17 +29,19 @@ const DESCRIPTIONS := [
 ## Per-preset parameters.
 const PRESETS := {
 	Level.LOW: {
-		"scale_3d": 0.58, "min_scale": 0.40, "max_scale": 0.72,
+		"scale_3d": 0.67, "min_scale": 0.40, "max_scale": 0.72,
 		"adaptive": false, "target_fps": 118.0,
 		"physics_hz": 60,
 		"static_sky": true,
-		"fsr_sharpness": 0.45, "msaa": 0, "fxaa": false,
+		"fsr_sharpness": 0.85, "msaa": 0, "fxaa": false,
 		"ssao": false, "ssao_quality": RenderingServer.ENV_SSAO_QUALITY_VERY_LOW,
 		"ssil": false, "volumetric_fog": false, "glow": false,
 		"shadows": true, "shadow_splits": 2, "shadow_distance": 90.0,
 		"shadow_atlas": 1024, "soft_shadow": RenderingServer.SHADOW_QUALITY_HARD,
 		"grass_count": 1400, "grass_range": 18.0,
 		"veg_range": 560.0, "veg_density": 0.5, "mesh_lod": 1.8,
+		"world_detail_factor": 0.25, "grass_tuft_mult": 0.35,
+		"ground_detail_level": 0, "far_grass_mult": 0.30,
 		"motion_blur": 0.0,
 	},
 	Level.MEDIUM: {
@@ -52,8 +54,10 @@ const PRESETS := {
 		"ssil": false, "volumetric_fog": false, "glow": false,
 		"shadows": true, "shadow_splits": 2, "shadow_distance": 120.0,
 		"shadow_atlas": 1024, "soft_shadow": RenderingServer.SHADOW_QUALITY_SOFT_LOW,
-		"grass_count": 3200, "grass_range": 24.0,
-		"veg_range": 980.0, "veg_density": 0.75, "mesh_lod": 1.2,
+		"grass_count": 2600, "grass_range": 22.0,
+		"veg_range": 740.0, "veg_density": 0.58, "mesh_lod": 1.2,
+		"world_detail_factor": 0.30, "grass_tuft_mult": 0.45,
+		"ground_detail_level": 1, "far_grass_mult": 0.40,
 		"motion_blur": 0.0,
 	},
 	Level.HIGH: {
@@ -66,8 +70,10 @@ const PRESETS := {
 		"volumetric_fog": false, "volumetric_density": 0.0011, "glow": false,
 		"shadows": true, "shadow_splits": 2, "shadow_distance": 180.0,
 		"shadow_atlas": 2048, "soft_shadow": RenderingServer.SHADOW_QUALITY_SOFT_LOW,
-		"grass_count": 12000, "grass_range": 42.0,
-		"veg_range": 2200.0, "veg_density": 1.0, "mesh_lod": 0.8,
+		"grass_count": 4200, "grass_range": 28.0,
+		"veg_range": 920.0, "veg_density": 0.65, "mesh_lod": 0.8,
+		"world_detail_factor": 0.35, "grass_tuft_mult": 0.55,
+		"ground_detail_level": 1, "far_grass_mult": 0.50,
 		"static_sky": true,
 		"motion_blur": 0.0,
 	},
@@ -126,7 +132,8 @@ static func params() -> Dictionary:
 		var mobile_target := 58.0 if refresh < 90.0 else 118.0
 		match level():
 			Level.LOW:
-				p.merge({"scale_3d": 0.58, "min_scale": 0.42, "max_scale": 0.70,
+				p.merge({"scale_3d": 0.67, "min_scale": 0.42, "max_scale": 0.72,
+					"fsr_sharpness": 0.85,
 					"adaptive": true, "target_fps": mobile_target,
 					"grass_count": 1100, "grass_range": 18.0,
 					"veg_range": 520.0, "veg_density": 0.48, "mesh_lod": 1.8,
@@ -261,8 +268,10 @@ static func _apply_static_sky(env: Environment) -> void:
 	if not env.sky.has_meta("lowspec_sky_backup"):
 		env.sky.set_meta("lowspec_sky_backup", env.sky.sky_material)
 		env.sky.set_meta("lowspec_sky_process", env.sky.process_mode)
+		env.sky.set_meta("lowspec_sky_rot", env.sky_rotation)
 	env.sky.sky_material = mat
 	env.sky.process_mode = Sky.PROCESS_MODE_INCREMENTAL
+	env.sky_rotation.y = PI
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.58, 0.64, 0.72)
 	env.ambient_light_energy = 0.9
@@ -276,6 +285,9 @@ static func _restore_sky(env: Environment) -> void:
 		env.sky.sky_material = env.sky.get_meta("lowspec_sky_backup")
 		env.sky.process_mode = int(env.sky.get_meta("lowspec_sky_process",
 				Sky.PROCESS_MODE_AUTOMATIC))
+		if env.sky.has_meta("lowspec_sky_rot"):
+			env.sky_rotation = env.sky.get_meta("lowspec_sky_rot")
+			env.sky.remove_meta("lowspec_sky_rot")
 		env.sky.remove_meta("lowspec_sky_backup")
 		env.sky.remove_meta("lowspec_sky_process")
 
@@ -311,6 +323,11 @@ static func apply_environment(env: Environment) -> void:
 		env.ssil_radius = float(p.get("ssil_radius", 5.0))
 		env.ssil_intensity = 1.15 if p["ssil"] else 0.0
 		env.volumetric_fog_enabled = p["volumetric_fog"]
+	env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env.adjustment_enabled = true
+	env.adjustment_contrast = 1.07
+	env.adjustment_saturation = 1.10
+	env.adjustment_brightness = 1.01
 	env.glow_enabled = p["glow"]
 	if p["volumetric_fog"]:
 		# Height fog over the steppe: dense near the ground, thin at altitude,
@@ -324,18 +341,17 @@ static func apply_environment(env: Environment) -> void:
 		env.volumetric_fog_sky_affect = 0.08
 		env.fog_enabled = true
 		env.fog_density = 0.00028
-		env.fog_aerial_perspective = 0.3
-		env.fog_height = 18.0
-		env.fog_height_density = 0.004
+		env.fog_aerial_perspective = 0.55
+		env.fog_height = 22.0
+		env.fog_height_density = 0.0045
 	if not p["volumetric_fog"]:
-		# Compensate with denser analytic depth fog + a little height fog, which
-		# reproduces the hazy aerial perspective of the volumetric version.
+		# Compensate with soft height fog + aerial perspective even on LOW.
 		env.fog_enabled = true
 		env.fog_density = 0.00055
-		env.fog_aerial_perspective = 0.35
+		env.fog_aerial_perspective = 0.55
 		env.fog_sky_affect = 0.25
-		env.fog_height = 30.0
-		env.fog_height_density = 0.004
+		env.fog_height = 24.0
+		env.fog_height_density = 0.0045
 	# SDFGI / reflections are never needed for this outdoor scene.
 	env.sdfgi_enabled = false
 	env.ssr_enabled = false

@@ -74,11 +74,9 @@ static func build(root: Node3D, map_name: String, _base_y: float) -> void:
 	_p_props.clear()
 	_used_sites.clear()
 	var level := QualityManager.get_active_level()
-	var factor := 1.0
-	if level == QualityManager.Level.MEDIUM:
-		factor = 0.88
-	elif level == QualityManager.Level.LOW:
-		factor = 0.60
+	var fallback := 0.35 if level == QualityManager.Level.HIGH else \
+			(0.30 if level == QualityManager.Level.MEDIUM else 0.25)
+	var factor := float(QualityManager.get_value("world_detail_factor", fallback))
 
 	_dress_hall_sites(root, map_name, factor)
 	_dress_ruins(root, map_name, factor)
@@ -123,7 +121,9 @@ static func _b2(b: Basis, v: Vector3) -> Vector2:
 
 
 static func _free(x: float, z: float, pad: float = 2.0) -> bool:
-	if x < -268.0 or z < -268.0 or x > 268.0 or z > 268.0:
+	if absf(x) > 160.0 or absf(z) > 160.0:
+		return false
+	if FT._road_factor(_map, x, z) >= 0.25:
 		return false
 	if _h(x, z) < FT.water_level(_map) + 0.35:
 		return false
@@ -132,8 +132,12 @@ static func _free(x: float, z: float, pad: float = 2.0) -> bool:
 			return false
 	if FT._hall_clear_zone(_map, x, z):
 		return false
-	if FT._structure_clear_zone(_map, x, z):
+	if FT._structure_clear_zone(_map, x, z, pad):
 		return false
+	var pt := Vector2(x, z)
+	for s in _used_sites:
+		if (s as Vector2).distance_to(pt) < pad + 12.0:
+			return false
 	return true
 
 
@@ -697,7 +701,7 @@ static func _hall_yard(root: Node3D, map_name: String, c: Vector2, half: Vector2
 	sign_label.modulate = Color(0.88, 0.90, 0.86)
 	sign_label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
 	root.add_child(sign_label)
-	sign_label.global_position = sign_post + Vector3(0.10, 3.4, 0)
+	sign_label.position = sign_post + Vector3(0.10, 3.4, 0)
 	sign_label.rotation = Vector3(0, PI * 0.5, 0)
 
 	# Floodlight masts were removed: their tiny lamp heads on 10 m poles read
@@ -1426,7 +1430,7 @@ static func _hall_end_details(root: Node3D, map_name: String, c: Vector2,
 	wash.light_volumetric_fog_energy = 2.5
 	wash.shadow_enabled = false
 	root.add_child(wash)
-	wash.look_at(Vector3(front_x + dir * 7.0, gy + 0.5, c.y), Vector3.UP)
+	FT._apply_look_at(wash, Vector3(front_x + dir * 7.0, gy + 0.5, c.y), Vector3.UP)
 
 	# Pilasters and horizontal bands break the huge concrete plane.
 	for pz in [-22.0, -11.0, 11.0, 22.0]:
@@ -1498,7 +1502,7 @@ static func _hall_end_details(root: Node3D, map_name: String, c: Vector2,
 	label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
 	label.no_depth_test = false
 	root.add_child(label)
-	label.global_position = Vector3(front_x + dir * 0.40, gy + 12.4, c.y)
+	label.position = Vector3(front_x + dir * 0.40, gy + 12.4, c.y)
 	label.rotation = Vector3(0.0, dir * PI * 0.5, 0.0)
 	# A bolt-on steel staircase to the upper window level.
 	for k in range(7):
@@ -1627,41 +1631,8 @@ static func _dress_loading_dock(root: Node3D, map_name: String, p: Vector2,
 # ===========================================================================
 #  Ruined outbuildings
 # ===========================================================================
-static func _dress_ruins(root: Node3D, map_name: String, factor: float) -> void:
-	var sites: Array = []
-	match map_name:
-		"steppe":
-			sites = [
-				[Vector2(24.0, 206.0), 0.35, 14.0, 8.0, 4.2, "brick"],
-				[Vector2(-154.0, 72.0), -0.25, 18.0, 9.0, 5.0, "concrete"],
-				[Vector2(232.0, 64.0), 0.8, 12.0, 7.0, 3.6, "brick"],
-			]
-		"village":
-			sites = [
-				[Vector2(12.0, 16.0), 0.1, 15.0, 9.0, 4.0, "brick"],
-				[Vector2(-70.0, 128.0), -0.6, 13.0, 7.0, 3.5, "plaster"],
-				[Vector2(168.0, -8.0), 0.9, 17.0, 8.0, 4.4, "brick"],
-			]
-		"industrial":
-			sites = [
-				[Vector2(150.0, 44.0), 0.15, 16.0, 10.0, 5.2, "concrete"],
-				[Vector2(-74.0, 24.0), -0.45, 14.0, 8.0, 4.6, "brick"],
-				[Vector2(220.0, 172.0), 0.7, 18.0, 9.0, 5.0, "concrete"],
-			]
-		"wetlands":
-			sites = [
-				[Vector2(48.0, 92.0), -0.2, 13.0, 8.0, 3.8, "brick"],
-				[Vector2(-84.0, 30.0), 0.5, 16.0, 9.0, 4.2, "concrete"],
-				[Vector2(210.0, 26.0), -0.8, 12.0, 7.0, 3.4, "brick"],
-			]
-	var max_sites := int(maxf(1.0, round(float(sites.size()) * factor)))
-	for i in range(mini(max_sites, sites.size())):
-		var s: Array = sites[i]
-		var p: Vector2 = s[0]
-		if not _free(p.x, p.y, 10.0):
-			continue
-		_ruin_site(root, p, float(s[1]), float(s[2]), float(s[3]), float(s[4]),
-				String(s[5]))
+static func _dress_ruins(_root: Node3D, _map_name: String, _factor: float) -> void:
+	return
 
 
 static func _ruin_site(root: Node3D, p: Vector2, yaw: float, w: float, d: float,
@@ -1779,18 +1750,17 @@ static func _dress_fields(root: Node3D, map_name: String, factor: float) -> void
 	var fields: Array = []
 	if map_name == "steppe":
 		fields = [
-			[Vector2(0.0, 205.0), 130.0, 75.0, 0.0, "wheat"],
-			[Vector2(180.0, 180.0), 100.0, 70.0, 0.10, "stubble"],
-			[Vector2(195.0, 90.0), 95.0, 65.0, -0.12, "plowed"],
-			[Vector2(-175.0, -55.0), 120.0, 75.0, 0.22, "wheat"],
-			[Vector2(-50.0, 25.0), 90.0, 60.0, -0.35, "stubble"],
+			[Vector2(-40.0, 118.0), 82.0, 52.0, 0.0, "wheat"],
+			[Vector2(110.0, 118.0), 74.0, 48.0, 0.10, "stubble"],
+			[Vector2(-115.0, -48.0), 76.0, 52.0, 0.22, "wheat"],
+			[Vector2(-48.0, 22.0), 70.0, 46.0, -0.35, "stubble"],
 		]
 	else:
 		fields = [
-			[Vector2(-25.0, 195.0), 115.0, 75.0, 0.15, "wheat"],
-			[Vector2(175.0, 195.0), 105.0, 65.0, -0.20, "stubble"],
-			[Vector2(-185.0, -25.0), 110.0, 65.0, 0.40, "plowed"],
-			[Vector2(65.0, -120.0), 100.0, 70.0, 0.0, "orchard"],
+			[Vector2(-28.0, 124.0), 78.0, 50.0, 0.15, "wheat"],
+			[Vector2(114.0, 122.0), 70.0, 46.0, -0.20, "stubble"],
+			[Vector2(-118.0, -24.0), 72.0, 48.0, 0.40, "plowed"],
+			[Vector2(56.0, -96.0), 68.0, 48.0, 0.0, "orchard"],
 		]
 	for i in range(fields.size()):
 		if factor < 0.6 and i > 2:
@@ -2001,7 +1971,7 @@ static func _round_bale(root: Node3D, pos: Vector3) -> void:
 static func _orchard_rows(root: Node3D, center: Vector2, w: float, d: float,
 		yaw: float, factor: float) -> void:
 	var basis := Basis(Vector3.UP, yaw)
-	var step := 6.0
+	var step := 12.0
 	var rows := int(w / step)
 	var cols := int(d / step)
 	# The old orchard used a cylinder trunk and a smooth ellipsoid crown, which
@@ -2022,10 +1992,19 @@ static func _orchard_rows(root: Node3D, center: Vector2, w: float, d: float,
 			var wp := Vector3(center.x, 0, center.y) + basis * Vector3(
 					-w * 0.5 + (float(r) + 0.5) * step,
 					0.0, -d * 0.5 + (float(c) + 0.5) * step)
-			if not _free(wp.x, wp.z, 0.0):
+			if not _free(wp.x, wp.z, 8.0):
 				continue
+			var p2 := Vector2(wp.x, wp.z)
+			var too_close := false
+			for tp in FT._placed_tree_positions:
+				if p2.distance_to(tp) < 13.5:
+					too_close = true
+					break
+			if too_close:
+				continue
+			FT._placed_tree_positions.append(p2)
 			var y := _h(wp.x, wp.z)
-			var s := _rng.randf_range(0.70, 1.02)
+			var s := _rng.randf_range(0.95, 1.35)
 			var b := Basis(Vector3.UP, _rng.randf_range(0.0, TAU)).scaled(
 					Vector3(s, s, s))
 			transforms.append(Transform3D(b, Vector3(wp.x, y, wp.z)))
@@ -2050,15 +2029,11 @@ static func _orchard_rows(root: Node3D, center: Vector2, w: float, d: float,
 #  Biome-specific set pieces
 # ===========================================================================
 static func _dress_steppe(root: Node3D, map_name: String, factor: float) -> void:
-	# A wind pump and a water tower give the horizon vertical landmarks and a
-	# readable farm scale from the air.
-	_wind_pump(root, Vector2(-215.0, 92.0))
-	_water_tower(root, Vector2(98.0, 195.0))
-	# Fence line along the farm track.
+	# Fence line along the farm edge (kept compact inside ±150 m).
 	var wood := FT._pbr("wood", Color(0.46, 0.37, 0.25), 0.45)
-	for i in range(int(maxf(10.0, 26.0 * factor))):
-		var x := 20.0 + float(i) * 4.5
-		var z := 174.0 + 2.2 * sin(x * 0.05)
+	for i in range(int(maxf(8.0, 18.0 * factor))):
+		var x := 16.0 + float(i) * 4.5
+		var z := 142.0 + 2.0 * sin(x * 0.05)
 		if not _free(x, z, 0.0):
 			continue
 		var y := _h(x, z)
@@ -2066,13 +2041,11 @@ static func _dress_steppe(root: Node3D, map_name: String, factor: float) -> void
 		if i > 0:
 			_box(root, Vector3(x - 2.25, y + 0.93, z), Vector3(4.4, 0.09, 0.07), wood)
 			_box(root, Vector3(x - 2.25, y + 0.48, z), Vector3(4.4, 0.09, 0.07), wood)
-	# A line of round bales near the training outpost.
-	for i in range(int(maxf(3.0, 8.0 * factor))):
-		var p := Vector2(66.0 + float(i) * 2.4, 196.0 + float(i % 3) * 1.4)
+	for i in range(int(maxf(3.0, 6.0 * factor))):
+		var p := Vector2(54.0 + float(i) * 2.4, 146.0 + float(i % 3) * 1.4)
 		if _free(p.x, p.y, 0.0):
 			_round_bale(root, Vector3(p.x, _h(p.x, p.y), p.y))
-	# Sunflower / tall weed patch at the farm edge: a strong yellow accent.
-	_tall_flowers(root, Vector2(46.0, 172.0), 12.0, int(maxf(30.0, 80.0 * factor)))
+	_tall_flowers(root, Vector2(36.0, 136.0), 10.0, int(maxf(20.0, 60.0 * factor)))
 
 
 static func _dress_village(root: Node3D, map_name: String, factor: float) -> void:
@@ -2080,9 +2053,9 @@ static func _dress_village(root: Node3D, map_name: String, factor: float) -> voi
 	var wood := FT._pbr("wood", Color(0.56, 0.44, 0.29), 0.45)
 	var green := FT._pbr("grass", Color(0.30, 0.42, 0.16), 1.0)
 	var soil := FT._pbr("dirt", Color(0.33, 0.26, 0.18), 0.25)
-	for i in range(int(maxf(8.0, 18.0 * factor))):
-		var x := 22.0 + float(i % 9) * 15.0 + _rng.randf_range(-2.0, 2.0)
-		var z := 34.0 + float(i / 9) * 17.0 + _rng.randf_range(-2.0, 2.0)
+	for i in range(int(maxf(6.0, 14.0 * factor))):
+		var x := 22.0 + float(i % 7) * 16.0 + _rng.randf_range(-2.0, 2.0)
+		var z := 22.0 + float(i / 7) * 14.0 + _rng.randf_range(-2.0, 2.0)
 		if not _free(x, z, 0.0):
 			continue
 		var y := _h(x, z)
@@ -2115,65 +2088,69 @@ static func _dress_village(root: Node3D, map_name: String, factor: float) -> voi
 		_orchard_block(root, Vector2(-18.0, -100.0), 58.0, 36.0, 0.0, factor)
 
 
-static func _dress_industrial(root: Node3D, map_name: String, factor: float) -> void:
+static func _dress_industrial(root: Node3D, _map_name: String, factor: float) -> void:
 	var rich := factor >= 0.85
-	# Scrap heaps and gantry crane.
-	_scrap_yard(root, Vector2(92.0, 30.0), 24.0, factor)
-	if rich:
-		# Rail spur with sleepers, rails and two wagons.
-		_rail_yard(root, Vector2(-220.0, -30.0), 74.0, -0.08, factor)
-		_gantry_crane(root, Vector2(92.0, 30.0), 22.0, 14.0)
-		# Pipe bridge between the hero hall and the nearest warehouse.
-		_pipe_bridge(root, Vector2(50.0, 80.0), Vector2(168.0, 86.0))
-		# Cooling tower far from the hero hall: a huge industrial silhouette.
-		_cooling_tower(root, Vector2(-215.0, 118.0))
-		# Silo relocated to standalone open area
-		pass
-	# Container stacks in the yard.
-	for i in range(int(maxf(4.0, 10.0 * factor))):
-		var p := Vector2(36.0 + _rng.randf_range(-16.0, 30.0),
-				34.0 + _rng.randf_range(-10.0, 26.0))
-		if not _free(p.x, p.y, 0.0):
+	var scrap_p := Vector2(-42.0, 134.0)
+	if _free(scrap_p.x, scrap_p.y, 16.0):
+		_scrap_yard(root, scrap_p, 20.0, factor)
+		if rich:
+			_gantry_crane(root, scrap_p, 20.0, 14.0)
+		FT.reserve_area(scrap_p, 18.0)
+		_used_sites.append(scrap_p)
+	# Container stacks in a clear yard outside hero halls & reserved corridors.
+	for i in range(int(maxf(3.0, 6.0 * factor))):
+		var p := Vector2(-64.0 + _rng.randf_range(-24.0, 24.0),
+				68.0 + _rng.randf_range(-24.0, 24.0))
+		if not _free(p.x, p.y, 6.0):
 			continue
+		FT.reserve_area(p, 5.0)
+		_used_sites.append(p)
 		var y := _h(p.x, p.y)
 		var cmat := FT._pbr("steel", [Color(0.52, 0.22, 0.16),
 				Color(0.18, 0.32, 0.42), Color(0.24, 0.38, 0.24)][i % 3], 0.32)
-		for s in range(1 + i % 3):
+		for s in range(1 + i % 2):
 			_box(root, Vector3(p.x, y + 1.3 + float(s) * 2.55, p.y),
 					Vector3(6.0, 2.5, 2.4), cmat, _rng.randf_range(0.0, TAU), true)
 
 
-static func _dress_wetlands(root: Node3D, map_name: String, factor: float) -> void:
+static func _dress_wetlands(root: Node3D, _map_name: String, factor: float) -> void:
 	# Wooden walkways through the reeds, a couple of boats and a drowned
-	# concrete structure all reinforce the flooded-pump-station story.
+	# concrete structure — only on open spots outside halls & reserved zones.
 	if factor >= 0.85:
 		for i in range(2):
-			var start := Vector2(28.0 + float(i) * 90.0, 82.0)
-			_boardwalk(root, start, 38.0, PI * 0.5 + float(i) * 0.4, factor)
-		_boat_wreck(root, Vector2(52.0, 106.0), 0.4)
-		_boat_wreck(root, Vector2(-44.0, 72.0), 1.2)
-		_drowned_ruin(root, Vector2(140.0, 34.0), 0.2)
-	# Duck boards and pump housing beside the hall.
-	var pump := Vector2(30.0, 60.0)
-	var gy := _h(pump.x, pump.y)
+			var start := Vector2(-88.0 + float(i) * 48.0, 96.0)
+			if not FT._hall_clear_zone("wetlands", start.x, start.y) \
+					and not FT._structure_clear_zone("wetlands", start.x, start.y, 8.0):
+				_boardwalk(root, start, 32.0, PI * 0.5 + float(i) * 0.4, factor)
+		for bw in [[Vector2(-46.0, 106.0), 0.4], [Vector2(-108.0, 64.0), 1.2]]:
+			var bp: Vector2 = bw[0]
+			if not FT._hall_clear_zone("wetlands", bp.x, bp.y) \
+					and not FT._structure_clear_zone("wetlands", bp.x, bp.y, 8.0):
+				_boat_wreck(root, bp, float(bw[1]))
+				FT.reserve_area(bp, 8.0)
+	var pump := Vector2(-24.0, 62.0)
 	var steel := FT._pbr("steel", Color(0.34, 0.38, 0.34), 0.30)
 	var concrete := FT._pbr("concrete", Color(0.55, 0.58, 0.54), 0.28)
-	_box(root, Vector3(pump.x, gy + 0.9, pump.y), Vector3(3.0, 1.8, 3.0), concrete, 0.0, true)
-	_cyl(root, Vector3(pump.x, gy + 2.2, pump.y), 0.7, 1.2, steel, false)
-	_cyl(root, Vector3(pump.x, gy + 2.9, pump.y), 0.35, 0.8, steel, false)
-	# The flooded pump station needs a vertical landmark with the same open-top
-	# dive opening as the industrial maps.  Hollow concrete stack with a base
-	# arch, so it can be entered from above and exited at ground level.
-	var stack := Vector2(22.0, 60.0)
-	var sy := _h(stack.x, stack.y)
-	var dark := FT._mat(Color(0.07, 0.06, 0.05), 0.95)
-	FT._open_tower(root, Vector3(stack.x, sy, stack.y), 2.6, 0.72, 24.0,
-			concrete, dark,
-			{"deg": 70.0, "min_h": 0.0, "max_h": 4.2, "count": 2},
-			"WetlandsChimney")
-	for bh in [5.8, 13.5, 22.8]:
-		FT._add_ring(root, Vector3(stack.x, sy + bh, stack.y),
-				2.66, 0.15, steel)
+	if _free(pump.x, pump.y, 8.0):
+		var gy := _h(pump.x, pump.y)
+		_box(root, Vector3(pump.x, gy + 0.9, pump.y), Vector3(3.0, 1.8, 3.0), concrete, 0.0, true)
+		_cyl(root, Vector3(pump.x, gy + 2.2, pump.y), 0.7, 1.2, steel, false)
+		_cyl(root, Vector3(pump.x, gy + 2.9, pump.y), 0.35, 0.8, steel, false)
+		FT.reserve_area(pump, 7.0)
+		_used_sites.append(pump)
+	var stack := Vector2(-110.0, -76.0)
+	if _free(stack.x, stack.y, 12.0):
+		var sy := _h(stack.x, stack.y)
+		var dark := FT._mat(Color(0.07, 0.06, 0.05), 0.95)
+		FT._open_tower(root, Vector3(stack.x, sy, stack.y), 2.6, 0.72, 24.0,
+				concrete, dark,
+				{"deg": 70.0, "min_h": 0.0, "max_h": 4.2, "count": 2},
+				"WetlandsChimney")
+		for bh in [5.8, 13.5, 22.8]:
+			FT._add_ring(root, Vector3(stack.x, sy + bh, stack.y),
+					2.66, 0.15, steel)
+		FT.reserve_area(stack, 12.0)
+		_used_sites.append(stack)
 	# Reeds along the new walkway edges.
 	_reeds(root, Vector2(50.0, 100.0), 22.0, int(maxf(160.0, 420.0 * factor)))
 	# Fallen power poles in the marsh: dark diagonal lines.
@@ -2607,33 +2584,25 @@ static func _scatter_procedural(root: Node3D, map_name: String, factor: float) -
 				or ln.contains("hospital") or ln.contains("factory")
 				or ln.contains("admin") or ln.contains("bridge")):
 			continue
-		_used_sites.append(Vector2(n3.global_position.x, n3.global_position.z))
+		var n_pos := FT._local_transform_to_root(n3, root).origin
+		_used_sites.append(Vector2(n_pos.x, n_pos.z))
 	var kinds: Array = []
 	match map_name:
-		"village":
-			kinds = ["ruin", "camp", "wreck", "field", "orchard", "farm", "ruin", "camp"]
-		"industrial":
-			kinds = ["ruin", "wreck", "camp", "tank", "ruin", "checkpoint", "wreck"]
 		"wetlands":
-			kinds = ["ruin", "wreck", "camp", "pond", "ruin", "wreck", "camp"]
+			kinds = ["camp", "wreck", "pond"]
 		_:
-			kinds = ["ruin", "camp", "wreck", "field", "tank", "farm", "field", "wreck"]
-	# Floor the density: at factor 0.34 (LOW) the old 22*factor gave 7 sites over
-	# 870x870 m, which read as an empty field.  Props are batched in
-	# _flush_pending, so the extra sites cost very few draw calls.
-	var count := int(maxf(16.0, round(32.0 * maxf(factor, 0.55))))
-	var max_attempts := count * 60
+			kinds = ["camp", "wreck", "tank"]
+	var count := mini(2, maxi(1, int(round(4.0 * factor))))
+	var max_attempts := count * 50
 	var placed := 0
 	while placed < count and max_attempts > 0:
 		max_attempts -= 1
-		var p := Vector2(_rng.randf_range(-250.0, 250.0),
-				_rng.randf_range(-250.0, 250.0))
-		if not _free(p.x, p.y, 8.0):
+		var p := Vector2(_rng.randf_range(-148.0, 148.0),
+				_rng.randf_range(-148.0, 148.0))
+		if not _free(p.x, p.y, 12.0):
 			continue
 		var kind: String = kinds[_rng.randi_range(0, kinds.size() - 1)]
-		# Wide berth: a 115 m field has a 58 m half-extent, so keep clear of
-		# hero yards while fitting the 40% smaller arena.
-		var clearance := 105.0 if kind == "field" or kind == "orchard" else 40.0
+		var clearance := 46.0
 		if _too_close(p, clearance):
 			continue
 		# Keep fields and camps off the drivable road ribbons.
@@ -2693,6 +2662,7 @@ static func _scatter_procedural(root: Node3D, map_name: String, factor: float) -
 				else:
 					_procedural_camp(root, p, false)
 		_used_sites.append(p)
+		FT.reserve_area(p, 14.0)
 		placed += 1
 
 
@@ -2747,21 +2717,21 @@ static func _dress_ground_litter(root: Node3D, map_name: String, factor: float) 
 		centers.append(c + Vector2(-half.x - 14.0, 0.0))
 	match map_name:
 		"steppe":
-			centers.append_array([Vector2(40, 146), Vector2(66, 70), Vector2(-210, 40),
-					Vector2(225, -40), Vector2(24, 206), Vector2(-154, 72)])
+			centers.append_array([Vector2(36, 128), Vector2(66, 70), Vector2(-132, 40),
+					Vector2(142, -40), Vector2(-48, 126), Vector2(-128, 68)])
 		"village":
 			centers.append_array([Vector2(90, 70), Vector2(30, 46), Vector2(130, 96),
-					Vector2(-210, 90), Vector2(-112, 188), Vector2(12, 16)])
+					Vector2(-140, 84), Vector2(-108, 138), Vector2(12, 16)])
 		"industrial":
-			centers.append_array([Vector2(168, 86), Vector2(92, 30), Vector2(-120, -40),
-					Vector2(24, 176), Vector2(120, -30), Vector2(-220, -30)])
+			centers.append_array([Vector2(138, 86), Vector2(92, 30), Vector2(-115, -36),
+					Vector2(24, 140), Vector2(116, -30), Vector2(-140, -28)])
 		"wetlands":
-			centers.append_array([Vector2(30, 60), Vector2(52, 106), Vector2(-84, 30),
-					Vector2(202, 132), Vector2(-230, 20)])
-	for i in range(int(maxf(4.0, 8.0 * factor))):
-		centers.append(Vector2(_rng.randf_range(-245.0, 245.0),
-				_rng.randf_range(-245.0, 245.0)))
-	var litter := int(maxf(12.0, 30.0 * factor))
+			centers.append_array([Vector2(30, 60), Vector2(52, 106), Vector2(-82, 30),
+					Vector2(138, 126), Vector2(-142, 20)])
+	for i in range(int(maxf(2.0, 6.0 * factor))):
+		centers.append(Vector2(_rng.randf_range(-148.0, 148.0),
+				_rng.randf_range(-148.0, 148.0)))
+	var litter := int(clampf(round(14.0 * factor), 3.0, 6.0))
 	for c in centers:
 		var cp: Vector2 = c
 		if not _free(cp.x, cp.y, 0.0):

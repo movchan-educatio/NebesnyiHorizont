@@ -136,6 +136,30 @@ var _crash_trail_cd := 0.0
 var _crash_smoke: GPUParticles3D = null
 var _crash_fire: GPUParticles3D = null
 var _fire_cd := 1.0
+var _fx_nodes: Array[Node] = []
+var _cookoff_smoke: GPUParticles3D = null
+
+
+func _exit_tree() -> void:
+	if _engine_player != null and is_instance_valid(_engine_player):
+		_engine_player.stop()
+	if _track_player != null and is_instance_valid(_track_player):
+		_track_player.stop()
+	if _cookoff_smoke != null and is_instance_valid(_cookoff_smoke):
+		_cookoff_smoke.emitting = false
+	for n in _fx_nodes:
+		if is_instance_valid(n):
+			n.queue_free()
+	_fx_nodes.clear()
+	_clear_flash_overlay()
+
+
+func _route_last_sfx_bus(parent: Node, bus_name: StringName) -> void:
+	if parent == null or not is_instance_valid(parent) or parent.get_child_count() <= 0:
+		return
+	var node := parent.get_child(parent.get_child_count() - 1)
+	if node is AudioStreamPlayer3D or node is AudioStreamPlayer:
+		node.set("bus", bus_name)
 var _engaging := false
 var _muzzle_height := 1.8
 var _half_len := 3.0
@@ -188,7 +212,8 @@ func _ready() -> void:
 	if halt_interval > 0.0:
 		_halt_cd = randf_range(halt_interval * 0.4, halt_interval)
 	_weave_phase = randf() * TAU
-	_drone = get_tree().current_scene.get_node_or_null("Drone") as Node3D
+	var cur_scene := get_tree().current_scene if get_tree() != null else null
+	_drone = cur_scene.get_node_or_null("Drone") as Node3D if cur_scene != null else null
 	_ai_low = QualityManager.get_active_level() == QualityManager.Level.LOW
 
 
@@ -1040,6 +1065,7 @@ func _setup_engine_audio() -> void:
 		return
 	_engine_player = CombatSfxScript.make_looping_player(stream,
 			float(ENGINE_DB.get(kind, 2.0)), 75.0, 1200.0)
+	_engine_player.bus = &"Engine"
 	_engine_player.doppler_tracking = AudioStreamPlayer3D.DOPPLER_TRACKING_PHYSICS_STEP
 	add_child(_engine_player)
 	_engine_player.play()
@@ -1048,6 +1074,7 @@ func _setup_engine_audio() -> void:
 	if kind == Kind.TANK or kind == Kind.BMP:
 		_track_player = CombatSfxScript.make_looping_player(
 				CombatSfxScript.track_clatter_stream(), -8.0, 65.0, 850.0)
+		_track_player.bus = &"Engine"
 		_track_player.doppler_tracking = AudioStreamPlayer3D.DOPPLER_TRACKING_PHYSICS_STEP
 		add_child(_track_player)
 		_track_player.play()
@@ -1285,7 +1312,7 @@ func _move_along_route(delta: float) -> void:
 		global_position += forward * _step
 	var fmap := _frontline_map()
 	if not fmap.is_empty():
-		var lim := 285.0
+		var lim := minf(FrontlineTerrainScript.OUTER_SIZE * 0.45, 175.0)
 		if absf(global_position.x) > lim or absf(global_position.z) > lim:
 			global_position.x = clampf(global_position.x, -lim, lim)
 			global_position.z = clampf(global_position.z, -lim, lim)
@@ -1459,6 +1486,7 @@ func _turret_servo_audio(before: float, delta: float) -> void:
 		return
 	_servo_cd = 1.5
 	CombatSfxScript.play_servo(get_parent(), _turret.global_position, -19.0)
+	_route_last_sfx_bus(get_parent(), &"Combat")
 
 
 func _apply_downwash(_delta: float) -> void:
@@ -1665,6 +1693,7 @@ func _fire_at(target: Vector3) -> void:
 			CombatSfxScript.play_autocannon(get_parent(), muzzle, -10.0)
 		_:
 			CombatSfxScript.play_shot(get_parent(), muzzle, -8.0)
+	_route_last_sfx_bus(get_parent(), &"Combat")
 
 
 func _combat_disabled() -> bool:
@@ -1857,51 +1886,200 @@ func _destroy() -> void:
 			"debris": true,
 		})
 		CombatSfxScript.play_boom(parent, global_position, -4.0)
+		_route_last_sfx_bus(parent, &"Combat")
 		if not aerial:
 			CombatSfxScript.start_burning(parent, global_position, 28.0)
+			_route_last_sfx_bus(parent, &"Combat")
 
 	if aerial:
 		_start_crash_fall(gy)
 	else:
 		_char_hull()
 		_settle_wreck()
+		_spawn_cookoff_smoke()
 
 	destroyed.emit(points + _bonus_points)
 
 
-## Burn the hull to a dark, rough wreck and remove weak-spot markers.
+## Burn the hull to a dark, rough wreck (darkening albedo + raising roughness) and remove markers.
 func _char_hull() -> void:
 	var scorch_mat := StandardMaterial3D.new()
-	scorch_mat.albedo_color = Color(0.12, 0.11, 0.10)
-	scorch_mat.roughness = 0.98
+	scorch_mat.albedo_color = Color(0.11, 0.10, 0.095)
+	scorch_mat.roughness = 0.97
 	scorch_mat.metallic = 0.08
-	# Char every mesh, including the enemy markings and weak-spot decals that
-	# are not part of _flash_mesh.  Otherwise a bright yellow marking kept
-	# glowing on the burned-out hull.
+	# Char every mesh, preserving textured detail darkened when possible.
 	for mesh in _all_meshes():
-		if is_instance_valid(mesh):
-			mesh.material_overlay = null
+		if not is_instance_valid(mesh):
+			continue
+		mesh.material_overlay = null
+		var active_mat := mesh.get_active_material(0)
+		if active_mat is StandardMaterial3D:
+			var charred := (active_mat as StandardMaterial3D).duplicate() as StandardMaterial3D
+			charred.albedo_color = charred.albedo_color * Color(0.16, 0.145, 0.135, 1.0)
+			charred.roughness = clampf(maxf(charred.roughness, 0.94), 0.0, 1.0)
+			charred.metallic = clampf(minf(charred.metallic, 0.15), 0.0, 1.0)
+			charred.emission_enabled = false
+			mesh.material_override = charred
+		else:
 			mesh.material_override = scorch_mat
 	for marker in _weak_markers:
 		if is_instance_valid(marker):
 			marker.visible = false
 
 
-## Ground vehicles collapse onto their suspension and settle into the terrain.
+## Ground vehicles collapse onto their suspension, blow turret/wheels away, and smolder.
 func _settle_wreck() -> void:
 	var tween := create_tween()
 	tween.set_parallel(true)
-	# Catastrophic hull collapse: chassis sinks down onto broken suspension / blown tracks
-	tween.tween_property(self, "position:y", position.y - 0.38, 0.6)
-	tween.tween_property(self, "rotation:x", deg_to_rad(12.0), 0.6)
-	tween.tween_property(self, "rotation:z", deg_to_rad(-8.5), 0.6)
-	tween.tween_property(self, "scale", Vector3(1.02, 0.82, 1.02), 0.6)
+	tween.tween_property(self, "position:y", position.y - 0.38, 0.55)
+	tween.tween_property(self, "rotation:x", deg_to_rad(12.0), 0.55)
+	tween.tween_property(self, "rotation:z", deg_to_rad(-8.5), 0.55)
+	tween.tween_property(self, "scale", Vector3(1.02, 0.82, 1.02), 0.55)
 
-	# If vehicle has a turret, dislodge and blow it open
+	_detach_wreck_parts()
+
+
+func _detach_wreck_parts() -> void:
+	var parent := get_parent()
+	if parent == null or not is_instance_valid(parent):
+		return
+	# Turret blow-off cook-off separation impulse (famous ammo rack toss)
 	if _turret != null and is_instance_valid(_turret):
-		tween.tween_property(_turret, "rotation:x", deg_to_rad(16.0), 0.5)
-		tween.tween_property(_turret, "rotation:y", _turret.rotation.y + deg_to_rad(28.0), 0.5)
-		tween.tween_property(_turret, "position:y", _turret.position.y + 0.30, 0.5)
+		var t_xform := _turret.global_transform
+		var t_parent := _turret.get_parent()
+		if t_parent != null:
+			t_parent.remove_child(_turret)
+		parent.add_child(_turret)
+		_turret.global_transform = t_xform
+		_fx_nodes.append(_turret)
+		var vel := Vector3(randf_range(-4.5, 4.5), randf_range(9.5, 14.5), randf_range(-4.5, 4.5))
+		var spin := Vector3(randf_range(-3.6, 3.6), randf_range(-5.0, 5.0), randf_range(-3.6, 3.6))
+		_attach_ballistic_driver(_turret, vel, spin, 0.45)
+		_turret = null
+
+	# Separate up to 2 wheels outward with blast impulse
+	var detached_wheels := 0
+	for w in _wheels:
+		if detached_wheels >= 2:
+			break
+		if w == null or not is_instance_valid(w):
+			continue
+		var w_xform := w.global_transform
+		var w_parent := w.get_parent()
+		if w_parent != null:
+			w_parent.remove_child(w)
+		parent.add_child(w)
+		w.global_transform = w_xform
+		_fx_nodes.append(w)
+		var out_dir := (w.global_position - global_position)
+		out_dir.y = 0.0
+		if out_dir.length_squared() < 0.05:
+			out_dir = Vector3(1.0 if detached_wheels == 0 else -1.0, 0.0, 0.3)
+		out_dir = out_dir.normalized()
+		var w_vel := out_dir * randf_range(6.0, 10.5) + Vector3(0.0, randf_range(5.0, 8.5), 0.0)
+		var w_spin := Vector3(randf_range(-9.0, 9.0), randf_range(-6.0, 6.0), randf_range(-9.0, 9.0))
+		_attach_ballistic_driver(w, w_vel, w_spin, _wheel_radius * 0.75)
+		detached_wheels += 1
+
+
+func _attach_ballistic_driver(part: Node3D, vel: Vector3, spin: Vector3, radius_pad: float) -> void:
+	if part == null or not is_instance_valid(part):
+		return
+	var drv := _DetachedPartBallistics.new()
+	drv.vel = vel
+	drv.spin = spin
+	drv.radius_pad = radius_pad
+	drv.ground_probe = Callable(self, "_ground_y")
+	part.add_child(drv)
+
+
+func _spawn_cookoff_smoke() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	if _cookoff_smoke != null and is_instance_valid(_cookoff_smoke):
+		return
+	var low := QualityManager.get_active_level() == QualityManager.Level.LOW
+	var plume := GPUParticles3D.new()
+	plume.name = "CookoffSmokePlume"
+	plume.position = Vector3(0.0, 1.1, 0.0)
+	plume.emitting = true
+	plume.amount = 10 if low else 16
+	plume.lifetime = 4.2
+	plume.visibility_aabb = AABB(Vector3(-8, -1, -8), Vector3(16, 22, 16))
+	var pmat := ParticleProcessMaterial.new()
+	pmat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	pmat.emission_sphere_radius = 0.75
+	pmat.direction = Vector3(0.18, 1.0, 0.08)
+	pmat.spread = 18.0
+	pmat.initial_velocity_min = 2.4
+	pmat.initial_velocity_max = 4.5
+	pmat.gravity = Vector3(0.35, 0.45, 0.15)
+	pmat.damping_min = 0.4
+	pmat.damping_max = 0.8
+	pmat.scale_min = 1.6
+	pmat.scale_max = 3.6
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 0.25, 1.0])
+	grad.colors = PackedColorArray([
+		Color(0.14, 0.13, 0.13, 0.0),
+		Color(0.18, 0.17, 0.17, 0.44),
+		Color(0.24, 0.24, 0.24, 0.0),
+	])
+	var ramp := GradientTexture1D.new()
+	ramp.gradient = grad
+	pmat.color_ramp = ramp
+	plume.process_material = pmat
+	var quad := QuadMesh.new()
+	quad.size = Vector2(1.4, 1.4)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mat.billboard_keep_scale = true
+	mat.vertex_color_use_as_albedo = true
+	mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	mat.albedo_texture = DestructionFxScript.create_cloud_puff_texture()
+	quad.material = mat
+	plume.draw_pass_1 = quad
+	add_child(plume)
+	_cookoff_smoke = plume
+
+
+class _DetachedPartBallistics extends Node:
+	var vel := Vector3.ZERO
+	var spin := Vector3.ZERO
+	var radius_pad := 0.35
+	var ground_probe: Callable
+	var _settled := false
+	var _age := 0.0
+
+	func _process(delta: float) -> void:
+		var part := get_parent() as Node3D
+		if part == null or not is_instance_valid(part):
+			return
+		_age += delta
+		if _age >= 28.0:
+			part.queue_free()
+			return
+		if _settled:
+			return
+		vel.y -= 17.5 * delta
+		part.global_position += vel * delta
+		part.rotation += spin * delta
+		var gy := 0.0
+		if ground_probe.is_valid():
+			gy = float(ground_probe.call(part.global_position.x, part.global_position.z))
+		if part.global_position.y <= gy + radius_pad:
+			part.global_position.y = gy + radius_pad
+			if absf(vel.y) > 2.2:
+				vel.y = absf(vel.y) * 0.28
+				vel.x *= 0.55
+				vel.z *= 0.55
+				spin *= 0.55
+			else:
+				_settled = true
+				vel = Vector3.ZERO
+				spin = Vector3.ZERO
 
 
 func _start_crash_fall(ground_y: float = 1.0e20) -> void:
@@ -1962,7 +2140,10 @@ func _crash_impact(gy: float) -> void:
 	if parent != null:
 		DestructionFxScript.impact(parent, self, _fx_kind(), gy)
 		CombatSfxScript.play_boom(parent, global_position, 1.0)
+		_route_last_sfx_bus(parent, &"Combat")
 		CombatSfxScript.start_burning(parent, global_position, 30.0)
+		_route_last_sfx_bus(parent, &"Combat")
+	_spawn_cookoff_smoke()
 
 
 func _spawn_debris(parent: Node) -> void:
@@ -1992,7 +2173,9 @@ func _spawn_debris(parent: Node) -> void:
 		var impulse := Vector3(randf_range(-6.0, 6.0), randf_range(6.0, 14.0), randf_range(-6.0, 6.0))
 		piece.apply_central_impulse(impulse * piece.mass)
 		piece.angular_velocity = Vector3(randf_range(-8, 8), randf_range(-8, 8), randf_range(-8, 8))
-		var timer := get_tree().create_timer(6.0)
-		timer.timeout.connect(func() -> void:
-			if is_instance_valid(piece):
-				piece.queue_free())
+		var timer := Timer.new()
+		timer.one_shot = true
+		timer.wait_time = 6.0
+		piece.add_child(timer)
+		timer.timeout.connect(piece.queue_free)
+		timer.start()

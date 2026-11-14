@@ -86,25 +86,48 @@ func _push_drone() -> void:
 	body.apply_central_impulse((dir + Vector3.UP * 0.35).normalized() * strength)
 
 
+func _route_last_sfx_bus(parent: Node, bus_name: StringName) -> void:
+	if parent == null or not is_instance_valid(parent) or parent.get_child_count() <= 0:
+		return
+	var p := parent.get_child(parent.get_child_count() - 1)
+	if p is AudioStreamPlayer3D or p is AudioStreamPlayer:
+		p.set("bus", bus_name)
+
+
 func _build_vfx() -> void:
 	if not is_inside_tree():
 		return
 	if DisplayServer.get_name() == "headless":
 		return
-	CombatSfxScript.play_boom(get_parent(), global_position)
+	var p := get_parent()
+	CombatSfxScript.play_boom(p, global_position)
+	_route_last_sfx_bus(p, &"Combat")
 	if damage > 0.0:
 		# A delayed, quieter tail makes the blast read as a real pressure wave
 		# rather than a single dry sample.  Ambient explosions skip it to keep
 		# the horizon mix clean.
-		var tail_parent := get_parent()
+		var tail_parent_ref: WeakRef = weakref(p)
 		var tail_pos := global_position
-		var tail := get_tree().create_timer(0.32)
+		var tail := Timer.new()
+		tail.one_shot = true
+		tail.wait_time = 0.32
+		p.add_child(tail)
 		tail.timeout.connect(func() -> void:
-			if is_instance_valid(tail_parent):
-				CombatSfxScript.play_boom(tail_parent, tail_pos, -13.0))
-	vfx_burst(get_parent(), global_position, clampf(radius / 8.0, 0.9, 2.2), global_position.y > 6.0)
-	_spawn_fire()
-	_spawn_smoke()
+			var tp := tail_parent_ref.get_ref() as Node
+			if tp != null and is_instance_valid(tp):
+				CombatSfxScript.play_boom(tp, tail_pos, -13.0)
+				_route_last_sfx_bus(tp, &"Combat")
+			tail.queue_free())
+		tail.start()
+	var dfx = load("res://combat/destruction_fx.gd")
+	var blast_scale := clampf(radius / 8.0, 0.85, 1.75)
+	if dfx != null and damage > 0.0:
+		dfx.spawn_multiphase_explosion(p, global_position, blast_scale,
+				global_position.y - 0.5, global_position.y > 6.0)
+	else:
+		vfx_burst(p, global_position, clampf(radius / 8.0, 0.9, 2.2), global_position.y > 6.0)
+		_spawn_fire()
+		_spawn_smoke()
 	_spawn_flash()
 	_spawn_light()
 	_spawn_crater()
@@ -169,7 +192,7 @@ func _spawn_crater() -> void:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color(0.09, 0.075, 0.055)
 	mat.roughness = 1.0
-	# Dirt clods thrown out of the rim.
+	# Dirt clods thrown out of the rim (parented under decal so _free_after cleans them all).
 	for i in range(7):
 		var a := TAU * float(i) / 7.0 + randf() * 0.4
 		var clod := MeshInstance3D.new()
@@ -179,11 +202,11 @@ func _spawn_crater() -> void:
 		clod.mesh = box
 		clod.material_override = mat
 		clod.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		get_parent().add_child(clod)
-		clod.global_position = Vector3(
-				ground.x + cos(a) * crater_r * randf_range(0.45, 0.85),
-				ground.y + randf_range(0.02, 0.10),
-				ground.z + sin(a) * crater_r * randf_range(0.45, 0.85))
+		decal.add_child(clod)
+		clod.position = Vector3(
+				cos(a) * crater_r * randf_range(0.45, 0.85),
+				randf_range(0.02, 0.10),
+				sin(a) * crater_r * randf_range(0.45, 0.85))
 		clod.rotation.y = randf() * TAU
 	_free_after(decal, 75.0)
 

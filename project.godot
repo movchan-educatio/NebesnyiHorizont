@@ -10,8 +10,8 @@ config_version=5
 
 [application]
 
-config/name="РќРµР±РµСЃРЅРёР№ РіРѕСЂРёР·РѕРЅС‚"
-config/description="РќРµР±РµСЃРЅРёР№ РіРѕСЂРёР·РѕРЅС‚ вЂ” Р±РѕР№РѕРІРёР№ FPV-СЃРёРјСѓР»СЏС‚РѕСЂ"
+config/name="Небесний горизонт"
+config/description="Небесний горизонт — тактичний тренувальний FPV-симулятор"
 config/version="1.18.0-v18"
 run/main_scene="res://GUI/StartScreen.tscn"
 config/features=PackedStringArray("4.6")

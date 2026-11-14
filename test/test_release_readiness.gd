@@ -400,4 +400,6 @@ func _test_haptics_api_and_drone() -> void:
 			and int(by_tag.get("crash", 0)) >= 1,
 			"Drone signal wiring emits arm/disarm/crash haptics (%s)" % str(by_tag))
 	drone.queue_free()
+	Audio.stop_menu_music()
+	await get_tree().process_frame
 	await get_tree().process_frame

@@ -56,13 +56,8 @@ func _build_cases() -> void:
 	for map in maps:
 		_cases.append({"tag": "training_" + map, "mode": Global.PlayMode.TRAINING,
 				"map": map, "mission": 1, "special": 0})
-	for map in maps:
-		_cases.append({"tag": "speed_" + map, "mode": Global.PlayMode.SPEED,
-				"map": map, "mission": 1, "special": 0})
 	_cases.append({"tag": "tutorial_village", "mode": Global.PlayMode.TUTORIAL,
 			"map": "village", "mission": 1, "special": 0})
-	_cases.append({"tag": "chaos_industrial", "mode": Global.PlayMode.CHAOS,
-			"map": "industrial", "mission": 1, "special": 0})
 	var special_maps := ["industrial", "village", "steppe", "wetlands"]
 	for s in range(1, 7):
 		var smap: String = special_maps[(s - 1) % special_maps.size()]
@@ -170,16 +165,9 @@ func _validate_case(tag: String, c: Dictionary, level: Node) -> void:
 			# because it covered the OSD and cluttered the hero-hall approach.
 			if int(level.get("_rings_total")) < 0:
 				_fail(tag, "invalid ring count")
-		Global.PlayMode.SPEED:
-			var cps: Array = level.get("_speed_checkpoints")
-			if cps.is_empty():
-				_fail(tag, "no speed checkpoints")
 		Global.PlayMode.TUTORIAL:
 			if level.get("_flight_school") == null:
 				_fail(tag, "no flight school")
-		Global.PlayMode.CHAOS:
-			if level.get_node_or_null("ChaosBattle") == null:
-				_fail(tag, "no ChaosBattle")
 		Global.PlayMode.COMBAT:
 			if special == 0:
 				if int(level.get("_mission_targets_total")) <= 0:

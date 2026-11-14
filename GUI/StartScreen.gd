@@ -31,8 +31,18 @@ var _design_root: Control = null
 var _nav_entries: Array[Dictionary] = []
 var _mode_buttons: Dictionary = {}
 var _mode_summary: Label = null
-var _selected_home_mode: int = Global.PlayMode.COMBAT
+var _selected_home_mode: int = Global.PlayMode.TUTORIAL
 var _options_overlay: Control = null
+var _lang_btn: Button = null
+var _mode_bar_heading: Label = null
+var _home_action_btn: Button = null
+var _quick_tut_btn: Button = null
+var _daily_badge_lbl: Label = null
+var _news_heading: Control = null
+var _news_labels: Array[Label] = []
+var _author_lbl: Label = null
+var _nav_heading: Control = null
+var _social_btns: Array[Button] = []
 
 
 ## Small monochrome vector icons keep the navigation rows visually identical
@@ -105,7 +115,8 @@ func _ready() -> void:
 		return
 	theme = MenuUI.theme()
 	_initialize_settings()
-	_selected_home_mode = Global.play_mode
+	_selected_home_mode = Global.sanitize_play_mode(Global.play_mode)
+	Global.play_mode = _selected_home_mode
 	_start_menu_music()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	get_tree().paused = false
@@ -188,6 +199,12 @@ func _build_home_overlay() -> void:
 	_place(_brand_subtitle, Rect2(460, 136, 1000, 22))
 	_design_root.add_child(_brand_subtitle)
 
+	_lang_btn = MenuUI.feel_button("🌐 UA / EN", 38, false)
+	_lang_btn.add_theme_font_size_override("font_size", 14)
+	_lang_btn.pressed.connect(_on_toggle_language)
+	_place(_lang_btn, Rect2(1748, 22, 132, 38))
+	_design_root.add_child(_lang_btn)
+
 	# --- Left navigation rail ------------------------------------------------
 	var nav_panel := PanelContainer.new()
 	nav_panel.add_theme_stylebox_override("panel",
@@ -268,17 +285,16 @@ func _build_home_mode_bar() -> void:
 	var content := VBoxContainer.new()
 	content.add_theme_constant_override("separation", 10)
 	panel.add_child(content)
-	var heading := MenuUI.body("РЕЖИМ ПОЛЬОТУ", 15, Color(0.70, 0.76, 0.72))
-	content.add_child(heading)
+	_mode_bar_heading = MenuUI.body("РЕЖИМ ПОЛЬОТУ", 15, Color(0.70, 0.76, 0.72))
+	content.add_child(_mode_bar_heading)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	content.add_child(row)
 
 	var modes := [
-		{"id": Global.PlayMode.TUTORIAL, "title": "ШКОЛА ПІЛОТА", "en": "FLIGHT SCHOOL"},
-		{"id": Global.PlayMode.COMBAT, "title": "БОЙОВІ МІСІЇ", "en": "COMBAT MISSIONS"},
-		{"id": Global.PlayMode.TRAINING, "title": "ВІЛЬНИЙ ПОЛІТ", "en": "FREE FLIGHT"},
-		{"id": Global.PlayMode.SPEED, "title": "НА ЧАС", "en": "TIME TRIAL"}
+		{"id": Global.PlayMode.TUTORIAL, "title": "ТУТОРІАЛ", "en": "TUTORIAL"},
+		{"id": Global.PlayMode.TRAINING, "title": "ТРЕНУВАННЯ", "en": "TRAINING"},
+		{"id": Global.PlayMode.COMBAT, "title": "БОЙОВИЙ РЕЖИМ", "en": "COMBAT MODE"}
 	]
 	_mode_buttons.clear()
 	for entry in modes:
@@ -317,27 +333,36 @@ func _make_home_mode_button(title: String, mode: int) -> Button:
 
 
 func _select_home_mode(mode: int) -> void:
-	_selected_home_mode = mode
-	Global.play_mode = mode
+	_selected_home_mode = Global.sanitize_play_mode(mode)
+	Global.play_mode = _selected_home_mode
 	_refresh_home_mode()
 
 
 func _refresh_home_mode() -> void:
 	if _mode_summary == null:
 		return
+	var is_en := MenuUI.is_english()
 	var description := ""
 	match _selected_home_mode:
 		Global.PlayMode.TUTORIAL:
-			description = "10 модулів: стіки, увімкнення двигунів, газ, рискання, ворота, вікно, гальмування й посадка."
+			if is_en:
+				description = "Tutorial (Recommended first): 10 modules — sticks, arm, throttle, yaw, gates, braking and landing."
+			else:
+				description = "Туторіал (перший політ): 10 модулів — стіки, армінг, газ, рискання, ворота, гальмування й посадка."
+			if Global.should_use_gentle_angle_assist():
+				description += ("  [Angle Assist ON]" if is_en else "  [М’яка стабілізація Angle]")
 		Global.PlayMode.TRAINING:
-			description = "Вільний політ і практика керування без бойових завдань."
-		Global.PlayMode.SPEED:
-			description = "На Час: пройдіть контрольні ворота якнайшвидше."
+			var rec := Global.get_training_record("course")
+			var best_suffix := ""
+			if bool(rec.get("completed", false)):
+				best_suffix = ("  · Best: %.1fs (Rank %s)" if is_en else "  · Рекорд: %.1f с (Ранг %s)") % [float(rec.get("best_time", 0.0)), str(rec.get("best_rank", "B"))]
+			description = ("Free flight, stick calibration, and timed checkpoint course with Ghost replay." if is_en else "Вільний політ, калібрування та тренувальна траса на час із записом Привида.") + best_suffix
 		_:
-			description = "Оберіть бойове завдання та підготуйте дрон до вильоту."
+			description = "Select a tactical scenario, configure drone loadout, and prepare for launch." if is_en else "Оберіть тактичний сценарій та підготуйте дрон до вильоту."
 	_mode_summary.text = description
 	for mode in _mode_buttons:
 		var button := _mode_buttons[mode] as Button
+		button.text = str(button.get_meta("title_en" if is_en else "title_uk", button.text))
 		var active := int(mode) == _selected_home_mode
 		button.add_theme_stylebox_override("normal", MenuUI.feel_style(
 			MenuUI.BUTTON_ACTIVE if active else MenuUI.BUTTON_BG,
@@ -353,48 +378,64 @@ func _refresh_home_mode() -> void:
 
 
 func _build_home_action() -> void:
-	var launch := MenuUI.feel_button("ПЕРЕЙТИ ДО МІСІЙ", 80, true)
-	launch.add_theme_font_size_override("font_size", 27)
-	launch.add_theme_stylebox_override("normal",
+	_home_action_btn = MenuUI.feel_button("ПЕРЕЙТИ ДО МІСІЙ", 80, true)
+	_home_action_btn.add_theme_font_size_override("font_size", 27)
+	_home_action_btn.add_theme_stylebox_override("normal",
 			MenuUI.feel_style(MenuUI.BUTTON_ACTIVE, MenuUI.FPV_GREEN, 2, 1, 18, 10))
-	launch.add_theme_stylebox_override("hover",
+	_home_action_btn.add_theme_stylebox_override("hover",
 			MenuUI.feel_style(MenuUI.BUTTON_ACTIVE.lightened(0.08), MenuUI.FPV_GREEN, 2, 1, 18, 10))
-	launch.add_theme_stylebox_override("pressed",
+	_home_action_btn.add_theme_stylebox_override("pressed",
 			MenuUI.feel_style(MenuUI.BUTTON_ACTIVE.darkened(0.08), MenuUI.FPV_GREEN, 2, 1, 18, 10))
-	launch.add_theme_stylebox_override("focus",
+	_home_action_btn.add_theme_stylebox_override("focus",
 			MenuUI.feel_style(MenuUI.BUTTON_ACTIVE.lightened(0.08), MenuUI.FPV_GREEN, 2, 1, 18, 10))
-	launch.pressed.connect(_on_start_pressed)
-	_place(launch, Rect2(560, 800, 1320, 84))
-	_design_root.add_child(launch)
+	_home_action_btn.pressed.connect(_on_start_pressed)
+	_design_root.add_child(_home_action_btn)
+
+	if not Global.is_tutorial_completed():
+		_quick_tut_btn = MenuUI.feel_button("▶ ШВИДКИЙ СТАРТ: ТУТОРІАЛ", 80, false)
+		_quick_tut_btn.add_theme_font_size_override("font_size", 21)
+		_quick_tut_btn.add_theme_stylebox_override("normal",
+				MenuUI.feel_style(Color(0.06, 0.16, 0.20, 0.95), MenuUI.FPV_CYAN, 2, 1, 18, 10))
+		_quick_tut_btn.add_theme_stylebox_override("hover",
+				MenuUI.feel_style(Color(0.10, 0.22, 0.28, 0.98), MenuUI.FPV_CYAN, 2, 1, 18, 10))
+		_quick_tut_btn.add_theme_stylebox_override("focus",
+				MenuUI.feel_style(Color(0.10, 0.22, 0.28, 0.98), MenuUI.FPV_CYAN, 2, 1, 18, 10))
+		_quick_tut_btn.add_theme_color_override("font_color", MenuUI.FPV_CYAN)
+		_quick_tut_btn.add_theme_color_override("font_hover_color", Color.WHITE)
+		_quick_tut_btn.pressed.connect(_on_quick_tutorial_pressed)
+		_place(_home_action_btn, Rect2(560, 800, 740, 84))
+		_place(_quick_tut_btn, Rect2(1320, 800, 560, 84))
+		_design_root.add_child(_quick_tut_btn)
+	else:
+		_place(_home_action_btn, Rect2(560, 800, 1320, 84))
 
 
 func _build_news_panel() -> void:
 	var panel := PanelContainer.new()
 	panel.add_theme_stylebox_override("panel",
 			MenuUI.feel_style(Color(0.025, 0.04, 0.03, 0.84), MenuUI.FPV_BORDER, 1, 2, 20, 18))
-	_place(panel, Rect2(560, 462, 700, 314))
+	_place(panel, Rect2(560, 462, 1320, 314))
 	_design_root.add_child(panel)
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 9)
+	vb.add_theme_constant_override("separation", 8)
 	panel.add_child(vb)
-	var heading := MenuUI.section("НОВИНИ ПРОЄКТУ", "NEWS")
-	heading.custom_minimum_size = Vector2(0, 32)
-	vb.add_child(heading)
-	var lines := [
-		"• Кампанія 1–5: послідовне відкриття, брифінг → виліт → дебрифінг, спільний прогрес ★.",
-		"• Фази місії: розвідка → удар → вихід; маркери показують відстань і прогрес.",
-		"• Унікальні Blender-ефекти влучання для 8 типів цілей + іскри, дим і пил.",
-		"• Анімовані колеса БТР/Tigr, гусениці танка/БМП, LOD піхоти та бюджет частинок.",
-		"• Лише FPV; військові дрони показують обвіс/БК. Піхота — прапор на плечі (без Z), техніка — прапор + Z.",
-		"• Ангар: авто-кадрування, Leleka пофарбована; Chaos 12+5; динамічна музика й радіозвʼязок.",
-		"• Нове бойове тло завантаження — для кожної місії та кожної карти.",
-	]
-	for line in lines:
-		var l := MenuUI.body(line, 14, Color(0.84, 0.89, 0.85))
+	_news_heading = MenuUI.section("БРИФІНГ СИМУЛЯТОРА", "SIM BRIEFING")
+	_news_heading.custom_minimum_size = Vector2(0, 32)
+	vb.add_child(_news_heading)
+
+	_daily_badge_lbl = MenuUI.body("", 15, MenuUI.FPV_CYAN)
+	_daily_badge_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vb.add_child(_daily_badge_lbl)
+
+	_news_labels.clear()
+	for _i in range(5):
+		var l := MenuUI.body("", 14, Color(0.84, 0.89, 0.85))
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		vb.add_child(l)
-	var author := MenuUI.body("Автор: Сергій · @matilda.poetry", 13, MenuUI.WARN_AMBER)
-	vb.add_child(author)
+		_news_labels.append(l)
+
+	_author_lbl = MenuUI.body("Автор: Сергій · @matilda.poetry", 13, MenuUI.WARN_AMBER)
+	vb.add_child(_author_lbl)
 
 
 func _build_social_bar() -> void:
@@ -504,25 +545,74 @@ func _make_nav_entry(uk_title: String, en_title: String, uk_desc: String,
 
 
 func _refresh_home_language() -> void:
+	var is_en := MenuUI.is_english()
 	if _brand_project != null:
-		_brand_project.text = "БОЙОВИЙ FPV-СИМУЛЯТОР"
+		_brand_project.text = "TACTICAL FPV FLIGHT SIMULATOR" if is_en else "ТАКТИЧНИЙ FPV-СИМУЛЯТОР"
 	if _brand_title != null:
-		_brand_title.text = "НЕБЕСНИЙ ГОРИЗОНТ"
+		_brand_title.text = "NEBESNYI HORIZONT" if is_en else "НЕБЕСНИЙ ГОРИЗОНТ"
 	if _brand_subtitle != null:
-		_brand_subtitle.text = "ПОЛІТ · ТРЕНУВАННЯ · БОЙОВІ МІСІЇ"
+		_brand_subtitle.text = "TUTORIAL  ·  TRAINING  ·  TACTICAL MISSIONS" if is_en else "ТУТОРІАЛ  ·  ТРЕНУВАННЯ  ·  БОЙОВИЙ РЕЖИМ"
+	if _lang_btn != null:
+		_lang_btn.text = "🌐 EN → UA" if is_en else "🌐 UA → EN"
+	if _mode_bar_heading != null:
+		_mode_bar_heading.text = "FLIGHT MODE (ORDER: TUTORIAL → TRAINING → COMBAT)" if is_en else "РЕЖИМ ПОЛЬОТУ"
 	for entry in _nav_entries:
-		(entry["title"] as Label).text = entry["uk_title"]
-		(entry["detail"] as Label).text = entry["uk_desc"]
+		(entry["title"] as Label).text = str(entry["en_title"] if is_en else entry["uk_title"])
+		(entry["detail"] as Label).text = str(entry["en_desc"] if is_en else entry["uk_desc"])
+	if _home_action_btn != null:
+		_home_action_btn.text = "OPEN SORTIE DECK" if is_en else "ПЕРЕЙТИ ДО МІСІЙ"
+	if _quick_tut_btn != null:
+		_quick_tut_btn.text = "▶ QUICK START: TUTORIAL" if is_en else "▶ ШВИДКИЙ СТАРТ: ТУТОРІАЛ"
+	if _daily_badge_lbl != null:
+		var dc := Global.get_daily_challenge()
+		var dc_done := "[DONE] " if bool(dc.get("completed", false)) else ""
+		var dc_title := str(dc.get("title_en" if is_en else "title_uk", ""))
+		_daily_badge_lbl.text = ("★ DAILY CHALLENGE: %s%s (+%d PTS)" if is_en else "★ ЩОДЕННИЙ ВИКЛИК: %s%s (+%d ОЧКІВ)") % [
+			dc_done, dc_title, int(dc.get("bonus_score", 500))]
+	var news_lines_uk := [
+		"• Рекомендований старт: Туторіал (10 модулів + м'яка стабілізація Angle для першого вильоту).",
+		"• Тренування: вільний політ, запис Привида на трасі, рейтинги ★ / S–B та калібрування стіків.",
+		"• Тактична кампанія 1–4: послідовне відкриття місій, брифінг → виліт → дебрифінг.",
+		"• Ангар FPV: українські та спортивні дрони, інтерактивний 3D-огляд і швидке налаштування кривих.",
+		"• Повна підтримка української й англійської мов, геймпадів, USB-C ELRS та сенсорного керування.",
+	]
+	var news_lines_en := [
+		"• Recommended start: Tutorial (10 pilot modules + gentle Angle stabilization assist).",
+		"• Training mode: free flight, checkpoint course Ghost replay, ★ / S–B ranks & stick calibration.",
+		"• Tactical Campaign 1–4: progressive unlock, briefing → sortie → debriefing & star ratings.",
+		"• Fleet Hangar: FPV craft catalog, interactive 3D preview, Expo/SuperRate/Deadzone presets.",
+		"• Full UA/EN bilingual UI, Gamepad / Apple MFi / USB-C ELRS calibration & Safe Area mobile HUD.",
+	]
+	var active_lines := news_lines_en if is_en else news_lines_uk
+	for i in range(mini(_news_labels.size(), active_lines.size())):
+		_news_labels[i].text = active_lines[i]
+	if _author_lbl != null:
+		_author_lbl.text = "Author: Serhii · @matilda.poetry" if is_en else "Автор: Сергій · @matilda.poetry"
 	if _status_label != null:
 		var campaign_done := Global.campaign_completed_count()
 		var campaign_stars := Global.campaign_stars_total()
-		if MenuUI.is_english():
+		if is_en:
 			_status_label.text = "FPV SIMULATOR · VERSION 1.6.0-test · UKRAINE · CAMPAIGN %d/4 · ★ %d/12" % [campaign_done, campaign_stars]
 		else:
 			_status_label.text = "FPV-СИМУЛЯТОР · ВЕРСІЯ 1.6.0-test · УКРАЇНА · КАМПАНІЯ %d/4 · ★ %d/12" % [campaign_done, campaign_stars]
 	if _mode_prompt != null:
-		_mode_prompt.text = "ОБЕРІТЬ РЕЖИМ ПОЛЬОТУ"
+		_mode_prompt.text = "SELECT FLIGHT MODE" if is_en else "ОБЕРІТЬ РЕЖИМ ПОЛЬОТУ"
 	_refresh_home_mode()
+
+
+func _on_toggle_language() -> void:
+	Loc.toggle_language()
+	_refresh_home_language()
+	MenuUI.localize_tree(self)
+
+
+func _on_quick_tutorial_pressed() -> void:
+	_selected_home_mode = Global.PlayMode.TUTORIAL
+	Global.set_play_mode(Global.PlayMode.TUTORIAL)
+	Global.menu_settings["selected_mode"] = Global.PlayMode.TUTORIAL
+	Global.save_menu_settings()
+	Audio.stop_menu_music(0.35)
+	get_tree().change_scene_to_file("res://sceneries/VillageLevel.tscn")
 
 
 func _place(control: Control, rect: Rect2) -> void:
@@ -623,3 +713,9 @@ func _is_qa_session() -> bool:
 		if OS.has_environment(name):
 			return true
 	return false
+
+
+func _exit_tree() -> void:
+	var vp := get_viewport()
+	if vp != null and vp.size_changed.is_connected(_layout_design):
+		vp.size_changed.disconnect(_layout_design)

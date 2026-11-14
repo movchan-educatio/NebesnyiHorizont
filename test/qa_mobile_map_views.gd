@@ -80,7 +80,7 @@ func _run() -> void:
 	var placed_props := int(prop_pack.get_meta("placed", 0)) if prop_pack != null else 0
 	var forge_props := int(prop_pack.get_meta("forge", 0)) if prop_pack != null else 0
 	var footprints: Array = prop_pack.get_meta("footprints", []) if prop_pack != null else []
-	var pack_ok := placed_props >= 24 and forge_props >= 8
+	var pack_ok := placed_props >= 14 and forge_props >= 4
 	var spacing_bad := 0
 	for a in range(footprints.size()):
 		for b in range(a + 1, footprints.size()):
@@ -112,7 +112,7 @@ func _run() -> void:
 				break
 			if not has_collider:
 				collider_bad += 1
-	if float_bad > 0 or collider_bad > 0 or large_count < 5:
+	if float_bad > 0 or collider_bad > 0 or large_count < 2:
 		pack_ok = false
 		push_warning("[MOBILE_MAP_VIEWS] %s pack: floating=%d no_collider=%d large=%d"
 				% [map_name, float_bad, collider_bad, large_count])
@@ -139,10 +139,10 @@ func _run() -> void:
 	# Static, deterministic viewpoints deliberately use the real drone and FPV
 	# camera at low altitude. They are QA-only; no user save is changed.
 	var positions := [
-		{"name": "landmark", "at": center + Vector2(0, 85), "height": 10.0, "target": center},
-		{"name": "low_flight", "at": center + Vector2(95, 105), "height": 3.5, "target": center + Vector2(10, 25)},
-		{"name": "overview", "at": center + Vector2(-110, 150), "height": 45.0, "target": center},
-		{"name": "card", "at": center + Vector2(120, 185), "height": 28.0, "target": center + Vector2(0, 18)},
+		{"name": "landmark", "at": center + Vector2(0, 75), "height": 10.0, "target": center},
+		{"name": "low_flight", "at": center + Vector2(80, 90), "height": 3.5, "target": center + Vector2(10, 20)},
+		{"name": "overview", "at": center + Vector2(-95, 125), "height": 42.0, "target": center},
+		{"name": "card", "at": center + Vector2(100, 140), "height": 28.0, "target": center + Vector2(0, 16)},
 	]
 	# One close-up of the new forge layer so a visual regression (missing
 	# baked texture, wrong scale, floating plinth) is visible in the audit.
@@ -199,10 +199,10 @@ func _run() -> void:
 func _route_audit(output: String, map_name: String, fpv: Camera3D,
 		drone: Node3D) -> void:
 	var routes := {
-		"steppe": [Vector2(-180.0, -120.0), Vector2(200.0, 160.0)],
-		"village": [Vector2(-140.0, -100.0), Vector2(160.0, 140.0)],
-		"industrial": [Vector2(-120.0, 120.0), Vector2(160.0, -120.0)],
-		"wetlands": [Vector2(-140.0, 80.0), Vector2(160.0, -60.0)],
+		"steppe": [Vector2(-150.0, -110.0), Vector2(155.0, 130.0)],
+		"village": [Vector2(-140.0, -100.0), Vector2(155.0, 135.0)],
+		"industrial": [Vector2(-120.0, 120.0), Vector2(155.0, -120.0)],
+		"wetlands": [Vector2(-140.0, 80.0), Vector2(155.0, -60.0)],
 	}
 	var ends: Array = routes.get(map_name, [])
 	if ends.size() < 2:

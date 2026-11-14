@@ -2,11 +2,12 @@ extends Node
 
 
 signal game_mode_changed
+signal leaderboard_requested
 
 
 enum GameMode {FREE, RACE}
 enum RaceState {START, RACE, END}
-enum PlayMode {TRAINING, COMBAT, SPEED, TUTORIAL, CHAOS}
+enum PlayMode { TRAINING = 0, COMBAT = 1, TUTORIAL = 3 }
 enum Difficulty { RECRUIT = 0, OPERATOR = 1, ACE = 2 }
 
 var difficulty: int = Difficulty.OPERATOR
@@ -30,12 +31,12 @@ var active_track: Track = null
 
 ## Currently selected gameplay mode, chosen in the main menu and consumed by
 ## CourseLevel when it starts.
-var play_mode: int = PlayMode.COMBAT
-## Current combat mission stage (1 = Infantry, 2 = Tank & BTR, 3 = Helicopter, 4 = Shahed).
+var play_mode: int = PlayMode.TUTORIAL
+## Current combat mission stage (1 = Recon Sector, 2 = Armor Column, 3 = Rotary Target, 4 = Aerial Intercept).
 var combat_mission: int = 1
 ## Special operations are standalone sorties, not campaign records.  0 means a
 ## normal campaign mission; 1-6 select recon / escort / evacuation / cargo /
-## night strike / EW breach.
+## night flight / EW breach.
 var special_mission: int = 0
 const SPECIAL_MISSION_NAMES := {
 	1: "РОЗВІДКА",
@@ -58,7 +59,7 @@ var chain_briefing_pending: bool = false
 const COMBAT_TIME_LIMIT := 1200.0
 ## Small set of menu-only preferences (haptics, defaults, ...).
 var menu_settings := {"haptics_enabled": true, "drone_preset": 0,
-		"selected_mode": 1, "selected_mission": 1, "selected_special": 0,
+		"selected_mode": PlayMode.TUTORIAL, "selected_mission": 1, "selected_special": 0,
 		"selected_map": "village", "difficulty": 1}
 
 ## Currently selected drone preset (index into DroneCatalog.PRESETS).
@@ -155,28 +156,48 @@ func log_error(err_code: int, message: String = "") -> void:
 	file.close()
 
 
+func sanitize_play_mode(mode: int) -> int:
+	if mode == PlayMode.TUTORIAL or mode == PlayMode.TRAINING or mode == PlayMode.COMBAT:
+		return mode
+	return PlayMode.TUTORIAL
+
+
+func set_play_mode(mode: int) -> int:
+	play_mode = sanitize_play_mode(mode)
+	menu_settings["selected_mode"] = play_mode
+	return play_mode
+
+
+func should_use_gentle_angle_assist() -> bool:
+	return not is_tutorial_completed()
+
+
 func _ready() -> void:
 	initialize()
-	load_menu_settings()
 	load_campaign_records()
+	load_menu_settings()
 	var mode_env := OS.get_environment("DRONE_PLAY_MODE").strip_edges().to_lower()
 	match mode_env:
 		"training":
 			play_mode = PlayMode.TRAINING
-		"speed":
-			play_mode = PlayMode.SPEED
 		"combat":
 			play_mode = PlayMode.COMBAT
 		"tutorial":
 			play_mode = PlayMode.TUTORIAL
-		"chaos":
-			play_mode = PlayMode.CHAOS
-	if OS.has_environment("DRONE_TUTORIAL"):
+		_:
+			if not mode_env.is_empty():
+				play_mode = PlayMode.TUTORIAL
+	if OS.has_environment("DRONE_TUTORIAL") or (mode_env.is_empty() and not is_tutorial_completed()):
 		play_mode = PlayMode.TUTORIAL
+		menu_settings["selected_mode"] = PlayMode.TUTORIAL
 	if OS.has_environment("DRONE_COMBAT_MISSION"):
 		combat_mission = clampi(int(OS.get_environment("DRONE_COMBAT_MISSION")), 1, 4)
 	if OS.has_environment("DRONE_PRESET"):
 		drone_preset = clampi(int(OS.get_environment("DRONE_PRESET")), 0, maxi(DroneCatalog.count() - 1, 0))
+
+
+func _exit_tree() -> void:
+	active_track = null
 
 
 func menu_settings_path() -> String:
@@ -189,6 +210,8 @@ func load_menu_settings() -> void:
 		for key in menu_settings.keys():
 			if config.has_section_key("menu", key):
 				menu_settings[key] = config.get_value("menu", key)
+	menu_settings["selected_mode"] = sanitize_play_mode(int(menu_settings.get("selected_mode", PlayMode.TUTORIAL)))
+	play_mode = int(menu_settings["selected_mode"])
 	# Keep the live selection in sync with the saved one.
 	if menu_settings.has("drone_preset"):
 		drone_preset = clampi(int(menu_settings["drone_preset"]), 0,
@@ -197,6 +220,7 @@ func load_menu_settings() -> void:
 
 
 func save_menu_settings() -> void:
+	menu_settings["selected_mode"] = sanitize_play_mode(int(menu_settings.get("selected_mode", play_mode)))
 	var config := ConfigFile.new()
 	config.load(menu_settings_path())
 	for key in menu_settings.keys():
@@ -325,3 +349,223 @@ func set_game_mode(mode: int) -> void:
 			return
 		game_mode = mode
 		emit_signal("game_mode_changed", game_mode)
+
+
+func compute_rating(score: int, time_s: float, passed: int, total: int,
+		failed: bool = false) -> Dictionary:
+	if failed:
+		return {"stars": 1, "rank": "B"}
+	var safe_total := maxi(total, 1)
+	var completion := float(passed) / float(safe_total) if total > 0 else 1.0
+	var fast_run := (time_s > 0.0 and time_s <= 130.0)
+	var medium_run := (time_s > 0.0 and time_s <= 260.0)
+	if completion >= 0.99 and (score >= 900 or fast_run):
+		return {"stars": 3, "rank": "S"}
+	if completion >= 0.65 and (score >= 450 or medium_run or passed >= 3):
+		return {"stars": 2, "rank": "A"}
+	return {"stars": 1, "rank": "B"}
+
+
+func get_training_record(map_id: String) -> Dictionary:
+	var sec := "training_%s" % map_id.strip_edges().to_lower()
+	return campaign_records.get(sec, {
+		"completed": false,
+		"best_time": 0.0,
+		"best_passed": 0,
+		"total": 0,
+		"best_score": 0,
+		"stars": 0,
+		"rank": "-",
+		"runs": 0,
+	})
+
+
+func record_training_result(map_id: String, time_s: float, passed: int,
+		total: int) -> Dictionary:
+	var clean_id := map_id.strip_edges().to_lower()
+	if clean_id.is_empty():
+		clean_id = str(menu_settings.get("selected_map", "village")).to_lower()
+	var sec := "training_%s" % clean_id
+	var prev: Dictionary = campaign_records.get(sec, {})
+	var time_bonus := maxi(0, int(round(360.0 - time_s))) if time_s > 0.0 else 0
+	var score := maxi(0, passed) * 120 + time_bonus
+	var rating := compute_rating(score, time_s, passed, total, false)
+	if OS.has_environment("DRONE_NO_RECORD"):
+		return {
+			"completed": passed > 0 or total == 0,
+			"best_time": time_s,
+			"best_passed": passed,
+			"total": total,
+			"best_score": score,
+			"stars": int(rating["stars"]),
+			"rank": str(rating["rank"]),
+			"runs": 1,
+		}
+	var prev_best_time := float(prev.get("best_time", 0.0))
+	var new_best_time := time_s
+	if prev_best_time > 0.0 and time_s > 0.0:
+		new_best_time = minf(prev_best_time, time_s)
+	elif prev_best_time > 0.0:
+		new_best_time = prev_best_time
+	var rank_order := {"S": 3, "A": 2, "B": 1, "-": 0}
+	var prev_rank := str(prev.get("rank", "-"))
+	var new_rank := str(rating["rank"])
+	if int(rank_order.get(prev_rank, 0)) > int(rank_order.get(new_rank, 0)):
+		new_rank = prev_rank
+	var rec := {
+		"completed": bool(prev.get("completed", false)) or passed > 0 or total == 0,
+		"best_time": new_best_time,
+		"best_passed": maxi(passed, int(prev.get("best_passed", 0))),
+		"total": maxi(total, int(prev.get("total", 0))),
+		"best_score": maxi(score, int(prev.get("best_score", 0))),
+		"stars": maxi(int(rating["stars"]), int(prev.get("stars", 0))),
+		"rank": new_rank,
+		"runs": int(prev.get("runs", 0)) + 1,
+	}
+	campaign_records[sec] = rec
+	save_campaign_records()
+	return rec
+
+
+func get_daily_challenge() -> Dictionary:
+	var d := Time.get_date_dict_from_system()
+	var y := int(d.get("year", 2026))
+	var m := int(d.get("month", 1))
+	var day := int(d.get("day", 1))
+	var date_key := "%04d-%02d-%02d" % [y, m, day]
+	var seed_idx := absi(y * 372 + m * 31 + day)
+	var pool := [
+		{
+			"id": "daily_steppe_course",
+			"map": "steppe",
+			"mode": PlayMode.TRAINING,
+			"mission": 1,
+			"bonus_score": 300,
+			"title_ua": "СТЕПОВИЙ СЛАЛОМ",
+			"title_en": "STEPPE SLALOM",
+			"desc_ua": "Пройдіть тренувальний маршрут у степу з рангом A або S",
+			"desc_en": "Complete the Steppe training circuit with Rank A or S",
+		},
+		{
+			"id": "daily_village_precision",
+			"map": "village",
+			"mode": PlayMode.COMBAT,
+			"mission": 1,
+			"bonus_score": 400,
+			"title_ua": "МІСЬКА ТОЧНІСТЬ",
+			"title_en": "URBAN PRECISION",
+			"desc_ua": "Виконайте тактичний виліт у забудові з високою точністю",
+			"desc_en": "Complete a tactical range sortie in the village sector",
+		},
+		{
+			"id": "daily_industrial_gates",
+			"map": "industrial",
+			"mode": PlayMode.TRAINING,
+			"mission": 2,
+			"bonus_score": 450,
+			"title_ua": "ІНДУСТРІАЛЬНІ ВОРОТА",
+			"title_en": "INDUSTRIAL GATES",
+			"desc_ua": "Пройдіть технічний маршрут між цехами без пошкоджень",
+			"desc_en": "Navigate the industrial technical gate run cleanly",
+		},
+		{
+			"id": "daily_wetlands_intercept",
+			"map": "wetlands",
+			"mode": PlayMode.COMBAT,
+			"mission": 4,
+			"bonus_score": 500,
+			"title_ua": "ПЕРЕХОПЛЕННЯ НАД БОЛОТАМИ",
+			"title_en": "WETLANDS INTERCEPT",
+			"desc_ua": "Тактичне перехоплення повітряної цілі над заплавою",
+			"desc_en": "Aerial target interception drill over the wetlands",
+		},
+	]
+	var tpl: Dictionary = pool[seed_idx % pool.size()].duplicate(true)
+	var rec: Dictionary = campaign_records.get("daily_challenge", {})
+	tpl["date"] = date_key
+	tpl["completed"] = (str(rec.get("last_completed_date", "")) == date_key)
+	tpl["streak"] = int(rec.get("streak", 0))
+	return tpl
+
+
+func mark_daily_challenge_completed() -> void:
+	if OS.has_environment("DRONE_NO_RECORD"):
+		return
+	var ch := get_daily_challenge()
+	var date_key := str(ch.get("date", ""))
+	var rec: Dictionary = campaign_records.get("daily_challenge", {})
+	if str(rec.get("last_completed_date", "")) == date_key:
+		return
+	rec["last_completed_date"] = date_key
+	rec["streak"] = int(rec.get("streak", 0)) + 1
+	rec["total_completed"] = int(rec.get("total_completed", 0)) + 1
+	rec["bonus_total"] = int(rec.get("bonus_total", 0)) + int(ch.get("bonus_score", 300))
+	campaign_records["daily_challenge"] = rec
+	save_campaign_records()
+
+
+func _ghost_track_path(key: String) -> String:
+	var clean := key.strip_edges().validate_filename()
+	if clean.is_empty():
+		clean = "default"
+	return "%s/%s.ghost" % [replay_dir, clean]
+
+
+func save_ghost_track(key: String, samples: Array) -> void:
+	if samples.is_empty():
+		return
+	if not DirAccess.dir_exists_absolute(replay_dir):
+		DirAccess.make_dir_recursive_absolute(replay_dir)
+	var f := FileAccess.open(_ghost_track_path(key), FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string(JSON.stringify(samples))
+	f.close()
+
+
+func load_ghost_track(key: String) -> Array:
+	var p := _ghost_track_path(key)
+	if not FileAccess.file_exists(p):
+		return []
+	var f := FileAccess.open(p, FileAccess.READ)
+	if f == null:
+		return []
+	var txt := f.get_as_text()
+	f.close()
+	var parsed = JSON.parse_string(txt)
+	if parsed is Array:
+		return parsed as Array
+	return []
+
+
+func is_game_center_available() -> bool:
+	return Engine.has_singleton("GameCenter") \
+			or OS.get_name() == "iOS" or OS.has_feature("ios")
+
+
+func get_leaderboard_summary(is_en: bool = false) -> String:
+	var best_score := 0
+	var completed := campaign_completed_count()
+	var stars := campaign_stars_total()
+	for m_id in range(1, 5):
+		best_score = maxi(best_score, int(get_mission_record(m_id).get("best_score", 0)))
+	for map_id in ["steppe", "village", "industrial", "wetlands"]:
+		best_score = maxi(best_score, int(get_training_record(map_id).get("best_score", 0)))
+	var daily_streak := int(campaign_records.get("daily_challenge", {}).get("streak", 0))
+	if is_en:
+		var gc_tag := "GC READY" if is_game_center_available() else "LOCAL"
+		return "%s · %d★ · %d/4 OPS · TOP %d · STREAK %d" % [
+			gc_tag, stars, completed, best_score, daily_streak
+		]
+	var gc_tag_ua := "GAME CENTER" if is_game_center_available() else "ЛОКАЛЬНО"
+	return "%s · %d★ · %d/4 ЕТАПІВ · РЕКОРД %d · СЕРІЯ %d" % [
+		gc_tag_ua, stars, completed, best_score, daily_streak
+	]
+
+
+func open_game_center_leaderboard() -> void:
+	if Engine.has_singleton("GameCenter"):
+		var gc := Engine.get_singleton("GameCenter")
+		if gc != null and gc.has_method("show_game_center"):
+			gc.call("show_game_center", {"view": "leaderboards"})
+	emit_signal("leaderboard_requested")

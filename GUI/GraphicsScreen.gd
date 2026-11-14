@@ -93,9 +93,9 @@ func _build() -> void:
 		_quality_buttons.append(q_btn)
 	box.add_child(preset_row)
 	var q_hint := MenuUI.body(
-			"НИЗЬКА — максимум FPS: FSR 40–72%, легка рослинність, короткі тіні. СЕРЕДНЯ — баланс: FSR 55–85%, щільна трава, тіні 120 м. ВИСОКА — максимум якості: нативна роздільність, SSAO, м'які тіні 180 м."
+			"НИЗЬКА — максимум FPS: FSR 67% (різкість 85%), легка рослинність, короткі тіні. СЕРЕДНЯ — баланс: FSR 55–85%, щільна трава, тіні 120 м. ВИСОКА — максимум якості: нативна роздільність, MSAA 2x, атмосферний туман, тіні 180 м."
 			if not MenuUI.is_english() else
-			"LOW = maximum FPS: FSR 40–72%, light vegetation, short shadows. MEDIUM = balance: FSR 55–85%, dense grass, 120 m shadows. HIGH = maximum quality: native scale, SSAO, soft 180 m shadows.",
+			"LOW = maximum FPS: FSR 67% (sharpness 85%), light foliage, short shadows. MEDIUM = balance: FSR 55–85%, dense grass, 120 m shadows. HIGH = maximum quality: native scale, MSAA 2x, height fog & aerial perspective, 180 m shadows.",
 			12, MenuUI.MUTED)
 	q_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(q_hint)

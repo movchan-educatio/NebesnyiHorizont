@@ -10,6 +10,12 @@ var blink_pattern := []: set = set_blink_pattern
 var pattern_idx := -1
 
 
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE:
+		if is_instance_valid(timer) and timer.get_parent() == null:
+			timer.free()
+
+
 func _enter_tree() -> void:
 	$LightMesh.material_override = mat
 	mat.albedo_color = Color(0.4, 0.4, 0.4)

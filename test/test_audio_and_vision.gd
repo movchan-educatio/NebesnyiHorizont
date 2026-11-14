@@ -4,7 +4,7 @@ const LocScript = preload("res://scripts/util/localization_manager.gd")
 const CombatSfx = preload("res://combat/sfx.gd")
 const DroneCatalog = preload("res://autoloads/DroneCatalog.gd")
 
-const ARTIFACT_DIR := "C:/Users/USER_UA/.gemini/antigravity/brain/ee388256-6605-4a1e-9395-d4a4f9ddcf71"
+const ARTIFACT_DIR := "C:/Users/USER_UA/.gemini/antigravity/brain/b9653fe7-b116-4da5-b8ea-6de700486b1e/scratch/audio_vision"
 
 func _ready() -> void:
 	print("==================================================================")
@@ -85,7 +85,8 @@ func _ready() -> void:
 	var full_pitch: float = motor_player.pitch_scale
 	var full_db: float = motor_player.volume_db
 	assert(full_pitch > 1.80, "Full throttle pitch must scream (> 1.80x)")
-	assert(full_db > -6.0, "Full throttle volume must be loud (>= -4.0 dB)")
+	assert(full_db >= -9.0 and full_db > disarmed_db + 10.0,
+			"Full throttle volume must jump cleanly (got %.1f dB vs disarmed %.1f dB)" % [full_db, disarmed_db])
 	print("  ✓ Dynamic Modulation: Disarmed Pitch=%.2fx (%.1f dB) -> Full Throttle Pitch=%.2fx (%.1f dB)" % [
 		disarmed_pitch, disarmed_db, full_pitch, full_db
 	])
@@ -93,19 +94,19 @@ func _ready() -> void:
 	pass_count += 1
 	
 	# -------------------------------------------------------------------------
-	# 4. UKRAINIAN-ONLY LOCALIZATION & DICTIONARY
+	# 4. BILINGUAL LOCALIZATION (UA + EN) & DICTIONARY
 	# -------------------------------------------------------------------------
-	print("\n[TEST 4] Ukrainian-only Localization System...")
+	print("\n[TEST 4] Bilingual Localization System (UA + EN)...")
 	LocScript.set_language(LocScript.Language.EN)
-	assert(LocScript.get_language() == LocScript.Language.UA, "Language must remain Ukrainian")
-	assert(LocScript.t("BTN_LAUNCH") == "ПОЧАТИ ВИЛІТ", "BTN_LAUNCH mismatch")
-	assert(LocScript.t("HUD_ARMED") == "ДВИГУНИ УВІМКНЕНО", "HUD_ARMED mismatch")
-	assert(LocScript.t("VISION_NVG") == "ОПТИКА: НІЧНЕ БАЧЕННЯ (NVG)", "VISION_NVG mismatch")
-	assert(LocScript.t("WEATHER_STORM") == "ПОГОДА: ГРОЗА ТА БЛИСКАВКА", "WEATHER_STORM mismatch")
-	print("  ✓ Ukrainian-only: language switch is disabled and Ukrainian labels remain active")
+	assert(LocScript.get_language() == LocScript.Language.EN, "Language must switch to EN")
+	assert(LocScript.t("BTN_LAUNCH") == "START SORTIE", "EN BTN_LAUNCH mismatch")
+	assert(LocScript.t("HUD_ARMED") == "ARMED / MOTORS ON", "EN HUD_ARMED mismatch")
+	assert(LocScript.t("VISION_NVG") == "OPTICS: NIGHT VISION (NVG)", "EN VISION_NVG mismatch")
+	assert(LocScript.t("WEATHER_STORM") == "WEATHER: THUNDERSTORM", "EN WEATHER_STORM mismatch")
+	print("  ✓ English Dictionary: 'START SORTIE', 'ARMED / MOTORS ON', 'OPTICS: NIGHT VISION (NVG)', 'WEATHER: THUNDERSTORM'")
 
 	LocScript.set_language(LocScript.Language.UA)
-	assert(LocScript.get_language() == LocScript.Language.UA, "Language must be set to UA")
+	assert(LocScript.get_language() == LocScript.Language.UA, "Language must switch back to UA")
 	assert(LocScript.t("BTN_LAUNCH") == "ПОЧАТИ ВИЛІТ", "UA BTN_LAUNCH mismatch")
 	assert(LocScript.t("HUD_ARMED") == "ДВИГУНИ УВІМКНЕНО", "UA HUD_ARMED mismatch")
 	assert(LocScript.t("VISION_NVG") == "ОПТИКА: НІЧНЕ БАЧЕННЯ (NVG)", "UA VISION_NVG mismatch")

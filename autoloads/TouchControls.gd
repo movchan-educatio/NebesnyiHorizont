@@ -282,9 +282,14 @@ func _layout() -> void:
 	_root.size = vs
 	_drawer.position = Vector2.ZERO
 	_drawer.size = vs
-	# Notch / rounded-corner / home-indicator safe area.  In sensor-landscape
-	# the cutout can be on the left or right after the device is rotated.
-	var notch := MenuUI.mobile_notch_insets(vs)
+	# Notch / Dynamic Island / rounded-corner / home-indicator safe area.
+	var safe_dict := MenuUI.get_safe_margins(vs)
+	var notch := Vector4(
+		maxf(float(safe_dict.get("left", 0.0)), MenuUI.mobile_notch_insets(vs).x),
+		maxf(float(safe_dict.get("top", 0.0)), MenuUI.mobile_notch_insets(vs).y),
+		maxf(float(safe_dict.get("right", 0.0)), MenuUI.mobile_notch_insets(vs).z),
+		maxf(float(safe_dict.get("bottom", 0.0)), MenuUI.mobile_notch_insets(vs).w)
+	)
 	if _preview:
 		# Menu calibration: compact sticks in the bottom corners keep the
 		# instruction card and action buttons clear in the middle.  The UI
@@ -335,8 +340,11 @@ func _layout() -> void:
 		_more_button.position = Vector2(side_x, y0c + 72.0)
 		_more_button.size = Vector2(menu_w, more_h)
 	_apply_top_bar_visibility()
-	_arm_button.position = Vector2(vs.x * 0.5 - 110.0, vs.y - 170.0 - notch.w)
-	_arm_button.size = Vector2(220.0, 78.0)
+	var arm_w := 220.0
+	var arm_x := clampf(vs.x * 0.5 - arm_w * 0.5, notch.x + 12.0, vs.x - notch.z - arm_w - 12.0)
+	var arm_y := clampf(vs.y - 170.0 - notch.w, notch.y + 80.0, vs.y - notch.w - 92.0)
+	_arm_button.position = Vector2(arm_x, arm_y)
+	_arm_button.size = Vector2(arm_w, 78.0)
 	var drop_size := clampf(_radius * 0.60, 78.0, 106.0)
 	_drop_button.position = Vector2(_left_center.x + _radius + 24.0,
 			_left_center.y - drop_size * 0.5)
@@ -946,3 +954,18 @@ func _notification(what: int) -> void:
 			or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT:
 		# Do not keep a throttle value when the phone is backgrounded.
 		_reset_sticks()
+
+
+func _exit_tree() -> void:
+	var vp := get_viewport()
+	if vp != null and vp.size_changed.is_connected(_layout):
+		vp.size_changed.disconnect(_layout)
+	if _setup_timer != null and is_instance_valid(_setup_timer):
+		_setup_timer.stop()
+	if _root != null and is_instance_valid(_root):
+		_root.queue_free()
+		_root = null
+		_drawer = null
+		_setup_root = null
+		_setup_panel = null
+		_setup_timer = null

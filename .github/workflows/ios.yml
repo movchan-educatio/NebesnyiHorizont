@@ -1,4 +1,4 @@
-name: Build iOS (unsigned IPA)
+name: Build iOS (Signed & Unsigned IPA)
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: ios-unsigned
+  group: ios-build-ipa
   cancel-in-progress: true
 
 env:
@@ -28,6 +28,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
+
+      - name: Validate export_presets.cfg encoding (UTF-8 without BOM)
+        run: |
+          python3 -c '
+          data = open("export_presets.cfg", "rb").read()
+          assert not data.startswith(b"\xef\xbb\xbf"), "export_presets.cfg must not have UTF-8 BOM"
+          data.decode("utf-8")
+          print("export_presets.cfg UTF-8 check OK:", len(data), "bytes")
+          '
 
       - name: Cache Godot and iOS templates
         uses: actions/cache@v4
@@ -73,8 +82,6 @@ jobs:
             "$HOME/Library/Application Support/Godot/export_templates/${GODOT_TEMPLATE_DIR}/ios.zip"
           cp "$RUNNER_TEMP/templates/version.txt" \
             "$HOME/Library/Application Support/Godot/export_templates/${GODOT_TEMPLATE_DIR}/version.txt"
-          # Keep only the cached ios.zip; the 1.1 GB .tpz archive and its
-          # extraction are not needed after the template is installed.
           rm -rf "$RUNNER_TEMP/templates.tpz" "$RUNNER_TEMP/tpl_extract"
           ls -lh "$HOME/Library/Application Support/Godot/export_templates/${GODOT_TEMPLATE_DIR}"
 
@@ -83,6 +90,38 @@ jobs:
           set -e
           GODOT="$RUNNER_TEMP/godot/Godot.app/Contents/MacOS/Godot"
           "$GODOT" --headless --path . --import
+
+      - name: Check signing secrets
+        id: sign_check
+        env:
+          IOS_P12_BASE64: ${{ secrets.IOS_P12_BASE64 }}
+          IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
+          IOS_MOBILEPROVISION_BASE64: ${{ secrets.IOS_MOBILEPROVISION_BASE64 }}
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+        run: |
+          if [ -n "$IOS_P12_BASE64" ] && [ -n "$IOS_MOBILEPROVISION_BASE64" ] && [ -n "$IOS_TEAM_ID" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "Signing secrets detected: building signed IPA."
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "Signing secrets absent: falling back cleanly to unsigned IPA."
+          fi
+
+      - name: Patch Team ID in export_presets.cfg when provided
+        if: steps.sign_check.outputs.signed == 'true'
+        env:
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+        run: |
+          python3 -c '
+          import os, re
+          team = os.environ["IOS_TEAM_ID"].strip()
+          txt = open("export_presets.cfg", "r", encoding="utf-8").read()
+          pattern = r"application/app_store_team_id=\"[^\"]*\""
+          repl = "application/app_store_team_id=\"" + team + "\""
+          txt = re.sub(pattern, repl, txt)
+          with open("export_presets.cfg", "w", encoding="utf-8", newline="\n") as f:
+              f.write(txt)
+          '
 
       - name: Export Xcode project
         run: |
@@ -98,7 +137,6 @@ jobs:
           python3 -c '
           import glob, re, os, zlib, struct
 
-          # 1. Clean storyboards: remove imageView nodes from launch screen storyboard
           for sb in glob.glob("build/ios/**/*.storyboard", recursive=True):
               with open(sb, "r", encoding="utf-8") as f:
                   txt = f.read()
@@ -107,7 +145,6 @@ jobs:
                   f.write(cleaned)
               print("Stripped imageView from", sb)
 
-          # 2. Pure Python dark PNG generator (zero external dependencies)
           def make_dark_png(w=16, h=16):
               raw_data = b""
               for _ in range(h):
@@ -122,7 +159,6 @@ jobs:
 
           dark_bytes = make_dark_png(16, 16)
 
-          # 3. Neutralize any splash / launch images with pure dark pixels
           for img_p in glob.glob("build/ios/**/*", recursive=True):
               lower = os.path.basename(img_p).lower()
               if ("splash" in lower or "launch" in lower) and lower.endswith(".png"):
@@ -134,15 +170,6 @@ jobs:
                       print("Error neutralizing", img_p, e)
           '
 
-      - name: Show Xcode schemes
-        run: |
-          xcodebuild -project "build/ios/${NAME}.xcodeproj" -list
-
-      - name: Disk space before archive
-        run: |
-          df -h /
-          du -sh build/ios .git .godot 2>/dev/null || true
-
       - name: Select newest available Xcode
         run: |
           set -e
@@ -151,9 +178,94 @@ jobs:
           sudo xcode-select -s "$NEWEST_XCODE"
           xcodebuild -version
 
-      - name: Build unsigned archive
+      - name: Install Apple Certificate & Provisioning Profile
+        if: steps.sign_check.outputs.signed == 'true'
+        id: apple_creds
+        env:
+          IOS_P12_BASE64: ${{ secrets.IOS_P12_BASE64 }}
+          IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
+          IOS_MOBILEPROVISION_BASE64: ${{ secrets.IOS_MOBILEPROVISION_BASE64 }}
         run: |
-          set -o pipefail
+          set -e
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASS="ci-signing-keychain-$(date +%s)"
+          P12_PATH="$RUNNER_TEMP/cert.p12"
+          PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
+
+          echo "$IOS_P12_BASE64" | base64 --decode > "$P12_PATH"
+          echo "$IOS_MOBILEPROVISION_BASE64" | base64 --decode > "$PROFILE_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+          security import "$P12_PATH" -P "$IOS_P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(security cms -D -i "$PROFILE_PATH"))
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print Name" /dev/stdin <<< $(security cms -D -i "$PROFILE_PATH"))
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision"
+
+          echo "profile_uuid=$PROFILE_UUID" >> "$GITHUB_OUTPUT"
+          echo "profile_name=$PROFILE_NAME" >> "$GITHUB_OUTPUT"
+          rm -f "$P12_PATH"
+
+      - name: Build Signed Archive & Export IPA
+        if: steps.sign_check.outputs.signed == 'true'
+        env:
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+        run: |
+          set -eo pipefail
+          PROFILE_UUID="${{ steps.apple_creds.outputs.profile_uuid }}"
+          PROFILE_NAME="${{ steps.apple_creds.outputs.profile_name }}"
+          xcodebuild archive \
+            -project "build/ios/${NAME}.xcodeproj" \
+            -scheme "${NAME}" \
+            -archivePath "build/ios/App.xcarchive" \
+            -derivedDataPath "build/DerivedData" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            DEVELOPMENT_TEAM="$IOS_TEAM_ID" \
+            CODE_SIGN_STYLE=Manual \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            PROVISIONING_PROFILE="$PROFILE_UUID"
+          rm -rf build/DerivedData
+
+          cat > build/ios/ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>teamID</key>
+            <string>${IOS_TEAM_ID}</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.nebesnyihorizont.game</key>
+              <string>${PROFILE_NAME}</string>
+            </dict>
+            <key>stripSwiftSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+
+          xcodebuild -exportArchive \
+            -archivePath "build/ios/App.xcarchive" \
+            -exportPath "build/ios/export" \
+            -exportOptionsPlist "build/ios/ExportOptions.plist"
+          cp build/ios/export/*.ipa "build/ios/${NAME}.ipa"
+          ls -lh "build/ios/${NAME}.ipa"
+
+      - name: Build Unsigned Archive & Package IPA (Fallback)
+        if: steps.sign_check.outputs.signed != 'true'
+        run: |
+          set -eo pipefail
           xcodebuild archive \
             -project "build/ios/${NAME}.xcodeproj" \
             -scheme "${NAME}" \
@@ -167,34 +279,30 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
-          # The archive is self-contained; DerivedData is another multi-GB
-          # copy of the app and is not needed for packaging.
           rm -rf build/DerivedData
-
-      - name: Package IPA
-        run: |
-          set -e
           cd build/ios
           rm -rf Payload
           mkdir -p Payload
           cp -R App.xcarchive/Products/Applications/*.app Payload/
           zip -qry "${NAME}-unsigned.ipa" Payload
           ls -lh "${NAME}-unsigned.ipa"
-          df -h /
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NebesnyiHorizont-ipa-${{ github.run_number }}
+          path: build/ios/*.ipa
+          if-no-files-found: error
 
       - name: Upload IPA to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ios-build-${{ github.run_number }}
-          name: "iOS unsigned build #${{ github.run_number }}"
+          name: "iOS build #${{ github.run_number }} (${{ steps.sign_check.outputs.signed == 'true' && 'Signed' || 'Unsigned' }})"
           body: |
-            Unsigned iOS IPA for personal testing.
+            Automated iOS IPA build for **Nebesnyi Horizont**.
+            Signed: `${{ steps.sign_check.outputs.signed }}`
 
-            iPhone 14 (Lightning): use Sideloadly on Windows with a free
-            Apple ID. The app expires after 7 days and must be re-signed.
-
-            ExpressLRS: enable WiFi on the TX module, connect the iPhone to
-            the "ExpressLRS TX" access point (password: expresslrs), allow
-            Local Network access, and launch the game.
-          files: build/ios/${{ env.NAME }}-unsigned.ipa
+            If unsigned, install via Sideloadly / AltStore. When `IOS_P12_BASE64`, `IOS_P12_PASSWORD`, `IOS_MOBILEPROVISION_BASE64`, and `IOS_TEAM_ID` GitHub Secrets are configured, this workflow outputs a signed App Store Connect `.ipa`.
+          files: build/ios/*.ipa
           make_latest: true

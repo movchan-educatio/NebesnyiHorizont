@@ -57,3 +57,8 @@ func _on_fisheye_msaa_changed() -> void:
 			viewport.msaa = Graphics.graphics_settings["msaa"]
 		else:
 			viewport.msaa = Graphics.graphics_settings["fisheye_msaa"]
+
+
+func _exit_tree() -> void:
+	viewports.clear()
+	cameras.clear()

@@ -7,8 +7,8 @@ func _ready() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
-	OS.set_environment("DRONE_PLAY_MODE", "chaos")
-	Global.play_mode = Global.PlayMode.CHAOS
+	OS.set_environment("DRONE_PLAY_MODE", "combat")
+	Global.play_mode = Global.PlayMode.COMBAT
 	Global.drone_preset = 12
 	var packed := load("res://sceneries/BigLevel.tscn") as PackedScene
 	var level := packed.instantiate()

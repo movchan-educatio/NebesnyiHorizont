@@ -86,16 +86,17 @@ static func setup_world_environment(env: Environment) -> void:
 		env.volumetric_fog_length = 700.0
 		env.volumetric_fog_sky_affect = 0.10
 	
-	# Analytic depth fog for the far backdrop.  Thin enough to keep the horizon
-	# contrasty, but cool enough to separate the distance from the warm foreground.
+	# Analytic depth & height fog for atmospheric aerial perspective on LOW+.
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.66, 0.74, 0.86, 1.0)
 	env.fog_light_energy = 0.55
-	env.fog_density = 0.00012
-	env.fog_sky_affect = 0.06
-	env.fog_depth_begin = 160.0
-	env.fog_depth_end = 3400.0
-	env.fog_aerial_perspective = 0.18
+	env.fog_density = 0.00018
+	env.fog_sky_affect = 0.14
+	env.fog_depth_begin = 110.0
+	env.fog_depth_end = 1800.0
+	env.fog_aerial_perspective = 0.55
+	env.fog_height = 24.0
+	env.fog_height_density = 0.0045
 	
 	# 6. Glow & post-process: gentle bloom only on the hottest highlights
 	# (sunlit metal, windows, muzzle flashes), then filmic colour grading.
@@ -107,9 +108,9 @@ static func setup_world_environment(env: Environment) -> void:
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
 	
 	env.adjustment_enabled = true
-	env.adjustment_brightness = 1.00
-	env.adjustment_contrast = 1.28
-	env.adjustment_saturation = 1.05
+	env.adjustment_brightness = 1.01
+	env.adjustment_contrast = 1.07
+	env.adjustment_saturation = 1.10
 	var grade := Gradient.new()
 	grade.set_color(0, Color(0.84, 0.92, 1.04))
 	grade.set_color(1, Color(1.04, 0.98, 0.90))

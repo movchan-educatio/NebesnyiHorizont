@@ -244,6 +244,7 @@ func add_Sibling_Menus() -> void:
 	var mobile_scene = load("res://GUI/mobile/MobileMenu.tscn")
 	if mobile_scene is PackedScene:
 		mobile_menu = (mobile_scene as PackedScene).instantiate() as Control
+		mobile_menu.set_meta("embedded_pause", true)
 		mobile_menu.visible = false
 		mobile_menu.process_mode = Node.PROCESS_MODE_ALWAYS
 		sibling_parent.call_deferred("add_child", mobile_menu)

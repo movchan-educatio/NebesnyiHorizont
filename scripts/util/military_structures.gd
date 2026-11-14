@@ -30,26 +30,26 @@ static func is_near_workshop(map_name: String, px: float, pz: float) -> bool:
 	var p := Vector2(px, pz)
 	match map_name:
 		"industrial":
-			if p.distance_to(Vector2(50.0, 80.0)) < 115.0: # Hero hall
+			if p.distance_to(Vector2(50.0, 80.0)) < 56.0: # Hero hall
 				return true
-			if p.distance_to(Vector2(-200.0, -180.0)) < 125.0: # factory_complex.glb
+			if p.distance_to(Vector2(-105.0, -98.0)) < 52.0: # factory_complex.glb
 				return true
-			if p.distance_to(Vector2(-125.0, 80.0)) < 95.0: # secondary hall
+			if p.distance_to(Vector2(-92.0, 56.0)) < 44.0: # secondary hall
 				return true
 		"steppe":
-			if p.distance_to(Vector2(192.0, 116.0)) < 115.0: # Hero hall
+			if p.distance_to(Vector2(88.0, 84.0)) < 56.0: # Hero hall
 				return true
-			if p.distance_to(Vector2(40.0, 146.0)) < 125.0: # farm_complex.glb workshop
+			if p.distance_to(Vector2(-28.0, 124.0)) < 48.0: # farm_complex.glb workshop
 				return true
 		"village":
-			if p.distance_to(Vector2(192.0, 58.0)) < 110.0: # Hero hall
+			if p.distance_to(Vector2(96.0, 52.0)) < 54.0: # Hero hall
 				return true
-			if p.distance_to(Vector2(60.0, -110.0)) < 95.0: # village_house.glb
+			if p.distance_to(Vector2(54.0, -96.0)) < 44.0: # village_house.glb
 				return true
 		"wetlands":
-			if p.distance_to(Vector2(85.0, 60.0)) < 110.0: # Hero hall
+			if p.distance_to(Vector2(58.0, 48.0)) < 54.0: # Hero hall
 				return true
-			if p.distance_to(Vector2(-60.0, -140.0)) < 95.0: # wetlands_dock.glb
+			if p.distance_to(Vector2(-56.0, -118.0)) < 44.0: # wetlands_dock.glb
 				return true
 	return false
 
@@ -1435,150 +1435,108 @@ static func build_artillery_bunker_complex(parent: Node3D, pos: Vector3, yaw: fl
 #  MAP SPAWNER: 35 DISTINCT STRUCTURES SPREAD ORGANICALLY WITHOUT CLUTTER
 # =============================================================================
 
+static func _is_valid_mil_spot(terrain, map_name: String, px: float, pz: float,
+		hc: Vector2, hhalf: Vector2, sp: Vector2, wl: float) -> bool:
+	if absf(px) > 158.0 or absf(pz) > 158.0:
+		return false
+	if bool(terrain.call("_tutorial_clear_zone", px, pz)):
+		return false
+	if is_near_workshop(map_name, px, pz):
+		return false
+	if absf(px - hc.x) < hhalf.x + 28.0 and absf(pz - hc.y) < hhalf.y + 28.0:
+		return false
+	if Vector2(px, pz).distance_to(sp) < 38.0:
+		return false
+	for poi in terrain._poi_positions:
+		if Vector2(px, pz).distance_to(poi) < 34.0:
+			return false
+	var h: float = float(terrain.height_at(map_name, px, pz))
+	if map_name == "wetlands" and h < wl + 0.8:
+		return false
+	if map_name == "industrial":
+		if absf(pz + 15.0) < 16.0 or pz > 148.0:
+			return false
+	if map_name == "village":
+		var rx := -140.0 + 18.0 * sin(pz * 0.011)
+		if absf(px - rx) < 22.0:
+			return false
+		if absf(pz - 58.0) < 16.0 and px > 12.0 and px < 156.0:
+			return false
+	return true
+
+
 static func spawn_map_military_objects(root: Node3D, map_name: String) -> void:
 	var terrain := load("res://scripts/util/frontline_terrain.gd")
 	if terrain == null:
 		return
 
+	const MAX_MIL_STRUCTS := 4
 	var site: Dictionary = terrain.HALL_SITES.get(map_name, {})
 	var hc: Vector2 = site.get("center", Vector2.ZERO)
-	var hhalf: Vector2 = site.get("half", Vector2(60.0, 40.0))
-	var sp: Vector2 = site.get("spawn", Vector2(100.0, 80.0))
+	var hhalf: Vector2 = site.get("half", Vector2(40.0, 28.0))
+	var sp: Vector2 = site.get("spawn", Vector2(88.0, 114.0))
 	var wl: float = terrain.water_level(map_name)
 
-	# Deterministic 7x5 Grid covering the compacted (-255..+255 m) playable space
-	var rows := 7
-	var cols := 5
-	var x_min := -255.0
-	var x_max := 255.0
-	var z_min := -245.0
-	var z_max := 245.0
-	var dx := (x_max - x_min) / float(cols)
-	var dz := (z_max - z_min) / float(rows)
-
+	# 4 well-separated quadrant centers across the compacted ±158 m arena.
+	var sectors: Array[Vector2] = [
+		Vector2(-108.0, -96.0),
+		Vector2(108.0, -98.0),
+		Vector2(-112.0, 102.0),
+		Vector2(102.0, 108.0),
+	]
 	var picked: Array[Vector2] = []
 
-	for r in range(rows):
-		for c in range(cols):
-			var idx := r * cols + c
-			var cx := x_min + (float(c) + 0.5) * dx
-			var cz := z_min + (float(r) + 0.5) * dz
-
-			# Deterministic organic offset inside sector
-			var off_x := sin(float(idx) * 1.7 + 0.5) * (dx * 0.28)
-			var off_z := cos(float(idx) * 2.1 + 0.8) * (dz * 0.28)
-
-			var found := false
-			for rad in [0.0, 14.0, 28.0, 42.0, 56.0]:
-				var steps := 1 if rad == 0.0 else 12
-				for s in range(steps):
-					var ang := (TAU * float(s)) / float(steps) if steps > 1 else 0.0
-					var px: float = cx + off_x + cos(ang) * rad
-					var pz: float = cz + off_z + sin(ang) * rad
-
-					if absf(px) > 265.0 or absf(pz) > 265.0:
-						continue
-
-					# Keep the Flight School corridor clear across every frontline map.
-					if bool(terrain.call("_tutorial_clear_zone", px, pz)):
-						continue
-
-					# Strict exclusion zone around all workshops/halls (no structures near workshops!)
-					if is_near_workshop(map_name, px, pz):
-						continue
-
-					# Hero Hall clear zone (with 45m safety apron)
-					if absf(px - hc.x) < hhalf.x + 45.0 and absf(pz - hc.y) < hhalf.y + 45.0:
-						continue
-					# Start spawn clearance (50m clear)
-					if Vector2(px, pz).distance_to(sp) < 50.0:
-						continue
-					# Signature POIs (water tower, substation, burnt armour,
-					# watch tower) keep a 36 m exclusion radius.
-					var poi_blocked := false
-					for poi in terrain._poi_positions:
-						if Vector2(px, pz).distance_to(poi) < 36.0:
-							poi_blocked = true
-							break
-					if poi_blocked:
-						continue
-
-					var h: float = float(terrain.height_at(map_name, px, pz))
-					if map_name == "wetlands" and h < wl + 0.8:
-						continue
-					if map_name == "industrial":
-						if absf(pz - (-15.0)) < 18.0: # Rail line
-							continue
-						if pz > 205.0: # Handcrafted river valley along southern boundary
-							continue
-					if map_name == "village":
-						var rx := -170.0 + 35.0 * sin(pz * 0.008)
-						if absf(px - rx) < 32.0: # River buffer
-							continue
-						# Keep village road clear
-						if absf(pz - 58.0) < 18.0 and px > 20.0 and px < 190.0:
-							continue
-
-					# Check minimum clearance to all previously picked objects (>= 42m)
-					var ok := true
-					for prev in picked:
-						if Vector2(px, pz).distance_to(prev) < 42.0:
-							ok = false
-							break
-					if ok:
-						picked.append(Vector2(px, pz))
-						found = true
-						break
-				if found:
+	for sector_idx in range(sectors.size()):
+		if picked.size() >= MAX_MIL_STRUCTS:
+			break
+		var base_c: Vector2 = sectors[sector_idx]
+		var found := false
+		for rad in [0.0, 16.0, 32.0, 48.0, 64.0]:
+			var steps := 1 if rad == 0.0 else 12
+			for s in range(steps):
+				var ang := (TAU * float(s)) / float(steps) + float(sector_idx) * 0.4
+				var px: float = base_c.x + cos(ang) * rad
+				var pz: float = base_c.y + sin(ang) * rad
+				if not _is_valid_mil_spot(terrain, map_name, px, pz, hc, hhalf, sp, wl):
+					continue
+				if bool(terrain.try_reserve_structure(root, map_name,
+						Vector2(px, pz), 12.0, 28.0, false)):
+					picked.append(Vector2(px, pz))
+					found = true
 					break
+			if found:
+				break
 
-	# Fallback if any sector was blocked
 	var fb_tries := 0
-	while picked.size() < 35 and fb_tries < 420:
+	while picked.size() < MAX_MIL_STRUCTS and fb_tries < 220:
 		fb_tries += 1
-		var fx := sin(float(fb_tries) * 11.3) * 245.0
-		var fz := cos(float(fb_tries) * 17.7) * 235.0
-		if map_name == "industrial" and fz > 205.0:
-			fz = 195.0 - absf(fz - 195.0)
-		var ok := true
-		if bool(terrain.call("_tutorial_clear_zone", fx, fz)):
+		var fx := sin(float(fb_tries) * 11.3 + float(hash(map_name) % 7)) * 144.0
+		var fz := cos(float(fb_tries) * 17.7 + float(hash(map_name) % 11)) * 144.0
+		if not _is_valid_mil_spot(terrain, map_name, fx, fz, hc, hhalf, sp, wl):
 			continue
-		if absf(fx - hc.x) < hhalf.x + 42.0 and absf(fz - hc.y) < hhalf.y + 42.0:
-			continue
-		if is_near_workshop(map_name, fx, fz):
-			continue
-		if Vector2(fx, fz).distance_to(sp) < 46.0:
-			continue
-		if map_name == "village":
-			var rx_fb := -170.0 + 35.0 * sin(fz * 0.008)
-			if absf(fx - rx_fb) < 30.0:
-				continue
-		if map_name == "wetlands" and float(terrain.height_at(map_name, fx, fz)) < wl + 0.8:
-			continue
-		var poi_blocked_fb := false
-		for poi in terrain._poi_positions:
-			if Vector2(fx, fz).distance_to(poi) < 36.0:
-				poi_blocked_fb = true
-				break
-		if poi_blocked_fb:
-			continue
-		for prev in picked:
-			if Vector2(fx, fz).distance_to(prev) < 36.0:
-				ok = false
-				break
-		if ok:
+		if bool(terrain.try_reserve_structure(root, map_name,
+				Vector2(fx, fz), 12.0, 28.0, false)):
 			picked.append(Vector2(fx, fz))
 
 	spawned_positions[map_name] = picked
 
-	# Dispatch each of the 35 distinct military trick structures
-	for i in range(mini(35, picked.size())):
+	var builder_pools := {
+		"industrial": [0, 3, 4, 24],
+		"village": [11, 12, 14, 22],
+		"steppe": [8, 9, 13, 26],
+		"wetlands": [5, 15, 19, 29],
+	}
+	var pool: Array = builder_pools.get(map_name, [0, 8, 9, 14])
+
+	for i in range(picked.size()):
 		var p2 := picked[i]
 		var y: float = float(terrain.footprint_surface_height(map_name, p2, 10.0, 10.0, 0.0)) - 0.15
 		var pos3 := Vector3(p2.x, y, p2.y)
 		var yaw := float(i) * 0.85 + sin(float(i) * 2.3) * 0.5
+		var builder_id := int(pool[i % pool.size()])
+		terrain.add_contact_shadow(root, map_name, p2, 14.0, "MilStruct_%d" % i)
 
-		match i:
+		match builder_id:
 			0: build_construction_skeleton_rubik(root, pos3, yaw)
 			1: build_pipeline_powerloop_arch(root, pos3, yaw)
 			2: build_fpv_slalom_gate_course(root, pos3, yaw)

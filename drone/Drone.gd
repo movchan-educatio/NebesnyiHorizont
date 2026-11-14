@@ -204,14 +204,18 @@ func _ready() -> void:
 	flight_controller.set_control_profile(control_profile)
 	
 	QuadSettings.load_quad_settings()
-	_discard = QuadSettings.connect("settings_updated", Callable(self, "_on_quad_settings_updated"))
+	if not QuadSettings.settings_updated.is_connected(_on_quad_settings_updated):
+		QuadSettings.connect("settings_updated", Callable(self, "_on_quad_settings_updated"))
 	_on_quad_settings_updated()
+	if Global.should_use_gentle_angle_assist() and flight_controller != null:
+		flight_controller.change_flight_mode(FlightController.FlightMode.LEVEL)
 	# FlightController defaults to LEVEL before the drone connects to its HUD
 	# signal; push the current mode once so the on-screen badge matches.
 	_on_flight_mode_changed(flight_controller.flight_mode)
 	
 	GameSettings.load_hud_config()
-	_discard = GameSettings.connect("hud_config_updated", Callable(self, "_on_hud_config_updated"))
+	if not GameSettings.hud_config_updated.is_connected(_on_hud_config_updated):
+		GameSettings.connect("hud_config_updated", Callable(self, "_on_hud_config_updated"))
 	_on_hud_config_updated()
 	
 	# Add anti-checkpoint ghosting raycast
@@ -680,8 +684,9 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var ang_a: Vector3 = basis * local_ang_a
 		ang_vel += ang_a * dt
 		var delta_ang_vel := ang_vel * dt
-		if delta_ang_vel != Vector3.ZERO:
-			basis = basis.rotated(delta_ang_vel.normalized(), delta_ang_vel.length())
+		var d_len := delta_ang_vel.length()
+		if d_len > 0.00001:
+			basis = basis.rotated(delta_ang_vel / d_len, d_len).orthonormalized()
 		
 		xform = Transform3D(basis, pos)
 	
@@ -1120,6 +1125,9 @@ func _on_quad_settings_updated() -> void:
 	var fpv := get_node_or_null("FPVCamera") as Camera3D
 	if fpv != null:
 		var p := DroneCatalog.preset(Global.drone_preset)
+		var cam_pos = p.get("fpv_cam_pos", null)
+		if cam_pos is Vector3:
+			fpv.position = cam_pos
 		var cam_pitch: float = float(p.get("fpv_cam_pitch", QuadSettings.angle))
 		fpv.transform.basis = Basis.IDENTITY.rotated(Vector3.RIGHT, deg_to_rad(cam_pitch))
 	control_profile.set_rates(QuadSettings.rate_pitch, QuadSettings.rate_roll, QuadSettings.rate_yaw)
@@ -1201,3 +1209,10 @@ func _hide_all_visuals(node: Node) -> void:
 		(node as VisualInstance3D).visible = false
 	for child in node.get_children():
 		_hide_all_visuals(child)
+
+
+func _exit_tree() -> void:
+	if QuadSettings != null and QuadSettings.settings_updated.is_connected(_on_quad_settings_updated):
+		QuadSettings.settings_updated.disconnect(_on_quad_settings_updated)
+	if GameSettings != null and GameSettings.hud_config_updated.is_connected(_on_hud_config_updated):
+		GameSettings.hud_config_updated.disconnect(_on_hud_config_updated)

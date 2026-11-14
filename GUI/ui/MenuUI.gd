@@ -79,18 +79,22 @@ const EN_TEXT: Dictionary = {
 	"Піхота в окопах": "Infantry in Trenches",
 	"Колона бронетехніки": "Armored Column",
 	"Гелікоптер у русі": "Moving Helicopter",
-	"БПЛА «Шахед-136»": "Shahed-136 UAV",
-	"Кримська ГЕС": "Crimean HPP",
+	"БПЛА «Дельта-136»": "Delta-136 UAV",
+	"БПЛА «Шахед-136»": "Delta-136 UAV",
+	"Навчальна гребля-ГЕС": "Training Hydro Dam",
+	"Кримська ГЕС": "Training Hydro Dam",
 	"1. Піхота в окопах": "1. Infantry in Trenches",
 	"2. Колона бронетехніки": "2. Armored Column",
 	"3. Гелікоптер у русі": "3. Moving Helicopter",
-	"4. БПЛА «Шахед-136»": "4. Shahed-136 UAV",
-	"5. Кримська ГЕС": "5. Crimean HPP",
-	"Виявлення та ліквідація живої сили": "Locate and neutralize enemy personnel",
-	"Знищення танка Т-72Б та бронетранспортера БТР-82А на марші": "Destroy a moving T-72B tank and BTR-82A APC",
-	"Перехоплення низьковисотної авіації": "Intercept low-flying aircraft",
-	"Швидкісне знищення камікадзе": "High-speed interceptor sortie",
-	"Морський удар катером «МАГУРА-Х»": "MAGURA-X naval strike",
+	"4. БПЛА «Дельта-136»": "4. Delta-136 UAV",
+	"4. БПЛА «Шахед-136»": "4. Delta-136 UAV",
+	"5. Навчальна гребля-ГЕС": "5. Training Hydro Dam",
+	"5. Кримська ГЕС": "5. Training Hydro Dam",
+	"Виявлення та ліквідація живої сили": "Locate and mark tactical range targets",
+	"Знищення танка Т-72Б та бронетранспортера БТР-82А на марші": "Engage moving T-72B tank and BTR-82A APC range targets",
+	"Перехоплення низьковисотної авіації": "Intercept low-flying aerial range targets",
+	"Швидкісне знищення камікадзе": "High-speed aerial target interception",
+	"Морський удар катером «МАГУРА-Х»": "MAGURA-X maritime interception sortie",
 	"5 завдань": "5 missions",
 	"6 модулів": "6 modules",
 	"10 модулів": "10 modules",
@@ -167,7 +171,7 @@ const EN_TEXT: Dictionary = {
 	"Деталь": "Component",
 	"ЗБАЛАНСОВАНИЙ ФРІСТАЙЛ": "BALANCED FREESTYLE",
 	"ДЕТОНАТОР: ВІДСУТНІЙ": "PAYLOAD: NONE",
-	"УДАРНИЙ КАМІКАДЗЕ": "STRIKE / KAMIKAZE",
+	"УДАРНИЙ КАМІКАДЗЕ": "TACTICAL STRIKE",
 	"БОМБАРДУВАЛЬНИК": "BOMBER",
 	"СПОРТИВНИЙ / РОЗВІДКА": "SPORT / RECON",
 	"СХЕМУ ФАРБУВАННЯ ЗАСТОСОВАНО": "PAINT SCHEME APPLIED",
@@ -241,12 +245,14 @@ const EN_TEXT: Dictionary = {
 	"КОЛОНА НА МАРШІ (ЗАГРОЗА ППО)": "COLUMN ON THE MOVE (AIR-DEFENSE THREAT)",
 	"МІ-8 / КА-52": "MI-8 / KA-52",
 	"ПЕРЕХОПЛЕННЯ В ПОВІТРІ": "AERIAL INTERCEPTION",
-	"ШАХЕД-136": "SHAHED-136",
+	"ДЕЛЬТА-136": "DELTA-136",
+	"ШАХЕД-136": "DELTA-136",
 	"185 km/h · КУРС 240°": "185 km/h · HEADING 240°",
 	"ВИСОКОШВИДКІСНИЙ ПЕРЕХОПЛЮВАЧ": "HIGH-SPEED INTERCEPTOR",
 	"АКВАТОРІЯ ГЕС": "HYDROELECTRIC PLANT WATERS",
 	"МАШИННИЙ ЗАЛ": "TURBINE HALL",
-	"СТРАТЕГІЧНИЙ УДАР: ЗНИЩИТИ КРИМСЬКУ ГЕС": "STRATEGIC STRIKE: DESTROY THE CRIMEAN HPP",
+	"СТРАТЕГІЧНИЙ УДАР: НАВЧАЛЬНА ГРЕБЛЯ-ГЕС": "TACTICAL DRILL: TRAINING HYDRO DAM",
+	"СТРАТЕГІЧНИЙ УДАР: ЗНИЩИТИ КРИМСЬКУ ГЕС": "TACTICAL DRILL: TRAINING HYDRO DAM",
 	"ЗОНА ВІЛЬНОГО ПОЛЬОТУ": "FREE FLIGHT AREA",
 	"РУСЛО ДОЛИНИ": "VALLEY ROUTE",
 	"БЕЗ БОЙОВИХ ЗАГРОЗ · ВІЛЬНЕ ПІЛОТУВАННЯ": "NO COMBAT THREATS · FREE FLIGHT",
@@ -368,21 +374,21 @@ const EN_TEXT: Dictionary = {
 	"Легкий фрістайл, миттєвий відгук": "Light freestyle quad with instant response",
 	"Класична 5\" рама, відкриті пропелери": "Classic 5-inch frame with exposed propellers",
 	"Cinewhoop із захистом пропелерів": "Cinewhoop with guarded propellers",
-	"VTOL-качка, ударний камікадзе": "VTOL tailsitter strike quad",
+	"VTOL-качка, ударний камікадзе": "VTOL tailsitter tactical quad",
 	"Розвідник із панельною антеною": "Recon quad with a directional antenna",
-	"Важкий ударний дальньої дії": "Heavy long-range strike quad",
-	"Ударний із системою скидання": "Strike quad with a payload-release system",
-	"Важкий камікадзе з виносним підвісом": "Heavy strike quad with an external payload mount",
+	"Важкий ударний дальньої дії": "Heavy long-range tactical quad",
+	"Ударний із системою скидання": "Tactical quad with a payload-release system",
+	"Важкий камікадзе з виносним підвісом": "Heavy tactical quad with an external payload mount",
 	"Цифровий швидкісний FPV, обтічний фюзеляж": "High-speed digital FPV with an aerodynamic fuselage",
 	"Карбонова X-рама 225 мм, висока тяга 6.5:1": "225 mm carbon X-frame · high 6.5:1 thrust-to-weight",
-	"Морський ударний дрон-камікадзе": "High-speed unmanned surface strike craft",
+	"Морський ударний дрон-камікадзе": "High-speed unmanned surface craft",
 	"КАСТОМ 5\"": "CUSTOM 5\"",
 	"РОЗВІДКА 5\"": "RECON 5\"",
-	"УДАРНИЙ 8–10\"": "STRIKE 8–10\"",
-	"УДАРНИЙ + СКИД": "STRIKE + DROP",
-	"КАМІКАДЗЕ": "STRIKE",
+	"УДАРНИЙ 8–10\"": "TACTICAL 8–10\"",
+	"УДАРНИЙ + СКИД": "TACTICAL + DROP",
+	"КАМІКАДЗЕ": "INTERCEPTOR",
 	"МОРСЬКИЙ USV": "MARITIME USV",
-	"Швидкісний морський ударний дрон-камікадзе": "High-speed unmanned surface strike craft",
+	"Швидкісний морський ударний дрон-камікадзе": "High-speed unmanned surface craft",
 	"ЗБІРКА КАСТОМНОГО ДРОНА": "CUSTOM DRONE BUILD",
 	"Легка каркасна X-рама з відкритими пропелерами та високою «грибковою» антеною на задній частині. Мінімальна злітна вага й жвава реакція на стіки — для тренувань, фрістайлу та точного калібрування пульта.": "Lightweight open-prop X-frame with a raised antenna. Low takeoff weight and responsive controls make it ideal for training, freestyle, and precise controller calibration.",
 	"Класичний кастомний FPV-квадрокоптер: рама з відкритими пропелерами та верхнім розташуванням акумулятора й навантаження. Легка модель на ~28 тис. трикутників — мінімальне навантаження на систему.": "Classic custom FPV quad with exposed propellers and top-mounted battery and payload. Lightweight model with approximately 28k triangles for low rendering cost.",
@@ -421,7 +427,8 @@ const EN_TEXT: Dictionary = {
 	"Вільний політ": "Free Flight",
 	"Швидкісна траса": "Speed Course",
 	"Траса на час": "Time Trial Course",
-	"БПЛА SHAHED-136": "SHAHED-136 UAV",
+	"БАРАЖУЮЧИЙ БПЛА-136": "LOITERING UAV-136",
+	"БПЛА SHAHED-136": "LOITERING UAV-136",
 	"Калібрування передавача": "Controller calibration",
 	"СТАБІЛЬНИЙ": "STABLE",
 	"СПОРТ": "SPORT",
@@ -694,24 +701,39 @@ static func mobile_safe_margin(viewport_size: Vector2) -> float:
 	return maxf(32.0, minf(viewport_size.x, viewport_size.y) * 0.06)
 
 
+## Display safe-area margins (`left`, `top`, `right`, `bottom`) scaled into
+## `viewport_size` (or current window size when omitted) from DisplayServer.
+static func get_safe_margins(viewport_size: Vector2 = Vector2.ZERO) -> Dictionary:
+	var win := DisplayServer.window_get_size()
+	if win.x <= 0 or win.y <= 0:
+		win = DisplayServer.screen_get_size()
+	if win.x <= 0 or win.y <= 0:
+		return {"left": 0.0, "top": 0.0, "right": 0.0, "bottom": 0.0}
+	var target := viewport_size if viewport_size.x > 0.0 and viewport_size.y > 0.0 else Vector2(win)
+	var safe := DisplayServer.get_display_safe_area()
+	if safe.size.x <= 0 or safe.size.y <= 0:
+		return {"left": 0.0, "top": 0.0, "right": 0.0, "bottom": 0.0}
+	var sx := target.x / float(win.x)
+	var sy := target.y / float(win.y)
+	return {
+		"left": maxf(0.0, float(safe.position.x) * sx),
+		"top": maxf(0.0, float(safe.position.y) * sy),
+		"right": maxf(0.0, float(win.x - safe.end.x) * sx),
+		"bottom": maxf(0.0, float(win.y - safe.end.y) * sy),
+	}
+
+
 ## Camera notch / rounded-corner insets, converted from screen pixels into the
 ## current viewport.  In sensor-landscape the notch can end up on either side.
 static func mobile_notch_insets(viewport_size: Vector2) -> Vector4:
 	if not is_mobile_ui():
 		return Vector4.ZERO
-	var screen := DisplayServer.screen_get_size()
-	if screen.x <= 0 or screen.y <= 0:
-		return Vector4.ZERO
-	var safe := DisplayServer.get_display_safe_area()
-	if safe.size.x <= 0 or safe.size.y <= 0:
-		return Vector4.ZERO
-	var sx := viewport_size.x / float(screen.x)
-	var sy := viewport_size.y / float(screen.y)
+	var safe := get_safe_margins(viewport_size)
 	return Vector4(
-		maxf(0.0, float(safe.position.x) * sx),
-		maxf(0.0, float(safe.position.y) * sy),
-		maxf(0.0, float(screen.x - safe.end.x) * sx),
-		maxf(0.0, float(screen.y - safe.end.y) * sy))
+		float(safe["left"]),
+		float(safe["top"]),
+		float(safe["right"]),
+		float(safe["bottom"]))
 
 
 ## Base breathing room plus the notch/home-indicator safe area.

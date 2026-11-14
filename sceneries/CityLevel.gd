@@ -23,6 +23,9 @@ func _ready() -> void:
 	else:
 		_place_drone_at_respawn()
 
+	var help := get_node_or_null("Help") as CanvasLayer
+	if help != null and MenuUI.is_mobile_ui():
+		help.visible = false
 	var cam := get_node_or_null("Drone/FPVCamera") as Camera3D
 	if cam != null:
 		cam.cull_mask = 1
@@ -170,3 +173,13 @@ func _hide_drone_visuals(node: Node) -> void:
 		(node as VisualInstance3D).visible = false
 	for child in node.get_children():
 		_hide_drone_visuals(child)
+
+
+func _exit_tree() -> void:
+	super._exit_tree()
+	var d := get_node_or_null("Drone") as Drone
+	if d != null:
+		if d.respawned.is_connected(_on_city_drone_respawned):
+			d.respawned.disconnect(_on_city_drone_respawned)
+		if d.flight_controller != null and d.flight_controller.armed.is_connected(_on_city_drone_armed):
+			d.flight_controller.armed.disconnect(_on_city_drone_armed)

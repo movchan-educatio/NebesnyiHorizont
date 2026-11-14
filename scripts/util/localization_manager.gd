@@ -18,12 +18,12 @@ static var _initialized: bool = false
 
 const DICT: Dictionary = {
 	# Menu & Navigation
-	"MENU_TITLE": {Language.UA: "FPV СИМУЛЯТОР ЗСУ", Language.EN: "AFU FPV DRONE SIMULATOR"},
-	"BTN_LAUNCH": {Language.UA: "ПОЧАТИ ВИЛІТ", Language.EN: "START MISSION"},
+	"MENU_TITLE": {Language.UA: "НЕБЕСНИЙ ГОРИЗОНТ · FPV", Language.EN: "HEAVENLY HORIZON · FPV"},
+	"BTN_LAUNCH": {Language.UA: "ПОЧАТИ ВИЛІТ", Language.EN: "START SORTIE"},
 	"BTN_BRIEFING": {Language.UA: "БРИФІНГ", Language.EN: "BRIEFING"},
-	"BTN_TUTORIAL": {Language.UA: "КУРС ПІЛОТА", Language.EN: "FLIGHT SCHOOL"},
-	"BTN_TRAINING": {Language.UA: "ТРЕНУВАННЯ", Language.EN: "FREE FLIGHT"},
-	"BTN_SPEED": {Language.UA: "НА ЧАС", Language.EN: "TIME TRIAL"},
+	"BTN_TUTORIAL": {Language.UA: "ТУТОРІАЛ", Language.EN: "TUTORIAL"},
+	"BTN_TRAINING": {Language.UA: "ТРЕНУВАННЯ", Language.EN: "TRAINING"},
+	"BTN_COMBAT": {Language.UA: "БОЙОВИЙ РЕЖИМ", Language.EN: "COMBAT"},
 	"BTN_SETTINGS": {Language.UA: "ПАРАМЕТРИ", Language.EN: "SETTINGS"},
 	"BTN_HANGAR": {Language.UA: "АНГАР", Language.EN: "HANGAR"},
 	"BTN_HELP": {Language.UA: "ДОВІДКА", Language.EN: "HELP / CONTROLS"},
@@ -31,25 +31,54 @@ const DICT: Dictionary = {
 	"BTN_RETRY": {Language.UA: "ПОВТОРИТИ", Language.EN: "RETRY"},
 	"BTN_NEXT": {Language.UA: "НАСТУПНА МІСІЯ", Language.EN: "NEXT MISSION"},
 	"BTN_QUIT": {Language.UA: "ВИХІД", Language.EN: "EXIT"},
+	"BTN_LANG_TOGGLE": {Language.UA: "МОВА: UA / EN", Language.EN: "LANG: EN / UA"},
+	"BTN_QUICK_TUTORIAL": {Language.UA: "▶ ШВИДКИЙ СТАРТ: ТУТОРІАЛ (60с)", Language.EN: "▶ QUICK START: TUTORIAL (60s)"},
 
 	# Modes & Headers
 	"HDR_MODES": {Language.UA: "РЕЖИМИ ВИЛЬОТУ", Language.EN: "FLIGHT MODES"},
-	"HDR_MISSIONS": {Language.UA: "БОЙОВІ МІСІЇ", Language.EN: "COMBAT MISSIONS"},
-	"HDR_DIFFICULTY": {Language.UA: "БОЙОВИЙ НОРМАТИВ ТА СКЛАДНІСТЬ", Language.EN: "COMBAT DIFFICULTY STANDARD"},
+	"HDR_MISSIONS": {Language.UA: "ТАКТИЧНІ ЗАВДАННЯ", Language.EN: "TACTICAL MISSIONS"},
+	"HDR_DIFFICULTY": {Language.UA: "РІВЕНЬ СКЛАДНОСТІ", Language.EN: "DIFFICULTY STANDARD"},
 	"DIFF_RECRUIT": {Language.UA: "РЕКРУТ", Language.EN: "RECRUIT"},
 	"DIFF_OPERATOR": {Language.UA: "ОПЕРАТОР", Language.EN: "OPERATOR"},
 	"DIFF_ACE": {Language.UA: "АС", Language.EN: "ACE"},
 
+	# Daily Challenge, Ratings & Game Center
+	"DAILY_HDR": {Language.UA: "ЩОДЕННИЙ ВИКЛИК", Language.EN: "DAILY CHALLENGE"},
+	"DAILY_DONE": {Language.UA: "ВИКОНАНО ✓", Language.EN: "COMPLETED ✓"},
+	"DAILY_PLAY": {Language.UA: "ПРИЙНЯТИ ВИКЛИК", Language.EN: "ACCEPT CHALLENGE"},
+	"RANK_LABEL": {Language.UA: "РАНГ", Language.EN: "RANK"},
+	"BEST_TIME": {Language.UA: "КРАЩИЙ ЧАС", Language.EN: "BEST TIME"},
+	"GC_HDR": {Language.UA: "ТАБЛИЦЯ ЛІДЕРІВ / GAME CENTER", Language.EN: "LEADERBOARDS / GAME CENTER"},
+	"GC_BTN": {Language.UA: "ВІДКРИТИ ЛІДЕРБОРД", Language.EN: "OPEN LEADERBOARD"},
+
 	# Telemetry & HUD
-	"HUD_ARMED": {Language.UA: "ДВИГУНИ УВІМКНЕНО", Language.EN: "ENGINES ON"},
-	"HUD_DISARMED": {Language.UA: "ДВИГУНИ ВИМКНЕНО", Language.EN: "ENGINES OFF"},
+	"HUD_ARMED": {Language.UA: "ДВИГУНИ УВІМКНЕНО", Language.EN: "ARMED / MOTORS ON"},
+	"HUD_DISARMED": {Language.UA: "ДВИГУНИ ВИМКНЕНО", Language.EN: "DISARMED"},
 	"HUD_TIME": {Language.UA: "ЧАС", Language.EN: "TIME"},
 	"HUD_SCORE": {Language.UA: "ОЧКИ", Language.EN: "SCORE"},
-	"HUD_AMMO": {Language.UA: "БОЄКОМПЛЕКТ", Language.EN: "PAYLOAD"},
+	"HUD_AMMO": {Language.UA: "ПІДВІС", Language.EN: "PAYLOAD"},
 	"HUD_SPEED": {Language.UA: "ШВИДКІСТЬ", Language.EN: "SPEED"},
 	"HUD_ALTITUDE": {Language.UA: "ВИСОТА", Language.EN: "ALTITUDE"},
 	"HUD_BATTERY": {Language.UA: "БАТАРЕЯ", Language.EN: "BATTERY"},
 	"HUD_READY": {Language.UA: "ГОТОВИЙ ДО СТАРТУ", Language.EN: "READY FOR TAKEOFF"},
+	"HUD_GHOST_ON": {Language.UA: "ПРИВИД АКТИВНИЙ", Language.EN: "GHOST ACTIVE"},
+
+	# Kill-Cam & Radio
+	"KILLCAM_TITLE": {Language.UA: "ПОВТОР УРАЖЕННЯ ЦІЛІ", Language.EN: "TARGET IMPACT REPLAY"},
+	"RADIO_LINK": {Language.UA: "РАДІОЗВ'ЯЗОК", Language.EN: "RADIO COMMS"},
+	"RADIO_CRSF": {Language.UA: "ТЕЛЕМЕТРІЯ ELRS / CRSF", Language.EN: "ELRS / CRSF TELEMETRY"},
+
+	# Calibration & Audio Sub-Buses
+	"CAL_TITLE": {Language.UA: "КАЛІБРУВАННЯ ПУЛЬТА ТА КРИВІ", Language.EN: "CONTROLLER CALIBRATION & CURVES"},
+	"CAL_PRESETS": {Language.UA: "ШВИДКІ ПРЕСЕТИ ПУЛЬТА", Language.EN: "QUICK CONTROLLER PRESETS"},
+	"CAL_EXPO": {Language.UA: "Експонента (Expo)", Language.EN: "Stick Expo"},
+	"CAL_SUPER_RATE": {Language.UA: "Суперрейт (SuperRate)", Language.EN: "SuperRate"},
+	"CAL_DEADZONE": {Language.UA: "Мертва зона (Deadzone)", Language.EN: "Deadzone"},
+	"BUS_ENGINE": {Language.UA: "Двигуни та гвинти", Language.EN: "Motors & Props"},
+	"BUS_WIND": {Language.UA: "Вітер та аеродинаміка", Language.EN: "Wind & Airflow"},
+	"BUS_COMBAT": {Language.UA: "Влучання та ефекти", Language.EN: "Impacts & Effects"},
+	"BUS_RADIO": {Language.UA: "Радіоефір", Language.EN: "Radio Comms"},
+	"BUS_WARNING": {Language.UA: "Сигнали тривоги OSD", Language.EN: "OSD Warnings"},
 
 	# Optics & Weather
 	"VISION_NORMAL": {Language.UA: "ОПТИКА: ДЕННА (RGB)", Language.EN: "OPTICS: DAYLIGHT (RGB)"},
@@ -60,14 +89,14 @@ const DICT: Dictionary = {
 	"WEATHER_CLEAR": {Language.UA: "ПОГОДА: ЯСНО", Language.EN: "WEATHER: CLEAR"},
 	"WEATHER_RAIN": {Language.UA: "ПОГОДА: ДОЩ", Language.EN: "WEATHER: RAIN"},
 	"WEATHER_STORM": {Language.UA: "ПОГОДА: ГРОЗА ТА БЛИСКАВКА", Language.EN: "WEATHER: THUNDERSTORM"},
-	"WEATHER_NIGHT": {Language.UA: "ЧАС ДОБИ: НІЧ", Language.EN: "TIME: NIGHT OPERATION"},
+	"WEATHER_NIGHT": {Language.UA: "ЧАС ДОБИ: НІЧ", Language.EN: "TIME: NIGHT FLIGHT"},
 	"WEATHER_DUST": {Language.UA: "ПОГОДА: ПИЛ / ТУМАН", Language.EN: "WEATHER: DUST / FOG"},
 
 	# Flight School
-	"FS_TITLE": {Language.UA: "ШКОЛА ПІЛОТА: КУРС ОПЕРАТОРА", Language.EN: "FLIGHT SCHOOL: PILOT COURSE"},
-	"FS_GOLDEN_CERT": {Language.UA: "ЗОЛОТИЙ СЕРТИФІКАТ ОПЕРАТОРА FPV ЗСУ", Language.EN: "GOLDEN CERTIFICATE: AFU FPV OPERATOR"},
-	"FS_COMPLETE_TITLE": {Language.UA: "ШКОЛУ ПІЛОТА ЗАВЕРШЕНО!", Language.EN: "FLIGHT SCHOOL COMPLETED!"},
-	"FS_STEP_ARM": {Language.UA: "МОДУЛЬ 0: УВІМКНЕННЯ ДВИГУНІВ ТА СТАРТ", Language.EN: "MODULE 0: ENGINE START"},
+	"FS_TITLE": {Language.UA: "ТУТОРІАЛ: ШКОЛА ПІЛОТА FPV", Language.EN: "TUTORIAL: FPV PILOT SCHOOL"},
+	"FS_GOLDEN_CERT": {Language.UA: "СЕРТИФІКАТ ОПЕРАТОРА FPV", Language.EN: "CERTIFIED FPV PILOT"},
+	"FS_COMPLETE_TITLE": {Language.UA: "ТУТОРІАЛ ЗАВЕРШЕНО!", Language.EN: "TUTORIAL COMPLETED!"},
+	"FS_STEP_ARM": {Language.UA: "МОДУЛЬ 0: АРМУВАННЯ ДВИГУНІВ ТА ЗЛІТ", Language.EN: "MODULE 0: ENGINE ARM & TAKEOFF"},
 	"FS_STEP_HOVER": {Language.UA: "МОДУЛЬ 1: УТРИМАННЯ ВИСОТИ 2-4м", Language.EN: "MODULE 1: ALTITUDE HOLD 2-4m"},
 	"FS_STEP_PITCH": {Language.UA: "МОДУЛЬ 2: ТАНГАЖ ТА ВОРОТА 1", Language.EN: "MODULE 2: PITCH & GATE 1"},
 	"FS_STEP_TURN": {Language.UA: "МОДУЛЬ 3: КООРДИНОВАНИЙ ВІРАЖ", Language.EN: "MODULE 3: COORDINATED TURN"},
@@ -98,9 +127,13 @@ static func initialize() -> void:
 	if _initialized:
 		return
 	_initialized = true
-	# Menus ship in Ukrainian only; ignore a language value saved by an older build.
-	_current_lang = Language.UA
-	GameSettings.hud_config["language"] = "ua"
+	var env_lang := OS.get_environment("DRONE_LANG").strip_edges().to_lower()
+	var saved_lang := str(GameSettings.hud_config.get("language", "ua")).strip_edges().to_lower()
+	if env_lang == "en" or (env_lang.is_empty() and saved_lang == "en"):
+		_current_lang = Language.EN
+	else:
+		_current_lang = Language.UA
+	GameSettings.hud_config["language"] = "en" if _current_lang == Language.EN else "ua"
 	var saved_pal := int(GameSettings.hud_config.get("osd_palette", 0))
 	_current_palette = clampi(saved_pal, 0, 4) as OsdPalette
 
@@ -111,14 +144,18 @@ static func get_language() -> Language:
 	return _current_lang
 
 
-static func set_language(_p_lang: Language) -> void:
-	_current_lang = Language.UA
-	GameSettings.hud_config["language"] = "ua"
+static func set_language(p_lang: Language, save: bool = true) -> void:
+	_initialized = true
+	_current_lang = Language.EN if p_lang == Language.EN else Language.UA
+	GameSettings.hud_config["language"] = "en" if _current_lang == Language.EN else "ua"
+	if save and Engine.get_main_loop() != null:
+		GameSettings.save_hud_config()
 
 
 static func toggle_language() -> Language:
-	set_language(Language.UA)
-	return Language.UA
+	var next := Language.EN if get_language() == Language.UA else Language.UA
+	set_language(next, true)
+	return next
 
 
 static func get_language_code() -> String:

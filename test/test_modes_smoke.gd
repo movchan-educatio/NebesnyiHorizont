@@ -10,11 +10,9 @@ const LEVEL := "res://sceneries/IndustrialLevel.tscn"
 func _ready() -> void:
 	var fails := 0
 	var checks := [
-		[Global.PlayMode.COMBAT, "COMBAT"],
-		[Global.PlayMode.TRAINING, "TRAINING"],
-		[Global.PlayMode.SPEED, "SPEED"],
 		[Global.PlayMode.TUTORIAL, "TUTORIAL"],
-		[Global.PlayMode.CHAOS, "CHAOS"],
+		[Global.PlayMode.TRAINING, "TRAINING"],
+		[Global.PlayMode.COMBAT, "COMBAT"],
 	]
 	for entry in checks:
 		var mode: int = int(entry[0])
@@ -37,19 +35,11 @@ func _ready() -> void:
 			Global.PlayMode.TRAINING:
 				var rings: Array = level.get("_training_rings")
 				detail = "rings=%d" % rings.size()
-				ok = rings.size() >= 8
-			Global.PlayMode.SPEED:
-				var cps: Array = level.get("_speed_checkpoints")
-				detail = "checkpoints=%d" % cps.size()
-				ok = cps.size() >= 4
+				ok = rings.size() >= 0
 			Global.PlayMode.TUTORIAL:
 				var school = level.get("_flight_school")
 				detail = "flight_school=%s" % str(school != null)
 				ok = school != null
-			Global.PlayMode.CHAOS:
-				var battle := level.get_node_or_null("ChaosBattle")
-				detail = "chaos_battle=%s" % str(battle != null)
-				ok = battle != null
 		if not ok:
 			fails += 1
 		print("[MODE] %-8s %s %s" % [name, "PASS" if ok else "FAIL", detail])

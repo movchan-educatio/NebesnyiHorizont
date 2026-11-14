@@ -470,11 +470,21 @@ func display_time_table() -> void:
 	time_table.add_total_time(timers[0].get_time_string(total_time))
 
 
+func _exit_tree() -> void:
+	for g in ghosts:
+		if g != null and is_instance_valid(g) and g.get_parent() == null:
+			g.free()
+	ghosts.clear()
+
+
 func load_replays() -> void:
 	for i in range(5):
 		if FileAccess.file_exists(replay_path):
-			if ghosts[i]:
-				ghosts[i].queue_free()
+			if ghosts[i] != null and is_instance_valid(ghosts[i]):
+				if ghosts[i].get_parent() == null:
+					ghosts[i].free()
+				else:
+					ghosts[i].queue_free()
 			ghosts[i] = Ghost.new()
 			match i:
 				0:

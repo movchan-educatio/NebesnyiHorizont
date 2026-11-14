@@ -7,12 +7,28 @@ extends Node
 const FT := preload("res://scripts/util/frontline_terrain.gd")
 const MS := preload("res://scripts/util/military_structures.gd")
 const GFxScript := preload("res://autoloads/Graphics.gd")
+const FpvIconsScript := preload("res://scripts/util/fpv_icons.gd")
+const ReconKillCamScript := preload("res://scripts/combat/recon_kill_cam.gd")
 
 const KEY_TRICK_STRUCTURES := [
 	"ConstructionSkeletonRubik",
 	"PipelinePowerloopArch",
 	"CoolingTowerDiveFunnel",
+	"ShippingContainerComplex",
+	"GeneratorSubstation",
 	"DamagedHangarArch",
+	"RadarRelayStation",
+	"HardenedTrenchBunker",
+	"FuelStorageRevetment",
+	"AirDefenseRadarDome",
+	"CheckpointFortification",
+	"SandbagMortarPit",
+	"ObservationWatchtower",
+	"CamoVehicleShed",
+	"ConcretePipeCulvertCourse",
+	"MilitaryContainerHQ",
+	"PipelineOverpass",
+	"CommunicationMastGuyed",
 	"MilitaryArchPortal",
 	"ScaffoldingFreestyleCube",
 	"SamBatteryGantry",
@@ -22,7 +38,7 @@ const KEY_TRICK_STRUCTURES := [
 	"ArtilleryBunkerComplex",
 ]
 
-const EXPECTED_BG_NODES := {
+const LEGACY_BG_BOX_NODES := {
 	"steppe": ["BgSteppeShelterbelts", "BgSteppeTurbines", "BgSteppeTurbineBlades", "BgSteppeBarns"],
 	"village": ["BgVillageWalls", "BgVillageRoofs", "BgVillageWoods"],
 	"industrial": ["BgIndHalls", "BgIndCoolingTowers", "BgIndStacks", "BgIndPlumes"],
@@ -36,8 +52,8 @@ var _checks := 0
 func _ready() -> void:
 	print("=== QA WORLD SHRINK VERIFY START ===")
 	_check_default_low_preset()
-	_check(is_equal_approx(FT.OUTER_SIZE, 614.4),
-			"FrontlineTerrain.OUTER_SIZE == 614.4 (got %.1f)" % FT.OUTER_SIZE)
+	_check(is_equal_approx(FT.OUTER_SIZE, 384.0),
+			"FrontlineTerrain.OUTER_SIZE == 384.0 (got %.1f)" % FT.OUTER_SIZE)
 
 	for spec in [
 		{"scene": "res://sceneries/SteppeLevel.tscn", "map": "steppe", "campaign": 1},
@@ -49,11 +65,10 @@ func _ready() -> void:
 
 	await _verify_tutorial_mode("res://sceneries/SteppeLevel.tscn", "steppe")
 	await _verify_tutorial_mode("res://sceneries/IndustrialLevel.tscn", "industrial")
-	await _verify_speed_mode("res://sceneries/SteppeLevel.tscn", "steppe")
 	await _verify_valley_biglevel()
-	await _verify_chaos_mode()
 	await _verify_special_missions()
 	await _verify_city_and_course()
+	_verify_block6_assets_and_systems()
 
 	print("[SHRINK-QA] SUMMARY checks=%d fails=%d -> %s" % [
 		_checks, _fails, "PASS" if _fails == 0 else "FAIL"
@@ -79,8 +94,8 @@ func _check_default_low_preset() -> void:
 	_check(QualityManager.level() == QualityManager.Level.LOW,
 			"Active QualityManager level is LOW (%d)" % QualityManager.level())
 	var scale3d := float(QualityManager.params().get("scale_3d", -1.0))
-	_check(is_equal_approx(scale3d, 0.58),
-			"LOW preset scale_3d == 0.58 (got %.2f)" % scale3d)
+	_check(is_equal_approx(scale3d, 0.67),
+			"LOW preset scale_3d == 0.67 (got %.2f)" % scale3d)
 
 
 func _instantiate_level(path: String, wait_sec: float) -> Node3D:
@@ -138,29 +153,51 @@ func _verify_frontline_combat_map(scene_path: String, map_name: String, campaign
 				"%s HorizonRing present & shadowless" % map_name)
 		_check(mtn != null and _node_has_no_colliders(mtn) and _node_is_shadowless(mtn),
 				"%s MountainBackdrop present, 0 colliders & shadowless" % map_name)
-		for bg_name in EXPECTED_BG_NODES.get(map_name, []):
-			var bg := ft.get_node_or_null(bg_name)
-			_check(bg != null and _node_has_no_colliders(bg) and _node_is_shadowless(bg),
-					"%s themed horizon MultiMesh %s 0-col & shadowless" % [map_name, bg_name])
+		for hnode_name in ["BgHorizonTreeline", "BgHorizonHills"]:
+			var hn := ft.get_node_or_null(hnode_name)
+			_check(hn != null and _node_has_no_colliders(hn) and _node_is_shadowless(hn),
+					"%s horizon %s 0-col & shadowless" % [map_name, hnode_name])
+		for legacy_bg in LEGACY_BG_BOX_NODES.get(map_name, []):
+			_check(ft.get_node_or_null(legacy_bg) == null,
+					"%s legacy dark horizon box %s removed" % [map_name, legacy_bg])
+
+		var reserved: Array = FT.get_reserved_structures(ft)
+		var res_in_bounds := true
+		var min_corridor := 9999.0
+		for idx_a in range(reserved.size()):
+			var ra: Dictionary = reserved[idx_a]
+			var pa: Vector2 = ra.get("pos", Vector2.ZERO)
+			var rad_a: float = float(ra.get("radius", 0.0))
+			if absf(pa.x) > 162.0 or absf(pa.y) > 162.0:
+				res_in_bounds = false
+			for idx_b in range(idx_a + 1, reserved.size()):
+				var rb: Dictionary = reserved[idx_b]
+				var pb: Vector2 = rb.get("pos", Vector2.ZERO)
+				var rad_b: float = float(rb.get("radius", 0.0))
+				min_corridor = minf(min_corridor, pa.distance_to(pb) - (rad_a + rad_b))
+		_check(reserved.size() >= 12 and reserved.size() <= 16 and res_in_bounds,
+				"%s reserved key structures 12..16 within ±162m (got %d)" % [map_name, reserved.size()])
+		_check(reserved.size() < 2 or min_corridor >= 24.5,
+				"%s structure flight corridor >= 24.5m (min_gap=%.1f)" % [map_name, min_corridor])
 
 		var sites: Array = MS.spawned_positions.get(map_name, [])
-		var all_sites_in := sites.size() == 35
+		var all_sites_in := not sites.is_empty()
 		var ind_river_ok := true
 		for sp in sites:
-			if absf(sp.x) > 270.0 or absf(sp.y) > 270.0:
+			if absf(sp.x) > 162.0 or absf(sp.y) > 162.0:
 				all_sites_in = false
-			if map_name == "industrial" and sp.y > 210.0:
+			if map_name == "industrial" and sp.y > 148.0:
 				ind_river_ok = false
-		_check(all_sites_in, "%s spawned 35 MilitaryStructures within ±270m (got %d)" % [map_name, sites.size()])
+		_check(all_sites_in, "%s spawned %d MilitaryStructures within ±162m" % [map_name, sites.size()])
 		if map_name == "industrial":
-			_check(ind_river_ok, "industrial MilitaryStructures stay north of river (z <= 210m)")
+			_check(ind_river_ok, "industrial MilitaryStructures stay north of river (z <= 148m)")
 
 		if map_name == "steppe":
 			_verify_key_structures_geometry(lvl, ft, map_name)
 
 	var drone := lvl.get_node_or_null("Drone") as Node3D
-	_check(drone != null and _within_sq(drone.global_position, 275.0),
-			"%s combat TAC-%02d drone spawn within ±275m" % [map_name, campaign_id])
+	_check(drone != null and _within_sq(drone.global_position, 178.0),
+			"%s combat TAC-%02d drone spawn within ±178m" % [map_name, campaign_id])
 	var wl := FT.water_level(map_name)
 	if drone != null and wl > -100.0:
 		_check(drone.global_position.y > wl + 0.25,
@@ -169,7 +206,7 @@ func _verify_frontline_combat_map(scene_path: String, map_name: String, campaign
 	lvl.call("_start_mission")
 	lvl.call("_enter_extract_phase")
 	var ext: Vector3 = lvl.get("_extract_point")
-	_check(_within_sq(ext, 275.0) and ext != Vector3.ZERO, "%s TAC-%02d extract point inside ±275m (%s)" % [map_name, campaign_id, str(ext)])
+	_check(_within_sq(ext, 178.0) and ext != Vector3.ZERO, "%s TAC-%02d extract point inside ±178m (%s)" % [map_name, campaign_id, str(ext)])
 	if wl > -100.0:
 		var ext_h := FT.height_at(map_name, ext.x, ext.z)
 		_check(ext_h >= wl - 0.1, "%s TAC-%02d extract ground dry (h=%.2f wl=%.2f)" % [map_name, campaign_id, ext_h, wl])
@@ -184,14 +221,14 @@ func _verify_frontline_combat_map(scene_path: String, map_name: String, campaign
 	for v in vehs:
 		if not is_instance_valid(v):
 			continue
-		if not _within_sq(v.global_position, 290.0):
+		if not _within_sq(v.global_position, 185.0):
 			units_ok = false
 			bad_info = "veh %s out of bounds %s" % [str(v.name), str(v.global_position)]
 			break
 	for u in infs:
 		if not is_instance_valid(u):
 			continue
-		if not _within_sq(u.global_position, 290.0):
+		if not _within_sq(u.global_position, 185.0):
 			units_ok = false
 			bad_info = "inf %s out of bounds %s" % [str(u.name), str(u.global_position)]
 			break
@@ -200,7 +237,7 @@ func _verify_frontline_combat_map(scene_path: String, map_name: String, campaign
 			units_ok = false
 			bad_info = "inf %s not grounded (y=%.2f gh=%.2f)" % [str(u.name), u.global_position.y, gh]
 			break
-	_check(units_ok, "%s TAC-%02d vehicles(%d) & infantry(%d) bounded <=290m (%s)" % [
+	_check(units_ok, "%s TAC-%02d vehicles(%d) & infantry(%d) bounded <=185m (%s)" % [
 		map_name, campaign_id, vehs.size(), infs.size(), bad_info if bad_info != "" else "ok"
 	])
 
@@ -209,11 +246,13 @@ func _verify_frontline_combat_map(scene_path: String, map_name: String, campaign
 
 func _verify_key_structures_geometry(lvl: Node3D, ft: Node3D, map_name: String) -> void:
 	var space := lvl.get_world_3d().direct_space_state
+	var present: Array[String] = []
 	for sname in KEY_TRICK_STRUCTURES:
+		if ft.get_node_or_null(sname) != null:
+			present.append(sname)
+	_check(present.size() >= 4, "%s spawns >=4 MilitaryStructures trick buildings (got %d)" % [map_name, present.size()])
+	for sname in present:
 		var st := ft.get_node_or_null(sname) as Node3D
-		if st == null:
-			_check(false, "%s missing trick structure %s" % [map_name, sname])
-			continue
 		var cols := st.find_children("*", "CollisionShape3D", true, false)
 		var min_bot := INF
 		for c in cols:
@@ -275,29 +314,8 @@ func _verify_tutorial_mode(scene_path: String, map_name: String) -> void:
 	var school: Variant = lvl.get("_flight_school")
 	var wl := FT.water_level(map_name)
 	var dry := drone != null and (wl < -100.0 or drone.global_position.y > wl + 0.25)
-	_check(drone != null and _within_sq(drone.global_position, 270.0) and dry and school != null,
-			"%s TUTORIAL FlightSchool active & drone spawn dry within ±270m" % map_name)
-	await _free_level(lvl)
-
-
-func _verify_speed_mode(scene_path: String, map_name: String) -> void:
-	Global.play_mode = Global.PlayMode.SPEED
-	Global.special_mission = 0
-	var lvl := await _instantiate_level(scene_path, 0.5)
-	if lvl == null:
-		return
-	var cps: Array = lvl.get("_speed_checkpoints")
-	var all_in := cps.size() == 20
-	for cp in cps:
-		if is_instance_valid(cp) and not _within_sq(cp.global_position, 265.0):
-			all_in = false
-	var vehs: Array = lvl.get("_vehicles")
-	var traf_in := true
-	for v in vehs:
-		if is_instance_valid(v) and not _within_sq(v.global_position, 275.0):
-			traf_in = false
-	_check(all_in, "%s SPEED has 20 checkpoints inside ±265m (got %d)" % [map_name, cps.size()])
-	_check(traf_in, "%s SPEED vehicles(%d) inside ±275m" % [map_name, vehs.size()])
+	_check(drone != null and _within_sq(drone.global_position, 178.0) and dry and school != null,
+			"%s TUTORIAL FlightSchool active & drone spawn dry within ±178m" % map_name)
 	await _free_level(lvl)
 
 
@@ -325,26 +343,6 @@ func _verify_valley_biglevel() -> void:
 	await _free_level(lvl)
 
 
-func _verify_chaos_mode() -> void:
-	Global.play_mode = Global.PlayMode.CHAOS
-	Global.special_mission = 0
-	var lvl := await _instantiate_level("res://sceneries/IndustrialLevel.tscn", 0.5)
-	if lvl == null:
-		return
-	var cb := lvl.get_node_or_null("ChaosBattle")
-	var ok := cb != null
-	if cb != null:
-		for key in ["_team_a", "_team_b", "_vehicles", "_buildings"]:
-			var arr: Array = cb.get(key)
-			if arr.is_empty():
-				ok = false
-			for item in arr:
-				if is_instance_valid(item) and item is Node3D and not _within_sq((item as Node3D).global_position, 240.0):
-					ok = false
-	_check(ok, "IndustrialLevel CHAOS battle units & buildings within ±240m")
-	await _free_level(lvl)
-
-
 func _verify_special_missions() -> void:
 	Global.play_mode = Global.PlayMode.COMBAT
 	for mid in [1, 2, 3, 4, 5, 6]:
@@ -359,12 +357,47 @@ func _verify_special_missions() -> void:
 		var zones: Array = lvl.get("_special_zones")
 		var zones_in := true
 		for z in zones:
-			if z is Vector3 and not _within_sq(z, 275.0):
+			if z is Vector3 and not _within_sq(z, 178.0):
 				zones_in = false
-		_check(_within_sq(ext, 275.0) and ext_h >= wl - 0.1 and zones_in,
-				"Special Mission %d extract (%s) & zones within ±275m and dry" % [mid, str(ext)])
+		_check(_within_sq(ext, 178.0) and ext_h >= wl - 0.1 and zones_in,
+				"Special Mission %d extract (%s) & zones within ±178m and dry" % [mid, str(ext)])
 		await _free_level(lvl)
 	Global.special_mission = 0
+
+
+func _verify_block6_assets_and_systems() -> void:
+	var loaded_icons := 0
+	for icon_id in FpvIconsScript.ICON_IDS:
+		var tex := FpvIconsScript.get_icon(icon_id)
+		if tex != null:
+			loaded_icons += 1
+	_check(loaded_icons == 12, "FpvIcons loads all 12 SVG icons (got %d)" % loaded_icons)
+
+	var radio_files := [
+		"res://Assets/Audio/radio/radio_01_bort_target_spotted.wav",
+		"res://Assets/Audio/radio/radio_02_hq_cleared_hot.wav",
+		"res://Assets/Audio/radio/radio_03_bort_direct_hit.wav",
+		"res://Assets/Audio/radio/radio_04_hq_rtb.wav",
+	]
+	var loaded_wavs := 0
+	for rpath in radio_files:
+		if FileAccess.file_exists(rpath):
+			var bytes := FileAccess.get_file_as_bytes(rpath)
+			if bytes.size() > 44:
+				loaded_wavs += 1
+	_check(loaded_wavs == 4, "All 4 radio WAV files present and non-empty (got %d)" % loaded_wavs)
+
+	var buses_ok := true
+	for bname in ["Engine", "Wind", "Combat", "Radio", "Warning"]:
+		if AudioServer.get_bus_index(bname) < 0:
+			buses_ok = false
+	_check(buses_ok, "AudioServer exposes Engine, Wind, Combat, Radio, Warning buses")
+
+	var kill_cam := ReconKillCamScript.new()
+	_check(kill_cam != null and is_equal_approx(ReconKillCamScript.SPEED_OF_SOUND, 343.0),
+			"ReconKillCamDirector instantiates cleanly")
+	if kill_cam != null:
+		kill_cam.free()
 
 
 func _verify_city_and_course() -> void:

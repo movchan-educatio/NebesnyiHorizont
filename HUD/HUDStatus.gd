@@ -8,6 +8,12 @@ var status: int = Status.DISARMED: set = set_status
 var message_timer := Timer.new()
 
 
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE:
+		if is_instance_valid(message_timer) and message_timer.get_parent() == null:
+			message_timer.free()
+
+
 func _ready() -> void:
 	add_child(message_timer)
 	message_timer.one_shot = true

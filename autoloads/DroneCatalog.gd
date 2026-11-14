@@ -35,9 +35,13 @@ const PRESETS := [
 		"motor_tint": Color(0.14, 0.15, 0.17),
 		"body_prop_tint": Color(0.20, 0.20, 0.22),
 		"name": "«ГРІМ-7»",
-		"tag": "УДАРНИЙ 8–10\"",
-		"desc": "Важкий ударний дальньої дії",
-		"info": "Важкий квадрокоптер-камікадзе дальньої дії, рама 8–10 дюймів. Потужна батарея на верхній деці та видовжений боєприпас із хвостовим оперенням під днищем зміщують центр мас: дрон інертний у віражах і потребує точного розрахунку на заході на ціль.",
+		"name_en": "GRIM-7",
+		"tag": "ТАКТИЧНИЙ 8–10\"",
+		"tag_en": "TACTICAL 8–10\"",
+		"desc": "Важкий тактичний дрон дальньої дії",
+		"desc_en": "Heavy long-range tactical quad",
+		"info": "Важкий квадрокоптер дальньої дії, рама 8–10 дюймів. Потужна батарея на верхній деці та видовжене корисне навантаження з хвостовим оперенням під днищем зміщують центр мас: дрон інертний у віражах і тренує точний захід на ціль.",
+		"info_en": "Heavy long-range tactical quad on an 8–10-inch frame. Top-mounted battery and weighted underbody payload shift the center of mass, creating realistic inertia in turns and precision approach training.",
 		"dry": 0.90, "batt": 0.50, "kv": 1350, "torque": 2800.0, "rpm": 23000.0,
 		"prop_d": 8.0, "prop_p": 4.5, "blades": 3, "rate": 600, "motor_size": 2808,
 		"payload": 3, "payload_mass": 1.30, "combat": true, "has_drop": false,
@@ -50,7 +54,7 @@ const PRESETS := [
 		"drag_area": Vector3(0.032, 0.035, 0.020),
 		"model": "res://Assets/Drones/ua_norm/grim7.glb",
 		"model_size": 0.391, "model_fit": false,
-		"fpv_cam_pos": Vector3(-0.0146, 0.007, -0.095), "fpv_cam_pitch": -14.0,
+		"fpv_cam_pos": Vector3(0.0, 0.026, -0.145), "fpv_cam_pitch": -14.0,
 	},
 	{
 		"id": "grim7m",
@@ -60,13 +64,18 @@ const PRESETS := [
 		"motor_tint": Color(0.14, 0.15, 0.17),
 		"body_prop_tint": Color(0.20, 0.20, 0.22),
 		"name": "«ГРІМ-7М»",
-		"tag": "УДАРНИЙ + СКИД",
-		"desc": "Ударний із системою скидання",
-		"info": "Модифікована повна комплектація: велика акумуляторна збірка зверху з ременем, видимий силовід і XT60, виносна антена VTX та нижня захисна дуга-лижа. Система скидання й важка бойова частина під рамою.",
+		"name_en": "GRIM-7M",
+		"tag": "ТАКТИЧНИЙ + СКИД",
+		"tag_en": "TACTICAL + DROP",
+		"desc": "Тактичний дрон із системою скидання",
+		"desc_en": "Tactical quad with a payload-release system",
+		"info": "Модифікована комплектація: велика акумуляторна збірка зверху з ременем, силовід XT60, виносна антена VTX та нижня захисна дуга-лижа. Обладнаний системою скидання тренувального вантажу під рамою.",
+		"info_en": "Upgraded long-range configuration with a top-strapped battery pack, XT60 lead, elevated VTX antenna, and lower skid guard. Equipped with an underframe payload-release mechanism.",
 		"dry": 0.88, "batt": 0.48, "kv": 1400, "torque": 2600.0, "rpm": 20500.0,
 		"prop_d": 8.0, "prop_p": 4.3, "blades": 3, "rate": 620, "motor_size": 2808,
 		"payload": 4, "payload_mass": 0.80, "combat": true, "has_drop": true,
-		"drop_name": "2x ВОГ-17 (800г)",
+		"drop_name": "2x Скид-М (800г)",
+		"drop_name_en": "2× Training Payloads (800 g)",
 		"twr": 3.5,
 		"battery_chemistry": 1, "battery_mah": 5000.0,
 		"battery_resistance": 0.065, "battery_max_current": 90.0,
@@ -75,7 +84,7 @@ const PRESETS := [
 		"drag_area": Vector3(0.030, 0.032, 0.018),
 		"model": "res://Assets/Drones/ua_norm/grim7m.glb",
 		"model_size": 0.420, "model_fit": false,
-		"fpv_cam_pos": Vector3(0.0, 0.002, -0.120), "fpv_cam_pitch": -14.0,
+		"fpv_cam_pos": Vector3(0.0, 0.028, -0.165), "fpv_cam_pitch": -14.0,
 	},
 	{
 		"id": "strila8",
@@ -85,9 +94,13 @@ const PRESETS := [
 		"motor_tint": Color(0.20, 0.16, 0.12),
 		"body_prop_tint": Color(0.22, 0.23, 0.25),
 		"name": "«СТРІЛА-8»",
-		"tag": "КАМІКАДЗЕ",
-		"desc": "Важкий камікадзе з виносним підвісом",
-		"info": "Важкий ударний дрон із унікальною системою підвісу та детонації. Під днищем — бойовий елемент видовженої форми з детонаційним шнуром-петлею попереду, зверху вертикально орієнтований акумулятор. Високий момент інерції по вертикальній осі.",
+		"name_en": "STRILA-8",
+		"tag": "ПЕРЕХОПЛЮВАЧ 8\"",
+		"tag_en": "INTERCEPTOR 8\"",
+		"desc": "Важкий FPV із виносним підвісом",
+		"desc_en": "Heavy tactical FPV with underbody mount",
+		"info": "Важкий тактичний дрон із нижнім підвісом та переднім сенсором контакту. Під днищем — видовжене навантаження, зверху вертикально орієнтований акумулятор. Високий момент інерції по осі рискання.",
+		"info_en": "Heavy tactical quad featuring an underbody payload mount, forward contact sensor loop, and upright top-mounted battery pack for high-inertia precision flying.",
 		"dry": 1.00, "batt": 0.60, "kv": 1100, "torque": 4200.0, "rpm": 23500.0,
 		"prop_d": 8.5, "prop_p": 4.6, "blades": 3, "rate": 580, "motor_size": 3115,
 		"payload": 4, "payload_mass": 1.40, "combat": true, "has_drop": false,
@@ -100,7 +113,7 @@ const PRESETS := [
 		"drag_area": Vector3(0.034, 0.038, 0.022),
 		"model": "res://Assets/Drones/ua_norm/strila8.glb",
 		"model_size": 0.376, "model_fit": false,
-		"fpv_cam_pos": Vector3(0.0, 0.004, -0.053), "fpv_cam_pitch": -10.0,
+		"fpv_cam_pos": Vector3(0.0, 0.034, -0.155), "fpv_cam_pitch": -10.0,
 	},
 	{
 		"id": "quad5",
@@ -110,9 +123,13 @@ const PRESETS := [
 		"motor_tint": Color(0.10, 0.18, 0.12),
 		"body_prop_tint": Color(0.20, 0.22, 0.24),
 		"name": "«КВАД-5»",
-		"tag": "ШТУРМОВИЙ FPV 5\"",
-		"desc": "Штурмовий 5\" FPV-камікадзе на карбоновій X-рамі",
-		"info": "Швидкісний 5-дюймовий бойовий FPV-дрон на посиленій карбоновій рамі Mark4. Збалансований центр ваги, верхнє розташування LiPo 6S, осколково-фугасна БЧ, миттєвий відгук на стіки та тяга 6.5:1 для перехоплення й точних ударів.",
+		"name_en": "QUAD-5",
+		"tag": "ШВИДКІСНИЙ FPV 5\"",
+		"tag_en": "AGILE FPV 5\"",
+		"desc": "Маневрений 5\" FPV на карбоновій X-рамі",
+		"desc_en": "Agile 5\" carbon X-frame tactical FPV",
+		"info": "Швидкісний 5-дюймовий FPV-дрон на посиленій карбоновій рамі Mark4. Збалансований центр ваги, верхнє розташування LiPo 6S, миттєвий відгук на стіки та тяга 6.5:1 для фрістайлу, перехоплення й тренування.",
+		"info_en": "Agile 5-inch FPV quad on a reinforced Mark4 carbon frame. Balanced center of gravity, top-mounted 6S LiPo, crisp stick response, and a 6.5:1 thrust-to-weight ratio for training and interception.",
 		"dry": 0.41, "batt": 0.24, "kv": 2450, "torque": 1450.0, "rpm": 34000.0,
 		"prop_d": 5.0, "prop_p": 4.5, "blades": 4, "rate": 800, "motor_size": 2207,
 		"payload": 1, "payload_mass": 0.18, "combat": true, "has_drop": false,
@@ -132,10 +149,14 @@ const PRESETS := [
 		"prop_tint": Color(0.18, 0.25, 0.16),
 		"motor_tint": Color(0.18, 0.22, 0.16),
 		"body_prop_tint": Color(0.22, 0.28, 0.22),
-		"name": "«ПІСЮН» VTOL",
+		"name": "«СОКІЛ» VTOL",
+		"name_en": "SOKIL VTOL",
 		"tag": "VTOL 7\"",
-		"desc": "Вертикальний зліт, ударний камікадзе",
-		"info": "Ударний FPV-камікадзе на витягнутій карбоновій деці з подовженим центральним відсіком. Злітає вертикально й переходить у горизонтальний політ; батарея 6S і швидкі безщіткові мотори. Центр ваги зміщується разом із боєкомплектом.",
+		"tag_en": "VTOL 7\"",
+		"desc": "Вертикальний зліт, тактичний VTOL",
+		"desc_en": "Vertical-takeoff tactical VTOL tailsitter",
+		"info": "Тактичний FPV-дрон на витягнутій карбоновій деці з подовженим центральним відсіком. Злітає вертикально й переходить у горизонтальний політ; батарея 6S і швидкі безщіткові мотори з реалістичним балансом навантаження.",
+		"info_en": "Tactical VTOL tailsitter on an extended carbon frame with a central bay. Lifts off vertically and transitions into forward flight; powered by a 6S battery and high-RPM brushless motors.",
 		"dry": 0.75, "batt": 0.40, "kv": 1300, "torque": 2200.0, "rpm": 27000.0,
 		"prop_d": 7.0, "prop_p": 5.0, "blades": 2, "rate": 550, "motor_size": 2806,
 		"payload": 2, "payload_mass": 0.65, "combat": true, "has_drop": false,
@@ -149,7 +170,7 @@ const PRESETS := [
 		"model": "res://Assets/Drones/ua_norm/pisun_vtol.glb",
 		"model_size": 0.450, "model_fit": false,
 		"model_pitch": 0.0,
-		"fpv_cam_pos": Vector3(0.0, 0.088, -0.060), "fpv_cam_pitch": -12.0,
+		"fpv_cam_pos": Vector3(0.0, 0.115, -0.160), "fpv_cam_pitch": -12.0,
 	},
 	{
 		"id": "military_fpv",
@@ -158,10 +179,14 @@ const PRESETS := [
 		"prop_tint": Color(0.22, 0.24, 0.16),
 		"motor_tint": Color(0.16, 0.18, 0.14),
 		"no_ukraine_mark": true,
-		"name": "Військовий дрон (Камікадзе / Скид)",
-		"tag": "ВІЙСЬКОВИЙ БПЛА 8–10″",
-		"desc": "Важкий ударний дрон із бойовою частиною",
-		"info": "Великий камікадзе або скидувач 8–10 дюймів із важкою бойовою частиною під днищем. Збільшена маса та інерція, центр-mass зміщений вниз і вперед, низьке співвідношення тяги до ваги та значна парусність бойового комплекту.",
+		"name": "Тактичний БПЛА (Полігон / Скид)",
+		"name_en": "Tactical UAV (Range / Drop)",
+		"tag": "ТАКТИЧНИЙ БПЛА 8–10″",
+		"tag_en": "TACTICAL UAV 8–10\"",
+		"desc": "Важкий тактичний дрон із корисним навантаженням",
+		"desc_en": "Heavy tactical quad with underbody payload",
+		"info": "Важкий квадрокоптер 8–10 дюймів із навантаженням під днищем. Збільшена маса та інерція, центр мас зміщений вниз і вперед, помірна тягооснащеність та реалістичний аеродинамічний опір.",
+		"info_en": "Heavy 8–10-inch tactical platform with an underbody payload. Increased mass and forward-shifted center of gravity provide realistic handling and approach momentum.",
 		"dry": 1.4, "batt": 0.8, "kv": 1100, "torque": 5500.0, "rpm": 18000.0,
 		"prop_d": 10.0, "prop_p": 5.5, "blades": 3, "rate": 550, "motor_size": 3115,
 		"payload": 1, "payload_mass": 2.1, "combat": true, "has_drop": false,
@@ -174,7 +199,7 @@ const PRESETS := [
 		"drag_area": Vector3(0.050, 0.060, 0.035),
 		"model": "res://Assets/Drones/ua_norm/strila8.glb",
 		"model_size": 0.450, "model_fit": false,
-		"fpv_cam_pos": Vector3(0.0, 0.004, -0.090), "fpv_cam_pitch": -14.0,
+		"fpv_cam_pos": Vector3(0.0, 0.040, -0.185), "fpv_cam_pitch": -14.0,
 	},
 	{
 		"id": "baba_yaga",
@@ -185,13 +210,17 @@ const PRESETS := [
 		"no_ukraine_mark": true,
 		"name": "«БАБА ЯГА»",
 		"name_en": "BABA YAGA",
-		"tag": "ВАЖКИЙ БОМБЕР 6×",
-		"desc": "Нічний бомбер: 6 моторів, 20 кг, Starlink",
-		"info": "Важка шестимоторна платформа нічних операцій. Несе до 20 кг: 82-мм і 120-мм мінометні міни або ТМ-62. Два тепловізійні канали, захищені GNSS-антени та супутниковий термінал Starlink зберігають зв'язок в умовах РЕБ. З повним навантаженням летить близько 40 км/год, після скиду — до 80 км/год. Скид з висоти 100–400 м, бомбовий приціл з поправкою на вітер.",
+		"tag": "ВАЖКИЙ ГЕКСАКОПТЕР 6×",
+		"tag_en": "HEAVY HEX 6×",
+		"desc": "Нічний важкий БПЛА: 6 моторів, 20 кг, Starlink",
+		"desc_en": "Heavy night hexacopter: 6 motors, 20 kg, Starlink",
+		"info": "Важка шестимоторна платформа нічних тренувальних вильотів. Несе до 20 кг корисного навантаження. Два тепловізійні канали, захищені GNSS-антени та супутниковий термінал Starlink зберігають зв'язок в умовах РЕБ. З повним навантаженням летить близько 40 км/год, після скиду — до 80 км/год; приціл скидання з поправкою на вітер.",
+		"info_en": "Heavy six-rotor platform for night training sorties. Carries up to 20 kg payload with dual thermal channels, protected GNSS antennas, and satellite link telemetry. Cruises near 40 km/h loaded and up to 80 km/h after release with a wind-compensated drop sight.",
 		"dry": 26.0, "batt": 12.0, "kv": 120, "torque": 12000.0, "rpm": 5600.0,
 		"prop_d": 28.0, "prop_p": 8.0, "blades": 3, "rate": 240, "motor_size": 8318,
 		"payload": 4, "payload_mass": 12.8, "combat": true, "has_drop": true,
-		"drop_name": "4× 82-мм міни",
+		"drop_name": "4× тренувальні контейнери",
+		"drop_name_en": "4× training payloads",
 		"heavy_bomber": true, "fpv_hide_model": true,
 		"max_speed_loaded": 11.11, "max_speed_empty": 22.22,
 		"twr": 2.25,
@@ -202,7 +231,7 @@ const PRESETS := [
 		"drag_area": Vector3(0.28, 0.58, 0.40),
 		"model": "res://Assets/Drones/ua_norm/baba_yaga.glb",
 		"model_size": 2.80, "model_fit": false,
-		"fpv_cam_pos": Vector3(0.0, 0.16, -0.62), "fpv_cam_pitch": -18.0,
+		"fpv_cam_pos": Vector3(0.0, 0.16, -0.78), "fpv_cam_pitch": -18.0,
 		"bomb_cam_pos": Vector3(0.0, 0.82, 0.10), "bomb_cam_pitch": -78.0,
 	},
 	{
@@ -216,9 +245,12 @@ const PRESETS := [
 		"no_ukraine_mark": true,
 		"name": "«ЛЕЛЕКА-100»",
 		"name_en": "LELEKA-100",
-		"tag": "УДАРНИЙ БПЛА 2 м",
-		"desc": "Оперативно-тактичний ударний БАК, день/ніч",
-		"info": "Український оперативно-тактичний безпілотник: високоплан із двома хвостовими балками, штовхаючим гвинтом, гіростабілізованою денною/тепловізійною оптикою, інтегрованою БЧ 1.5 кг та захищеними каналами зв’язку й GNSS. Крейсерська швидкість 65–80 км/год.",
+		"tag": "РОЗВІДУВАЛЬНИЙ БПЛА 2 м",
+		"tag_en": "RECON UAV 2 m",
+		"desc": "Оперативно-тактичний БАК, день/ніч",
+		"desc_en": "Operational tactical fixed-wing UAV, day/night",
+		"info": "Український оперативно-тактичний безпілотник: високоплан із двома хвостовими балками, штовхаючим гвинтом, гіростабілізованою денною/тепловізійною оптикою та захищеними каналами зв'язку й GNSS. Крейсерська швидкість 65–80 км/год.",
+		"info_en": "Ukrainian operational tactical UAV: high-wing twin-boom airframe with pusher prop, gyrostabilized day/thermal optics, and protected telemetry and GNSS links. Cruises at 65–80 km/h.",
 		"dry": 4.6, "batt": 1.2, "kv": 380, "torque": 2200.0, "rpm": 7500.0,
 		"prop_d": 14.0, "prop_p": 8.0, "blades": 2, "rate": 260, "motor_size": 2814,
 		"payload": 1, "payload_mass": 1.5, "combat": true, "has_drop": false,
@@ -246,9 +278,12 @@ const PRESETS := [
 		"no_ukraine_mark": true,
 		"name": "«ФУРІЯ» A1-СМ",
 		"name_en": "FURIA A1-SM",
-		"tag": "УДАРНЕ КРИЛО 2 м",
-		"desc": "Ударне літаюче крило, 130 км/год",
-		"info": "Український комплекс «Атлон Авіа»: ударне літаюче крило розмахом 2 м із бойовою частиною 1.2 кг, штовхаючим гвинтом та денною/нічною оптикою наведення. Крейсерська 65 км/год, максимальна до 130 км/год.",
+		"tag": "ЛІТАЮЧЕ КРИЛО 2 м",
+		"tag_en": "FLYING WING 2 m",
+		"desc": "Тактичне літаюче крило, 130 км/год",
+		"desc_en": "Tactical flying wing, 130 km/h",
+		"info": "Український комплекс «Атлон Авіа»: тактичне літаюче крило розмахом 2 м зі штовхаючим гвинтом та денною/нічною оптикою наведення. Крейсерська швидкість 65 км/год, максимальна до 130 км/год.",
+		"info_en": "Ukrainian Athlon Avia tactical flying wing with a 2 m wingspan, pusher prop, and day/night guidance optics. Cruises at 65 km/h with a top speed of 130 km/h.",
 		"dry": 4.2, "batt": 1.3, "kv": 420, "torque": 2000.0, "rpm": 7950.0,
 		"prop_d": 13.0, "prop_p": 7.0, "blades": 2, "rate": 250, "motor_size": 2812,
 		"payload": 1, "payload_mass": 1.2, "combat": true, "has_drop": false,
@@ -276,8 +311,11 @@ const PRESETS := [
 		"name": "«ЧАКЛУН JET»",
 		"name_en": "CHAKLUN JET",
 		"tag": "РЕАКТИВНИЙ ПЕРЕХОПЛЮВАЧ",
-		"desc": "320 км/год, перехоплення Shahed",
-		"info": "Український реактивний дрон-перехоплювач для знищення ворожих БПЛА та тактичних повітряних цілей. Довжина 1,65 м, розмах 1,5 м, злітна маса 10,4 кг, бойова частина 1,6 кг. Крейсерська 220 км/год, максимальна 320 км/год, до 40–60 хвилин, стеля 6000 м, дальність до 30 км, катапультний запуск.",
+		"tag_en": "JET INTERCEPTOR",
+		"desc": "320 км/год, перехоплення повітряних цілей",
+		"desc_en": "320 km/h aerial target interceptor",
+		"info": "Український реактивний дрон-перехоплювач для повітряних цілей на полігоні. Довжина 1,65 м, розмах 1,5 м, злітна маса 10,4 кг. Крейсерська 220 км/год, максимальна 320 км/год, політ 40–60 хвилин, стеля 6000 м, катапультний запуск.",
+		"info_en": "Ukrainian jet interceptor platform for high-speed aerial target training. Length 1.65 m, wingspan 1.5 m, takeoff mass 10.4 kg. Cruises at 220 km/h with a 320 km/h top speed and 6000 m ceiling.",
 		"dry": 8.8, "batt": 1.6, "kv": 0, "torque": 8000.0, "rpm": 15000.0,
 		"prop_d": 14.0, "prop_p": 10.0, "blades": 4, "rate": 180, "motor_size": 5010,
 		"payload": 1, "payload_mass": 1.6, "combat": true, "has_drop": false,
@@ -323,6 +361,48 @@ func preset(index: int) -> Dictionary:
 func _is_mobile_platform() -> bool:
 	return OS.get_name() == "iOS" or OS.has_feature("mobile") \
 			or OS.has_environment("MOBILE_UI")
+
+
+func _is_en() -> bool:
+	var loc := get_node_or_null("/root/Loc")
+	return loc != null and int(loc.get("current_language")) == 1
+
+
+func get_drone_name(index: int) -> String:
+	var p := preset(index)
+	if _is_en():
+		return str(p.get("name_en", MenuUI.translate_text(str(p.get("name", "")))))
+	return str(p.get("name", ""))
+
+
+func get_drone_tag(index: int) -> String:
+	var p := preset(index)
+	if _is_en():
+		return str(p.get("tag_en", MenuUI.translate_text(str(p.get("tag", "")))))
+	return str(p.get("tag", ""))
+
+
+func get_drone_desc(index: int) -> String:
+	var p := preset(index)
+	if _is_en():
+		return str(p.get("desc_en", MenuUI.translate_text(str(p.get("desc", "")))))
+	return str(p.get("desc", ""))
+
+
+func get_drone_info(index: int) -> String:
+	var p := preset(index)
+	var base := str(p.get("info", p.get("desc", "")))
+	if _is_en():
+		return str(p.get("info_en", MenuUI.translate_text(base)))
+	return base
+
+
+func get_drone_drop_name(index: int) -> String:
+	var p := preset(index)
+	var base := str(p.get("drop_name", ""))
+	if _is_en():
+		return str(p.get("drop_name_en", base))
+	return base
 
 
 ## True when the preset is a combat strike airframe.
@@ -668,6 +748,15 @@ func clear_model_cache() -> void:
 	_model_prefetch_queue.clear()
 	_model_prefetch_active = ""
 	_model_prefetch_failed.clear()
+
+
+func _exit_tree() -> void:
+	if not _model_prefetch_active.is_empty():
+		var st := ResourceLoader.load_threaded_get_status(_model_prefetch_active)
+		if st == ResourceLoader.THREAD_LOAD_IN_PROGRESS or st == ResourceLoader.THREAD_LOAD_LOADED:
+			ResourceLoader.load_threaded_get(_model_prefetch_active)
+		_model_prefetch_active = ""
+	clear_model_cache()
 
 
 func attach_model(parent: Node3D, index: int) -> Node3D:

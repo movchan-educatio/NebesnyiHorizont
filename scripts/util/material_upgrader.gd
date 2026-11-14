@@ -128,52 +128,33 @@ static func upgrade(root: Node3D, biome: String, quality: int = -1) -> void:
 	if quality < 0:
 		quality = QualityManager.get_active_level()
 	var high := quality == QualityManager.Level.HIGH
-	# The low preset trades the authored normal maps for shared category
-	# materials, which lets the multi-surface landmark batcher collapse dozens
-	# of draws into a few.
 	var force_shared := quality == QualityManager.Level.LOW
-	_cache.clear()
 	var upgraded := 0
 	var meshes := root.find_children("*", "MeshInstance3D", true, false)
 	for node in meshes:
 		var mi := node as MeshInstance3D
-		if mi == null or mi.mesh == null:
-			continue
-		if not mi.is_visible_in_tree():
+		if mi == null or mi.mesh == null or not mi.is_visible_in_tree():
 			continue
 		var names := String(mi.name).to_lower()
 		if _skip_name(names):
 			continue
-		# A mesh with a custom override is already handled by the hand-built
-		# detail pass; only fill in missing PBR maps.
 		var override := mi.material_override as StandardMaterial3D
 		if override != null and override.normal_enabled and override.albedo_texture != null \
 				and not force_shared:
 			continue
 		var surfaces := mi.mesh.get_surface_count()
 		for s in range(surfaces):
-			# Prefer the per-surface override: the hero halls already carry
-			# their authored PBR materials there, and replacing those would
-			# destroy the reference interior look.
 			var src: Material = mi.get_surface_override_material(s)
 			if src == null:
 				src = mi.mesh.surface_get_material(s)
-			if src == null:
-				continue
-			if src is ShaderMaterial:
+			if src == null or src is ShaderMaterial:
 				continue
 			var sm := src as StandardMaterial3D
 			if sm == null:
 				continue
-			# Already a full PBR material from the hand-built detail pass.
-			if sm.normal_enabled and sm.albedo_texture != null and not force_shared:
-				continue
 			var cat := _classify(sm, names)
 			if cat == "":
 				continue
-			# Share upgraded materials across meshes: keying on the material
-			# instance id created one material per imported mesh and defeated
-			# static batching.  Category + albedo texture + tint is stable.
 			var tex_key := ""
 			if sm.albedo_texture != null:
 				tex_key = String(sm.albedo_texture.resource_path)
@@ -230,50 +211,20 @@ static func _classify(sm: StandardMaterial3D, names: String) -> String:
 	return ""
 
 
-static func _upgrade_one(src: StandardMaterial3D, cat: String, high: bool) -> StandardMaterial3D:
-	if cat == "glass":
-		var g: StandardMaterial3D = src.duplicate() as StandardMaterial3D
-		g.roughness = minf(g.roughness, 0.18)
-		g.metallic = maxf(g.metallic, 0.20)
-		g.metallic_specular = 0.75
-		return g
-	var conf: Dictionary = SETS.get(cat, SETS["concrete"])
+static func _upgrade_one(src: StandardMaterial3D, cat: String, _high: bool) -> StandardMaterial3D:
 	var out: StandardMaterial3D = src.duplicate() as StandardMaterial3D
-	out.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	if cat == "glass":
+		out.roughness = minf(out.roughness, 0.18)
+		out.metallic = maxf(out.metallic, 0.20)
+		out.metallic_specular = 0.75
+		return out
+	# Lightweight PBR tuning only: skip synchronous NoiseTexture2D / detail_enabled
+	# cloning and per-mesh triplanar texture loads to prevent shader compilation hangs.
+	var conf: Dictionary = SETS.get(cat, SETS["concrete"])
 	out.roughness = float(conf.get("roughness", 0.90))
 	out.metallic = float(conf.get("metallic", 0.0))
-	out.metallic_specular = 0.4
-	# Keep authored albedo if present; otherwise give the flat material a set.
-	if out.albedo_texture == null:
-		var albedo := load(String(conf["albedo"])) as Texture2D
-		if albedo != null:
-			out.albedo_texture = albedo
-			out.uv1_triplanar = true
-			out.uv1_triplanar_sharpness = 8.0
-			out.uv1_scale = Vector3.ONE * float(conf.get("uv", 0.24))
-	elif out.uv1_triplanar:
-		out.uv1_triplanar_sharpness = 8.0
-	if not out.normal_enabled:
-		var normal := load(String(conf["normal"])) as Texture2D
-		if normal != null:
-			out.normal_enabled = true
-			out.normal_texture = normal
-			out.normal_scale = 1.15
-	if out.roughness_texture == null:
-		var rough := load(String(conf["rough"])) as Texture2D
-		if rough != null:
-			out.roughness_texture = rough
-	# Close-range surface grain.  The detail layer is cheap and gives every
-	# wall / roof / container the same micro-normal response as the hero halls.
-	if high:
-		out.detail_enabled = true
-		out.detail_blend_mode = 3 # Multiply
-		out.detail_uv_layer = 0   # UV1
-		out.detail_albedo = _detail_albedo()
-		out.detail_normal = _detail_normal()
-		# No heightmap/parallax: the detail normal already supplies the
-		# close-range surface depth, while heightmaps compile extra shader
-		# variants and are ignored on triplanar materials.
+	out.metallic_specular = 0.42
+	out.detail_enabled = false
 	return out
 
 

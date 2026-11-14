@@ -1,7 +1,14 @@
 extends "res://sceneries/Level.gd"
 
 
-var _speed_started := false
+var _run_started := false
+var _run_finished := false
+var _run_start_ms: int = 0
+var _ghost: Ghost = null
+var _ghost_samples: Array = []
+var _ghost_sample_accum: float = 0.0
+var _result_layer: CanvasLayer = null
+var _result_label: Label = null
 var _help_layer: CanvasLayer = null
 
 
@@ -22,12 +29,15 @@ func _ready() -> void:
 
 	_help_layer = get_node_or_null("Help") as CanvasLayer
 	if _help_layer != null:
-		var ctrl := _help_layer.get_node_or_null("Controls") as Control
-		if ctrl != null:
-			var tween := create_tween()
-			tween.tween_interval(10.0)
-			tween.tween_property(ctrl, "modulate:a", 0.0, 1.2)
-			tween.tween_callback(func(): _help_layer.visible = false)
+		if MenuUI.is_mobile_ui():
+			_help_layer.visible = false
+		else:
+			var ctrl := _help_layer.get_node_or_null("Controls") as Control
+			if ctrl != null:
+				var tween := create_tween()
+				tween.tween_interval(10.0)
+				tween.tween_property(ctrl, "modulate:a", 0.0, 1.2)
+				tween.tween_callback(func(): if is_instance_valid(_help_layer): _help_layer.visible = false)
 
 	var city := get_node_or_null("City")
 	if city != null and city.has_signal("spawn_ready"):
@@ -36,7 +46,8 @@ func _ready() -> void:
 	else:
 		_place_drone_at_respawn()
 
-	_hide_drone_visuals(d)
+	_configure_drone_visuals_for_camera(true)
+	_setup_course_ghost()
 	call_deferred("_spawn_handcrafted_showcase")
 
 
@@ -115,6 +126,8 @@ func _place_drone_at_respawn() -> void:
 	# position/velocity/PID state can cause a transient on the next arm.
 	d.flight_controller.reset()
 	DroneCatalog.apply_to_drone(d, Global.drone_preset)
+	var cam := get_node_or_null("Drone/FPVCamera") as Camera3D
+	_configure_drone_visuals_for_camera(cam == null or cam.current)
 	if not d.respawned.is_connected(_on_course_drone_respawned):
 		d.connect("respawned", Callable(self, "_on_course_drone_respawned"))
 	if d.flight_controller and not d.flight_controller.armed.is_connected(_on_course_drone_armed):
@@ -198,6 +211,29 @@ func _run_autotest() -> void:
 		radio.test_yaw = 0.35
 
 
+func _physics_process(delta: float) -> void:
+	if not _run_started or _run_finished:
+		return
+	var d := get_node_or_null("Drone") as Drone
+	if d == null:
+		return
+	_ghost_sample_accum += delta
+	# Sample at ~30 Hz to keep saved best-run Ghost tracks lightweight.
+	if _ghost_sample_accum >= 0.033 and _ghost_samples.size() < 5400:
+		_ghost_sample_accum = 0.0
+		var b: Basis = d.global_transform.basis
+		var p: Vector3 = d.global_transform.origin
+		_ghost_samples.append([
+			b.x.x, b.x.y, b.x.z,
+			b.y.x, b.y.y, b.y.z,
+			b.z.x, b.z.y, b.z.z,
+			p.x, p.y, p.z,
+		])
+	var track := get_node_or_null("Track") as Track
+	if track != null and track.race_state == Global.RaceState.END:
+		_finish_course_run(track)
+
+
 func _on_course_drone_armed(_mode: int) -> void:
 	var d := get_node_or_null("Drone") as Drone
 	if d == null:
@@ -209,16 +245,96 @@ func _on_course_drone_armed(_mode: int) -> void:
 	var radio := get_node_or_null("RadioController") as RadioController
 	if radio != null:
 		radio.hover_assist = true
-	if Global.play_mode == Global.PlayMode.SPEED and not _speed_started:
-		_speed_started = true
+	if not _run_started:
+		_run_started = true
+		_run_finished = false
+		_run_start_ms = Time.get_ticks_msec()
+		_ghost_samples.clear()
+		_ghost_sample_accum = 0.0
+		if _result_layer != null:
+			_result_layer.visible = false
 		var track := get_node_or_null("Track") as Track
 		if track != null:
-			print("[Speed] countdown started")
+			if not track.race_state_changed.is_connected(_on_track_race_state_changed):
+				track.race_state_changed.connect(_on_track_race_state_changed)
 			track.start_countdown()
+		_start_course_ghost()
+
+
+func _on_track_race_state_changed(state: int) -> void:
+	if state == Global.RaceState.END and not _run_finished:
+		var track := get_node_or_null("Track") as Track
+		if track != null:
+			_finish_course_run(track)
+
+
+func _finish_course_run(track: Track) -> void:
+	_run_finished = true
+	var elapsed_s: float = maxf(0.1, float(Time.get_ticks_msec() - _run_start_ms) / 1000.0)
+	var total: int = maxi(1, maxi(track.course_list.size() - 1, track.checkpoints.size()))
+	var passed: int = mini(total, maxi(track.current, 1))
+	var res: Dictionary = Global.record_training_result("course", elapsed_s, passed, total)
+	if bool(res.get("new_best", false)) and not _ghost_samples.is_empty():
+		Global.save_ghost_track("course", _ghost_samples)
+	var daily: Dictionary = Global.get_daily_challenge()
+	if str(daily.get("map_id", "")) == "course":
+		Global.mark_daily_challenge_completed()
+	_show_course_result(res, elapsed_s)
+
+
+func _setup_course_ghost() -> void:
+	if _ghost != null and is_instance_valid(_ghost):
+		return
+	_ghost = Ghost.new()
+	_ghost.name = "CourseBestGhost"
+	_ghost.type = Ghost.Type.GOLD
+	add_child(_ghost)
+
+
+func _start_course_ghost() -> void:
+	if _ghost == null or not is_instance_valid(_ghost):
+		return
+	var samples := Global.load_ghost_track("course")
+	if samples.is_empty():
+		_ghost.stop_replay()
+		return
+	_ghost.set_samples(samples)
+	_ghost.reset_replay()
+	_ghost.start_replay()
+
+
+func _show_course_result(res: Dictionary, elapsed_s: float) -> void:
+	if _result_layer == null:
+		_result_layer = CanvasLayer.new()
+		_result_layer.layer = 45
+		add_child(_result_layer)
+		_result_label = Label.new()
+		_result_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_result_label.add_theme_font_size_override("font_size", 26)
+		_result_label.add_theme_color_override("font_color", Color(1.0, 0.90, 0.38))
+		_result_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.92))
+		_result_label.add_theme_constant_override("outline_size", 5)
+		_result_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+		_result_label.offset_top = 84.0
+		_result_layer.add_child(_result_label)
+	var stars := int(res.get("stars", 1))
+	var rank := str(res.get("rank", "B"))
+	var star_str := "★".repeat(stars) + "☆".repeat(3 - stars)
+	var is_en := MenuUI.is_english()
+	_result_label.text = ("%s  RANK %s  ·  %.1fs%s" if is_en else "%s  РАНГ %s  ·  %.1fс%s") % [
+		star_str, rank, elapsed_s,
+		("  (NEW BEST!)" if is_en else "  (НОВИЙ РЕКОРД!)") if bool(res.get("new_best", false)) else ""
+	]
+	_result_layer.visible = true
 
 
 func _on_course_drone_respawned() -> void:
-	_speed_started = false
+	_run_started = false
+	_run_finished = false
+	if _ghost != null and is_instance_valid(_ghost):
+		_ghost.stop_replay()
+	if _result_layer != null:
+		_result_layer.visible = false
 	_place_drone_at_respawn()
 	var radio := get_node_or_null("RadioController") as RadioController
 	if radio != null:
@@ -234,3 +350,15 @@ func _hide_drone_visuals(node: Node) -> void:
 		(node as VisualInstance3D).visible = false
 	for child in node.get_children():
 		_hide_drone_visuals(child)
+
+
+func _exit_tree() -> void:
+	super._exit_tree()
+	var d := get_node_or_null("Drone") as Drone
+	if d != null:
+		if d.respawned.is_connected(_on_course_drone_respawned):
+			d.respawned.disconnect(_on_course_drone_respawned)
+		if d.flight_controller != null and d.flight_controller.armed.is_connected(_on_course_drone_armed):
+			d.flight_controller.armed.disconnect(_on_course_drone_armed)
+	if _ghost != null and is_instance_valid(_ghost):
+		_ghost.stop_replay()

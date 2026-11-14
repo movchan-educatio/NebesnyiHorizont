@@ -98,38 +98,27 @@ static func build(mode: int, mission_id: int, map_name: String,
 static func _title(mode: int) -> String:
 	if MenuUI.is_english():
 		match mode:
-			Global.PlayMode.CHAOS:
-				return "LOADING BATTLE CHAOS"
 			Global.PlayMode.TUTORIAL:
-				return "LOADING FLIGHT SCHOOL"
+				return "LOADING TUTORIAL"
 			Global.PlayMode.TRAINING:
-				return "LOADING FREE FLIGHT"
-			Global.PlayMode.SPEED:
-				return "LOADING TIME TRIAL"
+				return "LOADING TRAINING"
 			_:
 				return "LOADING COMBAT MISSION"
 	match mode:
-		Global.PlayMode.CHAOS:
-			return "ЗАВАНТАЖЕННЯ БОЙОВОГО ХАОСУ"
 		Global.PlayMode.TUTORIAL:
-			return "ЗАВАНТАЖЕННЯ ШКОЛИ ПІЛОТА"
+			return "ЗАВАНТАЖЕННЯ ТУТОРІАЛУ"
 		Global.PlayMode.TRAINING:
-			return "ЗАВАНТАЖЕННЯ ВІЛЬНОГО ПОЛЬОТУ"
-		Global.PlayMode.SPEED:
-			return "ЗАВАНТАЖЕННЯ ТРАСИ"
+			return "ЗАВАНТАЖЕННЯ ТРЕНУВАННЯ"
 		_:
-			return "ЗАВАНТАЖЕННЯ БОЙОВОЇ МІСІЇ"
+			return "ЗАВАНТАЖЕННЯ БОЙОВОГО РЕЖИМУ"
 
 
 static func _context_line(mode: int, mission_id: int, map_name: String,
 		difficulty: String) -> String:
 	var map_upper := map_name.to_upper()
+	var is_en := MenuUI.is_english()
 	if mode == Global.PlayMode.COMBAT:
 		return "%s  ·  TAC-0%d  ·  %s" % [map_upper, mission_id, difficulty.to_upper()]
-	if mode == Global.PlayMode.CHAOS:
-		return "%s  ·  BATTLE CHAOS  ·  %s" % [map_upper, difficulty.to_upper()]
 	if mode == Global.PlayMode.TUTORIAL:
-		return "%s  ·  FLIGHT SCHOOL" % map_upper
-	if mode == Global.PlayMode.SPEED:
-		return "%s  ·  TIME TRIAL" % map_upper
-	return "%s  ·  FREE FLIGHT" % map_upper
+		return "%s  ·  %s" % [map_upper, "FLIGHT SCHOOL" if is_en else "ШКОЛА ПІЛОТА"]
+	return "%s  ·  %s" % [map_upper, "TRAINING" if is_en else "ТРЕНУВАННЯ"]

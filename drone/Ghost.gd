@@ -41,43 +41,68 @@ func get_mesh_transform(node: Node) -> Transform3D:
 
 
 func update_drone_model(path: String) -> void:
-	var drone_packed: PackedScene = load(path)
-	if drone_packed.can_instantiate():
-		var drone: Drone = drone_packed.instantiate()
-		add_meshes(drone)
-		drone.queue_free()
-		
-		var mat := StandardMaterial3D.new()
-		mat.params_cull_mode = StandardMaterial3D.CULL_DISABLED
-		mat.albedo_color = Color(0.7, 0.7, 0.7, 0.3)
-		mat.distance_fade_mode = StandardMaterial3D.DISTANCE_FADE_PIXEL_DITHER
-		mat.distance_fade_max_distance = 1.0
-		mat.distance_fade_min_distance = 0.2
-		match type:
-			Type.GOLD:
-				mat.emission = Color(0.8, 0.6, 0.1)
-			Type.SILVER:
-				mat.emission = Color(0.65, 0.7, 0.8)
-			Type.BRONZE:
-				mat.emission = Color(0.4, 0.2, 0.05)
-			Type.PREVIOUS:
-				mat.emission = Color(0.1, 0.1, 0.8)
-			Type.ABORTED:
-				mat.emission = Color(0.8, 0.1, 0.1)
-		mat.emission_enabled = true
-		
-		for child in get_children():
+	for ch in get_children():
+		ch.queue_free()
+	var loaded_meshes := false
+	if not path.is_empty() and ResourceLoader.exists(path):
+		var drone_packed: PackedScene = load(path)
+		if drone_packed != null and drone_packed.can_instantiate():
+			var drone: Drone = drone_packed.instantiate() as Drone
+			if drone != null:
+				add_meshes(drone)
+				drone.queue_free()
+				loaded_meshes = get_child_count() > 0
+	if not loaded_meshes:
+		_build_procedural_beacon()
+	var mat := StandardMaterial3D.new()
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(0.55, 0.85, 1.0, 0.34)
+	mat.distance_fade_mode = BaseMaterial3D.DISTANCE_FADE_PIXEL_DITHER
+	mat.distance_fade_max_distance = 1.2
+	mat.distance_fade_min_distance = 0.25
+	match type:
+		Type.GOLD:
+			mat.emission = Color(0.95, 0.72, 0.15)
+		Type.SILVER:
+			mat.emission = Color(0.65, 0.75, 0.90)
+		Type.BRONZE:
+			mat.emission = Color(0.55, 0.30, 0.10)
+		Type.PREVIOUS:
+			mat.emission = Color(0.20, 0.75, 1.0)
+		Type.ABORTED:
+			mat.emission = Color(0.90, 0.20, 0.20)
+	mat.emission_enabled = true
+	for child in get_children():
+		if child is MeshInstance3D:
 			(child as MeshInstance3D).material_override = mat
+
+
+func _build_procedural_beacon() -> void:
+	var frame := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(0.28, 0.08, 0.28)
+	frame.mesh = box
+	add_child(frame)
+
+
+func set_samples(samples: Array, model_path: String = "") -> void:
+	replay = samples.duplicate(true)
+	frame = 0
+	if get_child_count() == 0:
+		update_drone_model(model_path)
 
 
 func update_transform() -> void:
 	if frame < replay.size():
 		var xform: Array = replay[frame]
-		var basis_x := Vector3(xform[0], xform[1], xform[2])
-		var basis_y := Vector3(xform[3], xform[4], xform[5])
-		var basis_z := Vector3(xform[6], xform[7], xform[8])
-		var origin := Vector3(xform[9], xform[10], xform[11])
-		global_transform = Transform3D(basis_x, basis_y, basis_z, origin)
+		if xform.size() < 12:
+			return
+		var basis_x := Vector3(float(xform[0]), float(xform[1]), float(xform[2]))
+		var basis_y := Vector3(float(xform[3]), float(xform[4]), float(xform[5]))
+		var basis_z := Vector3(float(xform[6]), float(xform[7]), float(xform[8]))
+		var origin := Vector3(float(xform[9]), float(xform[10]), float(xform[11]))
+		global_transform = Transform3D(basis_x, basis_y, basis_z, origin).orthonormalized()
 
 
 func read_replay():

@@ -5,7 +5,7 @@ extends Node
 
 
 func _ready() -> void:
-	var low_ok := await _check(0, 0.58, 0.40, 118.0, false, 120,
+	var low_ok := await _check(0, 0.67, 0.40, 118.0, false, 120,
 			Graphics.Shadows.LOW)
 	var med_ok := await _check(1, 0.8, 0.55, 118.0, false, 120,
 			Graphics.Shadows.MEDIUM)

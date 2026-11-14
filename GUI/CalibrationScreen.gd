@@ -104,6 +104,14 @@ var _protocol_label: Label = null
 var _mobile_values: Label = null
 var _mobile_pad: Control = null
 var _gimbal_widget: _DualGimbalPreview = null
+var _curve_preview: _ResponseCurvePreview = null
+var _expo_slider: HSlider = null
+var _super_rate_slider: HSlider = null
+var _deadzone_slider: HSlider = null
+var _expo_val_lbl: Label = null
+var _super_rate_val_lbl: Label = null
+var _deadzone_val_lbl: Label = null
+var _preset_feedback_lbl: Label = null
 
 ## ELRS WiFi / touch-stick bridge.  When no USB joypad exists, the wizard
 ## reads the virtual AETR axes instead of Input.get_joy_axis().
@@ -154,6 +162,52 @@ class _DualGimbalPreview extends Control:
 		if font != null:
 			draw_string(font, Vector2(rect.position.x - 8, rect.position.y - 6),
 					caption, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x + 16, 11, MenuUI.MIL_GREEN_LIGHT)
+
+
+class _ResponseCurvePreview extends Control:
+	var expo := 0.20
+	var super_rate := 0.70
+	var deadzone := 0.02
+
+	func _init() -> void:
+		custom_minimum_size = Vector2(240, 86)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func set_params(p_expo: float, p_super_rate: float, p_deadzone: float) -> void:
+		expo = clampf(p_expo, 0.0, 0.80)
+		super_rate = clampf(p_super_rate, 0.0, 0.95)
+		deadzone = clampf(p_deadzone, 0.0, 0.20)
+		queue_redraw()
+
+	func _eval_curve(x: float) -> float:
+		var ax := absf(x)
+		if ax <= deadzone:
+			return 0.0
+		var norm := clampf((ax - deadzone) / maxf(1.0 - deadzone, 0.001), 0.0, 1.0)
+		var expo_y := norm * (1.0 - expo) + (norm * norm * norm) * expo
+		var gain := 1.0 / maxf(1.0 - super_rate * 0.55 * expo_y, 0.25)
+		var out := clampf((expo_y * gain) / (1.0 / maxf(1.0 - super_rate * 0.55, 0.25)), 0.0, 1.0)
+		return signf(x) * out
+
+	func _draw() -> void:
+		var rect := Rect2(Vector2.ZERO, size)
+		draw_rect(rect, Color("0b110a"), true)
+		draw_rect(rect, MenuUI.BORDER, false, 1.0)
+		var mid := rect.get_center()
+		var grid := Color(0.36, 0.52, 0.28, 0.35)
+		draw_line(Vector2(rect.position.x + 4, mid.y), Vector2(rect.end.x - 4, mid.y), grid, 1.0)
+		draw_line(Vector2(mid.x, rect.position.y + 4), Vector2(mid.x, rect.end.y - 4), grid, 1.0)
+		var pts := PackedVector2Array()
+		var steps := 48
+		for i in range(steps + 1):
+			var u := -1.0 + 2.0 * float(i) / float(steps)
+			var y := _eval_curve(u)
+			pts.append(Vector2(
+				mid.x + u * (rect.size.x * 0.44),
+				mid.y - y * (rect.size.y * 0.42)
+			))
+		if pts.size() >= 2:
+			draw_polyline(pts, MenuUI.FPV_GREEN, 2.0, true)
 
 
 func _ready() -> void:
@@ -582,7 +636,167 @@ func _build_radio_preview(compact: bool = false) -> Control:
 			13, MenuUI.MUTED)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(hint)
+	_build_presets_and_curves_panel(col, compact)
 	return col
+
+
+func _build_presets_and_curves_panel(parent: VBoxContainer, compact: bool) -> void:
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", MenuUI.ufds_style(
+		Color(0.04, 0.06, 0.05, 0.90), MenuUI.BORDER, 1, 8, 10, 8))
+	parent.add_child(panel)
+
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 6 if compact else 8)
+	panel.add_child(vb)
+
+	vb.add_child(MenuUI.section(
+		_ui_text("ШВИДКІ ПРЕСЕТИ КОНТРОЛЕРА ТА КРИВІ", "CONTROLLER PRESETS & CURVES"),
+		"RC"))
+
+	var preset_row := GridContainer.new()
+	preset_row.columns = 2
+	preset_row.add_theme_constant_override("h_separation", 6)
+	preset_row.add_theme_constant_override("v_separation", 6)
+	vb.add_child(preset_row)
+
+	var presets := [
+		{"id": "xbox", "label": _ui_text("Xbox / Геймпад", "Xbox / Gamepad")},
+		{"id": "playstation", "label": "PlayStation"},
+		{"id": "mfi", "label": "Apple MFi"},
+		{"id": "edgetx", "label": "USB-C EdgeTX / ELRS"},
+	]
+	for item in presets:
+		var btn := MenuUI.button(str(item["label"]), 34 if compact else 36)
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.add_theme_font_size_override("font_size", 13)
+		btn.pressed.connect(_apply_controller_preset.bind(str(item["id"])))
+		preset_row.add_child(btn)
+
+	_preset_feedback_lbl = MenuUI.body("", 12, MenuUI.FPV_GREEN)
+	_preset_feedback_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vb.add_child(_preset_feedback_lbl)
+
+	var cur_preset := str(GameSettings.hud_config.get("controller_preset", ""))
+	if not cur_preset.is_empty():
+		_preset_feedback_lbl.text = _ui_text("Активний пресет: ", "Active preset: ") + cur_preset.to_upper()
+
+	var cur_expo := clampf(float(GameSettings.hud_config.get("rc_expo", QuadSettings.expo_roll)), 0.0, 0.80)
+	var cur_super := clampf(float(GameSettings.hud_config.get("rc_super_rate", 0.70)), 0.0, 0.95)
+	var cur_dz := clampf(float(GameSettings.hud_config.get("rc_deadzone", Controls.stick_deadzone)), 0.0, 0.20)
+
+	var curve_grid := GridContainer.new()
+	curve_grid.columns = 3
+	curve_grid.add_theme_constant_override("h_separation", 8)
+	curve_grid.add_theme_constant_override("v_separation", 4)
+	vb.add_child(curve_grid)
+
+	_expo_val_lbl = _add_curve_slider_row(curve_grid, _ui_text("Експо", "Expo"), 0.0, 0.80, 0.01, cur_expo, func(v: float): _on_curve_sliders_changed())
+	_expo_slider = curve_grid.get_child(1) as HSlider
+	_super_rate_val_lbl = _add_curve_slider_row(curve_grid, _ui_text("СуперРейт", "SuperRate"), 0.0, 0.95, 0.01, cur_super, func(v: float): _on_curve_sliders_changed())
+	_super_rate_slider = curve_grid.get_child(4) as HSlider
+	_deadzone_val_lbl = _add_curve_slider_row(curve_grid, _ui_text("Мертва зона", "Deadzone"), 0.0, 0.20, 0.01, cur_dz, func(v: float): _on_curve_sliders_changed())
+	_deadzone_slider = curve_grid.get_child(7) as HSlider
+
+	_curve_preview = _ResponseCurvePreview.new()
+	_curve_preview.set_params(cur_expo, cur_super, cur_dz)
+	vb.add_child(_curve_preview)
+
+
+func _add_curve_slider_row(grid: GridContainer, title: String, min_v: float, max_v: float,
+		step_v: float, init_v: float, on_change: Callable) -> Label:
+	var lbl := MenuUI.body(title, 13, MenuUI.TEXT)
+	lbl.custom_minimum_size = Vector2(96, 0)
+	grid.add_child(lbl)
+
+	var sl := HSlider.new()
+	sl.min_value = min_v
+	sl.max_value = max_v
+	sl.step = step_v
+	sl.value = clampf(init_v, min_v, max_v)
+	sl.custom_minimum_size = Vector2(140, 22)
+	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_child(sl)
+
+	var val_lbl := MenuUI.body("%.2f" % sl.value, 13, MenuUI.FPV_CYAN)
+	val_lbl.custom_minimum_size = Vector2(46, 0)
+	val_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	grid.add_child(val_lbl)
+
+	sl.value_changed.connect(func(v: float) -> void:
+		val_lbl.text = "%.2f" % v
+		on_change.call(v)
+	)
+	return val_lbl
+
+
+func _on_curve_sliders_changed() -> void:
+	if _expo_slider == null or _super_rate_slider == null or _deadzone_slider == null:
+		return
+	var expo := clampf(_expo_slider.value, 0.0, 0.80)
+	var super_rate := clampf(_super_rate_slider.value, 0.0, 0.95)
+	var dz := clampf(_deadzone_slider.value, 0.0, 0.20)
+	GameSettings.hud_config["rc_expo"] = expo
+	GameSettings.hud_config["rc_super_rate"] = super_rate
+	GameSettings.hud_config["rc_deadzone"] = dz
+	GameSettings.save_hud_config()
+	Controls.stick_deadzone = dz
+	Controls.save_input_map()
+	var target_rate := int(clampf(220.0 + super_rate * 780.0, 220.0, 1000.0))
+	QuadSettings.rate_pitch = target_rate
+	QuadSettings.rate_roll = target_rate
+	QuadSettings.rate_yaw = int(clampf(target_rate * 0.9, 200.0, 950.0))
+	QuadSettings.expo_pitch = expo
+	QuadSettings.expo_roll = expo
+	QuadSettings.expo_yaw = expo
+	QuadSettings.custom_rates = true
+	QuadSettings.save_quad_settings()
+	if _curve_preview != null:
+		_curve_preview.set_params(expo, super_rate, dz)
+
+
+func _apply_controller_preset(preset_id: String) -> void:
+	var dz := 0.04
+	var expo := 0.20
+	var super_rate := 0.70
+	match preset_id:
+		"xbox":
+			Controls.apply_stick("yaw", JOY_AXIS_LEFT_X, 1.0)
+			Controls.apply_stick("throttle", JOY_AXIS_LEFT_Y, -1.0)
+			Controls.apply_stick("roll", JOY_AXIS_RIGHT_X, 1.0)
+			Controls.apply_stick("pitch", JOY_AXIS_RIGHT_Y, 1.0)
+			dz = 0.05; expo = 0.22; super_rate = 0.65
+		"playstation":
+			Controls.apply_stick("yaw", JOY_AXIS_LEFT_X, 1.0)
+			Controls.apply_stick("throttle", JOY_AXIS_LEFT_Y, -1.0)
+			Controls.apply_stick("roll", JOY_AXIS_RIGHT_X, 1.0)
+			Controls.apply_stick("pitch", JOY_AXIS_RIGHT_Y, 1.0)
+			dz = 0.04; expo = 0.20; super_rate = 0.70
+		"mfi":
+			Controls.apply_stick("yaw", JOY_AXIS_LEFT_X, 1.0)
+			Controls.apply_stick("throttle", JOY_AXIS_LEFT_Y, -1.0)
+			Controls.apply_stick("roll", JOY_AXIS_RIGHT_X, 1.0)
+			Controls.apply_stick("pitch", JOY_AXIS_RIGHT_Y, 1.0)
+			dz = 0.05; expo = 0.25; super_rate = 0.60
+		"edgetx":
+			Controls.apply_stick("roll", 0, 1.0)
+			Controls.apply_stick("pitch", 1, 1.0)
+			Controls.apply_stick("throttle", 2, 1.0)
+			Controls.apply_stick("yaw", 3, 1.0)
+			dz = 0.01; expo = 0.18; super_rate = 0.72
+	GameSettings.hud_config["controller_preset"] = preset_id
+	if _expo_slider != null:
+		_expo_slider.set_value_no_signal(expo)
+		if _expo_val_lbl != null: _expo_val_lbl.text = "%.2f" % expo
+	if _super_rate_slider != null:
+		_super_rate_slider.set_value_no_signal(super_rate)
+		if _super_rate_val_lbl != null: _super_rate_val_lbl.text = "%.2f" % super_rate
+	if _deadzone_slider != null:
+		_deadzone_slider.set_value_no_signal(dz)
+		if _deadzone_val_lbl != null: _deadzone_val_lbl.text = "%.2f" % dz
+	_on_curve_sliders_changed()
+	if _preset_feedback_lbl != null:
+		_preset_feedback_lbl.text = _ui_text("✓ Застосовано пресет: ", "✓ Applied preset: ") + preset_id.to_upper()
 
 
 ## Reads normalized [-1..+1] value for a stick channel:

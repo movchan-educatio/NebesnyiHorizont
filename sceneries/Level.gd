@@ -72,6 +72,8 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	if Global != null and Global.game_mode_changed.is_connected(_on_game_mode_changed):
+		Global.game_mode_changed.disconnect(_on_game_mode_changed)
 	var touch := get_node_or_null("/root/TouchControls")
 	if touch != null:
 		touch.call("end", get_instance_id())
@@ -178,11 +180,24 @@ func change_camera() -> void:
 func _configure_drone_visuals_for_camera(is_fpv: bool) -> void:
 	if drone == null:
 		return
-	var model_root := drone.get_node_or_null("DroneModel")
+	var p := DroneCatalog.preset(Global.drone_preset)
+	var fpv := drone.get_node_or_null("FPVCamera") as Camera3D
+	if fpv != null:
+		var cam_pos = p.get("fpv_cam_pos", null)
+		if cam_pos is Vector3:
+			fpv.position = cam_pos
+		var cam_pitch = p.get("fpv_cam_pitch", null)
+		if cam_pitch != null:
+			fpv.transform.basis = Basis.IDENTITY.rotated(Vector3.RIGHT, deg_to_rad(float(cam_pitch)))
+	var model_root := drone.get_node_or_null("DroneModel") as Node3D
 	if model_root != null:
-		var p := DroneCatalog.preset(Global.drone_preset)
-		var combat_airframe := bool(p.get("combat", false))
-		_hide_props_recursive(model_root, is_fpv, combat_airframe)
+		var hide_whole: bool = bool(p.get("fpv_hide_model", false)) or bool(p.get("heavy_bomber", false))
+		if hide_whole:
+			model_root.visible = not is_fpv
+		else:
+			model_root.visible = true
+			_hide_props_recursive(model_root, is_fpv, false)
+			_hide_fpv_obstructions_recursive(model_root, model_root, fpv, is_fpv)
 
 
 func _hide_props_recursive(node: Node, hide_props: bool, keep_front: bool = false) -> void:
@@ -197,6 +212,42 @@ func _hide_props_recursive(node: Node, hide_props: bool, keep_front: bool = fals
 			(node as Node3D).visible = (not hide_props) or (keep_front and front)
 	for child in node.get_children():
 		_hide_props_recursive(child, hide_props, keep_front)
+
+
+func _hide_fpv_obstructions_recursive(node: Node, model_root: Node3D, fpv: Camera3D, is_fpv: bool) -> void:
+	if node == null:
+		return
+	var lower := String(node.name).to_lower()
+	var is_obstruction := lower.contains("camera") or lower.contains("gimbal") \
+			or lower.contains("lens") or lower.contains("warhead") \
+			or lower.contains("payload") or lower.contains("fuze") \
+			or lower.contains("bomb") or lower.contains("battery") \
+			or lower.contains("lipo") or lower.contains("antenna") \
+			or lower.contains("bumper") or lower.contains("skid")
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if not is_fpv:
+			if mi.has_meta("_fpv_culled"):
+				mi.visible = true
+				mi.remove_meta("_fpv_culled")
+		else:
+			var near_cam := false
+			var drone_3d := drone as Node3D
+			if fpv != null and drone_3d != null:
+				var inv_drone: Transform3D = drone_3d.global_transform.affine_inverse() if drone_3d.is_inside_tree() else Transform3D.IDENTITY
+				var cam_local: Vector3 = fpv.position
+				var mi_local_xform: Transform3D = (inv_drone * mi.global_transform) if mi.is_inside_tree() else mi.transform
+				var box: AABB = mi_local_xform * mi.get_aabb()
+				var center: Vector3 = box.get_center()
+				var dist: float = center.distance_to(cam_local)
+				# Anything sitting directly inside or slightly forward of the lens
+				# blocks center-screen sightlines and touch controls.
+				near_cam = dist < 0.14 or (center.z < cam_local.z + 0.04 and absf(center.x - cam_local.x) < 0.08 and absf(center.y - cam_local.y) < 0.08)
+			if is_obstruction or near_cam:
+				mi.visible = false
+				mi.set_meta("_fpv_culled", true)
+	for child in node.get_children():
+		_hide_fpv_obstructions_recursive(child, model_root, fpv, is_fpv)
 
 
 ## Respawn entry point. Subclasses may extend it (BigLevel re-arms the drone).

@@ -93,6 +93,16 @@ func _make_looping(stream: AudioStream) -> void:
 	wav.loop_end = maxi(1, int(wav.get_length() * float(wav.mix_rate)))
 
 
+func _exit_tree() -> void:
+	for p in sounds:
+		if p is AudioStreamPlayer and is_instance_valid(p):
+			(p as AudioStreamPlayer).stop()
+			(p as AudioStreamPlayer).stream = null
+	sounds.clear()
+	sound1 = null
+	sound2 = null
+
+
 func _process(delta: float) -> void:
 	if Engine.is_editor_hint():
 		return

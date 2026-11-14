@@ -116,7 +116,7 @@ func _start() -> void:
 	var err := _udp.bind(UDP_PORT, "0.0.0.0")
 	if err != OK:
 		status_text = "ELRS: UDP %d" % err
-		push_warning("[ELRS] UDP port 11000 bind failed: %d" % err)
+		print_verbose("[ELRS] UDP port %d busy or unavailable (%d)" % [UDP_PORT, err])
 		return
 	_udp.set_broadcast_enabled(true)
 	status_text = "ELRS: ПОШУК"
@@ -677,4 +677,8 @@ func save_settings() -> void:
 
 func _exit_tree() -> void:
 	_send_release()
+	if _http != null and is_instance_valid(_http):
+		_http.cancel_request()
+		_http.queue_free()
+		_http = null
 	_udp.close()

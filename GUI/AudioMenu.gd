@@ -15,10 +15,45 @@ func _ready() -> void:
 	master_volume.value = volume_to_slider(Audio.audio_settings["master_volume"])
 	master_volume_label.text = update_slider_label(master_volume.value)
 
-	_add_volume_row("Music Volume", "music_volume", Audio.set_music_volume)
-	_add_volume_row("SFX Volume", "sfx_volume", Audio.set_sfx_volume)
+	_add_volume_row(Loc.t("AUDIO_MUSIC") if Loc != null else "Music Volume", "music_volume", Audio.set_music_volume)
+	_add_volume_row(Loc.t("AUDIO_SFX") if Loc != null else "SFX Volume", "sfx_volume", Audio.set_sfx_volume)
+	_add_subbus_rows()
 
 	_discard = $PanelContainer/VBoxContainer/HBoxContainer/ButtonBack.connect("pressed", Callable(self, "_on_back_pressed"))
+	MenuUI.localize_tree(self)
+
+
+func _add_subbus_rows() -> void:
+	if Audio == null or not Audio.has_method("set_subbus_volume_linear") \
+			or not Audio.has_method("get_subbus_volume_linear"):
+		return
+	var buses: Array = Audio.get("SUB_BUSES") if Audio.get("SUB_BUSES") is Array \
+			else ["Engine", "Wind", "Combat", "Radio", "Warning"]
+	var grid := $PanelContainer/VBoxContainer/ScrollContainer/Grid
+	for bus_raw in buses:
+		var bus_name := str(bus_raw)
+		var label := Label.new()
+		var loc_key := "BUS_" + bus_name.to_upper()
+		label.text = Loc.t(loc_key) if Loc != null else bus_name
+		var slider := HSlider.new()
+		slider.min_value = 0.0
+		slider.max_value = 100.0
+		slider.step = 1.0
+		slider.value = clampf(float(Audio.call("get_subbus_volume_linear", bus_name)) * 100.0, 0.0, 100.0)
+		slider.custom_minimum_size = Vector2(200, 0)
+		slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		slider.tick_count = 5
+		slider.ticks_on_borders = true
+		var value_label := Label.new()
+		value_label.text = "%d%%" % round(slider.value)
+		grid.add_child(label)
+		grid.add_child(slider)
+		grid.add_child(value_label)
+		slider.value_changed.connect(func(value: float) -> void:
+			value_label.text = "%d%%" % round(value)
+			if Audio.has_method("set_subbus_volume_linear"):
+				Audio.call("set_subbus_volume_linear", bus_name, value / 100.0)
+		)
 
 
 ## Adds a label + HSlider + value label row to the existing 3-column grid.

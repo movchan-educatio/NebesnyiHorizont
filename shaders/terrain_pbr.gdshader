@@ -120,11 +120,15 @@ void fragment() {
 	vec3 micro = texture(dirt_albedo, uv_c).rgb;
 	float micro_l = dot(micro, vec3(0.299, 0.587, 0.114));
 	albedo *= mix(1.0, mix(0.90, 1.10, micro_l), micro_strength * micro_fade);
-	// Two scales of luminance variation: huge drifting patches + 2 m breakup.
+	// Two scales of luminance variation + dual-scale anti-tiling world noise (0.021 & 0.067).
+	float macro_a = value_noise(v_world.xz * 0.021);
+	float macro_b = value_noise(v_world.xz * 0.067 + vec2(13.7, 29.3));
+	float proc_macro = clamp(macro_a * 0.60 + macro_b * 0.40, 0.0, 1.0);
 	float macro_lum = mix(1.0 - macro_contrast, 1.0 + macro_contrast,
-			clamp(macro * 0.6 + broad * 0.4, 0.0, 1.0));
-	float micro_lum = mix(0.86, 1.14, fine);
-	albedo *= macro_lum * micro_lum;
+			clamp(macro * 0.35 + broad * 0.25 + proc_macro * 0.40, 0.0, 1.0));
+	float micro_lum = mix(0.93, 1.07, clamp(proc_macro * 0.55 + fine * 0.45, 0.0, 1.0));
+	vec3 hue_mod = mix(vec3(0.96, 1.02, 0.96), vec3(1.04, 0.99, 0.95), macro_b);
+	albedo *= macro_lum * micro_lum * hue_mod;
 
 	// Wet ground is darker and slightly more saturated, like real marsh mud.
 	float wet = clamp(mud_w * 1.5 + (1.0 - smoothstep(wet_height, wet_height + 1.2, v_world.y)) * mud_amount, 0.0, 1.0);

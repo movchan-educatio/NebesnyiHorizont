@@ -211,13 +211,13 @@ static func build_valley_mountains(scene_root: Node3D, base_y: float = 0.0,
 	m_mat.vertex_color_use_as_albedo = true
 	m_mat.albedo_color = Color(1.0, 1.0, 1.0)
 	m_mat.roughness = 0.94
-	if ResourceLoader.exists("res://Assets/Textures/2.png"):
-		m_mat.albedo_texture = load("res://Assets/Textures/2.png")
+	if ResourceLoader.exists("res://Assets/textures/2.png"):
+		m_mat.albedo_texture = load("res://Assets/textures/2.png")
 		m_mat.uv1_world_triplanar = true
 		m_mat.uv1_scale = Vector3(0.035, 0.035, 0.035)
-	if ResourceLoader.exists("res://Assets/Textures/NormalMap-2.png"):
+	if ResourceLoader.exists("res://Assets/textures/NormalMap-2.png"):
 		m_mat.normal_enabled = true
-		m_mat.normal_texture = load("res://Assets/Textures/NormalMap-2.png")
+		m_mat.normal_texture = load("res://Assets/textures/NormalMap-2.png")
 		m_mat.normal_scale = 0.85
 
 	var mi := MeshInstance3D.new()
@@ -238,16 +238,16 @@ static func build_industrial_complex(scene_root: Node3D, origin: Vector3) -> Nod
 	root.global_position = origin
 
 	var concrete_light := _make_pbr_mat(Color(0.66, 0.65, 0.62), 0.90, 0.0,
-			"res://Assets/Textures/4.png", "res://Assets/Textures/NormalMap-1.png", 0.22)
+			"res://Assets/textures/4.png", "res://Assets/textures/NormalMap-1.png", 0.22)
 	var concrete_weathered := _make_pbr_mat(Color(0.54, 0.53, 0.50), 0.92, 0.0,
-			"res://Assets/Textures/4.png", "res://Assets/Textures/NormalMap-1.png", 0.18)
+			"res://Assets/textures/4.png", "res://Assets/textures/NormalMap-1.png", 0.18)
 	var concrete_dark := _make_pbr_mat(Color(0.38, 0.38, 0.36), 0.94, 0.05,
-			"res://Assets/Textures/4.png", "res://Assets/Textures/NormalMap-1.png", 0.25)
+			"res://Assets/textures/4.png", "res://Assets/textures/NormalMap-1.png", 0.25)
 	var roof_metal := _make_pbr_mat(Color(0.44, 0.45, 0.47), 0.65, 0.35)
 	var chimney_band_red := _make_pbr_mat(Color(0.76, 0.32, 0.18), 0.85, 0.0)
 	var dark_interior := _make_pbr_mat(Color(0.14, 0.15, 0.16), 0.95, 0.0)
 	var asphalt_mat := _make_pbr_mat(Color(0.36, 0.36, 0.35), 0.92, 0.0,
-			"res://Assets/Textures/2.png", "res://Assets/Textures/NormalMap-2.png", 0.15)
+			"res://Assets/textures/2.png", "res://Assets/textures/NormalMap-2.png", 0.15)
 
 	# Concrete industrial yard apron and deep subterranean bedrock plinth
 	# Prevents drone from ever clipping beneath the foundation on undulating terrain
@@ -566,13 +566,13 @@ static func build_railway_station(scene_root: Node3D, origin: Vector3, yaw_rad: 
 	root.rotation.y = yaw_rad
 
 	var concrete_light := _make_pbr_mat(Color(0.70, 0.69, 0.66), 0.88, 0.0,
-			"res://Assets/Textures/4.png", "res://Assets/Textures/NormalMap-1.png", 0.22)
+			"res://Assets/textures/4.png", "res://Assets/textures/NormalMap-1.png", 0.22)
 	var concrete_weathered := _make_pbr_mat(Color(0.56, 0.55, 0.52), 0.92, 0.0,
-			"res://Assets/Textures/4.png", "res://Assets/Textures/NormalMap-1.png", 0.18)
+			"res://Assets/textures/4.png", "res://Assets/textures/NormalMap-1.png", 0.18)
 	var concrete_dark := _make_pbr_mat(Color(0.36, 0.36, 0.34), 0.94, 0.05,
-			"res://Assets/Textures/4.png", "res://Assets/Textures/NormalMap-1.png", 0.25)
+			"res://Assets/textures/4.png", "res://Assets/textures/NormalMap-1.png", 0.25)
 	var asphalt_mat := _make_pbr_mat(Color(0.32, 0.32, 0.31), 0.92, 0.0,
-			"res://Assets/Textures/2.png", "res://Assets/Textures/NormalMap-2.png", 0.15)
+			"res://Assets/textures/2.png", "res://Assets/textures/NormalMap-2.png", 0.15)
 	var steel_dark := _make_pbr_mat(Color(0.20, 0.22, 0.25), 0.70, 0.50)
 	var roof_metal := _make_pbr_mat(Color(0.38, 0.40, 0.44), 0.65, 0.40)
 	var wood_mat := _make_pbr_mat(Color(0.42, 0.30, 0.18), 0.92, 0.0)
@@ -993,7 +993,7 @@ static func build_concrete_pipe_park(scene_root: Node3D, origin: Vector3, yaw_ra
 	root.rotation.y = yaw_rad
 
 	var concrete_mat := _make_pbr_mat(Color(0.60, 0.59, 0.56), 0.92, 0.0,
-			"res://Assets/Textures/4.png", "res://Assets/Textures/NormalMap-1.png", 0.20)
+			"res://Assets/textures/4.png", "res://Assets/textures/NormalMap-1.png", 0.20)
 	var dirt_mat := _make_pbr_mat(Color(0.35, 0.28, 0.20), 0.98, 0.0)
 
 	# Gravel ground apron with subterranean bedrock foundation plinth
@@ -1128,7 +1128,7 @@ static func build_combat_fortifications(scene_root: Node3D, origin: Vector3, yaw
 	root.rotation.y = yaw_rad
 
 	var concrete_bunker := _make_pbr_mat(Color(0.48, 0.47, 0.44), 0.94, 0.0,
-			"res://Assets/Textures/4.png", "res://Assets/Textures/NormalMap-1.png", 0.22)
+			"res://Assets/textures/4.png", "res://Assets/textures/NormalMap-1.png", 0.22)
 	var sandbag_mat := _make_pbr_mat(Color(0.58, 0.52, 0.38), 0.96, 0.0)
 	var steel_rail_mat := _make_pbr_mat(Color(0.32, 0.33, 0.35), 0.65, 0.65)
 	var wood_mat := _make_pbr_mat(Color(0.42, 0.32, 0.22), 0.95, 0.0)
