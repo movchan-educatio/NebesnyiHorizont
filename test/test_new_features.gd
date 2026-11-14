@@ -49,7 +49,7 @@ func _ready() -> void:
 		var lm = marks[0]
 		lm.take_damage(999999.0, (lm as Node3D).global_position)
 		await get_tree().process_frame
-		print("[NEW] landmark_destroyed=", bool(lm.get("is_destroyed")))
+		print("[NEW] landmark_destroyed=", lm.get("is_destroyed") == true)
 	var all_combat := DroneCatalog.count() == 10
 	for ci in range(DroneCatalog.count()):
 		all_combat = all_combat and DroneCatalog.is_combat(ci)

@@ -46,6 +46,7 @@ var state_armed := false: set = set_armed
 var pid_controllers := []
 
 var flight_mode: int = FlightMode.RATE
+var _preferred_flight_mode: int = FlightMode.LEVEL
 
 @export var pid_roll_p := 75.0 # (float, 0.0, 1000.0)
 @export var pid_roll_i := 30.0 # (float, 0.0, 1000.0)
@@ -152,7 +153,10 @@ func _ready() -> void:
 	# makes the first flight feel like a consumer camera drone instead of a
 	# twitchy racing quad.  Acro remains one M-key press away.  If the player
 	# disabled Angle in settings, start in the other enabled mode instead.
-	change_flight_mode(resolve_flight_mode(FlightMode.LEVEL))
+	var initial_mode := resolve_flight_mode(FlightMode.LEVEL)
+	if initial_mode == FlightMode.LEVEL or initial_mode == FlightMode.RATE:
+		_preferred_flight_mode = initial_mode
+	change_flight_mode(initial_mode)
 	
 	if b_telemetry:
 		if FileAccess.file_exists("user://telemetry.csv"):
@@ -160,10 +164,7 @@ func _ready() -> void:
 
 
 func _physics_process(_delta: float) -> void:
-	if (flight_mode == FlightMode.LEVEL or flight_mode == FlightMode.SPEED \
-			or flight_mode == FlightMode.TRACK) and not is_flight_safe():
-		change_flight_mode(FlightMode.AUTO)
-	elif flight_mode == FlightMode.LAUNCH and (angles.x < deg_to_rad(-80) or angles.x > deg_to_rad(10)):
+	if flight_mode == FlightMode.LAUNCH and (angles.x < deg_to_rad(-80) or angles.x > deg_to_rad(10)):
 		_on_disarm_input()
 
 	if flight_mode == FlightMode.TRACK:
@@ -317,7 +318,7 @@ func request_arm(force: bool = false) -> bool:
 			emit_signal("arm_failed", ArmFail.CRASH_RECOVERY_MODE)
 		return false
 	if flight_mode == FlightMode.AUTO:
-		select_flight_mode(FlightMode.RATE)
+		restore_preferred_flight_mode()
 	# Mobile only: arming must not change the flight mode.  The old code
 	# switched to TURTLE/LAUNCH whenever either action happened to be held (for
 	# example a radio AUX switch or a synthetic touch event), so pressing ARM
@@ -337,8 +338,8 @@ func request_arm(force: bool = false) -> bool:
 func request_disarm() -> void:
 	set_armed(false)
 	_level_pitch_trim = 0.0
-	if flight_mode == FlightMode.TURTLE or flight_mode == FlightMode.LAUNCH:
-		select_flight_mode(FlightMode.RATE)
+	if flight_mode == FlightMode.AUTO or flight_mode == FlightMode.TURTLE or flight_mode == FlightMode.LAUNCH:
+		restore_preferred_flight_mode()
 	for controller in pid_controllers:
 		controller.set_disabled(true)
 		controller.reset()
@@ -528,6 +529,11 @@ func _setting_enabled(key: String, default_value: bool) -> bool:
 	return default_value
 
 
+func restore_preferred_flight_mode() -> void:
+	## Restore the user's preferred primary mode (ANGLE/ACRO) safely.
+	select_flight_mode(resolve_flight_mode(_preferred_flight_mode))
+
+
 func resolve_flight_mode(mode: int) -> int:
 	if mode != FlightMode.RATE and mode != FlightMode.LEVEL:
 		return mode
@@ -544,6 +550,8 @@ func resolve_flight_mode(mode: int) -> int:
 ## cycle. In particular, TRACK must start from the drone's current position.
 func select_flight_mode(mode: int) -> void:
 	mode = resolve_flight_mode(mode)
+	if mode == FlightMode.LEVEL or mode == FlightMode.RATE:
+		_preferred_flight_mode = mode
 	change_flight_mode(mode)
 	if mode == FlightMode.LEVEL:
 		pid_controllers[Controller.ALTITUDE].set_target(pos.y)
@@ -664,7 +672,7 @@ func update_control(delta: float) -> void:
 		motor_pwm[3] = clamp(-pitch, idle_pwm, 1)
 		if input[0] > 0.2:
 			motor_pwm = [-pitch, -pitch, -pitch, -pitch]
-			select_flight_mode(FlightMode.RATE)
+			restore_preferred_flight_mode()
 	
 	motors[0].set_pwm(motor_pwm[0])
 	motors[1].set_pwm(motor_pwm[1])
@@ -938,7 +946,7 @@ func reset() -> void:
 	set_armed(false)
 	_level_pitch_trim = 0.0
 	if flight_mode == FlightMode.AUTO or flight_mode == FlightMode.TURTLE or flight_mode == FlightMode.LAUNCH:
-		select_flight_mode(FlightMode.RATE)
+		restore_preferred_flight_mode()
 	
 	# Update position twice to ensure pos_prev == pos
 	for _i in range(2):

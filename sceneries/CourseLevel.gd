@@ -241,7 +241,7 @@ func _on_course_drone_armed(_mode: int) -> void:
 	d.freeze = false
 	var flight_controller := d.flight_controller as FlightController
 	if flight_controller != null and flight_controller.flight_mode == FlightController.FlightMode.AUTO:
-		flight_controller.change_flight_mode(FlightController.FlightMode.RATE)
+		flight_controller.restore_preferred_flight_mode()
 	var radio := get_node_or_null("RadioController") as RadioController
 	if radio != null:
 		radio.hover_assist = true

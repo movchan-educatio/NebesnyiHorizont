@@ -10,6 +10,8 @@ const FpvIconsScript = preload("res://scripts/util/fpv_icons.gd")
 signal kill_cam_finished()
 
 const SPEED_OF_SOUND := 343.0
+const SIGNAL_LOSS_SEC := 0.15
+const RADIO_CONFIRM_SEC := 0.35
 const AUTO_CLOSE_SEC := 3.8
 const ORBIT_RAD_PER_SEC := 0.072
 const FOV_START := 32.0
@@ -19,6 +21,8 @@ var _active: bool = false
 var _elapsed: float = 0.0
 var _shockwave_delay: float = 0.42
 var _shockwave_fired: bool = false
+var _static_active: bool = false
+var _radio_confirm_fired: bool = false
 var _jolt_age: float = -1.0
 
 var _impact_pos: Vector3 = Vector3.ZERO
@@ -37,6 +41,9 @@ var _hud_layer: CanvasLayer = null
 var _flash_rect: ColorRect = null
 var _rf_rect: ColorRect = null
 var _rf_mat: ShaderMaterial = null
+var _signal_loss_box: Control = null
+var _signal_loss_rect: ColorRect = null
+var _signal_loss_mat: ShaderMaterial = null
 var _telemetry_lbl: Label = null
 var _status_lbl: Label = null
 var _acoustic_lbl: Label = null
@@ -83,6 +90,8 @@ func trigger(level_root: Node3D, impact_pos: Vector3, drone_pos: Vector3 = Vecto
 	var slant := _cam.global_position.distance_to(_impact_pos)
 	_shockwave_delay = clampf(slant / SPEED_OF_SOUND, 0.25, 0.72)
 	_shockwave_fired = false
+	_static_active = true
+	_radio_confirm_fired = false
 	_jolt_age = -1.0
 	_elapsed = 0.0
 	_active = true
@@ -92,10 +101,13 @@ func trigger(level_root: Node3D, impact_pos: Vector3, drone_pos: Vector3 = Vecto
 	if world_env != null and world_env.environment != null:
 		_env = world_env.environment
 		_orig_exposure = _env.tonemap_exposure
-		_env.tonemap_exposure = _orig_exposure + 0.42
+		_env.tonemap_exposure = _orig_exposure
 
 	if DisplayServer.get_name() != "headless":
 		_build_hud()
+		var audio := get_node_or_null("/root/Audio")
+		if audio != null and audio.has_method("play_signal_loss_static"):
+			audio.call("play_signal_loss_static", 0.16, -5.0)
 	return true
 
 
@@ -264,6 +276,65 @@ void fragment() {
 	_skip_btn.pressed.connect(cancel)
 	btn_center.add_child(_skip_btn)
 
+	# 150 ms white-noise RF signal-loss freeze frame before orbital recon snap.
+	_signal_loss_box = Control.new()
+	_signal_loss_box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_signal_loss_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_signal_loss_box)
+
+	_signal_loss_rect = ColorRect.new()
+	_signal_loss_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_signal_loss_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_signal_loss_mat = ShaderMaterial.new()
+	var static_sh := Shader.new()
+	static_sh.code = """
+shader_type canvas_item;
+uniform float time_sec = 0.0;
+float hash21(vec2 p) {
+	p = fract(p * vec2(234.34, 435.345));
+	p += dot(p, p + 34.23);
+	return fract(p.x * p.y);
+}
+void fragment() {
+	vec2 grid = floor(UV * vec2(220.0, 128.0));
+	float n = hash21(grid + fract(time_sec * 47.0));
+	float bar = smoothstep(0.65, 1.0, sin(UV.y * 42.0 + time_sec * 65.0));
+	float v = clamp(n * 0.85 + bar * 0.25, 0.06, 0.96);
+	COLOR = vec4(v * 0.92, v, v * 0.94, 1.0);
+}
+"""
+	_signal_loss_mat.shader = static_sh
+	_signal_loss_rect.material = _signal_loss_mat
+	_signal_loss_box.add_child(_signal_loss_rect)
+
+	var loss_center := CenterContainer.new()
+	loss_center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	loss_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_signal_loss_box.add_child(loss_center)
+
+	var loss_panel := PanelContainer.new()
+	loss_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var lsb := StyleBoxFlat.new()
+	lsb.bg_color = Color(0.03, 0.04, 0.05, 0.88)
+	lsb.border_color = Color(0.95, 0.28, 0.22, 0.95)
+	lsb.set_border_width_all(2)
+	lsb.set_corner_radius_all(6)
+	lsb.content_margin_left = 26
+	lsb.content_margin_right = 26
+	lsb.content_margin_top = 12
+	lsb.content_margin_bottom = 12
+	loss_panel.add_theme_stylebox_override("panel", lsb)
+	loss_center.add_child(loss_panel)
+
+	var loss_lbl := Label.new()
+	loss_lbl.text = "VIDEO SIGNAL LOST" if is_en else "ВТРАТА ВІДЕОСИГНАЛУ"
+	loss_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	loss_lbl.add_theme_font_size_override("font_size", 24)
+	loss_lbl.add_theme_color_override("font_color", Color(1.0, 0.95, 0.92))
+	loss_lbl.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.95))
+	loss_lbl.add_theme_constant_override("outline_size", 5)
+	loss_panel.add_child(loss_lbl)
+
 	_refresh_telemetry_label()
 
 
@@ -296,9 +367,32 @@ func _process(delta: float) -> void:
 		cancel()
 		return
 
+	if _elapsed < SIGNAL_LOSS_SEC:
+		if _signal_loss_mat != null:
+			_signal_loss_mat.set_shader_parameter("time_sec", _elapsed)
+		if _flash_rect != null:
+			_flash_rect.color.a = 0.0
+		return
+
+	if _static_active:
+		_static_active = false
+		if _signal_loss_box != null and is_instance_valid(_signal_loss_box):
+			_signal_loss_box.visible = false
+		if _flash_rect != null:
+			_flash_rect.color.a = 0.36
+		if _env != null and is_instance_valid(_env):
+			_env.tonemap_exposure = _orig_exposure + 0.42
+
+	var optical_age := maxf(_elapsed - SIGNAL_LOSS_SEC, 0.0)
 	_update_camera_pose(delta)
 
-	if not _shockwave_fired and _elapsed >= _shockwave_delay:
+	if not _radio_confirm_fired and _elapsed >= RADIO_CONFIRM_SEC:
+		_radio_confirm_fired = true
+		var audio_node := get_node_or_null("/root/Audio")
+		if audio_node != null and audio_node.has_method("play_radio_confirm_beep"):
+			audio_node.call("play_radio_confirm_beep", -7.0)
+
+	if not _shockwave_fired and _elapsed >= SIGNAL_LOSS_SEC + _shockwave_delay:
 		_shockwave_fired = true
 		_jolt_age = 0.0
 		var audio := get_node_or_null("/root/Audio")
@@ -313,11 +407,11 @@ func _process(delta: float) -> void:
 		_jolt_age += delta
 
 	if _env != null and is_instance_valid(_env):
-		var flash_decay := exp(-_elapsed * 4.5)
+		var flash_decay := exp(-optical_age * 4.5)
 		_env.tonemap_exposure = _orig_exposure + 0.42 * flash_decay
 
 	if _flash_rect != null:
-		_flash_rect.color.a = 0.36 * exp(-_elapsed * 5.2)
+		_flash_rect.color.a = 0.36 * exp(-optical_age * 5.2)
 
 	if _rf_mat != null:
 		_rf_mat.set_shader_parameter("time_sec", _elapsed)
@@ -416,6 +510,9 @@ func _cleanup_resources() -> void:
 	_hud_layer = null
 	_rf_rect = null
 	_rf_mat = null
+	_signal_loss_box = null
+	_signal_loss_rect = null
+	_signal_loss_mat = null
 	_flash_rect = null
 	_telemetry_lbl = null
 	_status_lbl = null

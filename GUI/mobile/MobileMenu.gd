@@ -801,8 +801,11 @@ func _build_root() -> void:
 	chips.add_theme_constant_override("separation", _gap(6))
 	top.add_child(chips)
 
-	var gc_top_btn := _button("🏆 GC" if MenuUI.is_english() else "🏆", 32, false)
-	gc_top_btn.custom_minimum_size = Vector2(_ui_sz(52), _ui_sz(32))
+	var gc_top_btn := _button("GC" if MenuUI.is_english() else "РЕКОРДИ", 32, false)
+	gc_top_btn.icon = MenuIcons.icon_trophy(MenuUI.FPV_AMBER, 20)
+	gc_top_btn.expand_icon = false
+	gc_top_btn.add_theme_constant_override("h_separation", _gap(6))
+	gc_top_btn.custom_minimum_size = Vector2(_ui_sz(82 if MenuUI.is_english() else 124), _ui_sz(32))
 	gc_top_btn.tooltip_text = Global.get_leaderboard_summary(MenuUI.is_english())
 	gc_top_btn.pressed.connect(func():
 		Global.open_game_center_leaderboard()
@@ -962,7 +965,9 @@ func _build_main() -> void:
 		)
 		left.add_child(quick_btn)
 
-	left.add_child(_nav_button(MenuIcons.icon_play(Color(0.06, 0.09, 0.07)), "ОДИНОЧНА ГРА", Global.is_tutorial_completed(), func(): _show("play")))
+	var sp_primary := Global.is_tutorial_completed()
+	var sp_icon_col := Color(0.06, 0.09, 0.07) if sp_primary else Color(0.84, 0.96, 0.87)
+	left.add_child(_nav_button(MenuIcons.icon_play(sp_icon_col), "ОДИНОЧНА ГРА", sp_primary, func(): _show("play")))
 	left.add_child(_nav_button(MenuIcons.icon_radio(MenuUI.TEXT), "ПУЛЬТ ТА ELRS", false, func(): _show("controls")))
 	left.add_child(_nav_button(MenuIcons.icon_rates(MenuUI.TEXT), "РЕЙТИ ТА ЕКСПО", false, func(): _show("rates")))
 	left.add_child(_nav_button(MenuIcons.icon_hangar(MenuUI.TEXT), "АНГАР ДРОНІВ", false, func(): _show("drone")))
@@ -2025,8 +2030,11 @@ func _build_play() -> void:
 	_play_daily_lbl = _label(("★ %s (+%d)%s" % [dc_title, int(dc.get("bonus_score", 500)), rec_suffix]), 13, MenuUI.FPV_CYAN)
 	_play_daily_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	daily_row.add_child(_play_daily_lbl)
-	var gc_play_btn := _button("🏆 Game Center" if is_en else "🏆 Рейтинг", 34, false)
-	gc_play_btn.custom_minimum_size = Vector2(_ui_sz(150), _ui_sz(34))
+	var gc_play_btn := _button("Game Center" if is_en else "РЕКОРДИ", 34, false)
+	gc_play_btn.icon = MenuIcons.icon_trophy(MenuUI.FPV_AMBER, 20)
+	gc_play_btn.expand_icon = false
+	gc_play_btn.add_theme_constant_override("h_separation", _gap(6))
+	gc_play_btn.custom_minimum_size = Vector2(_ui_sz(160), _ui_sz(34))
 	gc_play_btn.pressed.connect(func():
 		Global.open_game_center_leaderboard()
 		_play_daily_lbl.text = Global.get_leaderboard_summary(MenuUI.is_english())
@@ -2688,9 +2696,16 @@ func _build_settings_tab_sim() -> void:
 	_settings_body_container.add_child(card)
 	_settings_panels["sim"] = card
 
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	card.add_child(scroll)
+
 	var sv := VBoxContainer.new()
-	sv.add_theme_constant_override("separation", _gap(16))
-	card.add_child(sv)
+	sv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sv.add_theme_constant_override("separation", _gap(14))
+	scroll.add_child(sv)
 
 	sv.add_child(_label("ТРЕНАЖЕР / СИМУЛЯЦІЯ РЕАЛІЗМУ", 24, MenuUI.FPV_AMBER))
 	sv.add_child(_label("Полегшення та фізика діють одразу під час польоту", 14, MenuUI.MUTED))
@@ -2756,6 +2771,81 @@ func _build_settings_tab_sim() -> void:
 		_sim_toggles[key] = sw
 		row.add_child(sw)
 		grid.add_child(row)
+
+	sv.add_child(_label("СЕНСОРНЕ КЕРУВАННЯ (TOUCH)", 20, MenuUI.FPV_AMBER))
+
+	var touch_grid := GridContainer.new()
+	touch_grid.columns = 2
+	touch_grid.add_theme_constant_override("h_separation", _gap(24))
+	touch_grid.add_theme_constant_override("v_separation", _gap(10))
+	touch_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sv.add_child(touch_grid)
+
+	var touch_items := [
+		["touch_floating_sticks", "Плаваючий стік", false],
+		["touch_left_spring", "Авто-центр газу (Angle)", false],
+	]
+	for t_item in touch_items:
+		var t_key: String = t_item[0]
+		var t_lbl_txt: String = t_item[1]
+		var t_def: bool = bool(t_item[2])
+		var trow := HBoxContainer.new()
+		trow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var tlbl := _label(t_lbl_txt, 18, MenuUI.TEXT)
+		tlbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		trow.add_child(tlbl)
+		var tsw := ToggleSwitch.new(bool(Global.menu_settings.get(t_key, t_def)))
+		tsw.toggled.connect(func(on: bool):
+			Global.menu_settings[t_key] = on
+			Global.save_menu_settings()
+			var tc := get_node_or_null("/root/TouchControls")
+			if tc != null and tc.has_method("refresh_touch_settings"):
+				tc.call("refresh_touch_settings")
+		)
+		trow.add_child(tsw)
+		touch_grid.add_child(trow)
+
+	var sens_row := HBoxContainer.new()
+	sens_row.add_theme_constant_override("separation", _gap(12))
+	var sens_lbl := _label("Чутливість сенсора:", 18, MenuUI.TEXT)
+	sens_lbl.custom_minimum_size.x = _fs(210)
+	sens_row.add_child(sens_lbl)
+	var cur_sens := clampf(float(Global.menu_settings.get("touch_sensitivity", 1.0)), 0.4, 1.6)
+	var sens_val_lbl := _label("%.2fx" % cur_sens, 18, MenuUI.FPV_GREEN)
+	sens_val_lbl.custom_minimum_size.x = _fs(64)
+	var sens_sl := _slider(cur_sens, 0.4, 1.6, 0.05, func(val: float):
+		var v := clampf(val, 0.4, 1.6)
+		sens_val_lbl.text = "%.2fx" % v
+		Global.menu_settings["touch_sensitivity"] = v
+		Global.save_menu_settings()
+		var tc := get_node_or_null("/root/TouchControls")
+		if tc != null and tc.has_method("refresh_touch_settings"):
+			tc.call("refresh_touch_settings")
+	)
+	sens_row.add_child(sens_sl)
+	sens_row.add_child(sens_val_lbl)
+	sv.add_child(sens_row)
+
+	var expo_row := HBoxContainer.new()
+	expo_row.add_theme_constant_override("separation", _gap(12))
+	var expo_lbl := _label("Експо сенсора:", 18, MenuUI.TEXT)
+	expo_lbl.custom_minimum_size.x = _fs(210)
+	expo_row.add_child(expo_lbl)
+	var cur_expo := clampf(float(Global.menu_settings.get("touch_expo", 0.2)), 0.0, 0.7)
+	var expo_val_lbl := _label("%.2f" % cur_expo, 18, MenuUI.FPV_GREEN)
+	expo_val_lbl.custom_minimum_size.x = _fs(64)
+	var expo_sl := _slider(cur_expo, 0.0, 0.7, 0.05, func(val: float):
+		var v := clampf(val, 0.0, 0.7)
+		expo_val_lbl.text = "%.2f" % v
+		Global.menu_settings["touch_expo"] = v
+		Global.save_menu_settings()
+		var tc := get_node_or_null("/root/TouchControls")
+		if tc != null and tc.has_method("refresh_touch_settings"):
+			tc.call("refresh_touch_settings")
+	)
+	expo_row.add_child(expo_sl)
+	expo_row.add_child(expo_val_lbl)
+	sv.add_child(expo_row)
 
 
 func _refresh_sim_toggles() -> void:
@@ -3181,8 +3271,11 @@ func _build_settings_tab_sys() -> void:
 	gc_info.add_child(_label("Game Center & Records" if is_en else "Game Center та таблиця рекордів", 20, MenuUI.TEXT))
 	gc_info.add_child(_label(Global.get_leaderboard_summary(is_en), 14, MenuUI.MUTED))
 	gc_box.add_child(gc_info)
-	var gc_btn := _button("🏆 OPEN" if is_en else "🏆 ВІДКРИТИ", 40, false)
-	gc_btn.custom_minimum_size = Vector2(_ui_sz(140), _ui_sz(40))
+	var gc_btn := _button("OPEN" if is_en else "ВІДКРИТИ", 40, false)
+	gc_btn.icon = MenuIcons.icon_trophy(MenuUI.FPV_AMBER, 22)
+	gc_btn.expand_icon = false
+	gc_btn.add_theme_constant_override("h_separation", _gap(8))
+	gc_btn.custom_minimum_size = Vector2(_ui_sz(150), _ui_sz(40))
 	gc_btn.pressed.connect(func():
 		Global.open_game_center_leaderboard()
 	)

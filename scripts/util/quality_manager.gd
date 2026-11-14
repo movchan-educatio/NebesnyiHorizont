@@ -154,8 +154,9 @@ static func params() -> Dictionary:
 					"grass_count": 4200, "grass_range": 28.0,
 					"veg_range": 1250.0, "veg_density": 0.86, "mesh_lod": 1.05,
 					"shadow_distance": 145.0, "shadow_atlas": 1536,
+					"msaa": Viewport.MSAA_DISABLED,
 					"ssao": false, "ssil": false, "volumetric_fog": false,
-					"glow": false, "fxaa": true}, true)
+					"glow": false, "fxaa": false}, true)
 	# QA switches used by the FPS benchmark to isolate expensive passes.
 	if OS.has_environment("QA_NO_FOG"):
 		p = p.duplicate(true)
@@ -224,6 +225,7 @@ static func apply_viewport(vp: Viewport) -> void:
 	else:
 		vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
 		vp.scaling_3d_scale = 1.0
+	vp.msaa_2d = Viewport.MSAA_DISABLED
 	vp.msaa_3d = int(p["msaa"]) as Viewport.MSAA
 	var use_fxaa: bool = bool(p["fxaa"]) and not OS.has_environment("QA_NO_FXAA")
 	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if use_fxaa \

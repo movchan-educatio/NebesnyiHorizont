@@ -99,10 +99,10 @@ static func build_profile(root: Node3D, base: Vector3,
 					continue
 			var a_i := row * (segments + 1) + i
 			var b_i := a_i + segments + 1
-			outer_idx.append_array([a_i, b_i, a_i + 1, a_i + 1, b_i, b_i + 1])
-			# Inner wall is wound the other way so it is visible from inside the
-			# tube; with the same winding the interior rendered see-through.
-			inner_idx.append_array([a_i, a_i + 1, b_i, a_i + 1, b_i + 1, b_i])
+			outer_idx.append_array([a_i, a_i + 1, b_i, a_i + 1, b_i + 1, b_i])
+			# Inner wall is wound clockwise when viewed from inside so its
+			# front face aligns with the inward normal `-n`.
+			inner_idx.append_array([a_i, b_i, a_i + 1, a_i + 1, b_i, b_i + 1])
 
 	# Thick top rim: connects the outer and inner top rings.  The centre stays
 	# open, which is the whole point of the tower.
@@ -130,7 +130,7 @@ static func build_profile(root: Node3D, base: Vector3,
 		var o1 := o0 + 1
 		var i0 := rim_start + segments + 1 + i
 		var i1 := i0 + 1
-		outer_idx.append_array([o0, i0, o1, o1, i0, i1])
+		outer_idx.append_array([o0, o1, i0, o1, i1, i0])
 
 	# Close doorway jambs and lintels so base openings have solid wall thickness
 	# instead of exposing gap between outer and inner shells.
@@ -174,7 +174,7 @@ static func build_profile(root: Node3D, base: Vector3,
 					])
 					outer_norms.append_array([jn, jn, jn, jn])
 					outer_uvs.append_array([Vector2(0, 0), Vector2(0, 1), Vector2(1, 0), Vector2(1, 1)])
-					outer_idx.append_array([jb, jb + 1, jb + 2, jb + 2, jb + 1, jb + 3, jb, jb + 2, jb + 1, jb + 2, jb + 3, jb + 1])
+					outer_idx.append_array([jb, jb + 2, jb + 1, jb + 2, jb + 3, jb + 1])
 				if not next_cut:
 					var a := TAU * float((i + 1) % segments) / float(segments)
 					var nx := cos(a)
@@ -189,7 +189,7 @@ static func build_profile(root: Node3D, base: Vector3,
 					])
 					outer_norms.append_array([jn, jn, jn, jn])
 					outer_uvs.append_array([Vector2(0, 0), Vector2(0, 1), Vector2(1, 0), Vector2(1, 1)])
-					outer_idx.append_array([jb, jb + 2, jb + 1, jb + 2, jb + 3, jb + 1, jb, jb + 1, jb + 2, jb + 2, jb + 1, jb + 3])
+					outer_idx.append_array([jb, jb + 1, jb + 2, jb + 2, jb + 1, jb + 3])
 				# Lintel soffit at the top of the opening
 				if absf(h1 - open_max) < 0.05:
 					var a0 := TAU * float(i) / float(segments)
@@ -203,7 +203,7 @@ static func build_profile(root: Node3D, base: Vector3,
 					])
 					outer_norms.append_array([Vector3.DOWN, Vector3.DOWN, Vector3.DOWN, Vector3.DOWN])
 					outer_uvs.append_array([Vector2(0, 0), Vector2(1, 0), Vector2(0, 1), Vector2(1, 1)])
-					outer_idx.append_array([lb, lb + 1, lb + 2, lb + 2, lb + 1, lb + 3, lb, lb + 2, lb + 1, lb + 2, lb + 3, lb + 1])
+					outer_idx.append_array([lb, lb + 2, lb + 1, lb + 2, lb + 3, lb + 1])
 
 	var mesh := ArrayMesh.new()
 	var arrays := []
@@ -213,7 +213,7 @@ static func build_profile(root: Node3D, base: Vector3,
 	arrays[Mesh.ARRAY_TEX_UV] = outer_uvs
 	arrays[Mesh.ARRAY_INDEX] = outer_idx
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	mesh.surface_set_material(0, outer_mat)
+	mesh.surface_set_material(0, _safe_tower_material(outer_mat))
 	var inner_arrays := []
 	inner_arrays.resize(Mesh.ARRAY_MAX)
 	inner_arrays[Mesh.ARRAY_VERTEX] = inner_verts
@@ -221,7 +221,7 @@ static func build_profile(root: Node3D, base: Vector3,
 	inner_arrays[Mesh.ARRAY_TEX_UV] = inner_uvs
 	inner_arrays[Mesh.ARRAY_INDEX] = inner_idx
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, inner_arrays)
-	mesh.surface_set_material(1, inner_mat)
+	mesh.surface_set_material(1, _safe_tower_material(inner_mat))
 
 	var mi := MeshInstance3D.new()
 	mi.name = node_name
@@ -260,3 +260,20 @@ static func build_profile(root: Node3D, base: Vector3,
 		body.add_child(cs)
 	root.add_child(body)
 	return mi
+
+
+static func _safe_tower_material(mat: Material) -> Material:
+	var sm := mat as StandardMaterial3D
+	if sm == null:
+		return mat
+	var is_metal := sm.metallic > 0.01
+	var max_metal := 0.135 if is_metal else 0.0
+	var max_spec := 0.29 if is_metal else 0.24
+	var min_rough := 0.74 if is_metal else 0.86
+	if sm.metallic <= max_metal and sm.metallic_specular <= max_spec and sm.roughness >= min_rough:
+		return mat
+	var copy := sm.duplicate() as StandardMaterial3D
+	copy.metallic = minf(copy.metallic, max_metal)
+	copy.metallic_specular = minf(copy.metallic_specular, max_spec)
+	copy.roughness = maxf(copy.roughness, min_rough)
+	return copy

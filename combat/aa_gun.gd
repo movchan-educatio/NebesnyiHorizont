@@ -186,6 +186,9 @@ func _fire() -> void:
 	dir = (dir + Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0),
 			randf_range(-1.0, 1.0)) * spread).normalized()
 	var tracer = TracerScript.new()
+	tracer.tracer_color = Color(1.0, 0.58, 0.16)
+	tracer.tracer_width = 1.85
+	tracer.add_to_group("aa_tracer")
 	get_parent().add_child(tracer)
 	tracer.setup(muzzle_pos, dir, tracer_speed, tracer_damage, self)
 	CombatSfxScript.play_autocannon(get_parent(), muzzle_pos, -5.0)
@@ -196,8 +199,8 @@ func _muzzle_flash(position: Vector3) -> void:
 	if DisplayServer.get_name() == "headless":
 		return
 	var sphere := SphereMesh.new()
-	sphere.radius = 0.20
-	sphere.height = 0.40
+	sphere.radius = 0.34
+	sphere.height = 0.68
 	sphere.radial_segments = 8
 	sphere.rings = 4
 	var flash := MeshInstance3D.new()
@@ -206,18 +209,31 @@ func _muzzle_flash(position: Vector3) -> void:
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	material.albedo_color = Color(1.0, 0.72, 0.22, 0.9)
+	material.albedo_color = Color(1.0, 0.78, 0.25, 0.96)
 	material.emission_enabled = true
-	material.emission = Color(1.0, 0.5, 0.08)
-	material.emission_energy_multiplier = 5.0
+	material.emission = Color(1.0, 0.55, 0.10)
+	material.emission_energy_multiplier = 7.5
 	flash.material_override = material
 	flash.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	get_parent().add_child(flash)
 	flash.global_position = position
+	var core_mesh := SphereMesh.new()
+	core_mesh.radius = 0.16
+	core_mesh.height = 0.32
+	core_mesh.radial_segments = 6
+	core_mesh.rings = 3
+	var core := MeshInstance3D.new()
+	core.mesh = core_mesh
+	var core_mat := StandardMaterial3D.new()
+	core_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	core_mat.albedo_color = Color(1.0, 0.96, 0.78)
+	core.material_override = core_mat
+	core.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	flash.add_child(core)
 	var tween := flash.create_tween()
 	tween.set_parallel(true)
-	tween.tween_property(flash, "scale", Vector3.ONE * 2.3, 0.09)
-	tween.tween_property(material, "albedo_color", Color(1.0, 0.4, 0.05, 0.0), 0.09)
+	tween.tween_property(flash, "scale", Vector3.ONE * 2.8, 0.11)
+	tween.tween_property(material, "albedo_color", Color(1.0, 0.42, 0.05, 0.0), 0.11)
 	tween.chain().tween_callback(flash.queue_free)
 
 
@@ -270,6 +286,8 @@ func _destroy() -> void:
 		return
 	is_destroyed = true
 	remove_from_group("combat_target")
+	remove_from_group("primary_combat_target")
+	remove_from_group("bonus_combat_target")
 	collision_layer = 0
 	collision_mask = 0
 	_burst_left = 0
@@ -339,12 +357,15 @@ func _build() -> void:
 		_add_cylinder(_barrels, 0.075, 2.9, Vector3(x, 0, -1.45), Vector3(90, 0, 0), dark)
 		_add_cylinder(_barrels, 0.115, 0.52, Vector3(x, 0, -2.45), Vector3(90, 0, 0),
 				olive.darkened(0.20))
+		_add_cylinder(_barrels, 0.105, 0.22, Vector3(x, 0, -2.86), Vector3(90, 0, 0), rust)
 		var marker := Marker3D.new()
 		marker.name = "Muzzle"
-		marker.position = Vector3(x, 0, -2.85)
+		marker.position = Vector3(x, 0, -2.98)
 		_barrels.add_child(marker)
 		_muzzles.append(marker)
 	_add_box(_barrels, Vector3(0.86, 0.18, 0.34), Vector3(0, 0, -0.82), dark)
+	_add_box(_turret, Vector3(0.38, 0.28, 0.44), Vector3(0.62, 0.62, 0.18), rust)
+	_add_cylinder(_turret, 0.04, 0.42, Vector3(0.0, 0.85, -0.45), Vector3(0, 0, 0), dark)
 
 	_label = Label3D.new()
 	_label.text = "AA"

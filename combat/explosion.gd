@@ -50,7 +50,7 @@ func _apply_damage() -> void:
 	query.collide_with_bodies = true
 	query.collide_with_areas = false
 	var seen: Dictionary = {}
-	for hit in space.intersect_shape(query, 64):
+	for hit in space.intersect_shape(query, 256):
 		var body = hit.get("collider")
 		if body == null or not is_instance_valid(body):
 			continue
@@ -59,11 +59,41 @@ func _apply_damage() -> void:
 		var id: int = body.get_instance_id()
 		if seen.has(id):
 			continue
+		var owner_ref: Variant = body.get("landmark")
+		if owner_ref is Object and is_instance_valid(owner_ref) and seen.has(owner_ref.get_instance_id()):
+			continue
 		seen[id] = true
+		if owner_ref is Object and is_instance_valid(owner_ref):
+			seen[owner_ref.get_instance_id()] = true
 		var center: Vector3 = (body as Node3D).global_position + Vector3.UP * 0.8
 		var distance := global_position.distance_to(center)
 		var falloff := clampf(1.0 - distance / maxf(radius, 0.01), 0.15, 1.0)
 		body.take_damage(damage * falloff, global_position)
+	# Direct distance sweep guarantees infantry/targets near dense geometry
+	# still receive splash damage even if physics shape overlap hits saturate.
+	var tree := get_tree()
+	if tree != null:
+		var max_dist := radius + 1.0
+		for target in tree.get_nodes_in_group("combat_target"):
+			if target == null or not is_instance_valid(target) or not (target is Node3D):
+				continue
+			if not target.has_method("take_damage"):
+				continue
+			var id: int = target.get_instance_id()
+			if seen.has(id):
+				continue
+			var owner_ref: Variant = target.get("landmark")
+			if owner_ref is Object and is_instance_valid(owner_ref) and seen.has(owner_ref.get_instance_id()):
+				continue
+			var center: Vector3 = (target as Node3D).global_position + Vector3.UP * 0.8
+			var distance := global_position.distance_to(center)
+			if distance > max_dist:
+				continue
+			seen[id] = true
+			if owner_ref is Object and is_instance_valid(owner_ref):
+				seen[owner_ref.get_instance_id()] = true
+			var falloff := clampf(1.0 - distance / maxf(radius, 0.01), 0.15, 1.0)
+			target.take_damage(damage * falloff, global_position)
 	_push_drone()
 
 
@@ -119,18 +149,42 @@ func _build_vfx() -> void:
 				_route_last_sfx_bus(tp, &"Combat")
 			tail.queue_free())
 		tail.start()
+	var true_ground_y := _resolve_ground_y(global_position)
+	var is_aerial := (global_position.y - true_ground_y) > 6.0
 	var dfx = load("res://combat/destruction_fx.gd")
 	var blast_scale := clampf(radius / 8.0, 0.85, 1.75)
 	if dfx != null and damage > 0.0:
 		dfx.spawn_multiphase_explosion(p, global_position, blast_scale,
-				global_position.y - 0.5, global_position.y > 6.0)
+				true_ground_y, is_aerial)
 	else:
-		vfx_burst(p, global_position, clampf(radius / 8.0, 0.9, 2.2), global_position.y > 6.0)
+		vfx_burst(p, global_position, clampf(radius / 8.0, 0.9, 2.2), is_aerial)
 		_spawn_fire()
 		_spawn_smoke()
 	_spawn_flash()
 	_spawn_light()
 	_spawn_crater()
+
+
+func _resolve_ground_y(pos: Vector3) -> float:
+	var w3d := get_world_3d()
+	if w3d != null and w3d.direct_space_state != null:
+		var q := PhysicsRayQueryParameters3D.create(
+				pos + Vector3.UP * 1.0,
+				pos + Vector3.DOWN * 80.0)
+		q.collision_mask = 1
+		q.collide_with_bodies = true
+		q.collide_with_areas = false
+		var hit := w3d.direct_space_state.intersect_ray(q)
+		if not hit.is_empty():
+			return (hit["position"] as Vector3).y
+	var tree := get_tree()
+	var scene := tree.current_scene if tree != null else null
+	if scene != null and scene.has_method("_find_ground_y"):
+		return float(scene.call("_find_ground_y", pos.x, pos.z))
+	var p := get_parent()
+	if p != null and p.has_method("_find_ground_y"):
+		return float(p.call("_find_ground_y", pos.x, pos.z))
+	return pos.y - 0.5
 
 
 static var _crater_texture: GradientTexture2D = null
@@ -177,38 +231,55 @@ func _spawn_crater() -> void:
 		_crater_texture.fill = GradientTexture2D.FILL_RADIAL
 		_crater_texture.fill_from = Vector2(0.5, 0.5)
 		_crater_texture.fill_to = Vector2(1.0, 0.5)
+	var parent_node := get_parent()
+	if parent_node == null or not is_instance_valid(parent_node):
+		return
 	var decal := Decal.new()
 	decal.texture_albedo = _crater_texture
-	decal.size = Vector3(crater_r * 2.1, 7.0, crater_r * 2.1)
+	decal.size = Vector3(crater_r * 2.1, 4.5, crater_r * 2.1)
 	decal.cull_mask = 1
 	decal.albedo_mix = 0.55
 	decal.upper_fade = 0.45
 	decal.lower_fade = 0.35
-	decal.position = Vector3(ground.x, ground.y + 3.2, ground.z)
-	get_parent().add_child(decal)
-	# The old hard cylinder "crater bowl" read as a black disc from a low FPV
-	# angle.  Keep only the soft scorch decal and the dirt clods; they blend
-	# into the terrain instead of floating on it.
+	parent_node.add_child(decal)
+	decal.global_position = Vector3(ground.x, ground.y + 1.5, ground.z)
+	_free_after(decal, 75.0)
+	# Keep ground clods parented under parent_node directly on the terrain
+	# (never as children of the elevated decal) and clean them up quickly.
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color(0.09, 0.075, 0.055)
 	mat.roughness = 1.0
-	# Dirt clods thrown out of the rim (parented under decal so _free_after cleans them all).
+	mat.metallic = 0.0
+	mat.metallic_specular = 0.20
+	var clods_root := Node3D.new()
+	clods_root.name = "CraterClods"
+	parent_node.add_child(clods_root)
+	clods_root.global_position = Vector3.ZERO
 	for i in range(7):
 		var a := TAU * float(i) / 7.0 + randf() * 0.4
+		var dist := crater_r * randf_range(0.45, 0.85)
+		var cx := ground.x + cos(a) * dist
+		var cz := ground.z + sin(a) * dist
+		var clod_y := ground.y
+		var cq := PhysicsRayQueryParameters3D.create(
+				Vector3(cx, ground.y + 3.0, cz),
+				Vector3(cx, ground.y - 3.0, cz))
+		cq.collision_mask = 1
+		var chit := space.intersect_ray(cq)
+		if not chit.is_empty():
+			clod_y = (chit["position"] as Vector3).y
+		var h := randf_range(0.08, 0.25)
 		var clod := MeshInstance3D.new()
 		var box := BoxMesh.new()
-		box.size = Vector3(randf_range(0.12, 0.42), randf_range(0.08, 0.25),
+		box.size = Vector3(randf_range(0.12, 0.42), h,
 				randf_range(0.12, 0.42))
 		clod.mesh = box
 		clod.material_override = mat
 		clod.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		decal.add_child(clod)
-		clod.position = Vector3(
-				cos(a) * crater_r * randf_range(0.45, 0.85),
-				randf_range(0.02, 0.10),
-				sin(a) * crater_r * randf_range(0.45, 0.85))
+		clods_root.add_child(clod)
+		clod.global_position = Vector3(cx, clod_y + h * 0.35, cz)
 		clod.rotation.y = randf() * TAU
-	_free_after(decal, 75.0)
+	_free_after(clods_root, 3.0)
 
 
 ## Instantiates the authored "BinbunVFX" explosion at a world position. The scene
@@ -274,14 +345,16 @@ func _spawn_smoke() -> void:
 	smoke.explosiveness = 0.8
 	smoke.emitting = true
 	smoke.visibility_aabb = AABB(Vector3(-45, -20, -45), Vector3(90, 70, 90))
+	var wind := _scene_wind(self)
+	var wind_speed := wind.length()
 	var process := ParticleProcessMaterial.new()
 	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
 	process.emission_sphere_radius = 0.8
-	process.direction = Vector3.UP
+	process.direction = (Vector3.UP + wind * 0.14).normalized()
 	process.spread = 80.0
-	process.initial_velocity_min = 1.5
-	process.initial_velocity_max = 5.0
-	process.gravity = Vector3(0.0, 0.8, 0.0)
+	process.initial_velocity_min = 1.5 + wind_speed * 0.25
+	process.initial_velocity_max = 5.0 + wind_speed * 0.45
+	process.gravity = Vector3(0.0, 0.8, 0.0) + wind * 0.45
 	process.damping_min = 1.0
 	process.damping_max = 2.0
 	process.scale_min = 1.2
@@ -341,15 +414,17 @@ static func smoke_column(parent: Node, world_position: Vector3, duration: float 
 	smoke.amount = 20
 	smoke.lifetime = 3.8
 	smoke.emitting = true
-	smoke.visibility_aabb = AABB(Vector3(-15, -5, -15), Vector3(30, 60, 30))
+	smoke.visibility_aabb = AABB(Vector3(-35, -5, -35), Vector3(70, 65, 70))
+	var wind := _scene_wind(parent)
+	var wind_speed := wind.length()
 	var process := ParticleProcessMaterial.new()
 	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
 	process.emission_sphere_radius = 0.5
-	process.direction = Vector3.UP
+	process.direction = (Vector3.UP + wind * 0.18).normalized()
 	process.spread = 10.0
-	process.initial_velocity_min = 1.0
-	process.initial_velocity_max = 2.8
-	process.gravity = Vector3(0.0, 0.6, 0.0)
+	process.initial_velocity_min = 1.0 + wind_speed * 0.22
+	process.initial_velocity_max = 2.8 + wind_speed * 0.42
+	process.gravity = Vector3(0.0, 0.6, 0.0) + wind * 0.45
 	process.scale_min = 1.4
 	process.scale_max = 3.2
 	process.angle_min = -180.0
@@ -419,6 +494,23 @@ static func spark_burst(parent: Node, world_position: Vector3) -> void:
 	parent.add_child(sparks)
 	sparks.global_position = world_position
 	_free_after(sparks, 1.2)
+
+
+static func _scene_wind(node: Node) -> Vector3:
+	var tree: SceneTree = null
+	if node != null and node.is_inside_tree():
+		tree = node.get_tree()
+	if tree == null:
+		tree = Engine.get_main_loop() as SceneTree
+	var raw: Variant = null
+	if tree != null and tree.current_scene != null:
+		raw = tree.current_scene.get("_current_wind_vector")
+	if not (raw is Vector3) and node != null:
+		raw = node.get("_current_wind_vector")
+	if raw is Vector3:
+		var w := raw as Vector3
+		return Vector3(w.x, 0.0, w.z)
+	return Vector3.ZERO
 
 
 static func _free_after(node: Node, seconds: float) -> void:

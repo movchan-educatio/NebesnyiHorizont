@@ -233,3 +233,67 @@ static func icon_home(color: Color = Color(0.85, 0.95, 0.88, 1.0), size: int = 3
 	var tex := ImageTexture.create_from_image(img)
 	_cache[key] = tex
 	return tex
+
+
+static func icon_trophy(color: Color = Color(0.95, 0.78, 0.25, 1.0), size: int = 32) -> ImageTexture:
+	var key := "trophy_%s_%d" % [color.to_html(), size]
+	if _cache.has(key):
+		return _cache[key]
+	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var mid := float(size - 1) * 0.5
+	var s := float(size)
+	for y in range(size):
+		var fy := float(y) / s
+		for x in range(size):
+			var dx := absf(float(x) - mid) / s
+			var draw_px := false
+			# Cup bowl + rim
+			if fy >= 0.16 and fy <= 0.54:
+				var bowl_t := (fy - 0.16) / 0.38
+				var max_w := lerpf(0.24, 0.10, bowl_t * bowl_t)
+				if dx <= max_w:
+					draw_px = true
+			# Side handles
+			if fy >= 0.22 and fy <= 0.42 and dx >= 0.24 and dx <= 0.36:
+				if fy <= 0.27 or fy >= 0.37 or dx >= 0.31:
+					draw_px = true
+			# Stem
+			if fy > 0.54 and fy <= 0.73 and dx <= 0.065:
+				draw_px = true
+			# Base pedestal
+			if fy > 0.73 and fy <= 0.84:
+				var base_w := 0.14 if fy <= 0.78 else 0.22
+				if dx <= base_w:
+					draw_px = true
+			if draw_px:
+				img.set_pixel(x, y, color)
+	var tex := ImageTexture.create_from_image(img)
+	_cache[key] = tex
+	return tex
+
+
+static func icon_more(color: Color = Color(0.90, 0.96, 0.91, 1.0), size: int = 32) -> ImageTexture:
+	var key := "more_%s_%d" % [color.to_html(), size]
+	if _cache.has(key):
+		return _cache[key]
+	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var cy := float(size) * 0.5
+	var r := maxf(2.2, float(size) * 0.095)
+	var centers: Array[float] = [float(size) * 0.23, float(size) * 0.50, float(size) * 0.77]
+	for y in range(size):
+		for x in range(size):
+			var dy := float(y) - cy
+			for cx in centers:
+				var dx: float = float(x) - cx
+				var dist := sqrt(dx * dx + dy * dy)
+				if dist <= r + 0.6:
+					var alpha := clampf(r + 0.6 - dist, 0.0, 1.0)
+					var px := Color(color.r, color.g, color.b, color.a * alpha)
+					var cur := img.get_pixel(x, y)
+					if px.a > cur.a:
+						img.set_pixel(x, y, px)
+	var tex := ImageTexture.create_from_image(img)
+	_cache[key] = tex
+	return tex

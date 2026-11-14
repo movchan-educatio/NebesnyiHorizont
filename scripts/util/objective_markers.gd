@@ -74,24 +74,127 @@ func _process(delta: float) -> void:
 			label.visible = false
 		return
 	_objective_label.visible = false
-	# No floating "◆ N м" labels over enemy vehicles/infantry: the player
-	# identifies targets visually and with the HUD threat warning.
+	if int(phase_info.get("phase", 1)) == 1:
+		_show_strike_markers(cam, drone)
+		return
 	_hide_all()
 	return
+
+
+func _safe_margins() -> Vector4:
+	var vs := Vector2(1280, 720)
+	if get_viewport() != null:
+		vs = get_viewport().get_visible_rect().size
+	var win_size := Vector2(DisplayServer.window_get_size())
+	if win_size.x < 2.0 or win_size.y < 2.0:
+		return Vector4.ZERO
+	var safe := DisplayServer.get_display_safe_area()
+	if safe.size.x <= 0 or safe.size.y <= 0:
+		return Vector4.ZERO
+	var sx := vs.x / win_size.x
+	var sy := vs.y / win_size.y
+	return Vector4(
+		maxf(0.0, float(safe.position.x) * sx),
+		maxf(0.0, float(safe.position.y) * sy),
+		maxf(0.0, (win_size.x - float(safe.end.x)) * sx),
+		maxf(0.0, (win_size.y - float(safe.end.y)) * sy)
+	)
+
+
+func _collect_valid_targets(group_name: String, max_dist_m: float = -1.0,
+		drone_pos: Vector3 = Vector3.ZERO) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var tree := get_tree()
+	if tree == null:
+		return out
+	for node in tree.get_nodes_in_group(group_name):
+		if not (node is Node3D) or not is_instance_valid(node):
+			continue
+		var n3 := node as Node3D
+		if not n3.visible or n3.get("is_destroyed") == true:
+			continue
+		var dist := drone_pos.distance_to(n3.global_position)
+		if max_dist_m > 0.0 and dist > max_dist_m:
+			continue
+		out.append({"node": n3, "dist": dist})
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a["dist"]) < float(b["dist"])
+	)
+	return out
+
+
+func _show_strike_markers(cam: Camera3D, drone: Node3D) -> void:
+	var d_pos := drone.global_position
+	var primaries := _collect_valid_targets("primary_combat_target", -1.0, d_pos)
+	var bonuses := _collect_valid_targets("bonus_combat_target", 140.0, d_pos)
+	if primaries.is_empty() and bonuses.is_empty():
+		primaries = _collect_valid_targets("combat_target", -1.0, d_pos)
+	var screen := get_viewport().get_visible_rect().size
+	var safe := _safe_margins()
+	var min_x := 110.0 + safe.x
+	var max_x := maxf(screen.x - 110.0 - safe.z, min_x + 20.0)
+	var min_y := 108.0 + safe.y
+	var max_y := maxf(screen.y - 245.0 - safe.w, min_y + 20.0)
+	var is_en := MenuUI.is_english()
+	var slot := 0
+	for entry in primaries:
+		if slot >= _labels.size():
+			break
+		var n3: Node3D = entry["node"]
+		var world := n3.global_position + Vector3.UP * 2.1
+		if cam.is_position_behind(world):
+			continue
+		var pos := cam.unproject_position(world)
+		var clamped := Vector2(clampf(pos.x, min_x, max_x), clampf(pos.y, min_y, max_y))
+		var dist_m := int(round(float(entry["dist"])))
+		var lbl := _labels[slot]
+		lbl.text = ("◆ TGT  %d m" if is_en else "◆ ЦІЛЬ  %d м") % dist_m
+		lbl.add_theme_color_override("font_color", Color(1.0, 0.36, 0.22, 0.96))
+		lbl.position = Vector2(
+				clampf(clamped.x - 90.0, safe.x + 8.0, screen.x - safe.z - 188.0),
+				clamped.y - 13.0)
+		lbl.visible = true
+		slot += 1
+	for entry in bonuses:
+		if slot >= _labels.size():
+			break
+		var n3: Node3D = entry["node"]
+		var world := n3.global_position + Vector3.UP * 2.0
+		if cam.is_position_behind(world):
+			continue
+		var pos := cam.unproject_position(world)
+		var clamped := Vector2(clampf(pos.x, min_x, max_x), clampf(pos.y, min_y, max_y))
+		var dist_m := int(round(float(entry["dist"])))
+		var lbl := _labels[slot]
+		lbl.text = ("◇ BONUS  %d m" if is_en else "◇ БОНУС  %d м") % dist_m
+		lbl.add_theme_color_override("font_color", Color(0.90, 0.85, 0.65, 0.45))
+		lbl.position = Vector2(
+				clampf(clamped.x - 90.0, safe.x + 8.0, screen.x - safe.z - 188.0),
+				clamped.y - 13.0)
+		lbl.visible = true
+		slot += 1
+	while slot < _labels.size():
+		_labels[slot].visible = false
+		slot += 1
 
 
 func _show_primary(cam: Camera3D, drone: Node3D, info: Dictionary) -> void:
 	var target_pos: Vector3 = info.get("pos", drone.global_position)
 	var world := target_pos + Vector3.UP * 2.2
 	var screen := get_viewport().get_visible_rect().size
+	var safe := _safe_margins()
+	var min_x := 130.0 + safe.x
+	var max_x := maxf(screen.x - 130.0 - safe.z, min_x + 20.0)
+	var min_y := 108.0 + safe.y
+	var max_y := maxf(screen.y - 245.0 - safe.w, min_y + 20.0)
 	var pos: Vector2
 	if cam.is_position_behind(world):
-		pos = Vector2(screen.x * 0.5, screen.y - 170.0)
+		pos = Vector2(screen.x * 0.5, max_y)
 	else:
 		pos = cam.unproject_position(world)
 	var clamped := Vector2(
-			clampf(pos.x, 120.0, screen.x - 120.0),
-			clampf(pos.y, 110.0, screen.y - 150.0))
+			clampf(pos.x, min_x, max_x),
+			clampf(pos.y, min_y, max_y))
 	var dist_m := int(round(drone.global_position.distance_to(target_pos)))
 	var label_text := str(info.get("label", "ЦІЛЬ"))
 	# Distance + bearing arrow so the pilot can actually find the zone: the
@@ -126,7 +229,9 @@ func _show_primary(cam: Camera3D, drone: Node3D, info: Dictionary) -> void:
 	_objective_label.text = "◆ %s %s  %d м · %d%%" % [label_text, arrow, dist_m, progress]
 	var col: Color = info.get("color", Color(0.35, 0.95, 0.75))
 	_objective_label.add_theme_color_override("font_color", col)
-	_objective_label.position = clamped - Vector2(235.0, 14.0)
+	var obj_x := clampf(clamped.x - 235.0, safe.x + 12.0,
+			maxf(screen.x - safe.z - 482.0, safe.x + 12.0))
+	_objective_label.position = Vector2(obj_x, clamped.y - 16.0)
 	_objective_label.visible = true
 
 

@@ -590,14 +590,22 @@ func setup_hud(hud_root: Node) -> void:
 	hud_container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	hud_root.add_child(hud_container)
 
+	var vp_size := Vector2(1280, 720)
+	if hud_root is Control:
+		var r := (hud_root as Control).get_viewport_rect().size
+		if r.x > 0.0 and r.y > 0.0:
+			vp_size = r
+	var safe := MenuUI.get_safe_margins(vp_size)
+	var safe_top := float(safe.get("top", 0.0))
+
 	var card_anchor := PanelContainer.new()
 	card_anchor.name = "InstructorCard"
 	card_anchor.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card_anchor.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	card_anchor.offset_left = -360.0
-	card_anchor.offset_right = 360.0
-	card_anchor.offset_top = -236.0
-	card_anchor.offset_bottom = -136.0
+	card_anchor.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	card_anchor.offset_left = -320.0
+	card_anchor.offset_right = 320.0
+	card_anchor.offset_top = safe_top + 78.0
+	card_anchor.offset_bottom = safe_top + 172.0
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.035, 0.055, 0.040, 0.90)
 	sb.border_color = MenuUI.WARN_AMBER
@@ -612,10 +620,12 @@ func setup_hud(hud_root: Node) -> void:
 	panel_card = card_anchor
 
 	var vb := VBoxContainer.new()
+	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vb.add_theme_constant_override("separation", 3)
 	card_anchor.add_child(vb)
 
 	var top := HBoxContainer.new()
+	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	top.add_theme_constant_override("separation", 8)
 	vb.add_child(top)
 	title_lbl = Label.new()
@@ -640,6 +650,26 @@ func setup_hud(hud_root: Node) -> void:
 	progress_lbl.add_theme_color_override("font_color", MenuUI.ACCENT)
 	top.add_child(progress_lbl)
 
+	var help_btn := Button.new()
+	help_btn.name = "TutorialHelpBtn"
+	help_btn.text = "?"
+	help_btn.tooltip_text = "ДОВІДКА"
+	help_btn.custom_minimum_size = Vector2(36, 28)
+	help_btn.mouse_filter = Control.MOUSE_FILTER_STOP
+	help_btn.focus_mode = Control.FOCUS_NONE
+	help_btn.add_theme_font_size_override("font_size", 14)
+	help_btn.add_theme_color_override("font_color", MenuUI.WARN_AMBER)
+	var hsb := StyleBoxFlat.new()
+	hsb.bg_color = Color(0.08, 0.14, 0.10, 0.92)
+	hsb.border_color = MenuUI.WARN_AMBER
+	hsb.set_border_width_all(1)
+	hsb.set_corner_radius_all(4)
+	help_btn.add_theme_stylebox_override("normal", hsb)
+	help_btn.add_theme_stylebox_override("hover", hsb)
+	help_btn.add_theme_stylebox_override("pressed", hsb)
+	help_btn.pressed.connect(open_help)
+	top.add_child(help_btn)
+
 	inst_lbl = Label.new()
 	inst_lbl.add_theme_font_size_override("font_size", 13)
 	inst_lbl.add_theme_color_override("font_color", Color(0.95, 0.97, 0.95))
@@ -651,14 +681,14 @@ func setup_hud(hud_root: Node) -> void:
 	metric_lbl.add_theme_color_override("font_color", Color(0.70, 0.95, 0.72))
 	vb.add_child(metric_lbl)
 
-	# Feedback toast sits just above the instructor card.
+	# Feedback toast sits cleanly below the top instructor card, clear of touch sticks.
 	var toast_center := CenterContainer.new()
 	toast_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	toast_center.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	toast_center.offset_left = -330.0
-	toast_center.offset_right = 330.0
-	toast_center.offset_top = -266.0
-	toast_center.offset_bottom = -240.0
+	toast_center.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	toast_center.offset_left = -310.0
+	toast_center.offset_right = 310.0
+	toast_center.offset_top = safe_top + 178.0
+	toast_center.offset_bottom = safe_top + 206.0
 	hud_container.add_child(toast_center)
 	_toast_panel = PanelContainer.new()
 	_toast_panel.visible = false
@@ -684,9 +714,12 @@ func setup_hud(hud_root: Node) -> void:
 	_update_hud_content()
 	_update_progress_dots()
 	_apply_stick_focus()
-	if not OS.has_environment("DRONE_TUTORIAL_SKIP_BRIEF"):
+	var tc_node := get_node_or_null("/root/TouchControls")
+	var is_mobile_hud := MenuUI.is_mobile_ui() \
+			or (tc_node != null and bool(tc_node.get("touch_mode")))
+	if OS.has_environment("DRONE_TUTORIAL_SHOW_HELP"):
 		open_help()
-	elif OS.has_environment("DRONE_TUTORIAL_SHOW_HELP"):
+	elif not is_mobile_hud and not OS.has_environment("DRONE_TUTORIAL_SKIP_BRIEF"):
 		open_help()
 	if OS.has_environment("DRONE_TUTORIAL_OVERVIEW"):
 		get_tree().create_timer(0.7).timeout.connect(show_overview_camera)
@@ -704,14 +737,28 @@ func _build_help_overlay(hud_root: Node) -> void:
 	var dim := ColorRect.new()
 	dim.color = Color(0.01, 0.02, 0.015, 0.78)
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	dim.gui_input.connect(func(ev: InputEvent):
+		if ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed:
+			close_help()
+		elif ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed:
+			close_help()
+	)
 	_help_overlay.add_child(dim)
 
 	var center := CenterContainer.new()
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_help_overlay.add_child(center)
 
+	var vp_sz := Vector2(1280, 720)
+	if hud_root is Control:
+		var r := (hud_root as Control).get_viewport_rect().size
+		if r.x > 0.0 and r.y > 0.0:
+			vp_sz = r
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(900, 540)
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	panel.custom_minimum_size = Vector2(minf(860.0, vp_sz.x * 0.88), minf(520.0, vp_sz.y * 0.86))
 	var psb := StyleBoxFlat.new()
 	psb.bg_color = Color(0.035, 0.055, 0.040, 0.97)
 	psb.border_color = MenuUI.WARN_AMBER
@@ -748,8 +795,9 @@ func _build_help_overlay(hud_root: Node) -> void:
 	diagrams.add_child(_make_stick_diagram("ПРАВИЙ СТІК", "ТАНГАЖ", "КРЕН",
 			Color(0.95, 0.72, 0.25)))
 
-	var is_mobile := OS.get_name() == "iOS" or OS.has_feature("mobile") \
-			or OS.has_environment("MOBILE_UI")
+	var tc_node := get_node_or_null("/root/TouchControls")
+	var is_mobile := MenuUI.is_mobile_ui() \
+			or (tc_node != null and bool(tc_node.get("touch_mode")))
 	var controls := Label.new()
 	if is_mobile:
 		controls.text = "СЕНСОР:  лівий стік — газ/рискання   ·   правий стік — тангаж/крен\n" \
@@ -775,10 +823,32 @@ func _build_help_overlay(hud_root: Node) -> void:
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vb.add_child(hint)
 
+	var close_btn_row := CenterContainer.new()
+	vb.add_child(close_btn_row)
+	var close_btn := Button.new()
+	close_btn.name = "StartFlightCloseBtn"
+	close_btn.text = "ПОЧАТИ ПОЛІТ / ЗАКРИТИ"
+	close_btn.custom_minimum_size = Vector2(280, 56)
+	close_btn.focus_mode = Control.FOCUS_NONE
+	close_btn.add_theme_font_size_override("font_size", 17)
+	close_btn.add_theme_color_override("font_color", Color(0.05, 0.08, 0.06))
+	var csb := StyleBoxFlat.new()
+	csb.bg_color = MenuUI.ACCENT
+	csb.set_corner_radius_all(8)
+	csb.content_margin_left = 18
+	csb.content_margin_right = 18
+	close_btn.add_theme_stylebox_override("normal", csb)
+	var csb_hover := csb.duplicate() as StyleBoxFlat
+	csb_hover.bg_color = MenuUI.ACCENT.lightened(0.12)
+	close_btn.add_theme_stylebox_override("hover", csb_hover)
+	close_btn.add_theme_stylebox_override("pressed", csb_hover)
+	close_btn.pressed.connect(close_help)
+	close_btn_row.add_child(close_btn)
+
 	var footer := Label.new()
-	footer.text = "START — ЗАКРИТИ ДОВІДКУ" if is_mobile else "ENTER — ПОЧАТИ / ПРОДОВЖИТИ"
+	footer.text = "НАТИСНІТЬ КНОПКУ АБО ЕКРАН, ЩОБ ПОЧАТИ" if is_mobile else "ENTER — ПОЧАТИ / ПРОДОВЖИТИ"
 	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	footer.add_theme_font_size_override("font_size", 15)
+	footer.add_theme_font_size_override("font_size", 14)
 	footer.add_theme_color_override("font_color", MenuUI.ACCENT)
 	vb.add_child(footer)
 

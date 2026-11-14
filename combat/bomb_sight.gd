@@ -28,6 +28,7 @@ var _font: Font = null
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_to_group("bomb_sight")
 	_font = ThemeDB.fallback_font
 
 	set_process(true)
@@ -94,66 +95,45 @@ func _draw() -> void:
 	var col := Color(0.55, 1.0, 0.62, 0.95)
 	if thermal:
 		col = Color(1.0, 0.85, 0.55, 0.98)
-	var font_size := 16 if not bomb_view else 18
-	var wind: Vector3 = _solution.get("wind", Vector3.ZERO)
-	var tof: float = _solution.get("tof", 0.0)
-	var drift: Vector2 = _solution.get("drift", Vector2.ZERO)
 	var dist_to_aim := impact.distance_to(_aim_point) if _aim_valid else 999.0
 	var ready := _aim_valid and dist_to_aim < 9.0 and drone.global_position.y > _aim_point.y + 20.0
+	var cx := view.x * 0.5
+	var cy := view.y * 0.5
+	var center := Vector2(cx, cy)
 
 	if bomb_view:
 		# dark scope frame, vertical mil ladder and an unobstructed centre
 		draw_rect(Rect2(Vector2.ZERO, view), Color(0.005, 0.012, 0.010, 0.20), true)
-		var cx := view.x * 0.5
-		var cy := view.y * 0.5
 		draw_line(Vector2(cx, 0), Vector2(cx, view.y), Color(0.1, 0.55, 0.25, 0.55), 2.0)
 		draw_line(Vector2(0, cy), Vector2(view.x, cy), Color(0.1, 0.55, 0.25, 0.55), 2.0)
 		for i in range(-5, 6):
 			var y := cy + float(i) * 42.0
 			var w := 22.0 if i % 5 == 0 else 12.0
 			draw_line(Vector2(cx - w, y), Vector2(cx + w, y), col, 1.5)
-		draw_circle(Vector2(cx, cy), 4.0, col)
-		draw_arc(Vector2(cx, cy), 54.0, 0.0, TAU, 48, Color(col, 0.55), 1.5)
+		draw_circle(center, 4.0, col)
+		draw_arc(center, 54.0, 0.0, TAU, 48, Color(col, 0.55), 1.5)
+
+	# Short ballistic drop line between screen centre and CCIP pipper
+	var drop_vec := p - center
+	var drop_len := drop_vec.length()
+	if drop_len > 18.0:
+		var dir := drop_vec / drop_len
+		var line_start := center + dir * minf(16.0, drop_len * 0.25)
+		var line_end := p - dir * (24.0 if bomb_view else 15.0)
+		if (line_end - line_start).dot(dir) > 2.0:
+			draw_line(line_start, line_end, Color(col, 0.52), 1.6)
+	else:
+		draw_line(p + Vector2(0, -44), p + Vector2(0, -16), Color(col, 0.52), 1.6)
 
 	# CCIP pipper
 	draw_arc(p, 22.0 if bomb_view else 13.0, 0.0, TAU, 36, col, 2.0)
+	if ready:
+		draw_arc(p, 29.0 if bomb_view else 19.0, 0.0, TAU, 36, Color(0.45, 1.0, 0.48, 0.85), 1.8)
 	draw_line(p + Vector2(-30, 0), p + Vector2(-8, 0), col, 2.0)
 	draw_line(p + Vector2(8, 0), p + Vector2(30, 0), col, 2.0)
 	draw_line(p + Vector2(0, -30), p + Vector2(0, -8), col, 2.0)
 	draw_line(p + Vector2(0, 8), p + Vector2(0, 30), col, 2.0)
 
-	# wind vector and flight solution
-	var alt: float = drone.global_position.y - _aim_point.y if _aim_valid else 0.0
-	var gs: float = Vector2(drone.linear_velocity.x, drone.linear_velocity.z).length() * 3.6
-	var wind_speed := wind.length()
-	var wind_dir := _compass_arrow(wind)
-	var left_lines := [
-		"%s · %s" % [_airframe_label(), "BOMB SIGHT" if bomb_view else "CCIP"],
-		"ALT  %4.0f m    GS  %3.0f km/h" % [alt, gs],
-		"WIND %3.1f m/s %s    TOF %3.1f s" % [wind_speed, wind_dir, tof],
-		"DRIFT  %4.1f m    AMMO %d" % [drift.length(), _ammo()],
-	]
-	var y0 := view.y - 132.0
-	for i in range(left_lines.size()):
-		var c := Color(0.82, 1.0, 0.86, 0.95) if thermal else Color(0.78, 0.95, 0.80, 0.95)
-		draw_string(_font, Vector2(22, y0 + float(i) * 22.0), left_lines[i],
-				HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, c)
-
-	if ready:
-		var msg := "СКИД / RELEASE" if MenuUI.is_english() else "СКИД"
-		draw_string(_font, Vector2(view.x * 0.5 - 78, view.y - 54),
-				msg, HORIZONTAL_ALIGNMENT_LEFT, -1, 24,
-				Color(0.45, 1.0, 0.48, 1.0))
-	if not bomb_view:
-		var hint := _control_hint(false)
-		draw_string(_font, Vector2(22, view.y - 24), hint,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 14,
-				Color(0.7, 0.84, 0.72, 0.8))
-	else:
-		var hint2 := _control_hint(true)
-		draw_string(_font, Vector2(view.x * 0.5 - 170, view.y - 22), hint2,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 14,
-				Color(0.7, 0.84, 0.72, 0.8))
 	if thermal:
 		draw_string(_font, Vector2(view.x - 132, 30), "THERMAL · WHITE HOT",
 				HORIZONTAL_ALIGNMENT_LEFT, -1, 15,

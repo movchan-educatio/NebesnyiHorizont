@@ -858,58 +858,62 @@ static func _build_mountain_backdrop(root: Node3D, map_name: String) -> void:
 	rng.seed = hash(map_name) + 7717
 	var ph := [rng.randf_range(0.0, TAU), rng.randf_range(0.0, TAU),
 			rng.randf_range(0.0, TAU)]
-	var h_inner0 := 14.0
-	var h_inner1 := 32.0
-	var h_outer0 := 28.0
-	var h_outer1 := 56.0
-	var col_low := Color(0.28, 0.34, 0.28)
-	var col_high := Color(0.48, 0.54, 0.56)
-	var col_haze := Color(0.68, 0.75, 0.82)
+	var h_inner0 := 26.0
+	var h_inner1 := 62.0
+	var h_outer0 := 52.0
+	var h_outer1 := 108.0
+	var col_low := Color(0.24, 0.30, 0.22)
+	var col_high := Color(0.45, 0.49, 0.44)
+	var col_haze := Color(0.68, 0.69, 0.65)
 	match map_name:
 		"steppe":
-			h_inner0 = 10.0
-			h_inner1 = 24.0
-			h_outer0 = 20.0
-			h_outer1 = 42.0
-			col_low = Color(0.36, 0.36, 0.26)
-			col_high = Color(0.56, 0.56, 0.46)
-			col_haze = Color(0.76, 0.76, 0.72)
+			h_inner0 = 20.0
+			h_inner1 = 48.0
+			h_outer0 = 40.0
+			h_outer1 = 86.0
+			col_low = Color(0.34, 0.34, 0.24)
+			col_high = Color(0.54, 0.53, 0.44)
+			col_haze = Color(0.75, 0.72, 0.63)
 		"village":
-			h_inner0 = 14.0
-			h_inner1 = 30.0
-			h_outer0 = 26.0
-			h_outer1 = 54.0
-			col_low = Color(0.26, 0.34, 0.24)
-			col_high = Color(0.46, 0.54, 0.48)
-			col_haze = Color(0.68, 0.76, 0.82)
+			h_inner0 = 26.0
+			h_inner1 = 60.0
+			h_outer0 = 50.0
+			h_outer1 = 104.0
+			col_low = Color(0.24, 0.30, 0.22)
+			col_high = Color(0.45, 0.49, 0.44)
+			col_haze = Color(0.69, 0.70, 0.66)
 		"industrial":
-			h_inner0 = 16.0
-			h_inner1 = 34.0
-			h_outer0 = 30.0
-			h_outer1 = 58.0
-			col_low = Color(0.28, 0.32, 0.35)
-			col_high = Color(0.46, 0.51, 0.56)
-			col_haze = Color(0.66, 0.72, 0.78)
+			h_inner0 = 28.0
+			h_inner1 = 66.0
+			h_outer0 = 56.0
+			h_outer1 = 116.0
+			col_low = Color(0.26, 0.29, 0.32)
+			col_high = Color(0.44, 0.48, 0.52)
+			col_haze = Color(0.60, 0.65, 0.70)
 		"wetlands":
-			h_inner0 = 7.0
-			h_inner1 = 16.0
-			h_outer0 = 14.0
-			h_outer1 = 28.0
-			col_low = Color(0.24, 0.32, 0.26)
-			col_high = Color(0.42, 0.50, 0.48)
-			col_haze = Color(0.66, 0.74, 0.75)
+			h_inner0 = 14.0
+			h_inner1 = 34.0
+			h_outer0 = 28.0
+			h_outer1 = 64.0
+			col_low = Color(0.22, 0.29, 0.25)
+			col_high = Color(0.39, 0.46, 0.45)
+			col_haze = Color(0.61, 0.69, 0.71)
 
+	# Keep every mountain vertex strictly outside the 960 m square HorizonRing
+	# skirt (990 m on cardinal axes .. 1420 m at 45-degree corners) so rings
+	# never intersect the playable area or outer terrain skirt.
+	const SKIRT_HALF := 960.0
 	var rings := [
-		{"radius": 340.0, "base": -24.0, "h0": h_inner0, "h1": h_inner1,
-			"bot": col_low.lerp(col_haze, 0.25),
-			"mid": col_low.lerp(col_high, 0.55).lerp(col_haze, 0.35),
-			"top": col_high.lerp(col_haze, 0.45), "shift": 0.0, "snow": 9999.0,
-			"haze": 0.52},
-		{"radius": 660.0, "base": -24.0, "h0": h_outer0, "h1": h_outer1,
-			"bot": col_low.lerp(col_haze, 0.45),
-			"mid": col_high.lerp(col_haze, 0.55),
-			"top": col_high.lerp(col_haze, 0.72), "shift": 1.7, "snow": 9999.0,
-			"haze": 0.72},
+		{"radius": 990.0, "edge_pad": 30.0, "base": -20.0, "h0": h_inner0, "h1": h_inner1,
+			"bot": col_low.lerp(col_haze, 0.22),
+			"mid": col_low.lerp(col_high, 0.55).lerp(col_haze, 0.30),
+			"top": col_high.lerp(col_haze, 0.38), "shift": 0.0, "snow": 9999.0,
+			"haze": 0.42},
+		{"radius": 1120.0, "edge_pad": 62.0, "base": -26.0, "h0": h_outer0, "h1": h_outer1,
+			"bot": col_low.lerp(col_haze, 0.36),
+			"mid": col_high.lerp(col_haze, 0.44),
+			"top": col_high.lerp(col_haze, 0.56), "shift": 1.7, "snow": 9999.0,
+			"haze": 0.54},
 	]
 	var verts := PackedVector3Array()
 	var colors := PackedColorArray()
@@ -922,16 +926,22 @@ static func _build_mountain_backdrop(root: Node3D, map_name: String) -> void:
 		var middle: Color = ring["mid"]
 		var top: Color = ring["top"]
 		var haze := float(ring["haze"])
+		var min_rad := float(ring["radius"])
+		var edge_pad := float(ring["edge_pad"])
 		for i in range(segments + 1):
 			var a := TAU * float(i % segments) / float(segments)
-			var x := cos(a) * float(ring["radius"])
-			var z := sin(a) * float(ring["radius"])
+			var ca := cos(a)
+			var sa := sin(a)
+			var edge_r := SKIRT_HALF / maxf(absf(ca), absf(sa))
+			var rad := clampf(maxf(min_rad, edge_r + edge_pad), 980.0, 1420.0)
+			var x := ca * rad
+			var z := sa * rad
 			var ridge := 0.34 * absf(sin(a * 2.5 + ph[0] + float(ring["shift"])))
 			ridge += 0.28 * absf(sin(a * 6.0 + ph[1]))
 			ridge += 0.22 * absf(sin(a * 12.0 + ph[2]))
 			ridge += 0.16 * absf(sin(a * 21.0 + ph[0] * 1.7 + 0.9))
 			var h: float = float(ring["h0"]) + float(ring["h1"]) * pow(ridge, 1.45)
-			h = maxf(6.0, h)
+			h = maxf(10.0, h * (rad / 1000.0))
 			for k in range(rows):
 				var t: float = row_t[k]
 				var y: float = float(ring["base"]) + (h - float(ring["base"])) * t
@@ -961,9 +971,9 @@ static func _build_mountain_backdrop(root: Node3D, map_name: String) -> void:
 	mat.set_shader_parameter("color_low", col_low)
 	mat.set_shader_parameter("color_high", col_high)
 	mat.set_shader_parameter("color_haze", col_haze)
-	mat.set_shader_parameter("haze_amount", 0.66)
-	mat.set_shader_parameter("base_y", -24.0)
-	mat.set_shader_parameter("top_y", h_outer0 + h_outer1)
+	mat.set_shader_parameter("haze_amount", 0.46)
+	mat.set_shader_parameter("base_y", -26.0)
+	mat.set_shader_parameter("top_y", (h_outer0 + h_outer1) * 1.35)
 	var mi := MeshInstance3D.new()
 	mi.name = "MountainBackdrop"
 	mi.mesh = mesh
@@ -972,14 +982,26 @@ static func _build_mountain_backdrop(root: Node3D, map_name: String) -> void:
 	root.add_child(mi)
 
 
+static func _pick_outer_horizon_point(rng: RandomNumberGenerator,
+		min_r: float, max_r: float, outer_margin: float) -> Vector2:
+	for _t in range(32):
+		var ang := rng.randf_range(0.0, TAU)
+		var rad := rng.randf_range(min_r, max_r)
+		var pt := Vector2(cos(ang) * rad, sin(ang) * rad)
+		if pt.length() >= min_r and (absf(pt.x) > outer_margin or absf(pt.y) > outer_margin):
+			return pt
+	return Vector2(min_r + 36.0, 0.0)
+
+
 ## Soft distant rolling treeline & hill silhouettes outside ±192 m, tinted into
 ## atmospheric horizon fog with zero harsh dark blocks or untextured boxes.
 static func _build_themed_horizon_props(root: Node3D, map_name: String) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(map_name) + 9941
 	var half_edge := OUTER_HALF  # 192.0 m
-	var min_r := half_edge + 24.0
-	var max_r := 540.0
+	var outer_margin := maxf(SAFE_STRUCTURE_BOUND + 58.0, half_edge + 28.0)  # 220.0 m (> OUTER_HALF + 20)
+	var min_r := 260.0
+	var max_r := 580.0
 	var canopy := FOLIAGE.make_canopy_mesh(5, 3, 0.22, 1.0, 1.0)
 	var haze_col := Color(0.64, 0.72, 0.78)
 	var base_tree := Color(0.24, 0.32, 0.18)
@@ -998,39 +1020,12 @@ static func _build_themed_horizon_props(root: Node3D, map_name: String) -> void:
 			base_tree = Color(0.20, 0.29, 0.18)
 			base_hill = Color(0.26, 0.34, 0.22)
 
-	var _pick_outer := func() -> Vector2:
-		for _t in range(24):
-			var ang := rng.randf_range(0.0, TAU)
-			var rad := rng.randf_range(min_r, max_r)
-			var px := cos(ang) * rad
-			var pz := sin(ang) * rad
-			if absf(px) < half_edge + 18.0 and absf(pz) < half_edge + 18.0:
-				continue
-			return Vector2(px, pz)
-		return Vector2(min_r + 36.0, 0.0)
-
-	var _add_bg_mm := func(name_id: String, xfs: Array, colors: Array) -> void:
-		if xfs.is_empty():
-			return
-		var mat := _mat(Color.WHITE, 0.98, 0.0)
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mat.disable_receive_shadows = true
-		mat.vertex_color_use_as_albedo = true
-		mat.vertex_color_is_srgb = true
-		var mmi := _multimesh(root, name_id, canopy, mat, xfs, false, colors)
-		if mmi != null:
-			mmi.visibility_range_begin = 110.0
-			mmi.visibility_range_begin_margin = 35.0
-			mmi.visibility_range_end = 1100.0
-			mmi.visibility_range_end_margin = 120.0
-			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
-
 	var tree_xfs: Array = []
 	var tree_cols: Array = []
 	var hill_xfs: Array = []
 	var hill_cols: Array = []
 	for i in range(28):
-		var p: Vector2 = _pick_outer.call()
+		var p := _pick_outer_horizon_point(rng, min_r, max_r, outer_margin)
 		var yaw := rng.randf_range(0.0, TAU)
 		var dir := Vector2(cos(yaw), sin(yaw))
 		var count := rng.randi_range(4, 7)
@@ -1038,7 +1033,7 @@ static func _build_themed_horizon_props(root: Node3D, map_name: String) -> void:
 		var fog_blend := lerpf(0.38, 0.78, dist_t)
 		for j in range(count):
 			var q := p + dir * (float(j) * 12.0)
-			if absf(q.x) < half_edge + 14.0 and absf(q.y) < half_edge + 14.0:
+			if q.length() < min_r or (absf(q.x) <= outer_margin and absf(q.y) <= outer_margin):
 				continue
 			var y := _height(map_name, q.x, q.y)
 			var s := rng.randf_range(5.0, 9.5)
@@ -1046,7 +1041,9 @@ static func _build_themed_horizon_props(root: Node3D, map_name: String) -> void:
 					Vector3(q.x, y + s * 0.35, q.y)))
 			tree_cols.append(base_tree.lerp(haze_col, fog_blend))
 	for i in range(24):
-		var p: Vector2 = _pick_outer.call()
+		var p := _pick_outer_horizon_point(rng, min_r, max_r, outer_margin)
+		if absf(p.x) <= outer_margin + 20.0 and absf(p.y) <= outer_margin + 20.0:
+			continue
 		var y := _height(map_name, p.x, p.y)
 		var w := rng.randf_range(28.0, 56.0)
 		var h := rng.randf_range(4.5, 11.0)
@@ -1054,8 +1051,26 @@ static func _build_themed_horizon_props(root: Node3D, map_name: String) -> void:
 		hill_xfs.append(Transform3D(Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(Vector3(w, h, w * 0.72)),
 				Vector3(p.x, y + h * 0.15, p.y)))
 		hill_cols.append(base_hill.lerp(haze_col, lerpf(0.45, 0.82, dist_t)))
-	_add_bg_mm.call("BgHorizonTreeline", tree_xfs, tree_cols)
-	_add_bg_mm.call("BgHorizonHills", hill_xfs, hill_cols)
+	for spec in [
+		["BgHorizonTreeline", tree_xfs, tree_cols],
+		["BgHorizonHills", hill_xfs, hill_cols],
+	]:
+		var xfs: Array = spec[1]
+		var cols: Array = spec[2]
+		if xfs.is_empty():
+			continue
+		var mat := _mat(Color.WHITE, 0.98, 0.0)
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.disable_receive_shadows = true
+		mat.vertex_color_use_as_albedo = true
+		mat.vertex_color_is_srgb = true
+		var mmi := _multimesh(root, spec[0], canopy, mat, xfs, false, cols)
+		if mmi != null:
+			mmi.visibility_range_begin = 110.0
+			mmi.visibility_range_begin_margin = 35.0
+			mmi.visibility_range_end = 1100.0
+			mmi.visibility_range_end_margin = 120.0
+			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 
 
 ## Static freight train + rails: the strongest composition anchor from the
@@ -1143,12 +1158,11 @@ static func _build_freight_train(root: Node3D, map_name: String) -> void:
 static func _build_industrial_complex(root: Node3D) -> void:
 	var concrete := _pbr("concrete", Color(0.78, 0.76, 0.71), 0.30)
 	var brick := _pbr("brick", Color(0.62, 0.42, 0.34), 0.35)
-	var steel := _mat(Color(0.42, 0.45, 0.47), 0.70)
-	var rust := _mat(Color(0.40, 0.24, 0.16), 0.80)
-	var roof := _mat(Color(0.20, 0.17, 0.15), 0.85)
-	var glass := _mat(Color(0.045, 0.055, 0.07), 0.25)
-	glass.metallic = 0.3
-	glass.metallic_specular = 0.8
+	var steel := _mat(Color(0.42, 0.45, 0.47), 0.78, 0.10)
+	var rust := _mat(Color(0.40, 0.24, 0.16), 0.84, 0.06)
+	var roof := _mat(Color(0.20, 0.17, 0.15), 0.88, 0.0)
+	var glass := _mat(Color(0.045, 0.055, 0.07), 0.25, 0.12)
+	glass.metallic_specular = 0.30
 	var h := func(x: float, z: float) -> float: return _height("industrial", x, z)
 
 	# Secondary factory hall to the west, with a window strip.
@@ -1658,6 +1672,10 @@ static func _apply_triplanar(node: Node) -> void:
 				tint = Color(0.66, 0.64, 0.60)
 			sm.albedo_color = tint
 			sm.uv1_scale = Vector3(tri_scale, tri_scale, tri_scale)
+			var is_metal := tex_path.contains("metal") or tex_path.contains("steel") or tex_path.contains("rust")
+			sm.metallic = minf(sm.metallic, 0.135 if is_metal else 0.0)
+			sm.metallic_specular = minf(sm.metallic_specular, 0.29 if is_metal else 0.24)
+			sm.roughness = maxf(sm.roughness, 0.74 if is_metal else 0.86)
 			# Authored shells are open; from inside/inverted FPV the backfaces
 			# used to disappear and the player saw the sky through the roof.
 			sm.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -2486,8 +2504,14 @@ static func _add_mobile_beacon(root: Node3D, map_name: String, p: Vector2,
 static func _mat(color: Color, rough: float = 0.9, metal: float = 0.0) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = color
-	mat.roughness = rough
-	mat.metallic = metal
+	var clamped_metal := clampf(metal, 0.0, 0.135)
+	mat.metallic = clamped_metal
+	if rough <= 0.35:
+		mat.roughness = rough
+		mat.metallic_specular = 0.35 if clamped_metal > 0.001 else 0.24
+	else:
+		mat.roughness = maxf(rough, 0.74 if clamped_metal > 0.001 else 0.86)
+		mat.metallic_specular = 0.28 if clamped_metal > 0.001 else 0.22
 	return mat
 
 
@@ -2502,7 +2526,10 @@ static func _pbr(kind: String, tint: Color = Color.WHITE, uv_scale: float = 0.22
 		return _pbr_cache[key]
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = tint
-	mat.roughness = 0.9
+	var is_metallic_kind := kind in ["steel", "metal", "rust", "hall_rust", "hall_metal"]
+	mat.metallic = 0.10 if is_metallic_kind else 0.0
+	mat.metallic_specular = 0.26 if is_metallic_kind else 0.22
+	mat.roughness = 0.80 if is_metallic_kind else 0.92
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	var base := ""
 	match kind:
@@ -6824,6 +6851,7 @@ static func _build_props(root: Node3D, map_name: String) -> void:
 	prop_mat.vertex_color_use_as_albedo = true
 	prop_mat.roughness = 0.9
 	prop_mat.metallic = 0.08
+	prop_mat.metallic_specular = 0.25
 	var prop_names: Array = meshes.keys()
 	if q == QualityManager.Level.LOW and prop_names.size() > 10:
 		prop_names = prop_names.slice(0, 10)
@@ -7232,7 +7260,9 @@ static func _fix_untextured_white(root: Node3D) -> void:
 	cached_conc.normal_enabled = true
 	cached_conc.normal_texture = conc_nrm
 	cached_conc.roughness_texture = conc_rgh
-	cached_conc.roughness = 0.88
+	cached_conc.roughness = 0.90
+	cached_conc.metallic = 0.0
+	cached_conc.metallic_specular = 0.22
 	cached_conc.uv1_triplanar = true
 	cached_conc.uv1_world_triplanar = true
 	cached_conc.uv1_scale = Vector3(0.22, 0.22, 0.22)
@@ -7244,8 +7274,9 @@ static func _fix_untextured_white(root: Node3D) -> void:
 	cached_steel.normal_enabled = true
 	cached_steel.normal_texture = steel_nrm
 	cached_steel.roughness_texture = steel_rgh
-	cached_steel.roughness = 0.55
-	cached_steel.metallic = 0.60
+	cached_steel.roughness = 0.78
+	cached_steel.metallic = 0.12
+	cached_steel.metallic_specular = 0.28
 	cached_steel.uv1_triplanar = true
 	cached_steel.uv1_world_triplanar = true
 	cached_steel.uv1_scale = Vector3(0.25, 0.25, 0.25)
@@ -7256,7 +7287,9 @@ static func _fix_untextured_white(root: Node3D) -> void:
 	cached_wood.albedo_texture = wood_alb
 	cached_wood.normal_enabled = true
 	cached_wood.normal_texture = wood_nrm
-	cached_wood.roughness = 0.82
+	cached_wood.roughness = 0.86
+	cached_wood.metallic = 0.0
+	cached_wood.metallic_specular = 0.22
 	cached_wood.uv1_triplanar = true
 	cached_wood.uv1_world_triplanar = true
 	cached_wood.uv1_scale = Vector3(0.30, 0.30, 0.30)
@@ -7426,7 +7459,8 @@ static func _texture_flat_large_meshes(root: Node3D) -> void:
 				mat.uv1_world_triplanar = true
 				mat.uv1_scale = Vector3(0.30, 0.30, 0.30)
 				mat.roughness = 0.78
-				mat.metallic = 0.25
+				mat.metallic = 0.12
+				mat.metallic_specular = 0.28
 				continue
 			mat.albedo_texture = albedo
 			mat.normal_texture = normal

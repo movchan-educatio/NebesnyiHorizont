@@ -947,15 +947,16 @@ func _fire() -> void:
 	dir = (dir + Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0),
 			randf_range(-1.0, 1.0)) * spread).normalized()
 	var speed := tracer_speed
-	var width := 1.15
-	var color := Color(1.0, 0.72, 0.28)
+	var width := 1.65
+	var color := Color(1.0, 0.58, 0.16)
 	if _demo_visual:
 		speed = 55.0
-		width = 1.4
-		color = Color(1.0, 0.88, 0.5)
+		width = 1.85
+		color = Color(1.0, 0.88, 0.45)
 	var tracer = TracerScript.new()
 	tracer.tracer_color = color
 	tracer.tracer_width = width
+	tracer.add_to_group("aa_tracer")
 	get_parent().add_child(tracer)
 	tracer.setup(muzzle_pos, dir, speed, tracer_damage, self)
 	CombatSfxScript.play_rifle(get_parent(), muzzle_pos, -9.0)
@@ -974,10 +975,10 @@ func _apply_recoil(delta: float) -> void:
 func _muzzle_flash(position: Vector3) -> void:
 	if DisplayServer.get_name() == "headless" or _muzzle == null:
 		return
-	var flash_scale := 1.25 if _demo_visual else 1.0
+	var flash_scale := 1.35 if _demo_visual else 1.15
 	var sphere := SphereMesh.new()
-	sphere.radius = 0.07 * flash_scale
-	sphere.height = 0.14 * flash_scale
+	sphere.radius = 0.13 * flash_scale
+	sphere.height = 0.26 * flash_scale
 	sphere.radial_segments = 8
 	sphere.rings = 4
 	var flash := MeshInstance3D.new()
@@ -986,19 +987,33 @@ func _muzzle_flash(position: Vector3) -> void:
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	material.albedo_color = Color(1.0, 0.72, 0.22, 0.9)
+	material.albedo_color = Color(1.0, 0.78, 0.26, 0.96)
 	material.emission_enabled = true
-	material.emission = Color(1.0, 0.5, 0.08)
-	material.emission_energy_multiplier = 5.0
+	material.emission = Color(1.0, 0.55, 0.10)
+	material.emission_energy_multiplier = 7.5
 	flash.material_override = material
 	flash.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	flash.position = Vector3.ZERO
 	_muzzle.add_child(flash)
-	var life := 0.28 if _demo_visual else 0.07
+	# Hot white inner star so gunfire pops against grass/sky from FPV altitude.
+	var core_mesh := SphereMesh.new()
+	core_mesh.radius = 0.06 * flash_scale
+	core_mesh.height = 0.12 * flash_scale
+	core_mesh.radial_segments = 6
+	core_mesh.rings = 3
+	var core := MeshInstance3D.new()
+	core.mesh = core_mesh
+	var core_mat := StandardMaterial3D.new()
+	core_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	core_mat.albedo_color = Color(1.0, 0.96, 0.75)
+	core.material_override = core_mat
+	core.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	flash.add_child(core)
+	var life := 0.28 if _demo_visual else 0.10
 	var tween := flash.create_tween()
 	tween.set_parallel(true)
-	tween.tween_property(flash, "scale", Vector3.ONE * 2.3, life)
-	tween.tween_property(material, "albedo_color", Color(1.0, 0.4, 0.05, 0.0), life)
+	tween.tween_property(flash, "scale", Vector3.ONE * 2.6, life)
+	tween.tween_property(material, "albedo_color", Color(1.0, 0.42, 0.05, 0.0), life)
 	tween.chain().tween_callback(flash.queue_free)
 
 
@@ -1084,6 +1099,8 @@ func _destroy() -> void:
 		return
 	is_destroyed = true
 	remove_from_group("combat_target")
+	remove_from_group("primary_combat_target")
+	remove_from_group("bonus_combat_target")
 	collision_layer = 0
 	collision_mask = 0
 	_burst_left = 0

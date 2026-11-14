@@ -7,6 +7,7 @@ static var _boom_stream: AudioStreamWAV = null
 static var _shot_stream: AudioStreamWAV = null
 static var _rifle_stream: AudioStreamWAV = null
 static var _radio_stream: AudioStreamWAV = null
+static var _hitmarker_stream: AudioStreamWAV = null
 
 
 static func boom_stream() -> AudioStreamWAV:
@@ -1021,7 +1022,7 @@ static func radio_stream() -> AudioStreamWAV:
 	if _radio_stream != null:
 		return _radio_stream
 	var rate := 22050
-	var length := 1.9
+	var length := 4.8
 	var count := int(rate * length)
 	var values := PackedFloat32Array()
 	values.resize(count)
@@ -1036,14 +1037,15 @@ static func radio_stream() -> AudioStreamWAV:
 		var env := 0.0
 		if t < 0.08:
 			env = 1.0 - t / 0.08
-		elif t > 0.14 and t < 1.72:
-			# Syllable envelope: four short bursts with gaps.
-			var local := t - 0.14
-			var syllable := fmod(local, 0.32)
-			env = sin(clampf(syllable / 0.32, 0.0, 1.0) * PI) * 0.8
-			env *= 0.75 + 0.25 * sin(TAU * 4.0 * local)
-		elif t >= 1.72:
-			env = maxf(0.0, 1.0 - (t - 1.72) / 0.16)
+		elif t > 0.16 and t < 4.60:
+			# Natural radio cadence: ~2.1 Hz syllables (~0.48 s) with inter-word gaps.
+			var local := t - 0.16
+			var syllable := fmod(local, 0.48)
+			var phrase_gate := 1.0 if fmod(local, 1.48) < 1.16 else 0.16
+			env = sin(clampf(syllable / 0.48, 0.0, 1.0) * PI) * 0.8 * phrase_gate
+			env *= 0.75 + 0.25 * sin(TAU * 2.1 * local)
+		elif t >= 4.60:
+			env = maxf(0.0, 1.0 - (t - 4.60) / 0.18)
 		var noise := rng.randf_range(-1.0, 1.0)
 		lp = lerpf(lp, noise, 0.22)
 		phase1 += TAU * 320.0 / rate
@@ -1074,11 +1076,52 @@ static func play_radio(parent: Node, _text: String = "", volume_db: float = -7.0
 	player.finished.connect(player.queue_free)
 
 
+## Crisp 2D tactile hitmarker confirmation click for combat hits/kills.
+static func hitmarker_stream() -> AudioStreamWAV:
+	if _hitmarker_stream != null:
+		return _hitmarker_stream
+	var rate := 22050
+	var length := 0.085
+	var count := int(rate * length)
+	var data := PackedByteArray()
+	data.resize(count * 2)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9182
+	for i in range(count):
+		var t := float(i) / float(rate)
+		var p1 := exp(-t * 68.0) * (sin(TAU * 1720.0 * t) * 0.60 + sin(TAU * 2880.0 * t) * 0.35)
+		var p2 := 0.0
+		if t >= 0.026:
+			var dt := t - 0.026
+			p2 = exp(-dt * 58.0) * (sin(TAU * 2240.0 * dt) * 0.55 + rng.randf_range(-0.15, 0.15) * exp(-dt * 120.0))
+		var s := clampf((p1 + p2) * 0.85, -1.0, 1.0)
+		data.encode_s16(i * 2, int(s * 28000.0))
+	_hitmarker_stream = _make_stream(rate, data, false)
+	return _hitmarker_stream
+
+
+static func play_hitmarker(parent: Node, is_kill: bool = false,
+		volume_db: float = -4.5) -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	if parent == null or not parent.is_inside_tree():
+		return
+	var player := AudioStreamPlayer.new()
+	player.stream = hitmarker_stream()
+	player.pitch_scale = 1.22 if is_kill else 1.0
+	player.volume_db = volume_db
+	player.bus = &"Combat"
+	parent.add_child(player)
+	player.play()
+	player.finished.connect(player.queue_free)
+
+
 static func clear_caches() -> void:
 	_boom_stream = null
 	_shot_stream = null
 	_rifle_stream = null
 	_radio_stream = null
+	_hitmarker_stream = null
 	_cannon_stream = null
 	_autocannon_stream = null
 	_track_stream = null

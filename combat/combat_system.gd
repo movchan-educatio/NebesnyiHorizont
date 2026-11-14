@@ -6,6 +6,7 @@ extends Node3D
 const PayloadScript = preload("res://combat/payload.gd")
 const ExplosionScript = preload("res://combat/explosion.gd")
 const Ballistics = preload("res://combat/ballistics.gd")
+const CombatSfxScript = preload("res://combat/sfx.gd")
 
 @export var payload_count := 3
 @export var payload_damage := 480.0
@@ -17,6 +18,7 @@ const Ballistics = preload("res://combat/ballistics.gd")
 
 var score := 0
 var ammo := 0
+var drops_count := 0
 var targets_total := 0
 var targets_destroyed := 0
 var explosions := 0
@@ -40,6 +42,8 @@ var _timer_running := false
 var _hud_accum := 0.0
 var _results_shown := false
 var _critical_warned := false
+var _near_miss_tracers: Dictionary = {}
+var _near_miss_cooldown := 0.0
 
 
 func _ready() -> void:
@@ -88,7 +92,7 @@ func _ready() -> void:
 			_drone.connect("respawned", Callable(self, "_on_drone_respawned"))
 
 	_update_hud()
-	if _drone != null:
+	if _drone != null and not _has_bomb_sight():
 		_build_impact_marker()
 	if OS.has_environment("DRONE_AUTOTEST_COMBAT"):
 		_combat_autotest()
@@ -341,10 +345,13 @@ func _ground_targets() -> Array[Node3D]:
 
 
 func _physics_process(delta: float) -> void:
+	if _near_miss_cooldown > 0.0:
+		_near_miss_cooldown = maxf(_near_miss_cooldown - delta, 0.0)
 	if _drone != null and is_instance_valid(_drone):
 		_last_speed = _drone.linear_velocity.length()
 		_update_impact_marker()
 		_check_aerial_and_moving_kamikaze()
+		_check_tracer_near_miss()
 
 	if not _timer_started and not _range_cleared and _drone != null and is_instance_valid(_drone):
 		var controller := _drone.get_node_or_null("FlightController") as FlightController
@@ -360,9 +367,53 @@ func _physics_process(delta: float) -> void:
 			_update_hud()
 
 
+func _has_bomb_sight() -> bool:
+	var tree := get_tree()
+	if tree != null and not tree.get_nodes_in_group("bomb_sight").is_empty():
+		return true
+	var p := get_parent()
+	if p != null:
+		if p.get("_bomb_sight") != null:
+			return true
+		if p.get_node_or_null("BombSight") != null:
+			return true
+	return false
+
+
+func _check_tracer_near_miss() -> void:
+	if _lost or _range_cleared or _results_shown or _near_miss_cooldown > 0.0:
+		return
+	var controller := _drone.get_node_or_null("FlightController") as FlightController
+	if controller == null or not controller.state_armed:
+		return
+	var tree := get_tree()
+	if tree == null:
+		return
+	var tracers := tree.get_nodes_in_group("aa_tracer")
+	if tracers.is_empty():
+		return
+	if _near_miss_tracers.size() > 64:
+		_near_miss_tracers.clear()
+	var d_pos := _drone.global_position
+	for node in tracers:
+		if not (node is Node3D) or not is_instance_valid(node):
+			continue
+		var id := node.get_instance_id()
+		if _near_miss_tracers.has(id):
+			continue
+		var dist := (node as Node3D).global_position.distance_to(d_pos)
+		if dist <= 5.5 and dist >= 0.4:
+			_near_miss_tracers[id] = true
+			_near_miss_cooldown = 0.14
+			Haptics.trigger_ui_tap()
+			return
+
+
 ## Small orange ring on the ground showing where a bomb released right now
 ## would land. Only visible while armed and carrying bombs.
 func _build_impact_marker() -> void:
+	if _has_bomb_sight():
+		return
 	_impact_marker = MeshInstance3D.new()
 	var torus := TorusMesh.new()
 	torus.inner_radius = 0.55
@@ -386,6 +437,9 @@ func _build_impact_marker() -> void:
 
 func _update_impact_marker() -> void:
 	if _impact_marker == null:
+		return
+	if _has_bomb_sight():
+		_impact_marker.visible = false
 		return
 	var controller := _drone.get_node_or_null("FlightController") as FlightController
 	var armed := controller != null and controller.state_armed
@@ -465,6 +519,7 @@ func drop_payload() -> bool:
 			randf_range(-3.0, 3.0))
 	payload.add_collision_exception_with(_drone)
 	ammo -= 1
+	drops_count += 1
 	if OS.has_environment("DRONE_PAYLOAD_DEBUG"):
 		print("[PAYLOAD] preset=%d kind=%s unit_mass=%.2f" % [
 			Global.drone_preset, payload.kind, unit_mass])
@@ -528,6 +583,8 @@ func _on_aa_spawned(gun: Node3D) -> void:
 func _on_aa_destroyed(points: int) -> void:
 	aa_destroyed += 1
 	score += points
+	Haptics.pulse(36, 0.55, "kill")
+	CombatSfxScript.play_hitmarker(self, true)
 	_message("AA DESTROYED  +%d" % points, Color(1.0, 0.82, 0.35), 1.8)
 	_update_hud()
 
@@ -544,6 +601,8 @@ func _on_infantry_spawned(unit: Node3D) -> void:
 func _on_infantry_destroyed(points: int) -> void:
 	inf_destroyed += 1
 	score += points
+	Haptics.pulse(32, 0.48, "kill")
+	CombatSfxScript.play_hitmarker(self, true)
 	_message("INFANTRY DOWN  +%d" % points, Color(1.0, 0.78, 0.30), 1.5)
 	_update_hud()
 
@@ -599,6 +658,8 @@ func _check_aerial_and_moving_kamikaze() -> void:
 func _on_target_destroyed(points: int) -> void:
 	targets_destroyed += 1
 	score += points
+	Haptics.pulse(42, 0.62, "kill")
+	CombatSfxScript.play_hitmarker(self, true)
 	_message("TARGET DESTROYED  +%d" % points, Color(1.0, 0.85, 0.4), 1.8)
 	_update_hud()
 	if get_parent() != null and get_parent().has_method("_spawn_combat_mission"):
@@ -626,6 +687,8 @@ func damage_drone(amount: float, _hit_position: Vector3 = Vector3.ZERO,
 			and get_parent().has_method("report_incoming_fire"):
 		get_parent().call("report_incoming_fire", source_position, "ВОГОНЬ")
 	drone_health = maxf(drone_health - amount, 0.0)
+	Haptics.trigger_collision(maxf(amount * 0.9, 6.0))
+	Haptics.pulse(55, 0.72, "damage")
 	if _hud != null and is_instance_valid(_hud):
 		_hud.call("flash_damage")
 	_update_hud()

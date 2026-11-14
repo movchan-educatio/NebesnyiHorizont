@@ -135,8 +135,28 @@ func show_results(time_text: String, score: int, killed: int, total: int,
 		var drone_hud = drone.get("hud")
 		if drone_hud is CanvasItem:
 			(drone_hud as CanvasItem).visible = false
-	results_stats.text = "ЧАС ПОЛЬОТУ       %s\nОЧКИ              %d\nЦІЛІ              %d / %d\nЗЕНІТКИ           %d / %d\nПІХОТА            %d / %d" % [
-		time_text, score, killed, total, aa_killed, aa_total, inf_killed, inf_total,
+	var rank_line := ""
+	if Global.has_method("get_pilot_rank_info"):
+		var rinfo = Global.call("get_pilot_rank_info")
+		if rinfo is Dictionary:
+			var r_ua := String(rinfo.get("rank_ua", ""))
+			var r_xp := int(rinfo.get("xp", 0))
+			rank_line = "\nЗВАННЯ            %s (%d XP)" % [r_ua, r_xp]
+	var total_hits := killed + aa_killed + inf_killed
+	var level_drops := 0
+	if level != null:
+		var pd = level.get("_payload_drops")
+		if pd != null:
+			level_drops += int(pd)
+		var cs = level.get_node_or_null("CombatSystem")
+		if cs != null and cs.get("drops_count") != null:
+			level_drops += int(cs.get("drops_count"))
+	var acc_str := "%d%% (%d/%d)" % [
+		int(round(100.0 * float(mini(total_hits, level_drops)) / float(maxi(level_drops, 1)))),
+		mini(total_hits, level_drops), level_drops
+	] if level_drops > 0 else "—"
+	results_stats.text = "ЧАС ПОЛЬОТУ       %s\nОЧКИ              %d\nЦІЛІ              %d / %d\nЗЕНІТКИ           %d / %d\nПІХОТА            %d / %d\nТОЧНІСТЬ          %s%s" % [
+		time_text, score, killed, total, aa_killed, aa_total, inf_killed, inf_total, acc_str, rank_line
 	]
 	results.visible = true
 	again_button.grab_focus()

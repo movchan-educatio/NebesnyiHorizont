@@ -355,8 +355,14 @@ func _attach_sam_radar_turret() -> void:
 	_radar = Node3D.new()
 	_radar.position = Vector3(0, 1.35, 0.45)
 	_turret.add_child(_radar)
-	_box(_radar, Vector3(1.65, 0.55, 0.14), Vector3(0, 0.25, 0), metal)
-	_box(_radar, Vector3(0.22, 0.22, 0.22), Vector3(0, 0.62, 0), light)
+	# Collapsible phased-dipole EW/SAM radar mast & curved array silhouette
+	_cyl(_radar, 0.08, 1.35, Vector3(0, 0.55, 0), metal)
+	_box(_radar, Vector3(1.95, 0.62, 0.14), Vector3(0, 0.42, 0), metal)
+	for dx in [-0.72, -0.24, 0.24, 0.72]:
+		_cyl(_radar, 0.025, 0.88, Vector3(dx, 0.82, -0.06), metal)
+		_box(_radar, Vector3(0.28, 0.05, 0.22), Vector3(dx, 1.18, -0.06), hull)
+	_box(_radar, Vector3(2.15, 0.07, 0.08), Vector3(0, 1.05, -0.08), metal)
+	_box(_radar, Vector3(0.22, 0.22, 0.22), Vector3(0, 1.34, 0), light)
 
 
 func _build_fallback_hull(hull: StandardMaterial3D, dark: StandardMaterial3D,
@@ -872,6 +878,16 @@ func _add_vehicle_detail() -> void:
 				_cyl(_barrel, 0.055, 1.45, Vector3(0.0, 0.0, -0.72), metal,
 						Vector3(PI * 0.5, 0.0, 0.0))
 				_box(_turret, Vector3(0.42, 0.26, 0.46), Vector3(0.55, 0.40, -0.20), metal)
+				# BTR-90 sloped trim vane, rear waterjet shrouds, wheel hubs, and turret cage
+				_box(self, Vector3(2.30, 0.14, 0.40), Vector3(0.0, 1.32, -2.55), armor,
+						Vector3(-0.34, 0.0, 0.0))
+				for side in [-1.0, 1.0]:
+					_cyl(self, 0.18, 0.36, Vector3(side * 0.68, 0.92, 2.86), dark,
+							Vector3(PI * 0.5, 0.0, 0.0))
+					for wz in [-1.85, -0.62, 0.62, 1.85]:
+						_cyl(self, 0.16, 0.12, Vector3(side * 1.46, 0.52, wz), dark,
+								Vector3(0.0, 0.0, PI * 0.5))
+				_box(_turret, Vector3(1.38, 0.20, 0.08), Vector3(0.0, 0.32, 0.86), metal)
 		Kind.TRUCK:
 			# Roof machine gun, spare wheel and antennas.
 			_turret = Node3D.new()
@@ -891,11 +907,15 @@ func _add_vehicle_detail() -> void:
 			_cyl(self, 0.014, 1.15, Vector3(-0.92, 2.35, 0.55), dark)
 			_box(self, Vector3(2.15, 0.16, 0.20), Vector3(0.0, 0.95, -2.55), metal)
 		Kind.SAM:
-			# The radar turret is added separately; dress the hull.
+			# The radar turret is added separately; dress the hull with EW pods and mast braces.
 			for side in [-1.0, 1.0]:
 				_box(self, Vector3(0.10, 0.50, 4.7),
 						Vector3(side * 1.35, 0.60, 0.0), armor)
+				_box(self, Vector3(0.32, 0.42, 1.15),
+						Vector3(side * 1.24, 1.56, 0.35), metal)
+				_cyl(self, 0.025, 1.35, Vector3(side * 1.12, 2.45, 1.55), dark)
 			_box(self, Vector3(1.2, 0.28, 0.5), Vector3(0.0, 1.75, 1.8), dark)
+			_box(self, Vector3(1.45, 0.24, 0.85), Vector3(0.0, 1.98, -1.05), metal)
 	if EnemyMarkingsScript.is_russian_vehicle(self):
 		var mark_box: Vector3 = MODEL_BOX.get(kind, Vector3(3.0, 1.8, 5.0))
 		if kind == Kind.HELI:
@@ -1666,8 +1686,36 @@ func _spawn_muzzle_flash(pos: Vector3) -> void:
 	if DisplayServer.get_name() == "headless":
 		return
 	var parent := get_parent()
-	if parent != null and kind == Kind.TANK:
+	if parent == null:
+		return
+	if kind == Kind.TANK:
 		ExplosionScript.spark_burst(parent, pos)
+	var radius := 0.34 if kind == Kind.TANK else 0.18
+	var sphere := SphereMesh.new()
+	sphere.radius = radius
+	sphere.height = radius * 2.0
+	sphere.radial_segments = 8
+	sphere.rings = 4
+	var flash := MeshInstance3D.new()
+	flash.mesh = sphere
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	material.albedo_color = Color(1.0, 0.78, 0.25, 0.95)
+	material.emission_enabled = true
+	material.emission = Color(1.0, 0.52, 0.10)
+	material.emission_energy_multiplier = 7.0
+	flash.material_override = material
+	flash.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(flash)
+	flash.global_position = pos
+	var life := 0.12 if kind == Kind.TANK else 0.09
+	var tween := flash.create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(flash, "scale", Vector3.ONE * 2.6, life)
+	tween.tween_property(material, "albedo_color", Color(1.0, 0.42, 0.05, 0.0), life)
+	tween.chain().tween_callback(flash.queue_free)
 
 
 func _fire_at(target: Vector3) -> void:
@@ -1676,8 +1724,9 @@ func _fire_at(target: Vector3) -> void:
 	dir = (dir + Vector3(randf_range(-0.035, 0.035), randf_range(-0.035, 0.035),
 			randf_range(-0.035, 0.035))).normalized()
 	var tracer = TracerScript.new()
-	tracer.tracer_color = Color(1.0, 0.55, 0.25) if kind == Kind.TANK else Color(1.0, 0.86, 0.4)
-	tracer.tracer_width = 1.15 if kind == Kind.TANK else 0.85
+	tracer.tracer_color = Color(1.0, 0.55, 0.18) if kind == Kind.TANK else Color(1.0, 0.72, 0.24)
+	tracer.tracer_width = 1.65 if kind == Kind.TANK else 1.35
+	tracer.add_to_group("aa_tracer")
 	get_parent().add_child(tracer)
 	tracer.setup(muzzle, dir, tracer_speed, tracer_damage, self)
 	_barrel_recoil = 1.0
@@ -1781,6 +1830,7 @@ func take_damage(amount: float, hit_position: Vector3 = Vector3.ZERO) -> void:
 		ExplosionScript.spark_burst(get_parent(), hit_position)
 		DestructionFxScript.hit(get_parent(), self, hit_position, _fx_kind(),
 				clampf(applied / 70.0, 0.28, 1.0))
+		CombatSfxScript.play_hitmarker(get_parent(), false, -6.0)
 	if health <= 0.0:
 		_destroy()
 
@@ -1865,6 +1915,8 @@ func _destroy() -> void:
 	if _dust != null:
 		_dust.emitting = false
 	remove_from_group("combat_target")
+	remove_from_group("primary_combat_target")
+	remove_from_group("bonus_combat_target")
 	collision_layer = 0
 	collision_mask = 0
 	_clear_flash_overlay()
@@ -2005,15 +2057,17 @@ func _spawn_cookoff_smoke() -> void:
 	plume.emitting = true
 	plume.amount = 10 if low else 16
 	plume.lifetime = 4.2
-	plume.visibility_aabb = AABB(Vector3(-8, -1, -8), Vector3(16, 22, 16))
+	plume.visibility_aabb = AABB(Vector3(-24, -1, -24), Vector3(48, 24, 48))
+	var wind := DestructionFxScript._scene_wind(self)
+	var wind_spd := wind.length()
 	var pmat := ParticleProcessMaterial.new()
 	pmat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
 	pmat.emission_sphere_radius = 0.75
-	pmat.direction = Vector3(0.18, 1.0, 0.08)
+	pmat.direction = (Vector3(0.0, 1.0, 0.0) + wind * 0.14).normalized()
 	pmat.spread = 18.0
-	pmat.initial_velocity_min = 2.4
-	pmat.initial_velocity_max = 4.5
-	pmat.gravity = Vector3(0.35, 0.45, 0.15)
+	pmat.initial_velocity_min = 2.4 + wind_spd * 0.15
+	pmat.initial_velocity_max = 4.5 + wind_spd * 0.30
+	pmat.gravity = Vector3(0.0, 0.45, 0.0) + wind * 0.42
 	pmat.damping_min = 0.4
 	pmat.damping_max = 0.8
 	pmat.scale_min = 1.6

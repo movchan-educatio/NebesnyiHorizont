@@ -208,12 +208,11 @@ func _ready() -> void:
 		QuadSettings.connect("settings_updated", Callable(self, "_on_quad_settings_updated"))
 	_on_quad_settings_updated()
 	if Global.should_use_gentle_angle_assist() and flight_controller != null:
-		flight_controller.change_flight_mode(FlightController.FlightMode.LEVEL)
+		flight_controller.select_flight_mode(FlightController.FlightMode.LEVEL)
 	# FlightController defaults to LEVEL before the drone connects to its HUD
 	# signal; push the current mode once so the on-screen badge matches.
 	_on_flight_mode_changed(flight_controller.flight_mode)
 	
-	GameSettings.load_hud_config()
 	if not GameSettings.hud_config_updated.is_connected(_on_hud_config_updated):
 		GameSettings.connect("hud_config_updated", Callable(self, "_on_hud_config_updated"))
 	_on_hud_config_updated()

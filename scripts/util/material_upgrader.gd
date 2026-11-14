@@ -63,16 +63,16 @@ const SETS := {
 		"normal": TEX_ROOT + "factory_hall_steel_normal.png",
 		"rough": TEX_ROOT + "factory_hall_steel_rough.png",
 		"uv": 0.18,
-		"roughness": 0.55,
-		"metallic": 0.55,
+		"roughness": 0.78,
+		"metallic": 0.12,
 	},
 	"rust": {
 		"albedo": TEX_ROOT + "factory_hall_rust_albedo.png",
 		"normal": TEX_ROOT + "factory_hall_rust_normal.png",
 		"rough": TEX_ROOT + "factory_hall_rust_rough.png",
 		"uv": 0.24,
-		"roughness": 0.78,
-		"metallic": 0.25,
+		"roughness": 0.84,
+		"metallic": 0.08,
 	},
 	"wood": {
 		"albedo": TEX_ROOT + "village_textures/wood_albedo.png",
@@ -107,8 +107,8 @@ const SETS := {
 		"normal": HALL_ROOT + "rusty_metal_02_nor_gl.jpg",
 		"rough": HALL_ROOT + "rusty_metal_02_rough.jpg",
 		"uv": 0.28,
-		"roughness": 0.74,
-		"metallic": 0.30,
+		"roughness": 0.82,
+		"metallic": 0.10,
 	},
 }
 
@@ -215,15 +215,16 @@ static func _upgrade_one(src: StandardMaterial3D, cat: String, _high: bool) -> S
 	var out: StandardMaterial3D = src.duplicate() as StandardMaterial3D
 	if cat == "glass":
 		out.roughness = minf(out.roughness, 0.18)
-		out.metallic = maxf(out.metallic, 0.20)
-		out.metallic_specular = 0.75
+		out.metallic = clampf(out.metallic, 0.08, 0.14)
+		out.metallic_specular = 0.45
 		return out
 	# Lightweight PBR tuning only: skip synchronous NoiseTexture2D / detail_enabled
 	# cloning and per-mesh triplanar texture loads to prevent shader compilation hangs.
 	var conf: Dictionary = SETS.get(cat, SETS["concrete"])
-	out.roughness = float(conf.get("roughness", 0.90))
-	out.metallic = float(conf.get("metallic", 0.0))
-	out.metallic_specular = 0.42
+	var is_metal := cat in ["metal", "rust", "hall_rust"]
+	out.metallic = clampf(float(conf.get("metallic", 0.0)), 0.0, 0.14 if is_metal else 0.0)
+	out.metallic_specular = 0.28 if is_metal else 0.22
+	out.roughness = maxf(float(conf.get("roughness", 0.90)), 0.72 if is_metal else 0.85)
 	out.detail_enabled = false
 	return out
 

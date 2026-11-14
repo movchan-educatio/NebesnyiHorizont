@@ -124,7 +124,9 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 	fx_root.global_position = pos
 
 	# 1. GroundShockRing (skip if high aerial explosion > 14 m above ground)
-	var gy := pos.y if ground_y < -1.0e6 else ground_y
+	var gy := ground_y
+	if gy < -1.0e6:
+		gy = _resolve_ground_y(parent, pos)
 	var ring_mesh: MeshInstance3D = null
 	var ring_mat: StandardMaterial3D = null
 	if not is_aerial or absf(pos.y - gy) < 14.0:
@@ -192,16 +194,18 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 	plume.one_shot = true
 	plume.explosiveness = 0.72
 	plume.amount = 14 if low else 24
-	plume.lifetime = 3.2 if low else 4.0
-	plume.visibility_aabb = AABB(Vector3(-18, -4, -18), Vector3(36, 40, 36))
+	plume.lifetime = 2.6 if low else 3.1
+	plume.visibility_aabb = AABB(Vector3(-36, -4, -36), Vector3(72, 44, 72))
+	var wind := _scene_wind(parent)
+	var wind_speed := wind.length()
 	var pmat := ParticleProcessMaterial.new()
 	pmat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
 	pmat.emission_sphere_radius = 1.2 * s
-	pmat.direction = Vector3(0.0, 1.0, 0.0)
+	pmat.direction = (Vector3(0.0, 1.0, 0.0) + wind * 0.14).normalized()
 	pmat.spread = 32.0
-	pmat.initial_velocity_min = 3.8 * s
-	pmat.initial_velocity_max = 9.2 * s
-	pmat.gravity = Vector3(0.4, 2.2, 0.2)
+	pmat.initial_velocity_min = 3.8 * s + wind_speed * 0.20
+	pmat.initial_velocity_max = 9.2 * s + wind_speed * 0.38
+	pmat.gravity = Vector3(0.0, 2.2, 0.0) + wind * 0.45
 	pmat.damping_min = 2.4
 	pmat.damping_max = 3.6
 	pmat.scale_min = 2.2 * s
@@ -245,7 +249,8 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 	chunk_box.size = Vector3(0.32, 0.18, 0.26)
 	var chunk_mat := StandardMaterial3D.new()
 	chunk_mat.roughness = 0.88
-	chunk_mat.metallic = 0.35
+	chunk_mat.metallic = 0.12
+	chunk_mat.metallic_specular = 0.25
 	chunk_mat.vertex_color_use_as_albedo = true
 	chunk_box.material = chunk_mat
 	mm.mesh = chunk_box
@@ -264,11 +269,12 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 	chunk_rot.resize(chunk_count)
 	chunk_spin.resize(chunk_count)
 	chunk_scale.resize(chunk_count)
+	var v_scale := clampf(s, 0.85, 1.25)
 	for i in range(chunk_count):
 		var a := rng.randf_range(0.0, TAU)
-		var spd := rng.randf_range(7.0, 21.0) * s
+		var spd := rng.randf_range(6.5, 17.5) * v_scale
 		chunk_pos[i] = Vector3(rng.randf_range(-0.6, 0.6), rng.randf_range(0.2, 0.9), rng.randf_range(-0.6, 0.6))
-		chunk_vel[i] = Vector3(cos(a) * spd, rng.randf_range(8.5, 22.0) * s, sin(a) * spd)
+		chunk_vel[i] = Vector3(cos(a) * spd, rng.randf_range(6.5, 15.5) * v_scale, sin(a) * spd)
 		chunk_rot[i] = Vector3(rng.randf_range(0.0, TAU), rng.randf_range(0.0, TAU), rng.randf_range(0.0, TAU))
 		chunk_spin[i] = Vector3(rng.randf_range(-9.0, 9.0), rng.randf_range(-9.0, 9.0), rng.randf_range(-9.0, 9.0))
 		chunk_scale[i] = rng.randf_range(0.65, 1.55) * s
@@ -337,7 +343,7 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 	driver.chunk_scale = chunk_scale
 	driver.local_ground_y = gy - pos.y + 0.10
 	driver.scale_factor = s
-	driver.max_life = 4.2 if low else 4.8
+	driver.max_life = 3.5
 	fx_root.add_child(driver)
 	return fx_root
 
@@ -408,31 +414,77 @@ class _MultiphaseDriver extends Node:
 					c2.a = 0.76 * (1.0 - clampf(st, 0.0, 1.0))
 					core_mat.albedo_color = c2
 
-		# 4. Ballistic DebrisChunks (active up to 2.6 s)
-		if debris_mmi != null and debris_mmi.multimesh != null:
-			if _t > 2.6:
+		# 4. Ballistic DebrisChunks (settle on local_ground_y and free cleanly by ~3.2 s)
+		if debris_mmi != null and is_instance_valid(debris_mmi) and debris_mmi.multimesh != null:
+			if _t > 3.2:
 				debris_mmi.visible = false
+				debris_mmi.queue_free()
+				debris_mmi = null
 			else:
 				var mm := debris_mmi.multimesh
-				var fade := clampf(1.0 - (_t - 1.8) / 0.8, 0.0, 1.0) if _t > 1.8 else 1.0
+				var fade := clampf(1.0 - (_t - 2.3) / 0.9, 0.0, 1.0) if _t > 2.3 else 1.0
 				for i in range(chunk_pos.size()):
 					var vel := chunk_vel[i]
-					vel.y -= 15.5 * delta
-					var p := chunk_pos[i] + vel * delta
-					if p.y < local_ground_y:
-						p.y = local_ground_y
-						vel.y = absf(vel.y) * 0.28
-						vel.x *= 0.62
-						vel.z *= 0.62
+					var p := chunk_pos[i]
+					if p.y > local_ground_y or vel.y > 0.0:
+						vel.y -= 20.0 * delta
+						p += vel * delta
+						if p.y <= local_ground_y:
+							p.y = local_ground_y
+							if absf(vel.y) < 1.2:
+								vel = Vector3.ZERO
+								chunk_spin[i] = Vector3.ZERO
+							else:
+								vel.y = absf(vel.y) * 0.25
+								vel.x *= 0.55
+								vel.z *= 0.55
 					chunk_pos[i] = p
 					chunk_vel[i] = vel
-					chunk_rot[i] += chunk_spin[i] * delta
+					if chunk_spin[i] != Vector3.ZERO:
+						chunk_rot[i] += chunk_spin[i] * delta
 					var sc := chunk_scale[i] * fade
 					mm.set_instance_transform(i, Transform3D(Basis.from_euler(chunk_rot[i]).scaled(Vector3.ONE * sc), p))
 ## Cap simultaneous burning wrecks; a large chaos battle must not end up with
 ## dozens of continuous particle systems and lights.
 const MAX_ACTIVE_BURNS := 10
 static var _active_burns := 0
+
+
+static func _scene_wind(node: Node) -> Vector3:
+	var tree: SceneTree = null
+	if node != null and node.is_inside_tree():
+		tree = node.get_tree()
+	if tree == null:
+		tree = Engine.get_main_loop() as SceneTree
+	var raw: Variant = null
+	if tree != null and tree.current_scene != null:
+		raw = tree.current_scene.get("_current_wind_vector")
+	if not (raw is Vector3) and node != null:
+		raw = node.get("_current_wind_vector")
+	if raw is Vector3:
+		var w := raw as Vector3
+		return Vector3(w.x, 0.0, w.z)
+	return Vector3.ZERO
+
+
+static func _resolve_ground_y(parent: Node, pos: Vector3) -> float:
+	if parent is Node3D:
+		var w3d := (parent as Node3D).get_world_3d()
+		if w3d != null and w3d.direct_space_state != null:
+			var q := PhysicsRayQueryParameters3D.create(
+					pos + Vector3.UP * 1.0,
+					pos + Vector3.DOWN * 80.0)
+			q.collision_mask = 1
+			q.collide_with_bodies = true
+			q.collide_with_areas = false
+			var hit := w3d.direct_space_state.intersect_ray(q)
+			if not hit.is_empty():
+				return (hit["position"] as Vector3).y
+	var tree := parent.get_tree() if parent != null and parent.is_inside_tree() else Engine.get_main_loop() as SceneTree
+	var scene := tree.current_scene if tree != null else null
+	if scene != null and scene.has_method("_find_ground_y"):
+		return float(scene.call("_find_ground_y", pos.x, pos.z))
+	return pos.y
 
 
 static func _low_quality() -> bool:
@@ -844,15 +896,18 @@ static func _emitter(parent: Node3D, name: String, amount: int, lifetime: float,
 	p.fixed_fps = 30
 	p.local_coords = false
 	p.emitting = true
-	p.visibility_aabb = AABB(Vector3(-24, -24, -24), Vector3(48, 48, 48))
+	p.visibility_aabb = AABB(Vector3(-36, -24, -36), Vector3(72, 60, 72))
+	var apply_wind := name.contains("Smoke") or tex == _texture("smoke") or tex == _texture("dust")
+	var wind := _scene_wind(parent) if apply_wind else Vector3.ZERO
+	var wind_speed := wind.length()
 	var mat := ParticleProcessMaterial.new()
 	mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
 	mat.emission_sphere_radius = 0.45
-	mat.direction = Vector3(0, 1, 0)
+	mat.direction = (Vector3(0, 1, 0) + wind * 0.16).normalized()
 	mat.spread = 26.0
-	mat.initial_velocity_min = speed_min
-	mat.initial_velocity_max = speed_max
-	mat.gravity = gravity
+	mat.initial_velocity_min = speed_min + wind_speed * 0.20
+	mat.initial_velocity_max = speed_max + wind_speed * 0.35
+	mat.gravity = gravity + Vector3(wind.x, 0.0, wind.z) * 0.45
 	mat.damping_min = 1.0
 	mat.damping_max = 2.6
 	mat.scale_min = size_min

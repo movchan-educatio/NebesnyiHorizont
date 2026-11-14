@@ -246,10 +246,17 @@ func update_resolution() -> void:
 
 func update_msaa() -> void:
 	# Godot 4 exposes MSAA as two Viewport properties; the project stores one
-	# combined enum (OFF..X16). X16 has no 3D equivalent, so clamp to 8X.
-	var level := clampi(int(graphics_settings["msaa"]), 0, 3)
-	get_viewport().msaa_3d = level
-	get_viewport().msaa_2d = level
+	# combined enum (OFF..X16). Never enable msaa_2d: it corrupts CanvasLayer
+	# UI (white halos around sticks, blurry double HUD text on Metal/Mobile).
+	var vp := get_viewport()
+	if vp == null:
+		return
+	var lvl := clampi(int(graphics_settings.get("quality", QualityPreset.LOW)), 0,
+			QualityPreset.HIGH)
+	var max_level := 0 if _is_mobile_platform() else (1 if lvl == QualityPreset.HIGH else 3)
+	var level := clampi(int(graphics_settings["msaa"]), 0, max_level)
+	vp.msaa_3d = level as Viewport.MSAA
+	vp.msaa_2d = Viewport.MSAA_DISABLED
 	if graphics_settings["fisheye_msaa"] == FisheyeMSAA.SAME_AS_GAME:
 		update_fisheye_msaa()
 
@@ -371,6 +378,8 @@ func _apply_runtime(scene: Node = null) -> void:
 	var lvl := clampi(int(graphics_settings.get("quality", QualityPreset.LOW)), 0,
 			QualityPreset.HIGH)
 	if vp != null and DisplayServer.get_name() != "headless":
+		if vp.msaa_2d != Viewport.MSAA_DISABLED:
+			vp.msaa_2d = Viewport.MSAA_DISABLED
 		if lvl == QualityPreset.LOW:
 			if not is_equal_approx(vp.scaling_3d_scale, 0.67):
 				vp.scaling_3d_scale = 0.67
@@ -379,13 +388,20 @@ func _apply_runtime(scene: Node = null) -> void:
 			if vp.msaa_3d != Viewport.MSAA_DISABLED:
 				vp.msaa_3d = Viewport.MSAA_DISABLED
 		elif lvl == QualityPreset.HIGH:
-			# Guard against MSAA 4X + FXAA + Volumetric Fog stalls on HIGH preset.
-			if int(graphics_settings.get("msaa", GameMSAA.X2)) > GameMSAA.X2:
-				graphics_settings["msaa"] = GameMSAA.X2
-			if vp.msaa_3d != Viewport.MSAA_2X:
-				vp.msaa_3d = Viewport.MSAA_2X
-			if vp.screen_space_aa != Viewport.SCREEN_SPACE_AA_DISABLED:
-				vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+			if _is_mobile_platform():
+				graphics_settings["msaa"] = GameMSAA.OFF
+				if vp.msaa_3d != Viewport.MSAA_DISABLED:
+					vp.msaa_3d = Viewport.MSAA_DISABLED
+				if vp.screen_space_aa != Viewport.SCREEN_SPACE_AA_DISABLED:
+					vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+			else:
+				# Guard against MSAA 4X + FXAA + Volumetric Fog stalls on HIGH preset.
+				if int(graphics_settings.get("msaa", GameMSAA.X2)) > GameMSAA.X2:
+					graphics_settings["msaa"] = GameMSAA.X2
+				if vp.msaa_3d != Viewport.MSAA_2X:
+					vp.msaa_3d = Viewport.MSAA_2X
+				if vp.screen_space_aa != Viewport.SCREEN_SPACE_AA_DISABLED:
+					vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
 	var target_scene := scene if scene != null and is_instance_valid(scene) else get_tree().current_scene
 	if target_scene != null and is_instance_valid(target_scene):
 		_apply_runtime_environment(target_scene, lvl)
@@ -435,7 +451,7 @@ func apply_quality_preset(level: int) -> void:
 			graphics_settings["vsync"] = false
 			graphics_settings["fps_limit"] = 120
 		QualityPreset.HIGH:
-			graphics_settings["msaa"] = GameMSAA.X2
+			graphics_settings["msaa"] = GameMSAA.OFF if _is_mobile_platform() else GameMSAA.X2
 			graphics_settings["af"] = GameAF.X8
 			graphics_settings["shadows"] = Shadows.HIGH
 			graphics_settings["vsync"] = false

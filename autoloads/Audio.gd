@@ -46,8 +46,12 @@ var _music: AudioStreamPlayer = null
 var _click: AudioStreamPlayer = null
 var _radio_player: AudioStreamPlayer = null
 var _shockwave_player: AudioStreamPlayer = null
+var _static_player: AudioStreamPlayer = null
+var _confirm_player: AudioStreamPlayer = null
 var _radio_cache: Dictionary = {}
 var _shockwave_stream: AudioStreamWAV = null
+var _static_cache: Dictionary = {}
+var _confirm_stream: AudioStreamWAV = null
 var _subbus_volumes: Dictionary = {
 	"Engine": 1.0,
 	"Wind": 1.0,
@@ -93,11 +97,9 @@ func _ready() -> void:
 		limiter.soft_clip_db = 2.0
 		AudioServer.add_bus_effect(0, limiter)
 	update_master_volume()
-	if OS.has_feature("ios") or OS.get_name() == "iOS":
-		# iOS audio interruptions (alarm, Siri, call, Control Center) can leave
-		# the app alive but its buses muted after foregrounding.  Restore the
-		# mixer explicitly on the resume notification.
-		process_mode = Node.PROCESS_MODE_ALWAYS
+	# Always process across pause/results transitions so radio & kill-cam static
+	# play reliably on all platforms (including iOS interruptions).
+	process_mode = Node.PROCESS_MODE_ALWAYS
 
 
 func _notification(what: int) -> void:
@@ -189,10 +191,64 @@ func play_radio_line(line_key: String) -> float:
 		_radio_player.process_mode = Node.PROCESS_MODE_ALWAYS
 		add_child(_radio_player)
 	_radio_player.stop()
+	_radio_player.bus = &"Radio"
+	_radio_player.process_mode = Node.PROCESS_MODE_ALWAYS
+	_radio_player.pitch_scale = 1.0
 	_radio_player.stream = stream
 	_radio_player.volume_db = 0.0
 	_radio_player.play()
 	return dur
+
+
+func stop_radio() -> void:
+	if _radio_player != null and is_instance_valid(_radio_player):
+		_radio_player.stop()
+		_radio_player.stream = null
+		_radio_player.pitch_scale = 1.0
+	if _static_player != null and is_instance_valid(_static_player):
+		_static_player.stop()
+
+
+func play_signal_loss_static(dur_s: float = 0.16, vol_db: float = -5.0) -> void:
+	_ensure_audio_buses()
+	var clamped_dur := clampf(dur_s, 0.06, 0.6)
+	var key := int(round(clamped_dur * 1000.0))
+	var stream: AudioStreamWAV = _static_cache.get(key, null) as AudioStreamWAV
+	if stream == null:
+		stream = _build_signal_loss_static_stream(clamped_dur)
+		_static_cache[key] = stream
+	if _static_player == null or not is_instance_valid(_static_player):
+		_static_player = AudioStreamPlayer.new()
+		_static_player.name = "SignalLossStaticPlayer"
+		_static_player.bus = &"Radio"
+		_static_player.process_mode = Node.PROCESS_MODE_ALWAYS
+		add_child(_static_player)
+	_static_player.stop()
+	_static_player.bus = &"Radio"
+	_static_player.process_mode = Node.PROCESS_MODE_ALWAYS
+	_static_player.pitch_scale = 1.0
+	_static_player.stream = stream
+	_static_player.volume_db = vol_db
+	_static_player.play()
+
+
+func play_radio_confirm_beep(vol_db: float = -7.5) -> void:
+	_ensure_audio_buses()
+	if _confirm_stream == null:
+		_confirm_stream = _build_radio_confirm_stream()
+	if _confirm_player == null or not is_instance_valid(_confirm_player):
+		_confirm_player = AudioStreamPlayer.new()
+		_confirm_player.name = "RadioConfirmBeepPlayer"
+		_confirm_player.bus = &"Radio"
+		_confirm_player.process_mode = Node.PROCESS_MODE_ALWAYS
+		add_child(_confirm_player)
+	_confirm_player.stop()
+	_confirm_player.bus = &"Radio"
+	_confirm_player.process_mode = Node.PROCESS_MODE_ALWAYS
+	_confirm_player.pitch_scale = 1.0
+	_confirm_player.stream = _confirm_stream
+	_confirm_player.volume_db = vol_db
+	_confirm_player.play()
 
 
 func play_recon_shockwave(volume_db: float = -4.0) -> void:
@@ -240,9 +296,11 @@ func _load_pcm16_wav(res_path: String) -> AudioStreamWAV:
 	if raw.slice(0, 4).get_string_from_ascii() != "RIFF" or raw.slice(8, 12).get_string_from_ascii() != "WAVE":
 		return null
 	var offset := 12
+	var audio_format := 1
 	var channels := 1
 	var sample_rate := 22050
 	var bits_per_sample := 16
+	var has_fmt := false
 	var pcm_data := PackedByteArray()
 	while offset + 8 <= raw.size():
 		var chunk_id := raw.slice(offset, offset + 4).get_string_from_ascii()
@@ -250,44 +308,148 @@ func _load_pcm16_wav(res_path: String) -> AudioStreamWAV:
 		var chunk_start := offset + 8
 		var chunk_end := mini(chunk_start + chunk_size, raw.size())
 		if chunk_id == "fmt " and chunk_size >= 16 and chunk_end <= raw.size():
-			channels = int(raw.decode_u16(chunk_start + 2))
-			sample_rate = int(raw.decode_u32(chunk_start + 4))
+			audio_format = int(raw.decode_u16(chunk_start))
+			channels = maxi(int(raw.decode_u16(chunk_start + 2)), 1)
+			sample_rate = maxi(int(raw.decode_u32(chunk_start + 4)), 8000)
 			bits_per_sample = int(raw.decode_u16(chunk_start + 14))
-		elif chunk_id == "data":
+			has_fmt = true
+		elif chunk_id == "data" and chunk_end > chunk_start:
 			pcm_data = raw.slice(chunk_start, chunk_end)
-			break
 		offset = chunk_start + chunk_size + (chunk_size & 1)
-	if pcm_data.is_empty():
+	if not has_fmt or pcm_data.is_empty():
 		return null
 	var wav := AudioStreamWAV.new()
-	wav.format = AudioStreamWAV.FORMAT_16_BITS if bits_per_sample == 16 else AudioStreamWAV.FORMAT_8_BITS
-	wav.mix_rate = maxi(sample_rate, 8000)
+	wav.mix_rate = sample_rate
 	wav.stereo = channels >= 2
-	wav.data = pcm_data
-	return wav
+	wav.loop_mode = AudioStreamWAV.LOOP_DISABLED
+	if audio_format == 1 and bits_per_sample == 16:
+		wav.format = AudioStreamWAV.FORMAT_16_BITS
+		wav.data = pcm_data
+		return wav
+	if audio_format == 1 and bits_per_sample == 8:
+		wav.format = AudioStreamWAV.FORMAT_8_BITS
+		wav.data = pcm_data
+		return wav
+	if audio_format == 1 and bits_per_sample == 24:
+		var samples_24 := pcm_data.size() / 3
+		var out_16 := PackedByteArray()
+		out_16.resize(samples_24 * 2)
+		for i in range(samples_24):
+			var b1 := int(pcm_data[i * 3 + 1])
+			var b2 := int(pcm_data[i * 3 + 2])
+			var val := (b2 << 8) | b1
+			if val >= 32768:
+				val -= 65536
+			out_16.encode_s16(i * 2, val)
+		wav.format = AudioStreamWAV.FORMAT_16_BITS
+		wav.data = out_16
+		return wav
+	if (audio_format == 3 or audio_format == 1) and bits_per_sample == 32:
+		var samples_32 := pcm_data.size() / 4
+		var out_32 := PackedByteArray()
+		out_32.resize(samples_32 * 2)
+		for i in range(samples_32):
+			var s_val := 0
+			if audio_format == 3:
+				s_val = clampi(int(round(pcm_data.decode_float(i * 4) * 32767.0)), -32768, 32767)
+			else:
+				s_val = clampi(pcm_data.decode_s32(i * 4) >> 16, -32768, 32767)
+			out_32.encode_s16(i * 2, s_val)
+		wav.format = AudioStreamWAV.FORMAT_16_BITS
+		wav.data = out_32
+		return wav
+	return null
 
 
 func _build_ptt_fallback_stream() -> AudioStreamWAV:
 	var sr := 22050
-	var dur := 1.2
+	var dur := 4.5
 	var count := int(dur * float(sr))
 	var pcm := PackedByteArray()
 	pcm.resize(count * 2)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 90125
+	var lp := 0.0
 	for i in range(count):
 		var t := float(i) / float(sr)
-		var sig := rng.randf_range(-0.04, 0.04)
+		var sig := rng.randf_range(-0.028, 0.028)
 		if t < 0.045:
-			sig += sin(TAU * 1180.0 * t) * 0.35
-		elif t > dur - 0.12:
-			sig += sin(TAU * 760.0 * t) * 0.28 * exp(-(t - (dur - 0.12)) * 18.0)
+			sig += sin(TAU * 1180.0 * t) * 0.34
+		elif t >= 0.14 and t <= dur - 0.18:
+			var local := t - 0.14
+			var slot := fmod(local, 0.48)
+			# Spoken-word phrase bursts (~2.1 Hz) with short inter-word pauses.
+			var phrase_gate := 1.0 if fmod(local, 1.44) < 1.18 else 0.15
+			var env := sin(clampf(slot / 0.48, 0.0, 1.0) * PI) * 0.22 * phrase_gate
+			var n := rng.randf_range(-1.0, 1.0)
+			lp = lerpf(lp, n, 0.18)
+			var carrier := sin(TAU * 260.0 * local) * 0.42 + sin(TAU * 740.0 * local) * 0.24
+			sig += (carrier * 0.55 + (lp - n * 0.4) * 0.45) * env
+		elif t > dur - 0.14:
+			sig += sin(TAU * 760.0 * t) * 0.28 * exp(-(t - (dur - 0.14)) * 18.0)
 		var s := clampi(int(round(sig * 32767.0)), -32768, 32767)
 		pcm.encode_s16(i * 2, s)
 	var wav := AudioStreamWAV.new()
 	wav.format = AudioStreamWAV.FORMAT_16_BITS
 	wav.mix_rate = sr
 	wav.stereo = false
+	wav.loop_mode = AudioStreamWAV.LOOP_DISABLED
+	wav.data = pcm
+	return wav
+
+
+func _build_signal_loss_static_stream(dur_s: float) -> AudioStreamWAV:
+	var sr := 22050
+	var count := maxi(int(round(dur_s * float(sr))), 64)
+	var pcm := PackedByteArray()
+	pcm.resize(count * 2)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 65150
+	var prev := 0.0
+	for i in range(count):
+		var u := float(i) / float(maxi(count - 1, 1))
+		var fade_in := clampf(u * 16.0, 0.0, 1.0)
+		var fade_out := clampf((1.0 - u) * 14.0, 0.0, 1.0)
+		var env := fade_in * fade_out
+		var white := rng.randf_range(-1.0, 1.0)
+		var crisp := white - prev * 0.35
+		prev = white
+		var hum := sin(TAU * 150.0 * (float(i) / float(sr))) * 0.08
+		var sig := clampf((crisp * 0.58 + hum) * env, -1.0, 1.0)
+		pcm.encode_s16(i * 2, clampi(int(round(sig * 32767.0)), -32768, 32767))
+	var wav := AudioStreamWAV.new()
+	wav.format = AudioStreamWAV.FORMAT_16_BITS
+	wav.mix_rate = sr
+	wav.stereo = false
+	wav.loop_mode = AudioStreamWAV.LOOP_DISABLED
+	wav.data = pcm
+	return wav
+
+
+func _build_radio_confirm_stream() -> AudioStreamWAV:
+	var sr := 22050
+	var dur := 0.24
+	var count := int(dur * float(sr))
+	var pcm := PackedByteArray()
+	pcm.resize(count * 2)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 31337
+	for i in range(count):
+		var t := float(i) / float(sr)
+		var sig := rng.randf_range(-0.02, 0.02)
+		if t < 0.075:
+			var env1 := sin(clampf(t / 0.075, 0.0, 1.0) * PI)
+			sig += sin(TAU * 980.0 * t) * 0.28 * env1
+		elif t >= 0.095 and t < 0.195:
+			var lt := t - 0.095
+			var env2 := sin(clampf(lt / 0.10, 0.0, 1.0) * PI)
+			sig += sin(TAU * 1320.0 * t) * 0.30 * env2
+		pcm.encode_s16(i * 2, clampi(int(round(sig * 32767.0)), -32768, 32767))
+	var wav := AudioStreamWAV.new()
+	wav.format = AudioStreamWAV.FORMAT_16_BITS
+	wav.mix_rate = sr
+	wav.stereo = false
+	wav.loop_mode = AudioStreamWAV.LOOP_DISABLED
 	wav.data = pcm
 	return wav
 
@@ -329,7 +491,7 @@ func _exit_tree() -> void:
 	if _music_tween != null:
 		_music_tween.kill()
 		_music_tween = null
-	for p in [_music, _click, _radio_player, _shockwave_player]:
+	for p in [_music, _click, _radio_player, _shockwave_player, _static_player, _confirm_player]:
 		if p != null and is_instance_valid(p):
 			p.stop()
 			p.stream = null
@@ -340,8 +502,12 @@ func _exit_tree() -> void:
 	_click = null
 	_radio_player = null
 	_shockwave_player = null
+	_static_player = null
+	_confirm_player = null
 	_radio_cache.clear()
 	_shockwave_stream = null
+	_static_cache.clear()
+	_confirm_stream = null
 	var sfx = load("res://combat/sfx.gd")
 	if sfx != null and sfx.has_method("clear_caches"):
 		sfx.call("clear_caches")
@@ -349,6 +515,7 @@ func _exit_tree() -> void:
 
 ## Restore the cockpit mix before a new level or the menu theme after a sortie.
 func reset_mission_buses() -> void:
+	stop_radio()
 	for bus_name in AUDIO_BUSES:
 		var index := AudioServer.get_bus_index(bus_name)
 		if index >= 0:

@@ -190,6 +190,12 @@ var _ghost_node: Ghost = null
 var _ghost_record_samples: Array = []
 var _ghost_record_timer := 0.0
 var _results_lb_btn: Button = null
+var _elrs_status_timer := 2.5
+var _elrs_status_last_text := ""
+var _payload_drops := 0
+var _payload_hits := 0
+var _results_career_label: Label = null
+var _results_career_bar: ProgressBar = null
 
 
 func _is_en() -> bool:
@@ -980,8 +986,8 @@ func _tune_map_environment() -> void:
 			env.fog_density = 0.00022
 			env.fog_aerial_perspective = 0.28
 			env.volumetric_fog_density = 0.0011
-			env.ambient_light_energy = 0.28
-			env.ambient_light_sky_contribution = 0.30
+			env.ambient_light_energy = 0.68
+			env.ambient_light_sky_contribution = 0.58
 			env.tonemap_exposure = 0.98
 			env.glow_intensity = 0.22
 			if sun != null:
@@ -994,8 +1000,8 @@ func _tune_map_environment() -> void:
 			env.fog_light_energy = 0.52
 			env.fog_density = 0.00014
 			env.volumetric_fog_density = 0.0010
-			env.ambient_light_energy = 0.50
-			env.ambient_light_sky_contribution = 0.40
+			env.ambient_light_energy = 0.72
+			env.ambient_light_sky_contribution = 0.60
 			env.tonemap_exposure = 1.08
 			if sun != null:
 				sun.rotation_degrees = Vector3(-26.0, 42.0, 0.0)
@@ -1007,8 +1013,8 @@ func _tune_map_environment() -> void:
 			env.fog_light_energy = 0.56
 			env.fog_density = 0.00016
 			env.volumetric_fog_density = 0.0011
-			env.ambient_light_energy = 0.56
-			env.ambient_light_sky_contribution = 0.42
+			env.ambient_light_energy = 0.76
+			env.ambient_light_sky_contribution = 0.62
 			env.tonemap_exposure = 1.10
 			if sun != null:
 				sun.rotation_degrees = Vector3(-26.0, 45.0, 0.0)
@@ -1020,8 +1026,8 @@ func _tune_map_environment() -> void:
 			env.fog_light_energy = 0.60
 			env.fog_density = 0.00035
 			env.volumetric_fog_density = 0.0016
-			env.ambient_light_energy = 0.34
-			env.ambient_light_sky_contribution = 0.32
+			env.ambient_light_energy = 0.68
+			env.ambient_light_sky_contribution = 0.58
 			env.tonemap_exposure = 1.02
 			if sun != null:
 				sun.rotation_degrees = Vector3(-20.0, 28.0, 0.0)
@@ -1038,7 +1044,10 @@ func _tune_map_environment() -> void:
 	env.fog_height = _ground_y + 18.0
 	env.fog_height_density = 0.012
 	env.fog_aerial_perspective = maxf(env.fog_aerial_perspective, 0.35)
-	env.ambient_light_energy = clampf(env.ambient_light_energy, 0.45, 0.75)
+	env.ambient_light_energy = clampf(env.ambient_light_energy, 0.65, 0.90)
+	env.ambient_light_sky_contribution = maxf(env.ambient_light_sky_contribution, 0.58)
+	if OS.get_name() == "iOS" or OS.has_feature("mobile") or OS.has_environment("MOBILE_UI"):
+		env.glow_enabled = false
 	env.adjustment_enabled = true
 	env.adjustment_contrast = 1.07
 	env.adjustment_saturation = 1.10
@@ -1988,7 +1997,13 @@ func _on_drone_armed(_mode: int) -> void:
 		d.freeze = false
 		d.linear_velocity = Vector3.UP * 0.1
 		if d.flight_controller != null and d.flight_controller.flight_mode == FlightController.FlightMode.AUTO:
-			d.flight_controller.select_flight_mode(FlightController.FlightMode.RATE)
+			if d.flight_controller.has_method("restore_preferred_flight_mode"):
+				d.flight_controller.call("restore_preferred_flight_mode")
+			elif d.flight_controller.has_method("resolve_flight_mode"):
+				d.flight_controller.select_flight_mode(
+						int(d.flight_controller.call("resolve_flight_mode", FlightController.FlightMode.LEVEL)))
+			else:
+				d.flight_controller.select_flight_mode(FlightController.FlightMode.LEVEL)
 	# Once the pilot is flying, the big keyboard cheat-sheet is just clutter.
 	var help := get_node_or_null("Help")
 	if help is CanvasLayer:
@@ -2021,6 +2036,44 @@ func _on_respawned() -> void:
 		_ghost_node.reset_replay()
 		if not _ghost_node.replay.is_empty():
 			_ghost_node.start_replay()
+	_radio_beat_01_sent = false
+	_radio_beat_02_sent = false
+	_radio_beat_03_sent = false
+	_radio_beat_04_sent = false
+	_radio_beat_02_fallback_timer = -1.0
+	_radio_cooldown = 0.0
+	_radio_subtitle_timer = 0.0
+	_audio_duck_timer = 0.0
+	if _radio_subtitle_panel != null:
+		_radio_subtitle_panel.visible = false
+	if Audio != null and Audio.has_method("stop_radio"):
+		Audio.call("stop_radio")
+	if _mission_started and not _mission_finished and Global.play_mode == Global.PlayMode.COMBAT:
+		if _mission_phase == 2:
+			_radio_beat_04_sent = true
+			_play_radio_callout(
+				_txt("Борт-01, ураження цілі зафіксовано камерою розвідника. Відмінна робота, повертайтесь на базу.",
+					"Valkyrie-01, target destruction verified by recon feed. Good effect on target, RTB."),
+				true, "04")
+		elif _mission_phase == 1:
+			_radio_beat_02_sent = true
+			_play_radio_callout(
+				_txt("Борт-01, я Штаб. Координати підтверджено, поправка на вітер східний. Роботу дозволяю. Кінець зв'язку.",
+					"Valkyrie-01, HQ copies. Coordinates confirmed, adjust for east crosswind. Cleared hot. Out."),
+				true, "02")
+		else:
+			_radio_beat_01_sent = true
+			if Global.special_mission > 0:
+				_radio_beat_02_fallback_timer = 5.0
+				_play_radio_callout(
+					_txt("Штаб, я Борт-01. Операція «%s» — заходжу на курс. Прийом." % Global.get_special_mission_name(Global.special_mission),
+						"HQ, this is Valkyrie-01. Operation %s underway, commencing run. Over." % Global.get_special_mission_name(Global.special_mission)),
+					true, "01")
+			else:
+				_play_radio_callout(
+					_txt("Штаб, я Борт-01. Ціль у квадраті спостерігаю, заходжу на бойовий курс. Прийом.",
+						"HQ, this is Valkyrie-01. Target spotted in sector, commencing attack run. Over."),
+					true, "01")
 
 
 ## R / respawn in this arcade level also re-arms, matching the on-screen
@@ -2046,11 +2099,18 @@ func _respawn_and_rearm() -> void:
 func _start_mission() -> void:
 	_mission_started = true
 	_mission_time = 0.0
+	_payload_drops = 0
+	_payload_hits = 0
 	_radio_beat_01_sent = false
 	_radio_beat_02_sent = false
 	_radio_beat_03_sent = false
 	_radio_beat_04_sent = false
 	_radio_beat_02_fallback_timer = -1.0
+	_radio_cooldown = 0.0
+	_radio_subtitle_timer = 0.0
+	_audio_duck_timer = 0.0
+	if Audio != null and Audio.has_method("stop_radio"):
+		Audio.call("stop_radio")
 	_set_message("")
 	_set_flash(_mission_title())
 	if _ghost_node != null and is_instance_valid(_ghost_node) and not _ghost_node.replay.is_empty():
@@ -2438,8 +2498,62 @@ func _show_results(reason: String) -> void:
 	elif not _mission_failed:
 		award_line = "%s %s [%s]\n" % [
 			_txt("РЕЙТИНГ         ", "RATING          "), stars_str, grade_str]
-	_results_stats.text = "%s\n%s%s%s%s %s\n%s %d" % [
-			best_line, diff_line, award_line, campaign_line,
+	var cs_res := get_node_or_null("CombatSystem")
+	var cs_drops: int = int(cs_res.get("drops_count")) if (cs_res != null and cs_res.get("drops_count") != null) else 0
+	var cs_aa_kills: int = int(cs_res.get("aa_destroyed")) if (cs_res != null and cs_res.get("aa_destroyed") != null) else 0
+	var drops_total := _payload_drops + cs_drops
+	var hits_total := _payload_hits + cs_aa_kills
+	var armor_kills := int(_kills.get(Vehicle.Kind.TANK, 0)) \
+			+ int(_kills.get(Vehicle.Kind.BMP, 0)) \
+			+ int(_kills.get(Vehicle.Kind.APC, 0))
+	var aa_kills := int(_kills.get(Vehicle.Kind.SAM, 0)) + cs_aa_kills
+	var inf_kills := int(_kills.get("INF", 0))
+	var air_kills := int(_kills.get(Vehicle.Kind.HELI, 0)) \
+			+ int(_kills.get(Vehicle.Kind.SHAHED, 0)) \
+			+ int(_kills.get(Vehicle.Kind.TRUCK, 0))
+	var acc_text := "—"
+	if drops_total > 0:
+		var hits_clamped := mini(hits_total, drops_total)
+		var acc_pct := int(round(100.0 * float(hits_clamped) / float(maxi(drops_total, 1))))
+		acc_text = "%d%% (%d/%d)" % [acc_pct, hits_clamped, drops_total]
+	var breakdown_line := ""
+	if Global.play_mode == Global.PlayMode.COMBAT:
+		breakdown_line = "%s %s %d · %s %d · %s %d · %s %d\n%s %s\n" % [
+			_txt("УРАЖЕННЯ        ", "KILLS           "),
+			_txt("БРОНЯ", "ARMOR"), armor_kills,
+			_txt("ППО", "AA"), aa_kills,
+			_txt("ПІХОТА", "INF"), inf_kills,
+			_txt("ПОВІТРЯ/ТИЛ", "AIR/TRK"), air_kills,
+			_txt("ТОЧНІСТЬ        ", "ACCURACY        "), acc_text,
+		]
+	var mission_bonus := 0 if _mission_failed else (250 if Global.play_mode == Global.PlayMode.COMBAT else 100)
+	var xp_gain := maxi(0, int(round(float(final_score) / 4.0)) + mission_bonus)
+	if Global.has_method("record_sortie_career"):
+		var career_raw = Global.call("record_sortie_career", xp_gain, {
+			"armor": armor_kills,
+			"aa": aa_kills,
+			"infantry": inf_kills,
+			"air": air_kills,
+		}, hits_total, drops_total)
+		if career_raw is Dictionary and _results_career_label != null and _results_career_bar != null:
+			var cinfo := career_raw as Dictionary
+			var rank_name := String(cinfo.get("rank_en" if _is_en() else "rank_ua", ""))
+			var total_xp := int(cinfo.get("xp", xp_gain))
+			var next_xp := int(cinfo.get("next_xp", total_xp))
+			var promoted := bool(cinfo.get("promoted", false))
+			var promo_tag := _txt("  ★ ПІДВИЩЕННЯ!", "  ★ PROMOTED!") if promoted else ""
+			var xp_progress := clampf(float(cinfo.get("progress", 0.0)) * 100.0, 0.0, 100.0)
+			if next_xp > total_xp:
+				_results_career_label.text = "%s: %s  ·  +%d XP (%d / %d XP)%s" % [
+					_txt("ЗВАННЯ", "RANK"), rank_name, xp_gain, total_xp, next_xp, promo_tag]
+			else:
+				_results_career_label.text = "%s: %s  ·  +%d XP (%d XP MAX)%s" % [
+					_txt("ЗВАННЯ", "RANK"), rank_name, xp_gain, total_xp, promo_tag]
+			_results_career_label.visible = true
+			_results_career_bar.value = xp_progress
+			_results_career_bar.visible = true
+	_results_stats.text = "%s\n%s%s%s%s%s %s\n%s %d" % [
+			best_line, diff_line, award_line, campaign_line, breakdown_line,
 			_txt("ЧАС ПОЛЬОТУ     ", "FLIGHT TIME     "), _format_time(_mission_time),
 			_txt("БОЙОВІ ОЧКИ     ", "COMBAT SCORE    "), final_score]
 	get_tree().paused = true
@@ -2449,6 +2563,8 @@ func _show_results(reason: String) -> void:
 
 
 func _on_next_mission_pressed() -> void:
+	if Audio != null and Audio.has_method("stop_radio"):
+		Audio.call("stop_radio")
 	get_tree().paused = false
 	Global.combat_mission = clampi(Global.combat_mission + 1, 1, 4)
 	Global.chain_briefing_pending = true
@@ -2458,6 +2574,8 @@ func _on_next_mission_pressed() -> void:
 
 
 func _on_retry_pressed() -> void:
+	if Audio != null and Audio.has_method("stop_radio"):
+		Audio.call("stop_radio")
 	get_tree().paused = false
 	if _results != null:
 		_results.visible = false
@@ -2480,6 +2598,8 @@ func _show_loading_card(mission_id: int) -> void:
 
 
 func _on_menu_pressed() -> void:
+	if Audio != null and Audio.has_method("stop_radio"):
+		Audio.call("stop_radio")
 	get_tree().paused = false
 	# Phones must return to the finger-sized tactical menu, never the desktop
 	# video home screen.  This is the results-screen / mission-menu path; the
@@ -2680,7 +2800,7 @@ func _save_training_ghost() -> void:
 
 # ------------------------------------------------------------------ vehicles
 func _add_vehicle(kind: int, waypoints: Array, speed: float, hostile: bool,
-		track: bool, height: float = 0.0) -> Vehicle:
+		track: bool, height: float = 0.0, is_mission_target: bool = true) -> Vehicle:
 	var is_air := (kind == Vehicle.Kind.HELI or kind == Vehicle.Kind.SHAHED)
 	if not waypoints.is_empty():
 		var shifted: Array = []
@@ -2719,6 +2839,11 @@ func _add_vehicle(kind: int, waypoints: Array, speed: float, hostile: bool,
 	var y := gy + (height if height > 0.0 else 0.1)
 	vehicle.global_position = Vector3(first.x, y, first.z)
 	vehicle.set_waypoints(waypoints)
+	vehicle.set_meta("is_primary_target", is_mission_target)
+	if is_mission_target:
+		vehicle.add_to_group("primary_combat_target")
+	else:
+		vehicle.add_to_group("bonus_combat_target")
 	vehicle.destroyed.connect(_on_vehicle_destroyed.bind(kind, vehicle))
 	_vehicles.append(vehicle)
 	return vehicle
@@ -2752,37 +2877,52 @@ func _on_kill_cam_finished() -> void:
 func _on_vehicle_destroyed(points: int, kind: int, vehicle: Vehicle = null) -> void:
 	_kills[kind] = int(_kills.get(kind, 0)) + 1
 	_score += points
+	_payload_hits += 1
+	var is_primary_target := true if (vehicle == null or not is_instance_valid(vehicle)) \
+			else bool(vehicle.get_meta("is_primary_target", true))
 	if Global.play_mode == Global.PlayMode.COMBAT:
-		_mission_targets_destroyed += 1
+		if is_primary_target:
+			_mission_targets_destroyed += 1
 		var combat := get_node_or_null("CombatSystem")
 		if combat != null and combat.has_method("add_bonus_score"):
-			combat.call("add_bonus_score", points, "%s %s (%d/%d)" % [
-				_kind_name(kind), _txt("ЗНИЩЕНО", "DESTROYED"),
+			if is_primary_target:
+				combat.call("add_bonus_score", points, "%s (%s %d/%d)" % [
+					_kind_name(kind), _txt("ОСН.", "MAIN"),
+					_mission_targets_destroyed, _mission_targets_total
+				])
+			else:
+				combat.call("add_bonus_score", points, "%s +%d (%s %d/%d)" % [
+					_kind_name(kind), points, _txt("ОСН.", "MAIN"),
+					_mission_targets_destroyed, _mission_targets_total
+				])
+		if is_primary_target:
+			_set_flash("%s (%s %d/%d)" % [
+				_kind_name(kind), _txt("ОСН.", "MAIN"),
 				_mission_targets_destroyed, _mission_targets_total
 			])
-		_set_flash("%s %s (%d/%d)" % [
-			_kind_name(kind), _txt("ЗНИЩЕНО!", "DESTROYED!"),
-			_mission_targets_destroyed, _mission_targets_total
-		])
+		else:
+			_set_flash("%s +%d (%s %d/%d)" % [
+				_kind_name(kind), points, _txt("ОСН.", "MAIN"),
+				_mission_targets_destroyed, _mission_targets_total
+			])
 		var drone := get_node_or_null("Drone") as Node3D
 		var impact_pos := vehicle.global_position if (vehicle != null and is_instance_valid(vehicle)) \
 				else (drone.global_position if drone != null else Vector3.ZERO)
-		var is_key: bool = (_mission_targets_destroyed >= _mission_targets_total) \
+		var is_key: bool = (is_primary_target and _mission_targets_destroyed >= _mission_targets_total) \
 				or kind in [Vehicle.Kind.TANK, Vehicle.Kind.HELI, Vehicle.Kind.SHAHED, Vehicle.Kind.SAM]
 		var kc_started := _maybe_trigger_kill_cam(impact_pos, is_key)
-		if not _radio_beat_03_sent:
+		if is_primary_target and not _radio_beat_03_sent:
 			_radio_beat_03_sent = true
 			_play_radio_callout(
 				_txt("Штаб! Пряме влучання в моторний відсік! Спостерігаю вторинну детонацію боєкомплекту!",
 					"HQ! Direct hit on the engine deck! Secondary ammo cook-off confirmed!"),
 				true, "03")
-		else:
+		elif is_primary_target:
 			_play_radio_callout("%s — %s" % [_txt("ЦІЛЬ УРАЖЕНО", "TARGET HIT"), _kind_name(kind)])
-		if kc_started and _mission_targets_destroyed >= _mission_targets_total:
-			_pending_combat_complete = true
-		else:
-			_check_combat_mission_complete()
+		CombatSfxScript.play_hitmarker(self, true)
+		_advance_phase_after_kill(is_primary_target, kc_started and _mission_targets_destroyed >= _mission_targets_total)
 	else:
+		CombatSfxScript.play_hitmarker(self, true)
 		_set_flash("%s +%d" % [_kind_name(kind), points])
 
 
@@ -2812,6 +2952,11 @@ func _add_mission_infantry(pos: Vector3, patrol_axis: Vector3, patrol_dist: floa
 	var dir := patrol_axis.normalized() if patrol_axis.length_squared() > 0.001 else Vector3.FORWARD
 	unit.rotation = Vector3(0.0, atan2(-dir.x, -dir.z), 0.0)
 	unit.set_patrol(ground_pos, dir, patrol_dist, patrol_spd)
+	unit.set_meta("is_primary_target", count_as_primary)
+	if count_as_primary:
+		unit.add_to_group("primary_combat_target")
+	else:
+		unit.add_to_group("bonus_combat_target")
 	_infantry_units.append(unit)
 	if count_as_primary:
 		_mission_targets_total += 1
@@ -2822,18 +2967,26 @@ func _add_mission_infantry(pos: Vector3, patrol_axis: Vector3, patrol_dist: floa
 func _on_infantry_unit_destroyed(points: int, is_primary: bool, unit: Node3D = null) -> void:
 	_kills["INF"] = int(_kills.get("INF", 0)) + 1
 	_score += points
+	_payload_hits += 1
 	if is_primary:
 		_mission_targets_destroyed += 1
+	var flash_msg := ""
+	if is_primary:
+		flash_msg = "%s %d/%d)" % [
+			_txt("ПІХОТИНЕЦЬ (ОСН.", "INFANTRY (MAIN"),
+			_mission_targets_destroyed, _mission_targets_total
+		]
+	else:
+		flash_msg = "%s +%d (%s %d/%d)" % [
+			_txt("ПІДКРІПЛЕННЯ", "REINFORCEMENT"),
+			points,
+			_txt("ОСН.", "MAIN"),
+			_mission_targets_destroyed, _mission_targets_total
+		]
 	var combat := get_node_or_null("CombatSystem")
 	if combat != null and combat.has_method("add_bonus_score"):
-		combat.call("add_bonus_score", points, "%s (%d/%d)" % [
-			_txt("ПІХОТИНЦЯ ЗНИЩЕНО", "INFANTRY ELIMINATED"),
-			_mission_targets_destroyed, _mission_targets_total
-		])
-	_set_flash("%s (%d/%d)" % [
-		_txt("ПІХОТИНЦЯ ЗНИЩЕНО!", "INFANTRY ELIMINATED!"),
-		_mission_targets_destroyed, _mission_targets_total
-	])
+		combat.call("add_bonus_score", points, flash_msg)
+	_set_flash(flash_msg)
 	var kc_started := false
 	if is_primary and _mission_targets_total > 0 and _mission_targets_destroyed >= _mission_targets_total:
 		var drone := get_node_or_null("Drone") as Node3D
@@ -2849,7 +3002,15 @@ func _on_infantry_unit_destroyed(points: int, is_primary: bool, unit: Node3D = n
 				true, "03")
 		else:
 			_play_radio_callout(_txt("ЦІЛЬ УРАЖЕНО — ПІХОТА", "TARGET HIT — INFANTRY"))
-	if kc_started:
+	CombatSfxScript.play_hitmarker(self, true)
+	_advance_phase_after_kill(is_primary, kc_started)
+
+
+func _advance_phase_after_kill(is_primary: bool, defer_for_kill_cam: bool) -> void:
+	if is_primary and _mission_phase_active and _mission_phase == 0 \
+			and not _mission_finished and _mission_targets_destroyed < _mission_targets_total:
+		_enter_strike_phase()
+	if defer_for_kill_cam:
 		_pending_combat_complete = true
 	else:
 		_check_combat_mission_complete()
@@ -2972,6 +3133,14 @@ func _apply_weather() -> void:
 				_lightning_light.light_energy = _sun_light_energy_default * 0.80
 			_:
 				_lightning_light.light_energy = _sun_light_energy_default
+	var we := get_node_or_null("WorldEnvironment") as WorldEnvironment
+	if we != null and we.environment != null:
+		if _weather == 3:
+			we.environment.ambient_light_energy = 0.24
+		elif frontline_map != "":
+			_tune_map_environment()
+		else:
+			we.environment.ambient_light_energy = maxf(we.environment.ambient_light_energy, 0.72)
 	match _weather:
 		1:
 			_set_flash(LocScript.t("WEATHER_RAIN"))
@@ -3216,17 +3385,17 @@ func _spawn_vehicles() -> void:
 		var kind: int = [Vehicle.Kind.TRUCK, Vehicle.Kind.APC, Vehicle.Kind.TANK][i % 3]
 		var points := _loop_waypoints(0.0, 0.0, 82.0 + float(i) * 11.0, 5,
 				float(i) * 0.9)
-		_add_vehicle(kind, points, 8.0 + i, false, false)
+		_add_vehicle(kind, points, 8.0 + i, false, false, 0.0, false)
 	# a few extras: BMPs and two sightseeing helicopters
 	for i in range(1 if lowspec else 2):
 		_add_vehicle(Vehicle.Kind.BMP,
 				_loop_waypoints(0.0, 0.0, 128.0 + float(i) * 16.0, 6, 0.5 + float(i)),
-				7.0, false, false)
+				7.0, false, false, 0.0, false)
 	if not lowspec:
 		for i in range(2):
 			_add_vehicle(Vehicle.Kind.HELI,
 					_loop_waypoints(0.0, 0.0, 130.0 + float(i) * 24.0, 6, float(i) * 1.5),
-					11.0, false, false, 55.0 + i * 15.0)
+					11.0, false, false, 55.0 + i * 15.0, false)
 
 
 ## Standalone special-operation spawner.  Campaign missions still go through
@@ -3719,7 +3888,7 @@ func _spawn_combat_mission(mission_id: int) -> void:
 			_mission_targets_total += 1
 
 	_offset_targets = false
-	if frontline_map != "":
+	if frontline_map != "" and mission_id != 1:
 		_spawn_frontline_bonus_targets()
 
 	print("[BigLevel] spawned Combat Mission %d/4 with %d required targets" % [
@@ -3734,7 +3903,8 @@ var _reinforcement_wave := 0
 
 
 func _start_reinforcements() -> void:
-	if Global.play_mode != Global.PlayMode.COMBAT or Global.special_mission > 0:
+	if Global.play_mode != Global.PlayMode.COMBAT or Global.special_mission > 0 \
+			or Global.combat_mission == 1:
 		return
 	var timer := Timer.new()
 	timer.name = "ReinforcementTimer"
@@ -4101,6 +4271,7 @@ func _spawn_destructible_buildings(count: int, radius_min: float,
 
 func _on_building_destroyed(points: int) -> void:
 	_score += points
+	_payload_hits += 1
 	if Global.play_mode == Global.PlayMode.COMBAT:
 		var combat := get_node_or_null("CombatSystem")
 		if combat != null and combat.has_method("add_bonus_score"):
@@ -4192,12 +4363,12 @@ func _setup_hud() -> void:
 	_top_banner_stack.name = "TopBannerStack"
 	_top_banner_stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_top_banner_stack.alignment = BoxContainer.ALIGNMENT_BEGIN
-	_top_banner_stack.add_theme_constant_override("separation", 6)
+	_top_banner_stack.add_theme_constant_override("separation", 3)
 	_top_banner_stack.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	_top_banner_stack.offset_left = 180.0 + safe_l
 	_top_banner_stack.offset_right = -(180.0 + safe_r)
-	_top_banner_stack.offset_top = 14.0 + safe_t
-	_top_banner_stack.offset_bottom = 175.0 + safe_t
+	_top_banner_stack.offset_top = 10.0 + safe_t
+	_top_banner_stack.offset_bottom = 104.0 + safe_t
 	_hud.add_child(_top_banner_stack)
 	_hud_message = Label.new()
 	_hud_message.add_theme_font_size_override("font_size", 18)
@@ -4237,15 +4408,18 @@ func _setup_hud() -> void:
 		_elrs_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		_elrs_status_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_elrs_status_label.text = ElrsWifiInput.status_text
+		_elrs_status_last_text = ElrsWifiInput.status_text
+		_elrs_status_timer = 2.5
+		_elrs_status_label.visible = not ElrsWifiInput.status_text.is_empty()
 		_top_banner_stack.add_child(_elrs_status_label)
 	_radio_subtitle_panel = PanelContainer.new()
 	_radio_subtitle_panel.name = "RadioSubtitlePanel"
 	_radio_subtitle_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_radio_subtitle_panel.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_radio_subtitle_panel.offset_left = -430.0
-	_radio_subtitle_panel.offset_right = 430.0
-	_radio_subtitle_panel.offset_top = -(166.0 + safe_b)
-	_radio_subtitle_panel.offset_bottom = -(122.0 + safe_b)
+	_radio_subtitle_panel.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_radio_subtitle_panel.offset_left = -360.0
+	_radio_subtitle_panel.offset_right = 360.0
+	_radio_subtitle_panel.offset_top = safe_t + 106.0
+	_radio_subtitle_panel.offset_bottom = safe_t + 152.0
 	var r_sb := StyleBoxFlat.new()
 	r_sb.bg_color = Color(0.03, 0.07, 0.08, 0.78)
 	r_sb.border_color = Color(0.22, 0.91, 1.0, 0.48)
@@ -4543,6 +4717,7 @@ func _update_telemetry(delta: float) -> void:
 		_ew_was_active = jamming
 		_play_alert("ew_enter" if jamming else "ew_exit", -7.0)
 		if jamming:
+			Haptics.pulse(80, 0.35, "ew")
 			_play_radio_callout("РЕБ! ГЛУШІННЯ — ВТРАТА ЗВ'ЯЗКУ", true)
 	if jamming and not _jamming_announced:
 		_jamming_announced = true
@@ -5173,6 +5348,7 @@ func _drop_heavy_bomb() -> void:
 	if altitude < 8.0:
 		_set_flash("ЗАНИЗЬКО ДЛЯ СКИДУ" if not MenuUI.is_english() else "TOO LOW TO RELEASE")
 		return
+	_payload_drops += 1
 	var bomb: Node3D = _bomb_nodes.pop_back()
 	bomb.visible = false
 	var payload := PayloadScript.new()
@@ -5357,6 +5533,7 @@ func _drop_fpv_payload() -> void:
 	if _payload_ammo_left <= 0:
 		return
 	_payload_dropped = true
+	_payload_drops += 1
 	_payload_ammo_left = maxi(_payload_ammo_left - 1, 0)
 	_bomb_cooldown = 0.35
 	_hide_fpv_payload()
@@ -5414,6 +5591,8 @@ func _activate_fpv_payload() -> void:
 	if drone == null or not is_instance_valid(drone):
 		return
 	_payload_dropped = true
+	_payload_drops += 1
+	var hits_before := _payload_hits
 	var at := drone.global_position
 	var blast := 14.0
 	var dmg := 2600.0
@@ -5421,6 +5600,10 @@ func _activate_fpv_payload() -> void:
 	CombatSfxScript.play_boom(self, at, 2.0)
 	Haptics.trigger_explosion(1.15)
 	_set_flash("БЧ АКТИВОВАНО")
+	if (_payload_hits > hits_before or _mission_targets_destroyed >= _mission_targets_total) \
+			and not _kill_cam_triggered:
+		if _maybe_trigger_kill_cam(at, true) and _mission_targets_destroyed >= _mission_targets_total:
+			_pending_combat_complete = true
 	# Take the drone out of the simulation without triggering a crash message.
 	drone.visible = false
 	drone.freeze = true
@@ -5428,7 +5611,7 @@ func _activate_fpv_payload() -> void:
 	drone.angular_velocity = Vector3.ZERO
 	var timer := get_tree().create_timer(3.0)
 	timer.timeout.connect(func() -> void:
-		if not is_instance_valid(drone):
+		if not is_instance_valid(drone) or _mission_finished:
 			return
 		drone.visible = true
 		drone.freeze = false
@@ -5575,10 +5758,34 @@ func _build_results() -> void:
 	box.add_child(MenuUI.hline())
 
 	_results_stats = Label.new()
-	_results_stats.add_theme_font_size_override("font_size", 22)
+	_results_stats.add_theme_font_size_override("font_size", 20)
 	_results_stats.add_theme_color_override("font_color", MenuUI.TEXT)
 	_results_stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(_results_stats)
+
+	_results_career_label = Label.new()
+	_results_career_label.add_theme_font_size_override("font_size", 18)
+	_results_career_label.add_theme_color_override("font_color", MenuUI.ACCENT)
+	_results_career_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_results_career_label.visible = false
+	box.add_child(_results_career_label)
+
+	_results_career_bar = ProgressBar.new()
+	_results_career_bar.min_value = 0.0
+	_results_career_bar.max_value = 100.0
+	_results_career_bar.value = 0.0
+	_results_career_bar.show_percentage = false
+	_results_career_bar.custom_minimum_size = Vector2(460, 14)
+	var bar_bg := StyleBoxFlat.new()
+	bar_bg.bg_color = Color(0.08, 0.12, 0.09, 0.9)
+	bar_bg.set_corner_radius_all(4)
+	var bar_fill := StyleBoxFlat.new()
+	bar_fill.bg_color = MenuUI.ACCENT
+	bar_fill.set_corner_radius_all(4)
+	_results_career_bar.add_theme_stylebox_override("background", bar_bg)
+	_results_career_bar.add_theme_stylebox_override("fill", bar_fill)
+	_results_career_bar.visible = false
+	box.add_child(_results_career_bar)
 
 	box.add_child(MenuUI.hline())
 
@@ -5860,12 +6067,19 @@ func _update_nav_marker() -> void:
 				else:
 					var min_d := 1e9
 					var best_t: Node3D = null
-					for t in get_tree().get_nodes_in_group("combat_target"):
-						if is_instance_valid(t) and t.visible:
+					for t in get_tree().get_nodes_in_group("primary_combat_target"):
+						if is_instance_valid(t) and t.visible and t.get("is_destroyed") != true:
 							var d := drone.global_position.distance_to(t.global_position)
 							if d < min_d:
 								min_d = d
 								best_t = t
+					if best_t == null:
+						for t in get_tree().get_nodes_in_group("combat_target"):
+							if is_instance_valid(t) and t.visible and t.get("is_destroyed") != true:
+								var d := drone.global_position.distance_to(t.global_position)
+								if d < min_d:
+									min_d = d
+									best_t = t
 					if best_t != null:
 						target_pos = best_t.global_position
 						target_found = true
@@ -5942,12 +6156,20 @@ func _process(delta: float) -> void:
 		_hud_tick = 0.083
 		_update_hud()
 		if _elrs_status_label != null:
+			var next_elrs := ElrsWifiInput.status_text
 			if _touch_controls != null \
 					and bool(_touch_controls.get("enabled")) \
 					and bool(_touch_controls.get("touch_mode")):
-				_elrs_status_label.text = "СЕНСОРНЕ КЕРУВАННЯ"
-			else:
-				_elrs_status_label.text = ElrsWifiInput.status_text
+				next_elrs = "СЕНСОРНЕ КЕРУВАННЯ" if not _is_en() else "TOUCH CONTROLS"
+			if next_elrs != _elrs_status_last_text:
+				_elrs_status_last_text = next_elrs
+				_elrs_status_label.text = next_elrs
+				_elrs_status_label.visible = not next_elrs.is_empty()
+				_elrs_status_timer = 2.5
+			elif _elrs_status_timer > 0.0:
+				_elrs_status_timer = maxf(_elrs_status_timer - 0.083, 0.0)
+				if _elrs_status_timer <= 0.0:
+					_elrs_status_label.visible = false
 	_update_audio_mix(delta)
 	# Audio-bus trimming and the nav marker only need human-perceptible update
 	# rates.  Running them at 120 Hz changed four AudioServer buses and shaped

@@ -60,7 +60,12 @@ const COMBAT_TIME_LIMIT := 1200.0
 ## Small set of menu-only preferences (haptics, defaults, ...).
 var menu_settings := {"haptics_enabled": true, "drone_preset": 0,
 		"selected_mode": PlayMode.TUTORIAL, "selected_mission": 1, "selected_special": 0,
-		"selected_map": "village", "difficulty": 1}
+		"selected_map": "village", "difficulty": 1,
+		"touch_floating_sticks": false, "touch_left_spring": false,
+		"touch_sensitivity": 1.0, "touch_expo": 0.2,
+		"career_xp": 0, "career_kills_armor": 0, "career_kills_aa": 0,
+		"career_kills_infantry": 0, "career_kills_air": 0,
+		"career_sorties": 0, "career_hits": 0, "career_drops": 0}
 
 ## Currently selected drone preset (index into DroneCatalog.PRESETS).
 var drone_preset: int = 0
@@ -217,6 +222,18 @@ func load_menu_settings() -> void:
 		drone_preset = clampi(int(menu_settings["drone_preset"]), 0,
 				maxi(DroneCatalog.count() - 1, 0))
 	difficulty = clampi(int(menu_settings.get("difficulty", difficulty)), 0, 2)
+	menu_settings["touch_floating_sticks"] = bool(menu_settings.get("touch_floating_sticks", false))
+	menu_settings["touch_left_spring"] = bool(menu_settings.get("touch_left_spring", false))
+	menu_settings["touch_sensitivity"] = clampf(float(menu_settings.get("touch_sensitivity", 1.0)), 0.4, 1.6)
+	menu_settings["touch_expo"] = clampf(float(menu_settings.get("touch_expo", 0.2)), 0.0, 0.7)
+	menu_settings["career_xp"] = maxi(0, int(menu_settings.get("career_xp", 0)))
+	menu_settings["career_kills_armor"] = maxi(0, int(menu_settings.get("career_kills_armor", 0)))
+	menu_settings["career_kills_aa"] = maxi(0, int(menu_settings.get("career_kills_aa", 0)))
+	menu_settings["career_kills_infantry"] = maxi(0, int(menu_settings.get("career_kills_infantry", 0)))
+	menu_settings["career_kills_air"] = maxi(0, int(menu_settings.get("career_kills_air", 0)))
+	menu_settings["career_sorties"] = maxi(0, int(menu_settings.get("career_sorties", 0)))
+	menu_settings["career_hits"] = maxi(0, int(menu_settings.get("career_hits", 0)))
+	menu_settings["career_drops"] = maxi(0, int(menu_settings.get("career_drops", 0)))
 
 
 func save_menu_settings() -> void:
@@ -569,3 +586,63 @@ func open_game_center_leaderboard() -> void:
 		if gc != null and gc.has_method("show_game_center"):
 			gc.call("show_game_center", {"view": "leaderboards"})
 	emit_signal("leaderboard_requested")
+
+
+const PILOT_RANKS := [
+	{"xp": 0, "ua": "КУРСАНТ", "en": "CADET"},
+	{"xp": 500, "ua": "МОЛ. ОПЕРАТОР", "en": "JR. OPERATOR"},
+	{"xp": 1500, "ua": "БОЙОВИЙ ПІЛОТ", "en": "COMBAT PILOT"},
+	{"xp": 3500, "ua": "СТАРШИЙ АС", "en": "SENIOR ACE"},
+	{"xp": 7000, "ua": "КОМАНДИР ЕСКАДРИЛЬЇ", "en": "SQUADRON LEAD"},
+]
+
+
+func get_pilot_rank_info(xp_val: int = -1) -> Dictionary:
+	var xp: int = maxi(0, int(menu_settings.get("career_xp", 0))) if xp_val < 0 else maxi(0, xp_val)
+	var idx := 0
+	for i in range(PILOT_RANKS.size()):
+		if xp >= int(PILOT_RANKS[i]["xp"]):
+			idx = i
+	var rank: Dictionary = PILOT_RANKS[idx]
+	var cur_min := int(rank["xp"])
+	var next_xp := xp
+	var progress := 1.0
+	if idx + 1 < PILOT_RANKS.size():
+		next_xp = int(PILOT_RANKS[idx + 1]["xp"])
+		var span := maxi(1, next_xp - cur_min)
+		progress = clampf(float(xp - cur_min) / float(span), 0.0, 1.0)
+	return {
+		"xp": xp,
+		"rank_idx": idx,
+		"rank_ua": String(rank["ua"]),
+		"rank_en": String(rank["en"]),
+		"next_xp": next_xp,
+		"progress": progress,
+	}
+
+
+func record_sortie_career(xp_gain: int, kills: Dictionary = {},
+		hits: int = 0, drops: int = 0) -> Dictionary:
+	var prev_info := get_pilot_rank_info()
+	var prev_idx := int(prev_info.get("rank_idx", 0))
+	var gained := maxi(0, xp_gain)
+	if OS.has_environment("DRONE_NO_RECORD"):
+		var preview := get_pilot_rank_info(maxi(0, int(menu_settings.get("career_xp", 0))) + gained)
+		preview["prev_rank_idx"] = prev_idx
+		preview["promoted"] = int(preview.get("rank_idx", 0)) > prev_idx
+		preview["xp_gain"] = gained
+		return preview
+	menu_settings["career_xp"] = maxi(0, int(menu_settings.get("career_xp", 0))) + gained
+	menu_settings["career_kills_armor"] = maxi(0, int(menu_settings.get("career_kills_armor", 0))) + maxi(0, int(kills.get("armor", 0)))
+	menu_settings["career_kills_aa"] = maxi(0, int(menu_settings.get("career_kills_aa", 0))) + maxi(0, int(kills.get("aa", 0)))
+	menu_settings["career_kills_infantry"] = maxi(0, int(menu_settings.get("career_kills_infantry", 0))) + maxi(0, int(kills.get("infantry", 0)))
+	menu_settings["career_kills_air"] = maxi(0, int(menu_settings.get("career_kills_air", 0))) + maxi(0, int(kills.get("air", 0)))
+	menu_settings["career_sorties"] = maxi(0, int(menu_settings.get("career_sorties", 0))) + 1
+	menu_settings["career_hits"] = maxi(0, int(menu_settings.get("career_hits", 0))) + maxi(0, hits)
+	menu_settings["career_drops"] = maxi(0, int(menu_settings.get("career_drops", 0))) + maxi(0, drops)
+	save_menu_settings()
+	var info := get_pilot_rank_info()
+	info["prev_rank_idx"] = prev_idx
+	info["promoted"] = int(info.get("rank_idx", 0)) > prev_idx
+	info["xp_gain"] = gained
+	return info

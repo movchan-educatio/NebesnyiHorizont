@@ -66,10 +66,22 @@ var _owner_id := 0
 ## Menu preview: the calibration/controls screens show only the twin sticks,
 ## without the flight buttons.  Keeps the exact same stick feel as in flight.
 var _preview := false
-## Compact in-flight top bar: only MENU + "⋯" by default; the secondary
-## toggles (mode/input/reset/video) live behind the ellipsis button.
+## Compact in-flight top bar: only MENU + options button by default; the secondary
+## toggles (mode/input/reset/video/touch/tilt) live inside the quick-options drawer.
 var _bar_open := false
 var _more_button: Button = null
+var _more_panel: PanelContainer = null
+var _float_button: Button = null
+var _spring_button: Button = null
+var _tilt_down_button: Button = null
+var _tilt_up_button: Button = null
+var _panel_menu_button: Button = null
+var _left_anchor := Vector2.ZERO
+var _right_anchor := Vector2.ZERO
+var _touch_floating_sticks := false
+var _touch_left_spring := false
+var _touch_sensitivity := 1.0
+var _touch_expo := 0.2
 
 
 func _ready() -> void:
@@ -85,17 +97,6 @@ func _ready() -> void:
 	_drawer.draw.connect(_on_drawer_draw)
 	_root.add_child(_drawer)
 
-	_mode_button = Button.new()
-	_mode_button.name = "TouchModeButton"
-	_mode_button.focus_mode = Control.FOCUS_NONE
-	_mode_button.mouse_filter = Control.MOUSE_FILTER_STOP
-	_mode_button.add_theme_font_size_override("font_size", 20)
-	_mode_button.add_theme_color_override("font_color", Color(0.9, 0.96, 1.0))
-	_mode_button.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
-	_mode_button.add_theme_constant_override("outline_size", 3)
-	_mode_button.button_down.connect(_on_mode_pressed)
-	_root.add_child(_mode_button)
-
 	_arm_button = Button.new()
 	_arm_button.name = "TouchArmButton"
 	_arm_button.text = "АРМ"
@@ -109,10 +110,17 @@ func _ready() -> void:
 	_root.add_child(_arm_button)
 
 	_pause_button = _make_top_button("МЕНЮ", _on_pause_pressed)
-	_flight_button = _make_top_button("РЕЖИМ", _on_flight_pressed)
-	_reset_button = _make_top_button("РЕСЕТ", _on_action_pressed.bind("respawn"))
-	_video_button = _make_top_button("ВІДЕО", _on_action_pressed.bind("cycle_video_mode"))
-	_more_button = _make_top_button("⋯", Callable(self, "_on_more_pressed"))
+	_more_button = _make_top_button("", Callable(self, "_on_more_pressed"))
+	_more_button.name = "TouchMoreButton"
+	var more_tex := MenuIcons.icon_more(Color(0.90, 0.96, 0.91))
+	if more_tex != null:
+		_more_button.icon = more_tex
+		_more_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_more_button.expand_icon = false
+	else:
+		_more_button.text = "ОПЦ"
+
+	_build_more_panel()
 
 	_drop_button = Button.new()
 	_drop_button.name = "TouchDropButton"
@@ -141,9 +149,11 @@ func _ready() -> void:
 
 	visible = false
 	set_process_input(false)
+	refresh_touch_settings()
 	get_viewport().size_changed.connect(_layout)
 	_layout()
 	_update_mode_button()
+	_refresh_more_panel_labels()
 
 
 func begin(owner_id: int = 0) -> void:
@@ -189,6 +199,8 @@ func set_menu_preview(on: bool) -> void:
 				_reset_button, _video_button, _mode_button, _arm_button, _more_button]:
 			if b != null:
 				b.visible = false
+		if _more_panel != null:
+			_more_panel.visible = false
 		if _setup_root != null:
 			_setup_root.visible = false
 		_drawer.queue_redraw()
@@ -216,6 +228,7 @@ func set_enabled(value: bool) -> void:
 	visible = value
 	set_process_input(value)
 	if value:
+		refresh_touch_settings()
 		_layout()
 		# Default to touch only when there is no live ELRS stream; a pilot
 		# with the radio already connected keeps the radio as primary and can
@@ -226,10 +239,14 @@ func set_enabled(value: bool) -> void:
 		var gs := get_node_or_null("/root/GameSettings")
 		if gs != null:
 			invert_roll = bool(gs.hud_config.get("touch_invert_roll", false))
-		invert_pitch = bool(gs.hud_config.get("touch_invert_pitch", false))
+			invert_pitch = bool(gs.hud_config.get("touch_invert_pitch", false))
 		_reset_sticks()
 		_update_mode_button()
+		_refresh_more_panel_labels()
 	else:
+		_bar_open = false
+		if _more_panel != null:
+			_more_panel.visible = false
 		if _setup_root != null and _setup_root.visible:
 			_on_setup_close()
 		touch_mode = false
@@ -254,8 +271,206 @@ func _make_top_button(text: String, cb: Callable) -> Button:
 	return b
 
 
+func refresh_touch_settings() -> void:
+	var g := get_node_or_null("/root/Global")
+	if g != null and g.get("menu_settings") is Dictionary:
+		var ms: Dictionary = g.get("menu_settings")
+		_touch_floating_sticks = bool(ms.get("touch_floating_sticks", false))
+		_touch_left_spring = bool(ms.get("touch_left_spring", false))
+		_touch_sensitivity = clampf(float(ms.get("touch_sensitivity", 1.0)), 0.4, 1.6)
+		_touch_expo = clampf(float(ms.get("touch_expo", 0.2)), 0.0, 0.7)
+	_refresh_more_panel_labels()
+
+
+func _make_quick_btn(text: String, cb: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.mouse_filter = Control.MOUSE_FILTER_STOP
+	b.custom_minimum_size = Vector2(0, 46)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.add_theme_font_size_override("font_size", 15)
+	b.add_theme_color_override("font_color", Color(0.90, 0.96, 0.92))
+	b.button_down.connect(cb)
+	return b
+
+
+func _build_more_panel() -> void:
+	_more_panel = PanelContainer.new()
+	_more_panel.name = "TouchMorePanel"
+	_more_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_more_panel.visible = false
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.03, 0.06, 0.05, 0.92)
+	sb.border_color = Color(0.45, 0.78, 0.56, 0.70)
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(10)
+	sb.content_margin_left = 10
+	sb.content_margin_right = 10
+	sb.content_margin_top = 10
+	sb.content_margin_bottom = 10
+	_more_panel.add_theme_stylebox_override("panel", sb)
+	_root.add_child(_more_panel)
+
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	_more_panel.add_child(vb)
+
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vb.add_child(grid)
+
+	_float_button = _make_quick_btn("ПЛАВ. СТІК: ВИКЛ", _on_toggle_floating_sticks)
+	_float_button.name = "TouchFloatingButton"
+	grid.add_child(_float_button)
+
+	_spring_button = _make_quick_btn("ГАЗ: КЛАСИК", _on_toggle_left_spring)
+	_spring_button.name = "TouchSpringButton"
+	grid.add_child(_spring_button)
+
+	_tilt_down_button = _make_quick_btn("КАМЕРА -5°", _adjust_camera_tilt.bind(-5.0))
+	_tilt_down_button.name = "TouchTiltDownButton"
+	grid.add_child(_tilt_down_button)
+
+	_tilt_up_button = _make_quick_btn("КАМЕРА +5°", _adjust_camera_tilt.bind(5.0))
+	_tilt_up_button.name = "TouchTiltUpButton"
+	grid.add_child(_tilt_up_button)
+
+	_flight_button = _make_quick_btn("РЕЖИМ: ANGLE", _on_flight_pressed)
+	_flight_button.name = "TouchFlightModeButton"
+	grid.add_child(_flight_button)
+
+	_mode_button = _make_quick_btn("ВВІД: СЕНСОР", _on_mode_pressed)
+	_mode_button.name = "TouchModeButton"
+	grid.add_child(_mode_button)
+
+	_video_button = _make_quick_btn("ВІДЕО", _on_action_pressed.bind("cycle_video_mode"))
+	_video_button.name = "TouchVideoButton"
+	grid.add_child(_video_button)
+
+	_reset_button = _make_quick_btn("РЕСЕТ", _on_action_pressed.bind("respawn"))
+	_reset_button.name = "TouchResetButton"
+	grid.add_child(_reset_button)
+
+	_panel_menu_button = _make_quick_btn("МЕНЮ / ПАУЗА", _on_pause_pressed)
+	_panel_menu_button.name = "TouchPanelMenuButton"
+	vb.add_child(_panel_menu_button)
+
+
+func _refresh_more_panel_labels() -> void:
+	if _float_button != null:
+		_float_button.text = "ПЛАВ. СТІК: ВКЛ" if _touch_floating_sticks else "ПЛАВ. СТІК: ВИКЛ"
+	if _spring_button != null:
+		_spring_button.text = "ГАЗ: ПРУЖИНА" if _touch_left_spring else "ГАЗ: КЛАСИК"
+	_style_more_panel_buttons()
+
+
+func _style_more_panel_buttons() -> void:
+	for b in [_float_button, _spring_button, _tilt_down_button, _tilt_up_button,
+			_flight_button, _mode_button, _video_button, _reset_button, _panel_menu_button]:
+		if b == null:
+			continue
+		var active := false
+		if b == _float_button:
+			active = _touch_floating_sticks
+		elif b == _spring_button:
+			active = _touch_left_spring
+		elif b == _mode_button:
+			active = touch_mode
+		var n := StyleBoxFlat.new()
+		n.bg_color = Color(0.11, 0.24, 0.16, 0.94) if active else Color(0.05, 0.09, 0.08, 0.90)
+		n.border_color = Color(0.55, 0.90, 0.65, 0.85) if active else Color(0.45, 0.65, 0.52, 0.50)
+		n.set_border_width_all(1)
+		n.set_corner_radius_all(8)
+		var p := n.duplicate() as StyleBoxFlat
+		p.bg_color = Color(0.18, 0.36, 0.24, 0.98)
+		b.add_theme_stylebox_override("normal", n)
+		b.add_theme_stylebox_override("hover", n)
+		b.add_theme_stylebox_override("pressed", p)
+
+
+func _on_toggle_floating_sticks() -> void:
+	Haptics.trigger_ui_tap()
+	_touch_floating_sticks = not _touch_floating_sticks
+	var g := get_node_or_null("/root/Global")
+	if g != null and g.get("menu_settings") is Dictionary:
+		g.menu_settings["touch_floating_sticks"] = _touch_floating_sticks
+		if g.has_method("save_menu_settings"):
+			g.save_menu_settings()
+	if not _touch_floating_sticks and _left_index == NO_TOUCH and _right_index == NO_TOUCH:
+		_left_center = _left_anchor
+		_right_center = _right_anchor
+		if _drawer != null:
+			_drawer.queue_redraw()
+	_refresh_more_panel_labels()
+	_show_toast("ПЛАВАЮЧИЙ СТІК: %s" % ("ВКЛ" if _touch_floating_sticks else "ВИКЛ"))
+
+
+func _on_toggle_left_spring() -> void:
+	Haptics.trigger_ui_tap()
+	_touch_left_spring = not _touch_left_spring
+	var g := get_node_or_null("/root/Global")
+	if g != null and g.get("menu_settings") is Dictionary:
+		g.menu_settings["touch_left_spring"] = _touch_left_spring
+		if g.has_method("save_menu_settings"):
+			g.save_menu_settings()
+	if _left_index == NO_TOUCH:
+		if _touch_left_spring:
+			throttle = 0.5
+			_left_knob = Vector2.ZERO
+		else:
+			_left_knob = Vector2(0.0, (0.5 - throttle) * 2.0 * _radius)
+		if _drawer != null:
+			_drawer.queue_redraw()
+	_refresh_more_panel_labels()
+	_show_toast("ЛІВИЙ СТІК: %s" % ("ПРУЖИНА (ANGLE)" if _touch_left_spring else "КЛАСИК 0-100%"))
+
+
+func _adjust_camera_tilt(delta_deg: float) -> void:
+	Haptics.trigger_ui_tap()
+	var scene := get_tree().current_scene
+	var fpv: Camera3D = null
+	if scene != null:
+		var cam = scene.get("camera")
+		if cam is Camera3D and cam.name == "FPVCamera":
+			fpv = cam as Camera3D
+		if fpv == null:
+			var drone := scene.get_node_or_null("Drone")
+			if drone != null:
+				fpv = drone.get_node_or_null("FPVCamera") as Camera3D
+	if fpv == null:
+		var vp := get_viewport()
+		var c := vp.get_camera_3d() if vp != null else null
+		if c != null and c.name == "FPVCamera":
+			fpv = c
+	var qs := get_node_or_null("/root/QuadSettings")
+	if fpv != null:
+		var new_pitch := clampf(fpv.rotation_degrees.x + delta_deg, -35.0, 45.0)
+		fpv.rotation_degrees.x = new_pitch
+		if fpv.has_meta("base_rot"):
+			var br := fpv.get_meta("base_rot") as Vector3
+			fpv.set_meta("base_rot", Vector3(new_pitch, br.y, br.z))
+		if qs != null:
+			qs.set("angle", int(roundf(new_pitch)))
+		if scene != null and scene.has_method("_on_camera_tilt_changed"):
+			scene.call("_on_camera_tilt_changed", new_pitch)
+		_show_toast("КАМЕРА: %+d°" % int(roundf(new_pitch)))
+	else:
+		var cur_q := int(qs.get("angle")) if qs != null else 0
+		var next_q := clampi(cur_q + roundi(delta_deg), -35, 45)
+		if qs != null:
+			qs.set("angle", next_q)
+		_show_toast("КАМЕРА: %+d°" % next_q)
+
+
 func _on_more_pressed() -> void:
+	Haptics.trigger_ui_tap()
 	_bar_open = not _bar_open
+	refresh_touch_settings()
+	_sync_flight_mode_label()
 	_apply_top_bar_visibility()
 	_layout()
 
@@ -267,6 +482,8 @@ func _apply_top_bar_visibility() -> void:
 	if _more_button != null:
 		_more_button.visible = live
 	var open := live and _bar_open
+	if _more_panel != null:
+		_more_panel.visible = open
 	for b in [_flight_button, _setup_button, _reset_button, _video_button, _mode_button]:
 		if b != null:
 			b.visible = open
@@ -297,48 +514,38 @@ func _layout() -> void:
 		# the larger radius than the raw physical window might suggest.
 		_radius = clampf(minf(vs.x, vs.y) * 0.115, 96.0, 120.0)
 		var preview_bottom := vs.y - 16.0 - notch.w
-		_left_center = Vector2(_radius + 34.0 + notch.x, preview_bottom - _radius)
-		_right_center = Vector2(vs.x - _radius - 34.0 - notch.z, preview_bottom - _radius)
+		_left_anchor = Vector2(_radius + 34.0 + notch.x, preview_bottom - _radius)
+		_right_anchor = Vector2(vs.x - _radius - 34.0 - notch.z, preview_bottom - _radius)
 	else:
 		# Larger sticks pulled in from the edges and lifted clear of the
 		# home-indicator strip.  The pilot's thumbs naturally rest at
 		# 28 % / 72 % of the width.
 		_radius = clampf(minf(vs.x, vs.y) * 0.16, 86.0, 176.0)
 		var bottom := vs.y - maxf(64.0, notch.w + 16.0)
-		_left_center = Vector2(maxf(vs.x * 0.28, _radius + notch.x + 12.0),
+		_left_anchor = Vector2(maxf(vs.x * 0.28, _radius + notch.x + 12.0),
 				bottom - _radius)
-		_right_center = Vector2(minf(vs.x * 0.72,
+		_right_anchor = Vector2(minf(vs.x * 0.72,
 				vs.x - _radius - notch.z - 12.0), bottom - _radius)
-	# In-flight action bar on the left edge, vertically centred: the top-centre
-	# position collided with the "ГОТОВИЙ ДО СТАРТУ" hint.  Compact mode shows
-	# MENU + "⋯"; the ellipsis expands the secondary toggles in a column.
-	var side_x := 20.0 + notch.x
-	var menu_w := 150.0
-	var more_h := 56.0
-	var menu_h := 64.0
-	if _bar_open and _pause_button != null and _more_button != null:
-		var y0 := maxf(notch.y + 90.0, vs.y * 0.5 - 160.0)
-		_pause_button.position = Vector2(side_x, y0)
+	if _left_index == NO_TOUCH:
+		_left_center = _left_anchor
+	if _right_index == NO_TOUCH:
+		_right_center = _right_anchor
+	# In-flight compact menu/options anchor at top-left, keeping the thumb zones
+	# and center HUD clear; tapping the options icon opens the touch drawer.
+	var side_x := 18.0 + notch.x
+	var side_y := notch.y + 74.0
+	var menu_w := 132.0
+	var menu_h := 54.0
+	var more_h := 48.0
+	if _pause_button != null and _more_button != null:
+		_pause_button.position = Vector2(side_x, side_y)
 		_pause_button.size = Vector2(menu_w, menu_h)
-		_flight_button.position = Vector2(side_x, y0 + 72.0)
-		_flight_button.size = Vector2(menu_w, more_h)
-		_flight_button.add_theme_font_size_override("font_size", 18)
-		_mode_button.position = Vector2(side_x, y0 + 136.0)
-		_mode_button.size = Vector2(menu_w, more_h)
-		_reset_button.position = Vector2(side_x, y0 + 200.0)
-		_reset_button.size = Vector2(72.0, more_h)
-		_reset_button.add_theme_font_size_override("font_size", 16)
-		_video_button.position = Vector2(side_x + 78.0, y0 + 200.0)
-		_video_button.size = Vector2(72.0, more_h)
-		_video_button.add_theme_font_size_override("font_size", 16)
-		_more_button.position = Vector2(side_x, y0 + 264.0)
-		_more_button.size = Vector2(64.0, more_h)
-	elif _pause_button != null and _more_button != null:
-		var y0c := maxf(notch.y + 90.0, vs.y * 0.5 - 68.0)
-		_pause_button.position = Vector2(side_x, y0c)
-		_pause_button.size = Vector2(menu_w, menu_h)
-		_more_button.position = Vector2(side_x, y0c + 72.0)
+		_more_button.position = Vector2(side_x, side_y + menu_h + 8.0)
 		_more_button.size = Vector2(menu_w, more_h)
+	if _more_panel != null:
+		var panel_w := clampf(344.0, 240.0, maxf(240.0, vs.x - side_x - menu_w - notch.z - 22.0))
+		_more_panel.position = Vector2(side_x + menu_w + 10.0, side_y)
+		_more_panel.size = Vector2(panel_w, 276.0)
 	_apply_top_bar_visibility()
 	var arm_w := 220.0
 	var arm_x := clampf(vs.x * 0.5 - arm_w * 0.5, notch.x + 12.0, vs.x - notch.z - arm_w - 12.0)
@@ -346,8 +553,8 @@ func _layout() -> void:
 	_arm_button.position = Vector2(arm_x, arm_y)
 	_arm_button.size = Vector2(arm_w, 78.0)
 	var drop_size := clampf(_radius * 0.60, 78.0, 106.0)
-	_drop_button.position = Vector2(_left_center.x + _radius + 24.0,
-			_left_center.y - drop_size * 0.5)
+	_drop_button.position = Vector2(_left_anchor.x + _radius + 24.0,
+			_left_anchor.y - drop_size * 0.5)
 	_drop_button.size = Vector2(drop_size, drop_size)
 	_drop_button.add_theme_font_size_override("font_size", int(clampf(drop_size * 0.24, 16.0, 24.0)))
 	var drop_style := StyleBoxFlat.new()
@@ -377,8 +584,6 @@ func _layout() -> void:
 
 
 func _apply_button_style() -> void:
-	if _mode_button == null:
-		return
 	var normal := StyleBoxFlat.new()
 	normal.bg_color = Color(0.04, 0.07, 0.10, 0.72)
 	normal.border_color = Color(0.55, 0.82, 1.0, 0.5)
@@ -386,17 +591,12 @@ func _apply_button_style() -> void:
 	normal.set_corner_radius_all(8)
 	var pressed := normal.duplicate() as StyleBoxFlat
 	pressed.bg_color = Color(0.12, 0.30, 0.44, 0.85)
-	_mode_button.add_theme_stylebox_override("normal", normal)
-	_mode_button.add_theme_stylebox_override("hover", normal)
-	_mode_button.add_theme_stylebox_override("pressed", pressed)
-	for b in [_pause_button, _flight_button, _setup_button, _reset_button, _video_button,
-			_more_button]:
+	for b in [_pause_button, _setup_button, _more_button]:
 		if b != null:
 			b.add_theme_stylebox_override("normal", normal)
 			b.add_theme_stylebox_override("hover", normal)
 			b.add_theme_stylebox_override("pressed", pressed)
-	if _more_button != null:
-		_more_button.add_theme_font_size_override("font_size", 30)
+	_style_more_panel_buttons()
 	if _arm_button == null:
 		return
 	var arm_normal := StyleBoxFlat.new()
@@ -412,9 +612,9 @@ func _apply_button_style() -> void:
 
 
 func _update_mode_button() -> void:
-	if _mode_button == null:
-		return
-	_mode_button.text = "ВВІД: СЕНСОР" if touch_mode else "ВВІД: ПУЛЬТ"
+	if _mode_button != null:
+		_mode_button.text = "ВВІД: СЕНСОР" if touch_mode else "ВВІД: ПУЛЬТ"
+		_style_more_panel_buttons()
 	if _drop_button != null:
 		_drop_button.visible = enabled and touch_mode and not _preview
 		var action := _touch_payload_action()
@@ -428,13 +628,7 @@ func _on_mode_pressed() -> void:
 		_reset_sticks()
 	else:
 		touch_mode = true
-		# Start with the throttle at zero even if the radio was at power.
-		throttle = 0.0
-		yaw = 0.0
-		roll = 0.0
-		pitch = 0.0
-		_left_knob = Vector2(0.0, _radius)
-		_right_knob = Vector2.ZERO
+		_reset_sticks()
 	_update_mode_button()
 	_drawer.queue_redraw()
 	mode_changed.emit(touch_mode)
@@ -470,6 +664,22 @@ func _on_pause_pressed() -> void:
 
 func _on_flight_pressed() -> void:
 	Haptics.trigger_ui_tap()
+	var scene := get_tree().current_scene
+	var drone := scene.get_node_or_null("Drone") if scene != null else null
+	var fc = drone.get("flight_controller") if drone != null else null
+	if fc != null and fc.has_method("select_flight_mode"):
+		var cur := int(fc.get("flight_mode"))
+		# 0 = RATE (ACRO), 1 = LEVEL (ANGLE)
+		var want := 0 if cur == 1 else 1
+		if fc.has_method("is_mode_available") and not bool(fc.call("is_mode_available", want)):
+			_dispatch_action("cycle_flight_modes")
+		else:
+			fc.call("select_flight_mode", want)
+		_sync_flight_mode_label()
+		var after := int(fc.get("flight_mode"))
+		var mode_txt := "ANGLE" if after == 1 else ("ACRO" if after == 0 else "HORIZON")
+		_show_toast("РЕЖИМ: %s" % mode_txt)
+		return
 	_dispatch_action("cycle_flight_modes")
 
 
@@ -530,6 +740,21 @@ func _process(delta: float) -> void:
 	if _mode_refresh <= 0.0:
 		_mode_refresh = 0.35
 		_sync_flight_mode_label()
+	if _drawer != null and _touch_floating_sticks and touch_mode:
+		var moved := false
+		var k := minf(1.0, delta * 14.0)
+		if _left_index == NO_TOUCH and _left_center.distance_to(_left_anchor) > 0.5:
+			_left_center = _left_center.lerp(_left_anchor, k)
+			if _left_center.distance_to(_left_anchor) <= 0.5:
+				_left_center = _left_anchor
+			moved = true
+		if _right_index == NO_TOUCH and _right_center.distance_to(_right_anchor) > 0.5:
+			_right_center = _right_center.lerp(_right_anchor, k)
+			if _right_center.distance_to(_right_anchor) <= 0.5:
+				_right_center = _right_anchor
+			moved = true
+		if moved:
+			_drawer.queue_redraw()
 
 
 func _sync_flight_mode_label() -> void:
@@ -801,7 +1026,14 @@ func _update_setup_channels() -> void:
 
 
 func _input(event: InputEvent) -> void:
-	if not enabled or not touch_mode or (get_tree().paused and not _preview):
+	if not enabled or (get_tree().paused and not _preview):
+		return
+	if event is InputEventScreenTouch and not touch_mode:
+		touch_mode = true
+		_reset_sticks()
+		_update_mode_button()
+		mode_changed.emit(touch_mode)
+	if not touch_mode:
 		return
 	if event is InputEventScreenTouch:
 		var touch := event as InputEventScreenTouch
@@ -828,6 +1060,30 @@ func _input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 
 
+func _point_hits_ui(pos: Vector2) -> bool:
+	if _setup_root != null and _setup_root.visible:
+		return true
+	for c in [_pause_button, _more_button, _arm_button, _drop_button, _more_panel]:
+		if c != null and c.visible and c.get_global_rect().has_point(pos):
+			return true
+	var scene := get_tree().current_scene if get_tree() != null else null
+	if scene != null:
+		var help_btn := scene.find_child("TutorialHelpBtn", true, false) as Control
+		if help_btn != null and help_btn.is_visible_in_tree() and help_btn.get_global_rect().has_point(pos):
+			return true
+	return false
+
+
+func _apply_axis_curve(raw_val: float, deadzone: float, use_sensitivity: bool) -> float:
+	if absf(raw_val) < deadzone:
+		return 0.0
+	var s := clampf(raw_val, -1.0, 1.0)
+	var curved := (1.0 - _touch_expo) * s + _touch_expo * (s * s * s)
+	if use_sensitivity:
+		curved *= _touch_sensitivity
+	return clampf(curved, -1.0, 1.0)
+
+
 func _handle_touch(index: int, pos: Vector2, pressed: bool) -> bool:
 	if not pressed:
 		var released := false
@@ -844,6 +1100,32 @@ func _handle_touch(index: int, pos: Vector2, pressed: bool) -> bool:
 	if index == _right_index:
 		_update_stick(false, pos)
 		return true
+	if _point_hits_ui(pos):
+		return false
+	var vp := get_viewport()
+	var vs := vp.get_visible_rect().size if vp != null else Vector2(1280, 720)
+	if _touch_floating_sticks:
+		var safe_min_y := 100.0
+		var safe_max_y := maxf(safe_min_y + 20.0, vs.y - BOTTOM_MARGIN - _radius * 0.7)
+		if _left_index == NO_TOUCH and pos.x < vs.x * 0.5:
+			var min_lx := maxf(MARGIN, _radius * 0.7)
+			var max_lx := maxf(min_lx + 10.0, vs.x * 0.5 - _radius * 0.45)
+			_left_center = Vector2(clampf(pos.x, min_lx, max_lx),
+					clampf(pos.y, safe_min_y, safe_max_y))
+			_left_index = index
+			_throttle_grab_y = pos.y
+			_throttle_grab_value = throttle
+			_update_stick(true, pos)
+			return true
+		if _right_index == NO_TOUCH and pos.x >= vs.x * 0.5:
+			var min_rx := vs.x * 0.5 + _radius * 0.45
+			var max_rx := maxf(min_rx + 10.0, vs.x - maxf(MARGIN, _radius * 0.7))
+			_right_center = Vector2(clampf(pos.x, min_rx, max_rx),
+					clampf(pos.y, safe_min_y, safe_max_y))
+			_right_index = index
+			_update_stick(false, pos)
+			return true
+		return false
 	if _left_index == NO_TOUCH and pos.distance_to(_left_center) <= _radius * 1.35:
 		_left_index = index
 		_throttle_grab_y = pos.y
@@ -872,23 +1154,28 @@ func _update_stick(left: bool, pos: Vector2) -> void:
 	var center := _left_center if left else _right_center
 	var offset := (pos - center).limit_length(_radius)
 	if left:
-		# Relative throttle: dragging up from the grab point raises it, so the
-		# value starts at the current throttle instead of snapping to wherever
-		# the finger first lands (the old absolute mapping jumped 0% -> 50%).
-		throttle = clampf(_throttle_grab_value
-				+ (_throttle_grab_y - pos.y) / _radius, 0.0, 1.0)
-		_left_knob = Vector2(0.0, (0.5 - throttle) * 2.0 * _radius)
+		if _touch_left_spring:
+			var y_norm := clampf((_left_center.y - pos.y) / _radius, -1.0, 1.0)
+			var y_curved := _apply_axis_curve(y_norm, deadzone, false)
+			throttle = clampf(0.5 + y_curved * 0.5, 0.0, 1.0)
+		else:
+			# Relative throttle: dragging up from the grab point raises it, so the
+			# value starts at the current throttle instead of snapping to wherever
+			# the finger first lands (the old absolute mapping jumped 0% -> 50%).
+			throttle = clampf(_throttle_grab_value
+					+ (_throttle_grab_y - pos.y) / _radius, 0.0, 1.0)
+		_left_knob = Vector2(offset.x, (0.5 - throttle) * 2.0 * _radius)
 		var x := offset.x / _radius
-		yaw = 0.0 if absf(x) < deadzone else clampf(x, -1.0, 1.0)
+		yaw = _apply_axis_curve(x, deadzone, true)
 	else:
 		_right_knob = offset
 		var x := offset.x / _radius
 		var y := offset.y / _radius
-		var r := 0.0 if absf(x) < deadzone else clampf(x, -1.0, 1.0)
+		var r := _apply_axis_curve(x, deadzone, true)
 		if invert_roll:
 			r = -r
 		roll = r
-		pitch = 0.0 if absf(y) < deadzone else clampf(y, -1.0, 1.0)
+		pitch = _apply_axis_curve(y, deadzone, true)
 		if invert_pitch:
 			pitch = -pitch
 	_drawer.queue_redraw()
@@ -897,14 +1184,22 @@ func _update_stick(left: bool, pos: Vector2) -> void:
 func _release_stick(left: bool) -> void:
 	if left:
 		_left_index = NO_TOUCH
-		# The throttle stays where it was released; yaw self-centres.
+		# In center-spring mode (ANGLE hover) throttle returns cleanly to 0.5;
+		# otherwise throttle holds while yaw self-centres.
 		_left_knob.x = 0.0
 		yaw = 0.0
+		if _touch_left_spring:
+			throttle = 0.5
+			_left_knob.y = 0.0
+		if not _touch_floating_sticks and _left_anchor != Vector2.ZERO:
+			_left_center = _left_anchor
 	else:
 		_right_index = NO_TOUCH
 		_right_knob = Vector2.ZERO
 		roll = 0.0
 		pitch = 0.0
+		if not _touch_floating_sticks and _right_anchor != Vector2.ZERO:
+			_right_center = _right_anchor
 	_drawer.queue_redraw()
 
 
@@ -912,10 +1207,18 @@ func _reset_sticks() -> void:
 	_left_index = NO_TOUCH
 	_right_index = NO_TOUCH
 	_mouse_down = false
-	# Throttle 0 is the bottom of the left stick, not its centre.
-	_left_knob = Vector2(0.0, _radius)
+	if _left_anchor != Vector2.ZERO:
+		_left_center = _left_anchor
+	if _right_anchor != Vector2.ZERO:
+		_right_center = _right_anchor
+	if _touch_left_spring:
+		throttle = 0.5
+		_left_knob = Vector2.ZERO
+	else:
+		# Throttle 0 is the bottom of the left stick, not its centre.
+		throttle = 0.0
+		_left_knob = Vector2(0.0, _radius)
 	_right_knob = Vector2.ZERO
-	throttle = 0.0
 	yaw = 0.0
 	roll = 0.0
 	pitch = 0.0
