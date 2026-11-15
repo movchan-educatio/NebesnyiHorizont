@@ -342,11 +342,7 @@ func _build_team_patch(team_id: int) -> void:
 func set_walk(phase: float, stride: float) -> void:
 	_walk_phase = phase
 	_walk_stride = clampf(stride, 0.0, 1.5)
-	if OS.get_name() == "iOS" or OS.has_feature("mobile") \
-			or OS.has_environment("MOBILE_UI"):
-		_run_blend = clampf((_walk_stride - 0.78) / 0.57, 0.0, 1.0)
-	else:
-		_run_blend = 0.0
+	_run_blend = clampf((_walk_stride - 0.78) / 0.57, 0.0, 1.0)
 	# Mobile LOD applies the latest walk parameters on its next pose tick. Calling
 	# this from every physics frame would otherwise bypass the 30/15 Hz cap.
 	if _mobile_animation_hz < 0.0:
@@ -583,7 +579,7 @@ func _update_pose(_delta: float) -> void:
 				0.04 * reload_blend,
 				chest_dy - 0.012 * _kick - 0.06 * reload_blend + breath * 0.35,
 				0.055 * _kick + 0.04 * reload_blend) + sway_pos
-		var aim_tilt := -_aim_smooth * 0.55 + 0.035 * _kick + 0.42 * reload_blend
+		var aim_tilt := _aim_smooth * 0.55 + 0.035 * _kick + 0.42 * reload_blend
 		var roll_tilt := 0.48 * reload_blend
 		rifle_pivot.basis = Basis(Vector3.UP, sway_yaw) \
 				* Basis(Vector3.RIGHT, aim_tilt + sway_pitch) \

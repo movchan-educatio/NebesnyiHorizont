@@ -56,18 +56,27 @@ func _ready() -> void:
 	collision_mask = 1
 	_disabled = _qa_disabled()
 	_build()
-	_drone = get_tree().current_scene.get_node_or_null("Drone") as Drone
-	_combat = get_tree().current_scene.get_node_or_null("CombatSystem")
+	var cs := get_tree().current_scene if get_tree() != null else null
+	if cs != null:
+		if _drone == null or not is_instance_valid(_drone):
+			_drone = cs.get_node_or_null("Drone") as Drone
+		if _combat == null:
+			_combat = cs.get_node_or_null("CombatSystem")
 	_recover = randf_range(1.0, 1.6)
 	match Global.difficulty:
 		Global.Difficulty.RECRUIT:
-			detect_range = 35.0
-			tracer_damage = 4.5
+			detect_range = 48.0
+			tracer_damage = 5.0
 			burst_shots = 3
 			shot_interval = 0.16
+		Global.Difficulty.OPERATOR:
+			detect_range = 64.0
+			tracer_damage = 8.0
+			burst_shots = 5
+			shot_interval = 0.11
 		Global.Difficulty.ACE:
-			detect_range = 65.0
-			tracer_damage = 12.0
+			detect_range = 88.0
+			tracer_damage = 12.5
 			burst_shots = 7
 			shot_interval = 0.09
 
@@ -86,7 +95,9 @@ func _physics_process(delta: float) -> void:
 	if is_destroyed or _disabled:
 		return
 	if _drone == null or not is_instance_valid(_drone):
-		_drone = get_tree().current_scene.get_node_or_null("Drone") as Drone
+		var cs := get_tree().current_scene if get_tree() != null else null
+		if cs != null:
+			_drone = cs.get_node_or_null("Drone") as Drone
 	if _drone == null:
 		return
 
@@ -164,11 +175,13 @@ func _aim_at_drone(delta: float) -> bool:
 	if flat.length_squared() < 0.01:
 		return false
 	_aim_yaw = atan2(-flat.x, -flat.z)
-	_turret.rotation.y = lerp_angle(_turret.rotation.y, _aim_yaw, clampf(delta * 5.0, 0.0, 1.0))
+	var parent_yaw: float = global_rotation.y
+	var local_yaw := wrapf(_aim_yaw - parent_yaw, -PI, PI)
+	_turret.rotation.y = lerp_angle(_turret.rotation.y, local_yaw, clampf(delta * 5.0, 0.0, 1.0))
 	var pitch := atan2(to.y, flat.length())
 	_barrels.rotation.x = lerp_angle(_barrels.rotation.x, clampf(pitch, -0.30, 0.90),
 			clampf(delta * 5.0, 0.0, 1.0))
-	return absf(angle_difference(_turret.rotation.y, _aim_yaw)) < 0.26
+	return absf(angle_difference(_turret.rotation.y, local_yaw)) < 0.26
 
 
 func _fire() -> void:

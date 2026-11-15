@@ -19,13 +19,13 @@ signal failsafe_changed(active: bool)
 @export var home_position := Vector3.ZERO
 @export var use_own_position_as_home := true
 @export var antenna_height := 1.8
-## Range at which the link reaches zero in free space.
-@export var base_range_m := 2300.0
+## Range at which the link reaches zero in free space (calibrated to the 384 m frontline arena).
+@export var base_range_m := 680.0
 ## Extra loss when terrain blocks the direct ray.
 @export var occlusion_loss := 0.72
-## Global multiplier for EW effects.  The domes stay visible and dangerous, but
-## a single pass through one no longer instantly cuts the aircraft down.
-@export var ew_effect_scale := 0.65
+## Global multiplier for EW effects.  The domes stay visible and dangerous, forcing
+## altitude/routing adaptation without instantly downing the aircraft on a graze.
+@export var ew_effect_scale := 0.78
 ## Smoothing so the picture does not flicker between two states.
 @export var smoothing := 4.0
 ## Seconds below the failsafe threshold before the receiver cuts.

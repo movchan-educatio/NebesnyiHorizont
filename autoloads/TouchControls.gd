@@ -498,7 +498,7 @@ func _on_toggle_left_spring() -> void:
 			g.save_menu_settings()
 	if _left_index == NO_TOUCH:
 		if _touch_left_spring:
-			throttle = 0.5
+			throttle = 0.45
 			_left_knob = Vector2.ZERO
 		else:
 			_left_knob = Vector2(0.0, (0.5 - throttle) * 2.0 * _radius)
@@ -1265,22 +1265,30 @@ func _update_stick(left: bool, pos: Vector2) -> void:
 			clampf(raw_offset.x, -_radius, _radius),
 			clampf(raw_offset.y, -_radius, _radius))
 	if left:
+		var active_drag_dy := absf(pos.y - _throttle_grab_y) if (not _touch_left_spring and _left_index != NO_TOUCH) else absf(offset.y)
+		var yaw_deadband := maxf(deadzone, 0.09) if active_drag_dy > _radius * 0.22 else deadzone
 		if _touch_left_spring:
 			var y_norm := clampf((_left_center.y - pos.y) / _radius, -1.0, 1.0)
-			var y_curved := _apply_axis_curve(y_norm, deadzone, false)
-			throttle = clampf(0.5 + y_curved * 0.5, 0.0, 1.0)
+			var y_curved := _apply_axis_curve(y_norm, maxf(deadzone, 0.06), false)
+			# Spring centre aligns with real hover thrust (0.45) instead of 0.50 climb.
+			if y_curved >= 0.0:
+				throttle = clampf(0.45 + y_curved * 0.55, 0.0, 1.0)
+			else:
+				throttle = clampf(0.45 + y_curved * 0.45, 0.0, 1.0)
 		else:
-			# Directional relative throttle: uses the available upward/downward
-			# gimbal headroom (at least 0.70 * _radius) so any initial grab point
-			# cleanly reaches [0.0 .. 1.0] while tracking 1:1 with the thumb knob.
+			# Directional relative throttle with a gentle idle/hover band feel.
 			var dy := _throttle_grab_y - pos.y
 			var up_span := maxf(_radius * 0.70, _throttle_grab_y - (_left_center.y - _radius))
 			var down_span := maxf(_radius * 0.70, (_left_center.y + _radius) - _throttle_grab_y)
 			var span := up_span if dy >= 0.0 else down_span
-			throttle = clampf(_throttle_grab_value + dy / span, 0.0, 1.0)
+			var next_thr := clampf(_throttle_grab_value + dy / span, 0.0, 1.0)
+			# Soft detent right at 0.45 hover when near mid-stick to make mobile altitude holding steady.
+			if absf(next_thr - 0.45) < 0.025 and absf(offset.x / maxf(_radius, 1.0)) > 0.12:
+				next_thr = 0.45
+			throttle = next_thr
 		_left_knob = Vector2(offset.x, (0.5 - throttle) * 2.0 * _radius)
 		var x := offset.x / _radius
-		yaw = _apply_axis_curve(x, deadzone, true)
+		yaw = _apply_axis_curve(x, yaw_deadband, true)
 	else:
 		_right_knob = offset
 		var x := offset.x / _radius
@@ -1303,7 +1311,7 @@ func _release_stick(left: bool) -> void:
 		_left_knob.x = 0.0
 		yaw = 0.0
 		if _touch_left_spring:
-			throttle = 0.5
+			throttle = 0.45
 			_left_knob.y = 0.0
 		if not _touch_floating_sticks and _left_anchor != Vector2.ZERO:
 			_left_center = _left_anchor

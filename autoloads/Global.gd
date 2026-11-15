@@ -278,11 +278,10 @@ func save_campaign_records() -> void:
 	config.save(campaign_records_path())
 
 
-func record_mission_result(mission_id: int, score: int, time_taken: float, diff: int) -> Dictionary:
+func _record_entry(sec: String, score: int, time_taken: float, diff: int) -> Dictionary:
 	if OS.has_environment("DRONE_NO_RECORD"):
 		return {"completed": true, "best_score": score, "best_time": time_taken,
 				"stars": 3, "highest_diff": diff}
-	var sec := "mission_%d" % mission_id
 	var prev: Dictionary = campaign_records.get(sec, {
 		"completed": false,
 		"best_score": 0,
@@ -308,8 +307,27 @@ func record_mission_result(mission_id: int, score: int, time_taken: float, diff:
 	return rec
 
 
+func record_mission_result(mission_id: int, score: int, time_taken: float, diff: int) -> Dictionary:
+	return _record_entry("mission_%d" % mission_id, score, time_taken, diff)
+
+
+func record_special_mission_result(mission_id: int, score: int, time_taken: float, diff: int) -> Dictionary:
+	return _record_entry("special_%d" % mission_id, score, time_taken, diff)
+
+
 func get_mission_record(mission_id: int) -> Dictionary:
 	var sec := "mission_%d" % mission_id
+	return campaign_records.get(sec, {
+		"completed": false,
+		"best_score": 0,
+		"best_time": 0.0,
+		"stars": 0,
+		"highest_diff": 0
+	})
+
+
+func get_special_mission_record(mission_id: int) -> Dictionary:
+	var sec := "special_%d" % mission_id
 	return campaign_records.get(sec, {
 		"completed": false,
 		"best_score": 0,

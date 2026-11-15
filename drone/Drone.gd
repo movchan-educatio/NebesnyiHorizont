@@ -55,6 +55,13 @@ var frame_dimensions: Vector3 = Vector3(0.22, 0.06, 0.22)
 var current_preset_index: int = 0
 var payload_count: int = 0
 var max_payload_count: int = 0
+var is_fixed_wing: bool = false
+var is_pusher: bool = false
+var is_jet: bool = false
+var is_vtol_frame: bool = false
+var _base_motor_origins: Array[Vector3] = []
+var _yaw_torque_scale: float = 1.0
+var _battery_cutoff: float = 1.0
 
 ## Battery Voltage Sag Simulation
 var battery_cells: int = 6
@@ -553,7 +560,13 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	# explicit high-speed term accounts for the extra tip compressibility and
 	# fuselage blanking at 130+ km/h.
 	var airspeed := (lin_vel - wind_velocity).length()
-	var bet_high_speed_loss := 1.0 - clampf(pow(airspeed / 45.0, 2.0) * 0.22, 0.0, 0.30)
+	var bet_high_speed_loss := 1.0
+	if is_jet:
+		bet_high_speed_loss = 1.0
+	elif is_fixed_wing:
+		bet_high_speed_loss = 1.0 - clampf(pow(airspeed / 65.0, 2.0) * 0.12, 0.0, 0.15)
+	else:
+		bet_high_speed_loss = 1.0 - clampf(pow(airspeed / 45.0, 2.0) * 0.22, 0.0, 0.30)
 	# The throttle curve must be normalised against the propellers' real static
 	# thrust, not the design "twr" figure, or the hover stick produces 2 g.
 	var curve_twr: float = physical_max_twr if physical_max_twr > 0.01 else target_max_twr
@@ -600,7 +613,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 					prop.set_velocity((lin_vel - wind_velocity) * basis)
 					prop.update_forces()
 					var m_thrust: float = maxf(prop.forces[0].y, 0.0) \
-							* battery_sag_factor * battery_sag_factor
+							* battery_sag_factor * battery_sag_factor * _battery_cutoff
 					m_thrust *= bet_high_speed_loss
 					if on_ground and throttle_cmd <= 0.05:
 						m_thrust = 0.0
@@ -614,7 +627,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 					vec_torque += basis * prop.forces[3] * 0.5
 					vec_torque += basis * prop.forces[4] * 0.5
 				
-				vec_torque += motor.get_torque() * basis.y * battery_sag_factor * ground_torque_scale * ground_torque_scale
+				vec_torque += motor.get_torque() * _yaw_torque_scale * basis.y * battery_sag_factor * ground_torque_scale * ground_torque_scale
 		else:
 			# 1. Primary collective lift applied cleanly through center of mass along body normal
 			vec_force += basis.y * demanded_thrust
@@ -656,6 +669,30 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		vec_force += drag[0]
 		vec_force += external_force
 		vec_torque += drag[1]
+
+		# 4b. Fixed-wing / VTOL aerodynamic wing lift, weathervane stability and jet cruise
+		if (is_fixed_wing or is_vtol_frame) and not on_ground:
+			var local_v := basis.inverse() * (lin_vel - wind_velocity)
+			var fwd_speed := maxf(-local_v.z, 0.0)
+			var onset := 4.0 if is_fixed_wing else 9.0
+			if fwd_speed > onset and basis.y.dot(Vector3.UP) > 0.15:
+				var span_ref := 14.0 if is_fixed_wing else 18.0
+				var wing_factor := clampf((fwd_speed - onset) / span_ref, 0.0, 1.0)
+				var max_lift_frac := 0.80 if is_fixed_wing else 0.32
+				# Counter gravity-aligned vertical loss when pitched into forward cruise.
+				var lift_dir := (basis.y * 0.4 + Vector3.UP * 0.6).normalized()
+				vec_force += lift_dir * (weight * max_lift_frac * wing_factor * _battery_cutoff)
+				# Weathervane sideslip damping keeps turns coordinated instead of skidding sideways.
+				vec_force += basis * Vector3(-local_v.x * fwd_speed * mass * (0.06 if is_fixed_wing else 0.025), 0.0, 0.0)
+			if is_jet and flight_controller.state_armed and throttle_cmd > 0.20:
+				var jet_push := weight * 1.15 * clampf((throttle_cmd - 0.20) / 0.80, 0.0, 1.0) * battery_sag_factor * _battery_cutoff
+				vec_force += (-basis.z) * jet_push
+			elif is_fixed_wing and is_pusher and flight_controller.state_armed and throttle_cmd > 0.25:
+				var nose_dip := clampf((-(-basis.z).y - 0.03) / 0.25, 0.0, 1.0)
+				var cruise_blend := maxf(nose_dip, clampf((fwd_speed - 2.0) / 8.0, 0.0, 1.0))
+				if cruise_blend > 0.01:
+					var pusher_push := weight * 0.52 * clampf((throttle_cmd - 0.25) / 0.75, 0.0, 1.0) * cruise_blend * battery_sag_factor * _battery_cutoff
+					vec_force += (-basis.z) * pusher_push
 		
 		# 5. Propwash: descending into the drone's own wake or chopping the
 		# throttle at speed.  The pilot has to damp the resulting wobble.
@@ -778,6 +815,7 @@ func _on_reset() -> void:
 	battery_cell_voltage = battery_cell_voltage_rest
 	battery_voltage = battery_cell_voltage_rest * float(battery_cells)
 	battery_sag_factor = 1.0
+	_battery_cutoff = 1.0
 	battery_current_draw = 0.0
 	sustained_sag_accum = 0.0
 	low_voltage_warn = false
@@ -941,6 +979,7 @@ func update_voltage_sag(dt: float) -> void:
 		battery_current_draw = 0.0
 		battery_voltage = v_full
 		battery_sag_factor = 1.0
+		_battery_cutoff = 1.0
 		battery_cell_voltage = battery_cell_voltage_rest
 		battery_used_mah = 0.0
 		sustained_sag_accum = 0.0
@@ -976,6 +1015,7 @@ func update_voltage_sag(dt: float) -> void:
 	var v := v_rest - sag - sustained_sag_accum * v_nominal
 	battery_voltage = clampf(v, v_nominal * 0.55, v_nominal)
 	battery_sag_factor = clampf(battery_voltage / v_nominal, 0.55, 1.0)
+	_battery_cutoff = clampf(soc / 0.02, 0.0, 1.0)
 	battery_cell_voltage = battery_voltage / float(maxi(battery_cells, 1))
 	low_voltage_warn = battery_cell_voltage < 3.3 or soc < 0.12
 
@@ -1035,6 +1075,22 @@ func apply_preset_physics(p: Dictionary) -> void:
 	base_cog_offset = Vector3.ZERO
 	payload_cog_offset = p.get("cog_offset", Vector3.ZERO)
 	frame_dimensions = p.get("dimensions", Vector3(0.22, 0.06, 0.22))
+	is_fixed_wing = bool(p.get("fixed_wing", false))
+	is_pusher = bool(p.get("pusher", false))
+	is_jet = bool(p.get("is_jet", false))
+	is_vtol_frame = (str(p.get("id", "")) == "pisun_vtol")
+	if motors.size() >= 4:
+		if _base_motor_origins.size() < 4:
+			_base_motor_origins.clear()
+			for idx_m in range(4):
+				_base_motor_origins.append(motors[idx_m].transform.origin)
+		var arm_x := clampf(frame_dimensions.x * 0.36, 0.08, 1.05)
+		var arm_z := clampf(frame_dimensions.z * 0.36, 0.08, 1.05)
+		var signs := [Vector2(-1.0, -1.0), Vector2(1.0, -1.0), Vector2(1.0, 1.0), Vector2(-1.0, 1.0)]
+		for idx_m in range(4):
+			if motors[idx_m] != null:
+				var y_base := _base_motor_origins[idx_m].y
+				motors[idx_m].transform.origin = Vector3(signs[idx_m].x * arm_x, y_base, signs[idx_m].y * arm_z)
 	if p.has("drag_area"):
 		projected_area = p["drag_area"]
 	if p.has("twr"):
@@ -1080,6 +1136,7 @@ func apply_preset_physics(p: Dictionary) -> void:
 	battery_cell_voltage = battery_cell_voltage_rest
 	battery_voltage = battery_cell_voltage_rest * float(battery_cells)
 	battery_sag_factor = 1.0
+	_battery_cutoff = 1.0
 	battery_current_draw = 0.0
 	low_voltage_warn = false
 	sustained_sag_accum = 0.0
@@ -1087,6 +1144,7 @@ func apply_preset_physics(p: Dictionary) -> void:
 	recalculate_mass_and_inertia()
 	thrust_scale = clampf(mass / THRUST_REFERENCE_MASS, 0.35, 4.5)
 	if flight_controller != null:
+		flight_controller.set("_is_fixed_wing", is_fixed_wing)
 		flight_controller.set_hover_thrust(mass / 4.0 * 9.81)
 
 
@@ -1095,14 +1153,19 @@ func apply_preset_physics(p: Dictionary) -> void:
 ## so the throttle curve's hover point matches the blade-element physics.
 func recalibrate_static_twr() -> void:
 	var total_thrust := 0.0
+	var total_torque := 0.0
 	for motor in motors:
 		if motor == null:
 			continue
 		var prop: Propeller = motor.get("propeller")
 		if prop != null:
 			total_thrust += maxf(prop.static_thrust(float(motor.MAX_RPM)), 0.0)
+		total_torque += absf(float(motor.MAX_TORQUE))
 	var weight := maxf(mass * 9.81, 0.001)
 	physical_max_twr = total_thrust / weight
+	var desired_yaw_alpha := 48.0 if is_fixed_wing else 75.0
+	var desired_total_tau := inertia.y * desired_yaw_alpha * 0.12
+	_yaw_torque_scale = clampf(desired_total_tau / maxf(total_torque, 0.5), 1.0, 6.0)
 
 
 func set_payload_attached(attached: bool) -> void:

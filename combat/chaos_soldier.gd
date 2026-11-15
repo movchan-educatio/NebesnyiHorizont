@@ -66,11 +66,12 @@ func _physics_process(delta: float) -> void:
 	var to := target.global_position - global_position
 	var flat := Vector3(to.x, 0.0, to.z)
 	var dist := flat.length()
-	# Keep a fire line: advance to rifle range, then hold and shoot.
+	# Keep a fire line: advance toward rifle range while engaging once inside engage_range.
 	if dist > advance_range:
 		_crouching = false
 		if not _using_proxy:
 			_update_pose(delta)
+		var moved := false
 		if flat.length_squared() > 0.01:
 			var desired_yaw := atan2(-flat.x, -flat.z)
 			rotation.y = lerp_angle(rotation.y, desired_yaw,
@@ -83,14 +84,17 @@ func _physics_process(delta: float) -> void:
 					var step_len := walk_speed * delta
 					if _can_step(fnorm, step_len):
 						global_position += fnorm * step_len
-		_set_locomotion(delta, 0.0 if _is_crouched_or_settling() else walk_speed)
+						moved = true
+		_set_locomotion(delta, walk_speed if moved else 0.0)
 		_snap_to_ground()
-		return
-	_crouching = (_reload_timer > 0.0) or (_suppress_timer > 0.0)
-	if not _using_proxy:
-		_update_pose(delta)
-	_set_locomotion(delta, 0.0)
-	_snap_to_ground()
+		if dist > engage_range:
+			return
+	else:
+		_crouching = (_reload_timer > 0.0) or (_suppress_timer > 0.0)
+		if not _using_proxy:
+			_update_pose(delta)
+		_set_locomotion(delta, 0.0)
+		_snap_to_ground()
 	if dist > engage_range:
 		return
 	var los := _los_to(target)

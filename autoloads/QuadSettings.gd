@@ -21,10 +21,10 @@ var expo_yaw := 0.2
 ## LEVEL-mode attitude hold. Bank limit is the maximum lean in degrees; the
 ## angle/rate gains turn a stick deflection into a turn rate, and the rate
 ## feedback is what damps the old "seesaw" oscillation.
-var level_bank := 20.0
-var level_angle_gain := 1.5
-var level_rate_gain := 0.25
-var level_rate_limit := 2.5
+var level_bank := 28.0
+var level_angle_gain := 2.2
+var level_rate_gain := 0.22
+var level_rate_limit := 3.5
 
 ## The name of the last flight-feel preset, "custom" after a slider edit.
 var flight_preset := "stable"
@@ -35,9 +35,9 @@ var custom_rates := false
 const FLIGHT_PRESETS := [
 	{
 		"id": "stable", "name": "СТАБІЛЬНИЙ",
-		"desc": "Плавний, малий нахил — для навчання й зйомки",
-		"rate": 450, "expo": 0.35, "bank": 20.0,
-		"angle_gain": 1.5, "rate_gain": 0.25, "rate_limit": 2.5,
+		"desc": "Плавний баланс контролю й тяги — оптимальний за замовчуванням",
+		"rate": 450, "expo": 0.30, "bank": 28.0,
+		"angle_gain": 2.2, "rate_gain": 0.22, "rate_limit": 3.5,
 	},
 	{
 		"id": "sport", "name": "СПОРТ",
@@ -94,11 +94,11 @@ func load_quad_settings() -> void:
 		if config.has_section_key("quad", "angle"):
 			angle = int(clamp(config.get_value("quad", "angle"), -20, 80))
 		if config.has_section_key("quad", "dry_weight"):
-			dry_weight = clamp(config.get_value("quad", "dry_weight"), 0.1, 5.0)
+			dry_weight = clamp(config.get_value("quad", "dry_weight"), 0.1, 40.0)
 		if config.has_section_key("quad", "battery_weight"):
-			battery_weight = clamp(config.get_value("quad", "battery_weight"), 0.05, 3.0)
+			battery_weight = clamp(config.get_value("quad", "battery_weight"), 0.05, 20.0)
 		if config.has_section_key("quad", "payload_weight"):
-			payload_weight = clamp(config.get_value("quad", "payload_weight"), 0.0, 5.0)
+			payload_weight = clamp(config.get_value("quad", "payload_weight"), 0.0, 25.0)
 		if config.has_section_key("rates", "pitch"):
 			rate_pitch = int(clamp(config.get_value("rates", "pitch"), 90, 1800))
 		if config.has_section_key("rates", "roll"):
@@ -123,6 +123,9 @@ func load_quad_settings() -> void:
 			flight_preset = str(config.get_value("level", "preset"))
 		if config.has_section_key("level", "custom_rates"):
 			custom_rates = bool(config.get_value("level", "custom_rates"))
+		if flight_preset == "stable" and not custom_rates and is_equal_approx(level_bank, 20.0):
+			apply_flight_preset("stable")
+			custom_rates = false
 		return
 	elif err == ERR_PARSE_ERROR:
 		Global.log_error(err, "Parse error while loading quad settings.")

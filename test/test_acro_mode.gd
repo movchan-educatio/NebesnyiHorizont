@@ -5,6 +5,13 @@ func _ready() -> void:
 	print("=== RUNNING ACRO (RATE) MODE & FREESTYLE TRICKS TEST ===")
 	print("==================================================")
 	
+	var saved_angle: Variant = GameSettings.hud_config.get("angle_mode", true)
+	var saved_acro: Variant = GameSettings.hud_config.get("acro_mode", true)
+	var saved_inf: Variant = GameSettings.hud_config.get("infinite_battery", false)
+	GameSettings.hud_config["angle_mode"] = true
+	GameSettings.hud_config["acro_mode"] = true
+	GameSettings.hud_config["infinite_battery"] = false
+
 	var catalog := DroneCatalog
 	var drone_scene := load("res://drone/drones/Drone1.tscn") as PackedScene
 	if drone_scene == null:
@@ -14,7 +21,6 @@ func _ready() -> void:
 		
 	var drone := drone_scene.instantiate() as Drone
 	add_child(drone)
-	GameSettings.hud_config["infinite_battery"] = false
 	
 	catalog.apply_to_drone(drone, 3) # «КВАД-5» 5" Combat FPV
 	var fc: FlightController = drone.flight_controller
@@ -157,6 +163,9 @@ func _ready() -> void:
 		return
 	
 	drone.queue_free()
+	GameSettings.hud_config["angle_mode"] = saved_angle
+	GameSettings.hud_config["acro_mode"] = saved_acro
+	GameSettings.hud_config["infinite_battery"] = saved_inf
 	print("==================================================")
 	print("=== ALL ACRO MODE AND FREESTYLE TRICKS TESTS PASSED! ===")
 	print("==================================================")

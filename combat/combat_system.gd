@@ -776,6 +776,10 @@ func _destroy_drone(text: String) -> void:
 	_drone.linear_velocity = Vector3.ZERO
 	_drone.angular_velocity = Vector3.ZERO
 	_message(text, Color(1.0, 0.4, 0.3), 2.0)
+	var lvl := get_parent()
+	if lvl != null and lvl.has_method("consume_sortie_airframe"):
+		if not bool(lvl.call("consume_sortie_airframe", text)):
+			return
 	await get_tree().create_timer(1.3).timeout
 	if is_instance_valid(_drone):
 		_drone.freeze = false

@@ -47,8 +47,8 @@ var w := 0.0
 
 func update_geometry() -> void:
 	radius = diameter * 0.0254 / 2.0
-	var raw_deg := 1.25 * pitch / (PI * maxf(diameter, 0.1))
-	theta_tip = deg_to_rad(raw_deg)
+	# pitch / (PI * diameter) is already tan(theta_tip) in radians at 80% span.
+	theta_tip = atan(1.25 * pitch / (PI * maxf(diameter, 0.1)))
 
 
 func set_diameter(d: float) -> void:
@@ -307,7 +307,7 @@ func update_forces() -> void:
 	var drag_vec := drag * drag_direction
 	var torque_vec := torque * Vector3.UP * direction
 	var roll_moment_vec := roll_moment * drag_direction * direction
-	var pitch_moment_vec := pitch_moment * Vector3.UP.cross(drag_direction)
+	var pitch_moment_vec := pitch_moment * Vector3.UP.cross(drag_direction) * direction
 	
 	thrust_vec = thrust_vec * get_ground_effect()
 	

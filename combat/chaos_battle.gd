@@ -55,7 +55,7 @@ func _build_battlefield() -> void:
 	var squad := 4 if QualityManager.get_active_level() == QualityManager.Level.LOW else 12
 	for i in range(squad):
 		_spawn_soldier(TEAM_BLUE, blue_center + _formation_offset(i), blue_center)
-		_spawn_soldier(TEAM_RED, red_center + _formation_offset(i + 12), red_center)
+		_spawn_soldier(TEAM_RED, red_center + _formation_offset(i), red_center)
 	# Armour on both flanks. Vehicles stay strictly within the open container
 	# yard (Z between -50 and +20, away from HeroHall at Z in [38, 122]).
 	_spawn_vehicle(TEAM_BLUE, VehicleScript.Kind.TANK,
@@ -407,10 +407,12 @@ func _finish_battle() -> void:
 	var winner := "СИНІ" if blue > red else ("ЧЕРВОНІ" if red > blue else "НІЧИЯ")
 	if MenuUI.is_english():
 		winner = "BLUE" if blue > red else ("RED" if red > blue else "DRAW")
-	_title.text = "ПЕРЕМОГА: " + winner if not MenuUI.is_english() \
-			else "VICTORY: " + winner
-	_status.text = "R / ENTER — ЩЕ БІЙ" if not MenuUI.is_english() \
-			else "R / ENTER — FIGHT AGAIN"
+	if _title != null:
+		_title.text = "ПЕРЕМОГА: " + winner if not MenuUI.is_english() \
+				else "VICTORY: " + winner
+	if _status != null:
+		_status.text = "R / ENTER — ЩЕ БІЙ" if not MenuUI.is_english() \
+				else "R / ENTER — FIGHT AGAIN"
 	print("[CHAOS] finished: blue=", blue, " red=", red, " winner=", winner)
 
 

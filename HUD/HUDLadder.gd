@@ -33,4 +33,4 @@ func update_ladder(pitch: float, roll: float) -> void:
 	center_pos = size / 2.0 - _pivot.size / 2.0
 	_pivot.position = center_pos + rad_to_deg(pitch * pitch_marker_spacing) * Vector2(-sin(roll), cos(roll))
 	_pivot.pivot_offset = _pivot.size / 2.0
-	_pivot.rotation = rad_to_deg(roll)
+	_pivot.rotation = roll

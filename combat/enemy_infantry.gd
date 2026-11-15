@@ -101,6 +101,9 @@ var _tactical_knee := false
 var _flank_timer := 0.0
 var _flank_dir := 1.0
 var _alert_forwarded := false
+var _collision_node: CollisionShape3D = null
+var _collision_box: BoxShape3D = null
+var _convoy_target: Node3D = null
 
 
 func _ready() -> void:
@@ -112,10 +115,8 @@ func _ready() -> void:
 	_disabled = _qa_disabled()
 	_ai_low = QualityManager.get_active_level() == QualityManager.Level.LOW
 	_strafe_dir = -1.0 if (abs(get_instance_id()) % 2 == 0) else 1.0
-	if OS.get_name() == "iOS" or OS.has_feature("mobile") \
-			or OS.has_environment("MOBILE_UI"):
-		# Deterministic per-soldier gait offset so squads never march in lockstep.
-		_walk_phase = fmod(float(abs(get_instance_id())) * 0.6180339, TAU)
+	# Deterministic per-soldier gait offset so squads never march in lockstep.
+	_walk_phase = fmod(float(abs(get_instance_id())) * 0.6180339, TAU)
 	_build()
 	_build_lod_proxy()
 	var scene := _find_level_scene()
@@ -203,6 +204,8 @@ func _build() -> void:
 	collision.shape = shape
 	collision.position = Vector3(0, 1.68, 0)
 	add_child(collision)
+	_collision_box = shape
+	_collision_node = collision
 
 
 func _create_model() -> Node3D:
@@ -496,8 +499,7 @@ func _physics_process(delta: float) -> void:
 		_update_target()
 
 	_crouching = (_panic_state == 2) or (_reload_timer > 0.0) or (_suppress_timer > 0.0) or _tactical_knee
-	if not _using_proxy:
-		_update_pose(delta)
+	_update_pose(delta)
 	_update_panic()
 	if _panic_state != 0:
 		_panic_step(delta)
@@ -521,10 +523,9 @@ func _physics_process(delta: float) -> void:
 
 	if _burst_left > 0:
 		_set_locomotion(delta, 0.0)
-		if _mobile_visual_lod_enabled() and not crouched:
-			# Mobile flanking: while a burst is being walked onto the drone,
-			# the shooter sidesteps along a random flank direction so squads
-			# spread out instead of bunching on one firing line.
+		if not crouched:
+			# Flanking: while a burst is walked onto the drone, the shooter
+			# sidesteps so squads spread out instead of bunching on one line.
 			_flank_timer -= delta
 			if _flank_timer <= 0.0:
 				_flank_timer = randf_range(0.9, 1.8)
@@ -562,15 +563,17 @@ func _physics_process(delta: float) -> void:
 			_strafe_timer -= delta
 			var side := global_transform.basis.x * _strafe_dir
 			side.y = 0.0
+			var moved := false
 			if side.length_squared() > 0.001:
 				side = side.normalized()
 				var step_d := 2.15 * delta
 				if _can_step(side, step_d):
 					global_position += side * step_d
+					moved = true
 				else:
 					_strafe_dir = -_strafe_dir
 			_snap_to_ground()
-			_set_locomotion(delta, 2.15)
+			_set_locomotion(delta, 2.15 if moved else 0.0)
 		else:
 			_set_locomotion(delta, 0.0)
 		_recover -= delta
@@ -603,11 +606,22 @@ func _can_step(move_dir: Vector3, step_len: float) -> bool:
 	if scene != null and scene.get("frontline_map") != null:
 		var map := String(scene.get("frontline_map"))
 		if not map.is_empty():
+			var cur_h := FrontlineTerrainScript.height_at(map, global_position.x, global_position.z)
+			var next_h := FrontlineTerrainScript.height_at(map, to.x, to.z)
+			var on_bridge := false
+			if map == "industrial":
+				on_bridge = absf(to.x) < 16.5 and absf(to.z + 170.0) < 22.0
+				var riv_z := -170.0 + 10.0 * sin(to.x * 0.015)
+				if not on_bridge and absf(to.z - riv_z) < 14.5 and next_h < -1.9 and next_h <= cur_h:
+					return false
+			elif map == "village":
+				var rx40 := -140.0 + 18.0 * sin(40.0 * 0.011)
+				var rx140 := -140.0 + 18.0 * sin(140.0 * 0.011)
+				on_bridge = (absf(to.z - 40.0) < 8.5 and absf(to.x - rx40) < 28.0) \
+						or (absf(to.z - 140.0) < 7.0 and absf(to.x - rx140) < 24.0)
 			var wl := FrontlineTerrainScript.water_level(map)
-			if wl > -100.0:
-				var cur_h := FrontlineTerrainScript.height_at(map, global_position.x, global_position.z)
-				var next_h := FrontlineTerrainScript.height_at(map, to.x, to.z)
-				if next_h < wl + 0.25 and next_h <= cur_h:
+			if not on_bridge and wl > -100.0:
+				if next_h < wl + 0.34 and next_h <= cur_h:
 					return false
 	var query := PhysicsRayQueryParameters3D.create(from, to)
 	query.collision_mask = 1
@@ -615,19 +629,16 @@ func _can_step(move_dir: Vector3, step_len: float) -> bool:
 	var hit := space.intersect_ray(query)
 	if not hit.is_empty():
 		return false
-	if _mobile_visual_lod_enabled():
-		# A single chest ray can pass beside thin posts and rails. On mobile the
-		# soldiers often fight around fences and hedgehogs, so also probe both
-		# shoulder lines before committing to the step.
-		var right := Vector3(move_dir.z, 0.0, -move_dir.x).normalized()
-		for side: float in [-0.45, 0.45]:
-			var origin := from + right * side
-			var side_query := PhysicsRayQueryParameters3D.create(
-					origin, origin + move_dir * (step_len + 0.55))
-			side_query.collision_mask = 1
-			side_query.exclude = [get_rid()]
-			if not space.intersect_ray(side_query).is_empty():
-				return false
+	# Probe both shoulder lines so thin posts, walls, and fences do not trap soldiers.
+	var right := Vector3(move_dir.z, 0.0, -move_dir.x).normalized()
+	for side: float in [-0.45, 0.45]:
+		var origin := from + right * side
+		var side_query := PhysicsRayQueryParameters3D.create(
+				origin, origin + move_dir * (step_len + 0.55))
+		side_query.collision_mask = 1
+		side_query.exclude = [get_rid()]
+		if not space.intersect_ray(side_query).is_empty():
+			return false
 	return true
 
 
@@ -649,14 +660,16 @@ func _advance_on_drone(delta: float) -> bool:
 	var desired_yaw := atan2(-dir.x, -dir.z)
 	rotation.y = lerp_angle(rotation.y, desired_yaw, clampf(delta * 5.0, 0.0, 1.0))
 	if absf(angle_difference(rotation.y, desired_yaw)) > 0.5:
-		_set_locomotion(delta, 1.0)
+		_set_locomotion(delta, 0.0)
 		return true
 	var forward := -global_transform.basis.z
 	forward.y = 0.0
 	forward = forward.normalized()
 	var step := 3.4 * delta
+	var moved := false
 	if _can_step(forward, step):
 		global_position += forward * step
+		moved = true
 	else:
 		# Sidestep around the obstacle instead of walking into the wall.
 		var side := global_transform.basis.x * _strafe_dir
@@ -664,10 +677,11 @@ func _advance_on_drone(delta: float) -> bool:
 		side = side.normalized()
 		if _can_step(side, step):
 			global_position += side * step
+			moved = true
 		else:
 			_strafe_dir = -_strafe_dir
 	_snap_to_ground()
-	_set_locomotion(delta, 3.4)
+	_set_locomotion(delta, 3.4 if moved else 0.0)
 	return true
 
 
@@ -701,7 +715,7 @@ func _patrol_step(delta: float) -> void:
 		_pitch.rotation.x = lerp_angle(_pitch.rotation.x, 0.0, clampf(delta * 4.0, 0.0, 1.0))
 	# Turn in place first at patrol endpoints; only advance along forward (-Z) once aligned.
 	if yaw_diff > 0.28:
-		_set_locomotion(delta, _patrol_speed * 0.45)
+		_set_locomotion(delta, 0.0)
 		_snap_to_ground()
 		return
 	var forward := -global_transform.basis.z
@@ -711,12 +725,14 @@ func _patrol_step(delta: float) -> void:
 	else:
 		forward = step_dir
 	var step_dist := _patrol_speed * delta
+	var moved := false
 	if _can_step(forward, step_dist):
 		global_position += forward * step_dist
+		moved = true
 	else:
 		_patrol_dir = -_patrol_dir
 	_snap_to_ground()
-	_set_locomotion(delta, _patrol_speed)
+	_set_locomotion(delta, _patrol_speed if moved else 0.0)
 
 
 ## Scatter / go-to-ground reaction. Each soldier decides once per approach
@@ -771,6 +787,7 @@ func _panic_step(delta: float) -> void:
 			_snap_to_ground()
 			_set_locomotion(delta, 0.0)
 		else:
+			var moved := false
 			if yaw_diff < 0.45:
 				var forward := -global_transform.basis.z
 				forward.y = 0.0
@@ -779,10 +796,11 @@ func _panic_step(delta: float) -> void:
 				var step_dist := scatter_speed * delta
 				if _can_step(forward, step_dist):
 					global_position += forward * step_dist
+					moved = true
 				else:
 					_panic_dir = _panic_dir.rotated(Vector3.UP, PI * 0.65)
 			_snap_to_ground()
-			_set_locomotion(delta, scatter_speed)
+			_set_locomotion(delta, scatter_speed if moved else 0.0)
 		if _panic_timer <= 0.0:
 			_panic_state = 2
 			_panic_timer = randf_range(3.0, 6.0)
@@ -822,8 +840,6 @@ func _clamp_to_map_bounds() -> void:
 
 func _snap_to_ground() -> void:
 	_clamp_to_map_bounds()
-	if (Engine.get_physics_frames() + abs(get_instance_id())) % 3 != 0:
-		return
 	# Frontline maps have an analytic height field.  A downward ray from a
 	# soldier standing next to a warehouse can hit its roof, which is why some
 	# infantrymen were walking on top of buildings.
@@ -834,6 +850,8 @@ func _snap_to_ground() -> void:
 			global_position.y = FrontlineTerrainScript.height_at(map,
 					global_position.x, global_position.z)
 			return
+	if (Engine.get_physics_frames() + abs(get_instance_id())) % 3 != 0:
+		return
 	var space := get_world_3d().direct_space_state
 	var excl: Array[RID] = [get_rid()]
 	if _drone is CollisionObject3D:
@@ -863,6 +881,11 @@ func _is_crouched_or_settling() -> bool:
 func _update_pose(delta: float) -> void:
 	var target := 1.0 if _crouching else 0.0
 	_prone_pose = move_toward(_prone_pose, target, delta * 3.5)
+	if _collision_box != null and _collision_node != null:
+		_collision_box.size.y = lerpf(2.75, 1.55, _prone_pose)
+		_collision_node.position.y = lerpf(1.68, 0.92, _prone_pose)
+	if _using_proxy:
+		return
 	if _detailed_rig != null:
 		_detailed_rig.set_crouch(_crouching)
 	elif _model != null:
@@ -908,46 +931,68 @@ func _set_locomotion(delta: float, speed: float) -> void:
 
 
 func _can_engage() -> bool:
+	if _combat != null and _combat.has_method("can_take_damage"):
+		if not bool(_combat.call("can_take_damage")):
+			return false
+	if _convoy_target != null and is_instance_valid(_convoy_target) \
+			and not bool(_convoy_target.get("is_destroyed")):
+		return _los_clear and _distance <= detect_range and _distance > 3.5
 	if _drone == null or not is_instance_valid(_drone):
 		return false
 	var controller := _drone.get_node_or_null("FlightController") as FlightController
 	if controller == null or not controller.state_armed:
 		return false
-	if _combat != null and _combat.has_method("can_take_damage"):
-		if not bool(_combat.call("can_take_damage")):
-			return false
 	return _los_clear and _distance <= detect_range and _distance > 3.5
 
 
-func _update_target() -> void:
-	_los_clear = false
-	if _drone == null:
-		return
-	_distance = global_position.distance_to(_drone.global_position)
-	if _distance > detect_range:
-		return
-	var from := global_position + Vector3.UP * 2.15
-	var target := _drone.global_position
+func _has_clear_los(from: Vector3, target: Vector3, target_node: Node) -> bool:
 	var query := PhysicsRayQueryParameters3D.create(from, target)
 	query.collision_mask = 1
 	query.collide_with_areas = false
 	query.exclude = [get_rid()]
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	if hit.is_empty():
-		_los_clear = true
-		return
-	var collider = hit.get("collider")
-	if collider == _drone:
-		_los_clear = true
-		return
+		return true
+	if hit.get("collider") == target_node:
+		return true
 	var point: Vector3 = hit.get("position", target)
-	_los_clear = from.distance_to(point) >= from.distance_to(target) - 0.8
+	return from.distance_to(point) >= from.distance_to(target) - 0.8
+
+
+func _update_target() -> void:
+	_los_clear = false
+	_convoy_target = null
+	var eye_h := lerpf(2.15, 1.15, _prone_pose)
+	var from := global_position + Vector3.UP * eye_h
+	if _drone != null and is_instance_valid(_drone):
+		_distance = global_position.distance_to(_drone.global_position)
+		if _distance <= detect_range and _has_clear_los(from, _drone.global_position, _drone):
+			var fc := _drone.get_node_or_null("FlightController") as FlightController
+			if fc != null and fc.state_armed:
+				_los_clear = true
+				return
+	else:
+		_distance = 1e9
+	if get_tree() != null:
+		for node in get_tree().get_nodes_in_group("escort_convoy"):
+			var convoy := node as Node3D
+			if convoy == null or not is_instance_valid(convoy) \
+					or bool(convoy.get("is_destroyed")):
+				continue
+			var d := global_position.distance_to(convoy.global_position)
+			if d <= detect_range and _has_clear_los(from, convoy.global_position + Vector3.UP * 1.1, convoy):
+				_convoy_target = convoy
+				_distance = d
+				_los_clear = true
+				return
 
 
 func _aim_at_drone(delta: float) -> bool:
-	if _drone == null:
+	var tgt := _convoy_target if (_convoy_target != null and is_instance_valid(_convoy_target)) else _drone
+	if tgt == null or not is_instance_valid(tgt):
 		return false
-	var to := _drone.global_position - global_position
+	var target_pos := tgt.global_position + (Vector3.UP * 1.1 if tgt == _convoy_target else Vector3.ZERO)
+	var to := target_pos - global_position
 	var flat := Vector3(to.x, 0.0, to.z)
 	if flat.length_squared() < 0.01:
 		return false
@@ -973,7 +1018,11 @@ func _fire() -> void:
 		_anim.play("Fire")
 	var muzzle_pos := _muzzle.global_position
 	var target: Vector3 = muzzle_pos - global_transform.basis.z * 50.0
-	if _drone != null and is_instance_valid(_drone):
+	var shooting_convoy := _convoy_target != null and is_instance_valid(_convoy_target) \
+			and not bool(_convoy_target.get("is_destroyed"))
+	if shooting_convoy:
+		target = _convoy_target.global_position + Vector3.UP * 1.1
+	elif _drone != null and is_instance_valid(_drone):
 		var lead := (_distance / tracer_speed) * 0.7
 		target = _drone.global_position + _drone.linear_velocity * lead
 	if _demo_miss:
@@ -994,7 +1043,15 @@ func _fire() -> void:
 	tracer.tracer_width = width
 	tracer.add_to_group("aa_tracer")
 	get_parent().add_child(tracer)
-	tracer.setup(muzzle_pos, dir, speed, tracer_damage, self)
+	tracer.setup(muzzle_pos, dir, speed, 0.0 if shooting_convoy else tracer_damage, self)
+	if shooting_convoy:
+		var q := PhysicsRayQueryParameters3D.create(muzzle_pos, target)
+		q.collision_mask = 1
+		q.exclude = [get_rid()]
+		var hit := get_world_3d().direct_space_state.intersect_ray(q)
+		if not hit.is_empty() and hit.get("collider") == _convoy_target \
+				and _convoy_target.has_method("take_damage"):
+			_convoy_target.call("take_damage", tracer_damage * 0.40, hit.get("position"))
 	CombatSfxScript.play_rifle(get_parent(), muzzle_pos, -9.0)
 	_muzzle_flash(muzzle_pos)
 	_recoil = 0.065
@@ -1074,18 +1131,23 @@ func take_damage(amount: float, hit_position: Vector3 = Vector3.ZERO) -> void:
 		_destroy()
 
 
-## Mobile-only squad reaction: nearby infantry notice a hit or a destroyed
-## comrade. They briefly duck (suppression) and about a third of them break into
-## a short scatter away from the impact. Deterministic distance gate keeps this
-## cheap and local; the desktop combat behavior is untouched.
+## Squad reaction: nearby infantry notice a hit, blast, or destroyed comrade.
+## They duck briefly (suppression) and about a third scatter away from impact.
 func _alert_group(source_pos: Vector3) -> void:
-	if not _mobile_visual_lod_enabled() or is_destroyed:
+	if is_destroyed:
 		return
 	for node in get_tree().get_nodes_in_group("enemy_infantry"):
 		if node == self or not node is EnemyRifleman or not is_instance_valid(node):
 			continue
 		if (node as EnemyRifleman).global_position.distance_to(source_pos) < 42.0:
 			(node as EnemyRifleman).call("_react_to_alert", source_pos)
+
+
+func notify_blast(source_pos: Vector3, blast_radius: float) -> void:
+	if is_destroyed or _disabled:
+		return
+	if global_position.distance_to(source_pos) <= blast_radius:
+		_react_to_alert(source_pos)
 
 
 func _react_to_alert(source_pos: Vector3) -> void:

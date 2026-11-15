@@ -88,6 +88,8 @@ var _bf_base_ki: Array[float] = []
 var _bf_base_kd: Array[float] = []
 var _bf_prev_setpoint: Array[float] = []
 var _bf_prev_throttle := 0.0
+var _level_inertia_scale := 1.0
+var _is_fixed_wing := false
 ## Slow attitude trim for LEVEL/HORIZON.  Heavy combat airframes carry the
 ## battery/warhead below the frame, so their centre of mass is a few cm behind
 ## the geometric centre.  Collective thrust then produces a constant nose-down
@@ -99,8 +101,8 @@ var _level_pitch_trim := 0.0
 ## Set by Drone each physics frame.  The trim integrator is disabled on the
 ## ground so a slope/landing-gear tilt cannot wind up a permanent offset.
 var on_ground := false
-const LEVEL_TRIM_GAIN := 1.5
-const LEVEL_TRIM_LIMIT := 0.16
+const LEVEL_TRIM_GAIN := 0.8
+const LEVEL_TRIM_LIMIT := 0.08
 const LEVEL_TRIM_STICK_GATE := 0.08
 
 var telemetry_file: FileAccess = null
@@ -207,27 +209,28 @@ func throttle_to_motor_pwm(throttle: float) -> float:
 ## Heavier / higher-inertia drones (e.g. 4 kg combat bomber) need
 ## disproportionately stronger P and D to achieve the same rate response.
 func update_pid_for_inertia(drone_inertia: Vector3, drone_mass: float) -> void:
-	# Mass-driven scaling: heavier drones get stronger gains. Exponent 0.65
-	# grows faster than sqrt, so a 4 kg drone gets ~3.5× instead of 2.5×.
-	var mass_scale := clampf(pow(drone_mass / 0.60, 0.65), 0.8, 4.0)
-	# Inertia-driven scaling: high yaw/pitch inertia needs extra D to damp
-	# the pendulum effect of a combat payload hanging below the frame.
-	var inertia_sum := drone_inertia.x + drone_inertia.y + drone_inertia.z
-	var inertia_scale := clampf(pow(inertia_sum / 0.02, 0.33), 1.0, 1.6)
-	var scale_factor := clampf(mass_scale * inertia_scale, 0.8, 5.0)
-	# A heavy payload slung under the frame gives the drone a permanent
-	# pitch/roll trim torque.  P alone leaves a steady rate error, so the quad
-	# slowly noses over with centred sticks.  Scale I much harder with mass so
-	# the trim is learned in a fraction of a second instead of many seconds.
-	var i_boost := clampf(pow(drone_mass / 0.60, 1.5), 1.0, 16.0)
-	var kp_scaled := pid_scale_p * pid_roll_p * scale_factor
-	var ki_scaled := pid_scale_i * pid_roll_i * scale_factor * i_boost
-	var kd_scaled := pid_scale_d * pid_roll_d * scale_factor
-	
+	# Per-axis inertia scaling relative to the reference 5" quad keeps heavy
+	# airframes damped without causing giant integral windup.
+	var eff_mass := maxf(drone_mass, 0.15)
+	var arm_inertia := (maxf(drone_inertia.x, 0.002) + maxf(drone_inertia.z, 0.002)) * 0.5
+	var arm_scale := clampf(pow((arm_inertia / eff_mass) / 0.0065, 0.36), 0.85, 3.6)
+	var mass_scale := clampf(pow(eff_mass / 0.65, 0.36), 0.85, 2.8)
+	var scale_rp := clampf(mass_scale * arm_scale, 0.85, 6.0)
+	var scale_y := clampf(scale_rp * 1.15, 0.90, 6.5)
+	var i_boost := clampf(pow(eff_mass / 0.65, 0.24), 1.0, 2.2)
+	_level_inertia_scale = clampf(sqrt(clampf(arm_inertia / 0.005, 0.8, 25.0)) * 0.45 + 0.55, 0.95, 2.6)
+
+	var kp_rp := pid_scale_p * pid_roll_p * scale_rp
+	var ki_rp := pid_scale_i * pid_roll_i * scale_rp * i_boost
+	var kd_rp := pid_scale_d * pid_roll_d * scale_rp
+	var kp_y := pid_scale_p * pid_yaw_p * scale_y
+	var ki_y := pid_scale_i * pid_yaw_i * scale_y * i_boost
+	var kd_y := pid_scale_d * pid_yaw_d * scale_y
+
 	if pid_controllers.size() > Controller.PITCH_SPEED:
-		pid_controllers[Controller.ROLL_SPEED].set_coefficients(kp_scaled, ki_scaled, kd_scaled)
-		pid_controllers[Controller.PITCH_SPEED].set_coefficients(kp_scaled, ki_scaled, kd_scaled)
-		pid_controllers[Controller.YAW_SPEED].set_coefficients(kp_scaled * 1.3, ki_scaled * 1.5, kd_scaled * 0.8)
+		pid_controllers[Controller.ROLL_SPEED].set_coefficients(kp_rp, ki_rp, kd_rp)
+		pid_controllers[Controller.PITCH_SPEED].set_coefficients(kp_rp, ki_rp, kd_rp)
+		pid_controllers[Controller.YAW_SPEED].set_coefficients(kp_y, ki_y, kd_y)
 	_capture_bf_base()
 
 
@@ -274,7 +277,8 @@ func _betaflight_pid(index: int, setpoint: float, measurement: float,
 	var sp_prev: float = _bf_prev_setpoint[index]
 	var sp_delta: float = setpoint - sp_prev
 	_bf_prev_setpoint[index] = setpoint
-	var sp_accel: float = absf(sp_delta) / maxf(delta, 0.00001)
+	var sp_delta_deg: float = rad_to_deg(sp_delta)
+	var sp_accel_deg: float = absf(sp_delta_deg) / maxf(delta, 0.00001)
 
 	# TPA: P and D fade above 65% throttle to stop high-frequency chatter.
 	var tpa := 1.0
@@ -282,8 +286,8 @@ func _betaflight_pid(index: int, setpoint: float, measurement: float,
 		var t := clampf((throttle - tpa_breakpoint) / maxf(1.0 - tpa_breakpoint, 0.001), 0.0, 1.0)
 		tpa = 1.0 - tpa_rate * t
 
-	# D-Min: low D when sticks are still, full D on a sharp flip.
-	var boost := clampf(sp_accel / maxf(d_min_boost_range, 1.0), 0.0, 1.0)
+	# D-Min: low D when sticks are still, full D on a sharp flip (in deg/s^2).
+	var boost := clampf(sp_accel_deg / maxf(d_min_boost_range, 1.0), 0.0, 1.0)
 	var kd := lerpf(base_kd * d_min_ratio, base_kd, boost) * tpa
 
 	pid.kp = base_kp * tpa
@@ -295,8 +299,8 @@ func _betaflight_pid(index: int, setpoint: float, measurement: float,
 	pid.set_target(setpoint)
 	var out := pid.get_output(measurement, delta, false)
 
-	# Feedforward reacts to the stick before the integral winds up.
-	out += clampf(sp_delta * ff_gain, -ff_limit, ff_limit)
+	# Feedforward reacts to deg/s stick movement before integral winds up.
+	out += clampf(sp_delta_deg * ff_gain, -ff_limit, ff_limit)
 	return clampf(out, pid.clamp_low, pid.clamp_high)
 
 
@@ -680,6 +684,25 @@ func update_control(delta: float) -> void:
 	motors[3].set_pwm(motor_pwm[3])
 
 
+func _compute_angle_axis_cmd(stick: float, expo: float, bank_limit: float,
+		angle_meas: float, ang_vel_meas: float, is_pitch: bool) -> float:
+	var target := ((1.0 - expo) * stick + expo * pow(stick, 3)) * bank_limit
+	var error := target - angle_meas
+	var trim := 0.0
+	if is_pitch:
+		if not on_ground and absf(stick) < LEVEL_TRIM_STICK_GATE and absf(angles.x) < 0.35:
+			_level_pitch_trim = clampf(
+					_level_pitch_trim + error * LEVEL_TRIM_GAIN * dt,
+					-LEVEL_TRIM_LIMIT, LEVEL_TRIM_LIMIT)
+		elif absf(stick) > 0.25:
+			_level_pitch_trim = move_toward(_level_pitch_trim, 0.0, 0.10 * dt)
+		trim = _level_pitch_trim
+	var rate_target := clampf(error * control_profile.level_angle_gain,
+			-control_profile.level_rate_limit, control_profile.level_rate_limit)
+	var rate_gain: float = float(control_profile.level_rate_gain) * _level_inertia_scale
+	return clampf((rate_target - ang_vel_meas) * rate_gain + trim, -0.32, 0.32)
+
+
 func update_command() -> Array:
 	var motor_control := [0, 0, 0, 0]
 	
@@ -714,94 +737,51 @@ func update_command() -> Array:
 		motor_control[3] = _betaflight_pid(Controller.PITCH_SPEED, pitch_input, ang_vel.x, dt, pwr, ag)
 	
 	elif flight_mode == FlightMode.LEVEL:
-		var bank_limit := deg_to_rad(control_profile.level_bank_deg)
-		# Direct throttle: LEVEL keeps the self-levelling attitude hold but the
-		# stick is real thrust, so the drone lifts off reliably.
-		motor_control[0] = throttle_to_motor_pwm(pwr)
-		
-		pid_controllers[Controller.YAW_SPEED].set_target((-(1 - expo_y) * y - expo_y * pow(y, 3)) * PI)
-		motor_control[1] = pid_controllers[Controller.YAW_SPEED].get_output(ang_vel.y, dt, false)
-		
-		# Cascaded attitude hold. The old code fed the angle PID straight into
-		# the motors; its output saturated at 0.025 and the drone rocked back and
-		# forth ("seesaw"). Now the angle error produces a limited turn-rate
-		# request and a rate-feedback gain damps the rotation before the motors.
-		var roll_target := ((1 - expo_r) * r + expo_r * pow(r, 3)) * bank_limit
-		var roll_rate_target := clampf((roll_target - (-angles.z))
-				* control_profile.level_angle_gain,
-				-control_profile.level_rate_limit, control_profile.level_rate_limit)
-		motor_control[2] = clampf((roll_rate_target - (-ang_vel.z))
-				* control_profile.level_rate_gain, -0.25, 0.25)
-		
-		var pitch_target := ((1 - expo_p) * p + expo_p * pow(p, 3)) * bank_limit
-		var pitch_error := pitch_target - angles.x
-		# Learn the airframe's CG trim only while the pilot is not asking for a
-		# deliberate pitch change.  The clamp keeps a bad frame/crash from
-		# winding up a large permanent offset.
-		if not on_ground and absf(p) < LEVEL_TRIM_STICK_GATE and absf(angles.x) < 0.35:
-			_level_pitch_trim = clampf(
-					_level_pitch_trim + pitch_error * LEVEL_TRIM_GAIN * dt,
-					-LEVEL_TRIM_LIMIT, LEVEL_TRIM_LIMIT)
-		elif absf(p) > 0.25:
-			_level_pitch_trim = move_toward(_level_pitch_trim, 0.0, 0.10 * dt)
-		var pitch_rate_target := clampf(pitch_error
-				* control_profile.level_angle_gain,
-				-control_profile.level_rate_limit, control_profile.level_rate_limit)
-		motor_control[3] = clampf((pitch_rate_target - ang_vel.x)
-				* control_profile.level_rate_gain + _level_pitch_trim, -0.25, 0.25)
-	
-	elif flight_mode == FlightMode.HORIZON:
-		# HORIZON:self-leveling (Angle) near stick centre, pure rate (Acro)
-		# when the stick is pushed past horizon_threshold.  This gives a soft
-		# centre for precise aiming and progressive snap at the edges for flips.
+		var prof_bank: float = float(control_profile.level_bank_deg)
+		var bank_deg: float = minf(prof_bank, 30.0) if _is_fixed_wing else prof_bank
+		var bank_limit := deg_to_rad(bank_deg)
 		motor_control[0] = throttle_to_motor_pwm(pwr)
 
-		# Anti-Gravity: shared throttle-punch factor across all axes.
+		var yaw_input := _rate_for_axis(2, -y) * (0.70 if control_profile.rate_yaw > 400.0 else 1.0)
+		pid_controllers[Controller.YAW_SPEED].set_target(yaw_input)
+		motor_control[1] = pid_controllers[Controller.YAW_SPEED].get_output(ang_vel.y, dt, false)
+
+		motor_control[2] = _compute_angle_axis_cmd(r, expo_r, bank_limit, -angles.z, -ang_vel.z, false)
+		motor_control[3] = _compute_angle_axis_cmd(p, expo_p, bank_limit, angles.x, ang_vel.x, true)
+
+	elif flight_mode == FlightMode.HORIZON:
+		# HORIZON: self-leveling (Angle) near stick centre with a smooth blend
+		# into full rate (Acro) near stick edges, preventing sudden flip snaps.
+		motor_control[0] = throttle_to_motor_pwm(pwr)
+
 		var d_thr: float = pwr - _bf_prev_throttle
 		var ag := 1.0 + anti_gravity_gain * clampf(
 				absf(d_thr) / maxf(dt, 0.00001) / 30.0, 0.0, 1.0)
 		_bf_prev_throttle = pwr
 
-		# Yaw is always rate mode in HORIZON.
 		var yaw_input := _rate_for_axis(2, -y)
 		motor_control[1] = _betaflight_pid(Controller.YAW_SPEED, yaw_input, ang_vel.y, dt, pwr, ag)
 
-		var bank_limit := deg_to_rad(horizon_bank_deg)
+		var hz_bank_deg := minf(horizon_bank_deg, 32.0) if _is_fixed_wing else horizon_bank_deg
+		var bank_limit := deg_to_rad(hz_bank_deg)
+		var lo := maxf(horizon_threshold - 0.15, 0.30)
+		var hi := minf(horizon_threshold + 0.18, 0.96)
 
-		# --- Roll -----------------------------------------------------------
-		var r_abs := absf(r)
-		if r_abs < horizon_threshold:
-			# Angle region: self-level to commanded bank angle.
-			var roll_target := ((1 - expo_r) * r + expo_r * pow(r, 3)) * bank_limit
-			var roll_rate_target := clampf((roll_target - (-angles.z))
-					* control_profile.level_angle_gain,
-					-control_profile.level_rate_limit, control_profile.level_rate_limit)
-			motor_control[2] = clampf((roll_rate_target - (-ang_vel.z))
-					* control_profile.level_rate_gain, -0.25, 0.25)
+		var roll_angle_cmd := _compute_angle_axis_cmd(r, expo_r, bank_limit, -angles.z, -ang_vel.z, false)
+		var roll_blend := smoothstep(lo, hi, absf(r))
+		if roll_blend <= 0.001:
+			motor_control[2] = roll_angle_cmd
 		else:
-			# Rate region: acro, no self-leveling, permits flips.
-			var roll_input := _rate_for_axis(0, r)
-			motor_control[2] = _betaflight_pid(Controller.ROLL_SPEED, roll_input, -ang_vel.z, dt, pwr, ag)
+			var roll_acro_cmd := _betaflight_pid(Controller.ROLL_SPEED, _rate_for_axis(0, r), -ang_vel.z, dt, pwr, ag)
+			motor_control[2] = lerpf(roll_angle_cmd, roll_acro_cmd, roll_blend)
 
-		# --- Pitch ----------------------------------------------------------
-		var p_abs := absf(p)
-		if p_abs < horizon_threshold:
-			var pitch_target := ((1 - expo_p) * p + expo_p * pow(p, 3)) * bank_limit
-			var pitch_error := pitch_target - angles.x
-			if not on_ground and absf(p) < LEVEL_TRIM_STICK_GATE and absf(angles.x) < 0.35:
-				_level_pitch_trim = clampf(
-						_level_pitch_trim + pitch_error * LEVEL_TRIM_GAIN * dt,
-						-LEVEL_TRIM_LIMIT, LEVEL_TRIM_LIMIT)
-			elif absf(p) > 0.25:
-				_level_pitch_trim = move_toward(_level_pitch_trim, 0.0, 0.10 * dt)
-			var pitch_rate_target := clampf(pitch_error
-					* control_profile.level_angle_gain,
-					-control_profile.level_rate_limit, control_profile.level_rate_limit)
-			motor_control[3] = clampf((pitch_rate_target - ang_vel.x)
-					* control_profile.level_rate_gain + _level_pitch_trim, -0.25, 0.25)
+		var pitch_angle_cmd := _compute_angle_axis_cmd(p, expo_p, bank_limit, angles.x, ang_vel.x, true)
+		var pitch_blend := smoothstep(lo, hi, absf(p))
+		if pitch_blend <= 0.001:
+			motor_control[3] = pitch_angle_cmd
 		else:
-			var pitch_input := _rate_for_axis(1, p)
-			motor_control[3] = _betaflight_pid(Controller.PITCH_SPEED, pitch_input, ang_vel.x, dt, pwr, ag)
+			var pitch_acro_cmd := _betaflight_pid(Controller.PITCH_SPEED, _rate_for_axis(1, p), ang_vel.x, dt, pwr, ag)
+			motor_control[3] = lerpf(pitch_angle_cmd, pitch_acro_cmd, pitch_blend)
 	
 	elif flight_mode == FlightMode.SPEED:
 		var bank_limit := deg_to_rad(35)
@@ -934,7 +914,7 @@ func update_command() -> Array:
 	# rotation, but the motors stay near idle.
 	if flight_mode in [FlightMode.RATE, FlightMode.LEVEL, FlightMode.HORIZON]:
 		var authority := clampf(pwr / 0.18, 0.0, 1.0)
-		var limit := lerpf(0.06, 0.25, authority)
+		var limit := lerpf(0.12, 0.30, authority)
 		motor_control[1] = clampf(motor_control[1], -limit, limit)
 		motor_control[2] = clampf(motor_control[2], -limit, limit)
 		motor_control[3] = clampf(motor_control[3], -limit, limit)

@@ -12,13 +12,12 @@ var expo_pitch := 0.2
 var expo_roll := 0.2
 var expo_yaw := 0.2
 
-## Betaflight 4.4/4.5 style rates.  ACTUAL uses center sensitivity and max
-## rate; BETAFLIGHT uses RC rate + super rate; QUICK is the simple cubic curve.
-## All three honour expo and are selected in the drone setup screen.
-var rate_type: int = RateType.BETAFLIGHT
-var center_sensitivity_roll := 200.0
-var center_sensitivity_pitch := 200.0
-var center_sensitivity_yaw := 180.0
+## ACTUAL honors each preset's configured max rate and center sensitivity while
+## BETAFLIGHT/QUICK remain selectable in Settings.
+var rate_type: int = RateType.ACTUAL
+var center_sensitivity_roll := 180.0
+var center_sensitivity_pitch := 180.0
+var center_sensitivity_yaw := 160.0
 var betaflight_rc_rate := 1.0
 var betaflight_super_rate := 0.70
 
@@ -66,7 +65,8 @@ func get_axis_rate(axis: int, stick: float) -> float:
 			return max_rate * s * a * a * expo_factor
 		_:
 			# Actual Rates: linear centre + cubic towards max rate.
-			var r := center * s + (max_rate - center) * s * a * a
+			var eff_center := minf(center, max_rate * 0.72)
+			var r := eff_center * s + (max_rate - eff_center) * s * a * a
 			return r * expo_factor
 
 
@@ -99,9 +99,12 @@ func get_rates() -> Array:
 
 
 func set_rates(p : float, r : float, y : float) -> void:
-	rate_pitch = p
-	rate_roll = r
-	rate_yaw = y
+	rate_pitch = maxf(p, 30.0)
+	rate_roll = maxf(r, 30.0)
+	rate_yaw = maxf(y, 30.0)
+	center_sensitivity_pitch = clampf(rate_pitch * 0.42, 65.0, 200.0)
+	center_sensitivity_roll = clampf(rate_roll * 0.42, 65.0, 200.0)
+	center_sensitivity_yaw = clampf(rate_yaw * 0.40, 60.0, 180.0)
 
 
 func get_expo() -> Array:

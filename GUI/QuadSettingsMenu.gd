@@ -369,9 +369,15 @@ func _refresh_language_ui() -> void:
 func update_QuadGUI() -> void:
 	angle_slider.value = QuadSettings.angle
 	angle_text.text = "%d°" % [angle_slider.value]
-	weight_slider.value = QuadSettings.dry_weight * 1000.0
+	var dry_g := QuadSettings.dry_weight * 1000.0
+	weight_slider.max_value = maxf(1500.0, ceil(dry_g * 1.4 / 500.0) * 500.0)
+	weight_slider.step = 100.0 if weight_slider.max_value > 4000.0 else 10.0
+	weight_slider.set_value_no_signal(clampf(dry_g, weight_slider.min_value, weight_slider.max_value))
 	weight_text.text = "%d %s" % [weight_slider.value, _ui_text("г", "g")]
-	batt_slider.value = QuadSettings.battery_weight * 1000.0
+	var batt_g := QuadSettings.battery_weight * 1000.0
+	batt_slider.max_value = maxf(1000.0, ceil(batt_g * 1.4 / 250.0) * 250.0)
+	batt_slider.step = 50.0 if batt_slider.max_value > 2500.0 else 10.0
+	batt_slider.set_value_no_signal(clampf(batt_g, batt_slider.min_value, batt_slider.max_value))
 	batt_text.text = "%d %s" % [batt_slider.value, _ui_text("г", "g")]
 	_refresh_summary_card()
 

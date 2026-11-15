@@ -134,6 +134,7 @@ var _visual_lod := 0
 ## Low-end presets tick distant vehicles at half rate.
 var _ai_low := false
 var _ai_tick := 0
+var _ai_accum := 0.0
 var _ground := 0.0
 var _ground_normal := Vector3.UP
 var _prev_speed := 0.0
@@ -874,108 +875,109 @@ func _setup_dust() -> void:
 ## antennas and machine guns.  These do not change hitboxes or behaviour; they
 ## simply stop the low-poly hulls reading as smooth plastic figurines.
 func _add_vehicle_detail() -> void:
-	var armor := _mat(Color(0.20, 0.24, 0.15), 0.82, 0.10)
-	var dark := _mat(Color(0.07, 0.08, 0.06), 0.70, 0.20)
-	var metal := _mat(Color(0.15, 0.16, 0.17), 0.46, 0.65)
-	match kind:
-		Kind.TANK:
-			# Track skirts and rubber flaps.
-			for side in [-1.0, 1.0]:
-				_box(self, Vector3(0.10, 0.52, 4.9),
-						Vector3(side * 1.42, 0.62, 0.0), armor)
-				_box(self, Vector3(0.16, 0.16, 4.7),
-						Vector3(side * 1.40, 0.30, 0.0), dark)
-			# ERA bricks across the glacis.
-			for i in range(7):
-				_box(self, Vector3(0.30, 0.16, 0.13),
-						Vector3(-0.93 + i * 0.31, 0.98, -2.86), armor)
-			# Rear fuel drums and stowage.
-			for side in [-1.0, 1.0]:
-				_cyl(self, 0.27, 0.82, Vector3(side * 0.92, 1.02, 2.55),
-						metal, Vector3(0.0, 0.0, PI * 0.5))
-			# Articulated turret mount + recoil barrel
-			_turret = Node3D.new()
-			_turret.name = "TurretMount"
-			_turret.position = Vector3(0.0, 1.80, 0.0)
-			add_child(_turret)
-			for side in [-1.0, 1.0]:
-				for i in range(3):
-					_box(_turret, Vector3(0.22, 0.18, 0.30),
-							Vector3(side * (0.62 + i * 0.13), 0.0,
-									-0.55 + i * 0.26), armor,
-							Vector3(0.0, side * 0.28, 0.0))
-			_box(_turret, Vector3(1.10, 0.30, 0.55), Vector3(0.0, 0.38, 0.62), dark)
-			_box(_turret, Vector3(0.12, 0.12, 0.62), Vector3(0.42, 0.62, -0.62), metal)
-			_cyl(_turret, 0.014, 1.35, Vector3(-0.78, 0.75, 0.72), dark)
-			_barrel = Node3D.new()
-			_barrel.name = "BarrelPivot"
-			_barrel.position = Vector3(0.0, 0.18, -0.95)
-			_barrel_rest_z = _barrel.position.z
-			_turret.add_child(_barrel)
-			_cyl(_barrel, 0.075, 2.85, Vector3(0.0, 0.0, -1.42), metal,
-					Vector3(PI * 0.5, 0.0, 0.0))
-		Kind.BMP, Kind.APC:
-			for side in [-1.0, 1.0]:
-				_box(self, Vector3(0.09, 0.46, 4.5),
-						Vector3(side * 1.33, 0.55, 0.0), armor)
-			_box(self, Vector3(0.90, 0.28, 0.42), Vector3(-0.55, 1.70, 1.65), dark)
-			_box(self, Vector3(2.5, 0.16, 0.28), Vector3(0.0, 0.62, -2.95), dark)
-			_turret = Node3D.new()
-			_turret.name = "TurretMount"
-			_turret.position = Vector3(0.0, 1.85, -0.15)
-			add_child(_turret)
-			_cyl(_turret, 0.014, 1.25, Vector3(0.82, 0.60, 0.80), dark)
-			_barrel = Node3D.new()
-			_barrel.name = "BarrelPivot"
-			_barrel.position = Vector3(0.0, 0.35, -0.45)
-			_barrel_rest_z = _barrel.position.z
-			_turret.add_child(_barrel)
-			if kind == Kind.BMP:
-				_cyl(_barrel, 0.065, 1.65, Vector3(0.0, 0.0, -0.82), metal,
-						Vector3(PI * 0.5, 0.0, 0.0))
-				_box(_turret, Vector3(0.30, 0.18, 0.40), Vector3(0.0, 0.39, -0.03), dark)
-			else:
-				_cyl(_barrel, 0.055, 1.45, Vector3(0.0, 0.0, -0.72), metal,
-						Vector3(PI * 0.5, 0.0, 0.0))
-				_box(_turret, Vector3(0.42, 0.26, 0.46), Vector3(0.55, 0.40, -0.20), metal)
-				# BTR-90 sloped trim vane, rear waterjet shrouds, wheel hubs, and turret cage
-				_box(self, Vector3(2.30, 0.14, 0.40), Vector3(0.0, 1.32, -2.55), armor,
-						Vector3(-0.34, 0.0, 0.0))
+	if variant == "":
+		var armor := _mat(Color(0.20, 0.24, 0.15), 0.82, 0.10)
+		var dark := _mat(Color(0.07, 0.08, 0.06), 0.70, 0.20)
+		var metal := _mat(Color(0.15, 0.16, 0.17), 0.46, 0.65)
+		match kind:
+			Kind.TANK:
+				# Track skirts and rubber flaps.
 				for side in [-1.0, 1.0]:
-					_cyl(self, 0.18, 0.36, Vector3(side * 0.68, 0.92, 2.86), dark,
+					_box(self, Vector3(0.10, 0.52, 4.9),
+							Vector3(side * 1.42, 0.62, 0.0), armor)
+					_box(self, Vector3(0.16, 0.16, 4.7),
+							Vector3(side * 1.40, 0.30, 0.0), dark)
+				# ERA bricks across the glacis.
+				for i in range(7):
+					_box(self, Vector3(0.30, 0.16, 0.13),
+							Vector3(-0.93 + i * 0.31, 0.98, -2.86), armor)
+				# Rear fuel drums and stowage.
+				for side in [-1.0, 1.0]:
+					_cyl(self, 0.27, 0.82, Vector3(side * 0.92, 1.02, 2.55),
+							metal, Vector3(0.0, 0.0, PI * 0.5))
+				# Articulated turret mount + recoil barrel
+				_turret = Node3D.new()
+				_turret.name = "TurretMount"
+				_turret.position = Vector3(0.0, 1.80, 0.0)
+				add_child(_turret)
+				for side in [-1.0, 1.0]:
+					for i in range(3):
+						_box(_turret, Vector3(0.22, 0.18, 0.30),
+								Vector3(side * (0.62 + i * 0.13), 0.0,
+										-0.55 + i * 0.26), armor,
+								Vector3(0.0, side * 0.28, 0.0))
+				_box(_turret, Vector3(1.10, 0.30, 0.55), Vector3(0.0, 0.38, 0.62), dark)
+				_box(_turret, Vector3(0.12, 0.12, 0.62), Vector3(0.42, 0.62, -0.62), metal)
+				_cyl(_turret, 0.014, 1.35, Vector3(-0.78, 0.75, 0.72), dark)
+				_barrel = Node3D.new()
+				_barrel.name = "BarrelPivot"
+				_barrel.position = Vector3(0.0, 0.18, -0.95)
+				_barrel_rest_z = _barrel.position.z
+				_turret.add_child(_barrel)
+				_cyl(_barrel, 0.075, 2.85, Vector3(0.0, 0.0, -1.42), metal,
+						Vector3(PI * 0.5, 0.0, 0.0))
+			Kind.BMP, Kind.APC:
+				for side in [-1.0, 1.0]:
+					_box(self, Vector3(0.09, 0.46, 4.5),
+							Vector3(side * 1.33, 0.55, 0.0), armor)
+				_box(self, Vector3(0.90, 0.28, 0.42), Vector3(-0.55, 1.70, 1.65), dark)
+				_box(self, Vector3(2.5, 0.16, 0.28), Vector3(0.0, 0.62, -2.95), dark)
+				_turret = Node3D.new()
+				_turret.name = "TurretMount"
+				_turret.position = Vector3(0.0, 1.85, -0.15)
+				add_child(_turret)
+				_cyl(_turret, 0.014, 1.25, Vector3(0.82, 0.60, 0.80), dark)
+				_barrel = Node3D.new()
+				_barrel.name = "BarrelPivot"
+				_barrel.position = Vector3(0.0, 0.35, -0.45)
+				_barrel_rest_z = _barrel.position.z
+				_turret.add_child(_barrel)
+				if kind == Kind.BMP:
+					_cyl(_barrel, 0.065, 1.65, Vector3(0.0, 0.0, -0.82), metal,
 							Vector3(PI * 0.5, 0.0, 0.0))
-					for wz in [-1.85, -0.62, 0.62, 1.85]:
-						_cyl(self, 0.16, 0.12, Vector3(side * 1.46, 0.52, wz), dark,
-								Vector3(0.0, 0.0, PI * 0.5))
-				_box(_turret, Vector3(1.38, 0.20, 0.08), Vector3(0.0, 0.32, 0.86), metal)
-		Kind.TRUCK:
-			# Roof machine gun, spare wheel and antennas.
-			_turret = Node3D.new()
-			_turret.name = "TurretMount"
-			_turret.position = Vector3(0.0, 2.78, -0.35)
-			add_child(_turret)
-			_box(_turret, Vector3(0.12, 0.12, 0.58), Vector3.ZERO, metal)
-			_barrel = Node3D.new()
-			_barrel.name = "BarrelPivot"
-			_barrel.position = Vector3(0.0, 0.0, -0.28)
-			_barrel_rest_z = _barrel.position.z
-			_turret.add_child(_barrel)
-			_cyl(_barrel, 0.030, 0.62, Vector3(0.0, 0.0, -0.32), metal,
-					Vector3(PI * 0.5, 0.0, 0.0))
-			_cyl(self, 0.38, 0.20, Vector3(0.0, 1.35, 2.42), dark,
-					Vector3(PI * 0.5, 0.0, 0.0))
-			_cyl(self, 0.014, 1.15, Vector3(-0.92, 2.35, 0.55), dark)
-			_box(self, Vector3(2.15, 0.16, 0.20), Vector3(0.0, 0.95, -2.55), metal)
-		Kind.SAM:
-			# The radar turret is added separately; dress the hull with EW pods and mast braces.
-			for side in [-1.0, 1.0]:
-				_box(self, Vector3(0.10, 0.50, 4.7),
-						Vector3(side * 1.35, 0.60, 0.0), armor)
-				_box(self, Vector3(0.32, 0.42, 1.15),
-						Vector3(side * 1.24, 1.56, 0.35), metal)
-				_cyl(self, 0.025, 1.35, Vector3(side * 1.12, 2.45, 1.55), dark)
-			_box(self, Vector3(1.2, 0.28, 0.5), Vector3(0.0, 1.75, 1.8), dark)
-			_box(self, Vector3(1.45, 0.24, 0.85), Vector3(0.0, 1.98, -1.05), metal)
+					_box(_turret, Vector3(0.30, 0.18, 0.40), Vector3(0.0, 0.39, -0.03), dark)
+				else:
+					_cyl(_barrel, 0.055, 1.45, Vector3(0.0, 0.0, -0.72), metal,
+							Vector3(PI * 0.5, 0.0, 0.0))
+					_box(_turret, Vector3(0.42, 0.26, 0.46), Vector3(0.55, 0.40, -0.20), metal)
+					# BTR-90 sloped trim vane, rear waterjet shrouds, wheel hubs, and turret cage
+					_box(self, Vector3(2.30, 0.14, 0.40), Vector3(0.0, 1.32, -2.55), armor,
+							Vector3(-0.34, 0.0, 0.0))
+					for side in [-1.0, 1.0]:
+						_cyl(self, 0.18, 0.36, Vector3(side * 0.68, 0.92, 2.86), dark,
+								Vector3(PI * 0.5, 0.0, 0.0))
+						for wz in [-1.85, -0.62, 0.62, 1.85]:
+							_cyl(self, 0.16, 0.12, Vector3(side * 1.46, 0.52, wz), dark,
+									Vector3(0.0, 0.0, PI * 0.5))
+					_box(_turret, Vector3(1.38, 0.20, 0.08), Vector3(0.0, 0.32, 0.86), metal)
+			Kind.TRUCK:
+				# Roof machine gun, spare wheel and antennas.
+				_turret = Node3D.new()
+				_turret.name = "TurretMount"
+				_turret.position = Vector3(0.0, 2.78, -0.35)
+				add_child(_turret)
+				_box(_turret, Vector3(0.12, 0.12, 0.58), Vector3.ZERO, metal)
+				_barrel = Node3D.new()
+				_barrel.name = "BarrelPivot"
+				_barrel.position = Vector3(0.0, 0.0, -0.28)
+				_barrel_rest_z = _barrel.position.z
+				_turret.add_child(_barrel)
+				_cyl(_barrel, 0.030, 0.62, Vector3(0.0, 0.0, -0.32), metal,
+						Vector3(PI * 0.5, 0.0, 0.0))
+				_cyl(self, 0.38, 0.20, Vector3(0.0, 1.35, 2.42), dark,
+						Vector3(PI * 0.5, 0.0, 0.0))
+				_cyl(self, 0.014, 1.15, Vector3(-0.92, 2.35, 0.55), dark)
+				_box(self, Vector3(2.15, 0.16, 0.20), Vector3(0.0, 0.95, -2.55), metal)
+			Kind.SAM:
+				# The radar turret is added separately; dress the hull with EW pods and mast braces.
+				for side in [-1.0, 1.0]:
+					_box(self, Vector3(0.10, 0.50, 4.7),
+							Vector3(side * 1.35, 0.60, 0.0), armor)
+					_box(self, Vector3(0.32, 0.42, 1.15),
+							Vector3(side * 1.24, 1.56, 0.35), metal)
+					_cyl(self, 0.025, 1.35, Vector3(side * 1.12, 2.45, 1.55), dark)
+				_box(self, Vector3(1.2, 0.28, 0.5), Vector3(0.0, 1.75, 1.8), dark)
+				_box(self, Vector3(1.45, 0.24, 0.85), Vector3(0.0, 1.98, -1.05), metal)
 	if EnemyMarkingsScript.is_russian_vehicle(self):
 		var mark_box: Vector3 = _variant_get("box", MODEL_BOX.get(kind, Vector3(3.0, 1.8, 5.0)))
 		if kind == Kind.HELI:
@@ -1094,13 +1096,19 @@ func _setup_glb_rotors(model: Node3D) -> void:
 		else:
 			total = total.merge(b)
 	var blades: Array[MeshInstance3D] = []
+	var tail_blades: Array[MeshInstance3D] = []
 	for mi in meshes:
 		var b: AABB = mi.global_transform * mi.get_aabb()
 		var s := b.size
 		if s.y < total.size.y * 0.14 and s.x > total.size.x * 0.55 \
 				and s.z > total.size.z * 0.55:
 			blades.append(mi)
+		elif s.x < total.size.x * 0.06 and s.y > s.x * 2.5 and s.z > s.x * 2.5 \
+				and s.y < total.size.y * 0.55 \
+				and (b.get_center().z - total.position.z) > total.size.z * 0.70:
+			tail_blades.append(mi)
 	_rotor = _make_rotor_pivot(model, blades, "MainRotor")
+	_tail_rotor = _make_rotor_pivot(model, tail_blades, "TailRotor")
 
 
 func _collect_meshes(node: Node, out: Array[MeshInstance3D]) -> void:
@@ -1255,7 +1263,10 @@ func _physics_process(delta: float) -> void:
 			var step := 4 if d2 > 202500.0 else 2
 			_ai_tick += 1
 			if _ai_tick % step != 0:
+				_ai_accum = minf(_ai_accum + delta, 0.25)
 				return
+	delta = minf(delta + _ai_accum, 0.25)
+	_ai_accum = 0.0
 	_combat_engage(delta)
 	if kind == Kind.HELI:
 		_apply_downwash(delta)
@@ -1278,9 +1289,7 @@ func _physics_process(delta: float) -> void:
 	_update_halt(delta)
 	var holding := _halt_left > 0.0
 	var hovering := _engaging and kind == Kind.HELI
-	var tank_hold := _engaging and kind == Kind.TANK \
-			and (OS.get_name() == "iOS" or OS.has_feature("mobile") \
-			or OS.has_environment("MOBILE_UI"))
+	var tank_hold := _engaging and kind == Kind.TANK
 	if not holding and not hovering and not tank_hold and not _retreating:
 		_move_along_route(delta)
 	else:
@@ -1309,21 +1318,49 @@ func _move_along_route(delta: float) -> void:
 
 	var desired_yaw := atan2(-flat.x, -flat.z)
 	var effective_speed_boost := 1.0
-	# Mobile Shahed intercept: steer straight at an armed drone instead of
-	# following the patrol loop when the target is close.
-	if kind == Kind.SHAHED and _drone != null and is_instance_valid(_drone) \
-			and (OS.get_name() == "iOS" or OS.has_feature("mobile") \
-			or OS.has_environment("MOBILE_UI")):
+	# Shahed intercept: steer toward an armed drone instead of orbiting blindly
+	# once inside tactical engagement radius.
+	if kind == Kind.SHAHED and _drone != null and is_instance_valid(_drone):
 		var fc = _drone.get("flight_controller")
 		if fc != null and bool(fc.state_armed):
 			var to_drone := _drone.global_position - global_position
 			to_drone.y = 0.0
 			if to_drone.length() < 140.0 and to_drone.length_squared() > 0.01:
 				desired_yaw = atan2(-to_drone.x, -to_drone.z)
-				effective_speed_boost = 1.3
+				effective_speed_boost = 1.25
 	if meander_amplitude > 0.0 and not _engaging and kind != Kind.HELI and kind != Kind.SHAHED:
 		_weave_phase += delta * (0.75 if kind == Kind.TANK else 1.25)
 		desired_yaw += sin(_weave_phase) * meander_amplitude
+	var sep_speed_mult := 1.0
+	if kind != Kind.HELI and kind != Kind.SHAHED:
+		var tree := get_tree()
+		if tree != null:
+			var cur_fwd := -global_transform.basis.z
+			cur_fwd.y = 0.0
+			if cur_fwd.length_squared() > 0.001:
+				cur_fwd = cur_fwd.normalized()
+				var right := Vector3(cur_fwd.z, 0.0, -cur_fwd.x)
+				for node in tree.get_nodes_in_group("vehicle"):
+					if node == self or node == null or not is_instance_valid(node) or not (node is Node3D):
+						continue
+					if bool(node.get("is_destroyed")):
+						continue
+					var other_kind: int = int(node.get("kind"))
+					if other_kind == Kind.HELI or other_kind == Kind.SHAHED:
+						continue
+					var to_other: Vector3 = (node as Node3D).global_position - global_position
+					to_other.y = 0.0
+					var d := to_other.length()
+					var other_half: float = float(node.get("_half_len"))
+					var safe_d: float = _half_len + other_half + 1.8
+					if d > 0.05 and d < safe_d:
+						var dir_other := to_other / d
+						var ahead := cur_fwd.dot(dir_other)
+						if ahead > 0.25:
+							var lat_sign := -1.0 if right.dot(dir_other) >= 0.0 else 1.0
+							desired_yaw += lat_sign * clampf((1.0 - d / safe_d) * 0.9, 0.15, 0.75)
+							if d < safe_d * 0.75 and ahead > 0.55:
+								sep_speed_mult = minf(sep_speed_mult, 0.25)
 	if _is_air():
 		var lim := _arena_limit()
 		var margin := 14.0
@@ -1345,15 +1382,12 @@ func _move_along_route(delta: float) -> void:
 	_steer_angle = clampf(yaw_diff * 0.65, -0.46, 0.46)
 
 	# Distinct speed modulation by unit type:
-	var effective_speed := move_speed * _damage_speed_mult * effective_speed_boost
+	var effective_speed := move_speed * _damage_speed_mult * effective_speed_boost * sep_speed_mult
 	if kind == Kind.TRUCK and _drone != null and is_instance_valid(_drone):
 		# Reconnaissance/supply Tigr accelerates when an armed drone approaches!
 		var d_dist := global_position.distance_to(_drone.global_position)
 		if d_dist < 85.0:
-			var flee_mult := 1.5 if (OS.get_name() == "iOS" \
-					or OS.has_feature("mobile") or OS.has_environment("MOBILE_UI")) \
-					else 1.38
-			effective_speed = move_speed * flee_mult * _damage_speed_mult
+			effective_speed = move_speed * 1.45 * _damage_speed_mult * sep_speed_mult
 	elif kind != Kind.HELI and kind != Kind.SHAHED:
 		# Slow down during sharp turns so tracked/wheeled vehicles turn tightly
 		# and always move strictly forward along their nose (-Z).
@@ -1376,8 +1410,11 @@ func _move_along_route(delta: float) -> void:
 		forward = Vector3.FORWARD
 	_step = effective_speed * delta
 
+	if _reverse_left > 0.0:
+		_reverse_left = maxf(0.0, _reverse_left - delta)
+
 	var blocked := false
-	if kind != Kind.HELI and kind != Kind.SHAHED:
+	if kind != Kind.HELI and kind != Kind.SHAHED and _reverse_left <= 0.0:
 		blocked = _is_path_blocked(forward, _step + 2.2)
 		if blocked:
 			_step = 0.0
@@ -1391,24 +1428,17 @@ func _move_along_route(delta: float) -> void:
 					avoid_dir.y = 0.0
 					if avoid_dir.length_squared() > 0.01:
 						rotation.y = atan2(-avoid_dir.x, -avoid_dir.z)
-				# Mobile extra escape: if the bounce still faces the obstacle,
-				# back up briefly so the turn has room instead of grinding the
-				# wall forever in tight yards.
-				if OS.get_name() == "iOS" or OS.has_feature("mobile") \
-						or OS.has_environment("MOBILE_UI"):
-					_reverse_left = 1.1
+				# Back up briefly so tight turns clear walls instead of grinding.
+				_reverse_left = 1.1
 		else:
 			_stuck_time = maxf(0.0, _stuck_time - delta * 0.5)
-	elif _reverse_left > 0.0:
-		# Keep consuming the reverse timer while the obstacle disappears; the
-		# backward step below applies only to ground vehicles.
-		_reverse_left = maxf(0.0, _reverse_left - delta)
 
 	var lim := _arena_limit()
 	if _reverse_left > 0.0 and kind != Kind.HELI and kind != Kind.SHAHED:
 		var rev_pos := global_position - forward * effective_speed * 0.62 * delta
 		if absf(rev_pos.x) <= lim and absf(rev_pos.z) <= lim \
-				and not _is_water_hazard(rev_pos.x, rev_pos.z):
+				and not _is_water_hazard(rev_pos.x, rev_pos.z) \
+				and not _is_path_blocked(-forward, 1.8):
 			global_position = rev_pos
 		else:
 			_reverse_left = 0.0
@@ -1425,6 +1455,8 @@ func _move_along_route(delta: float) -> void:
 
 
 func _is_path_blocked(forward: Vector3, dist: float) -> bool:
+	# Cast past the front bumper rather than only from the center of the chassis.
+	var probe_dist := maxf(dist, _half_len + 2.2)
 	# Hero Hall bounding box hard avoidance: vehicles must NEVER drive through or clip factory hall walls
 	var map := _frontline_map()
 	if map != "":
@@ -1432,7 +1464,7 @@ func _is_path_blocked(forward: Vector3, dist: float) -> bool:
 		if not site.is_empty():
 			var hc: Vector2 = site["center"]
 			var hh: Vector2 = site["half"]
-			var test_pos := global_position + forward * dist
+			var test_pos := global_position + forward * probe_dist
 			if absf(test_pos.x - hc.x) < hh.x + 3.0 and absf(test_pos.z - hc.y) < hh.y + 3.0:
 				var to_center := Vector2(test_pos.x - hc.x, test_pos.z - hc.y)
 				_last_obstacle_normal = Vector3(to_center.x, 0.0, to_center.y).normalized()
@@ -1451,7 +1483,7 @@ func _is_path_blocked(forward: Vector3, dist: float) -> bool:
 	var center_y := global_position.y + 0.9
 	var start_center := Vector3(global_position.x, center_y, global_position.z)
 	var right_dir := Vector3(forward.z, 0.0, -forward.x).normalized()
-	var half_w := 1.4 if kind == Kind.TANK else 1.1
+	var half_w := maxf(_model_box().x * 0.44, 1.1)
 
 	var origins := [
 		start_center,
@@ -1460,7 +1492,7 @@ func _is_path_blocked(forward: Vector3, dist: float) -> bool:
 	]
 
 	for origin in origins:
-		var query := PhysicsRayQueryParameters3D.create(origin, origin + forward * dist)
+		var query := PhysicsRayQueryParameters3D.create(origin, origin + forward * probe_dist)
 		query.collision_mask = 1
 		query.exclude = excl
 		var hit := space.intersect_ray(query)
@@ -1489,9 +1521,13 @@ func _update_halt(delta: float) -> void:
 func _update_height(delta: float) -> void:
 	var gy := _ground
 	var n := _ground_normal
-	if (Engine.get_physics_frames() + abs(get_instance_id())) % 3 == 0:
+	var t_info := _terrain_ground(global_position.x, global_position.z)
+	if not t_info.is_empty():
+		gy = float(t_info["y"])
+		n = t_info["normal"]
+	elif (Engine.get_physics_frames() + abs(get_instance_id())) % 3 == 0:
 		var info := _sample_ground(global_position.x, global_position.z)
-		gy = info["y"]
+		gy = float(info["y"])
 		n = info["normal"]
 	if kind == Kind.HELI or kind == Kind.SHAHED:
 		global_position.y = lerpf(global_position.y, gy + cruise_height,
@@ -1554,7 +1590,8 @@ func _aim_turret(delta: float) -> void:
 	var before := _turret.rotation.y
 	var aim_pos := Vector3.ZERO
 	var has_aim := false
-	if ai_vs_ai and ai_target != null and is_instance_valid(ai_target):
+	if ai_target != null and is_instance_valid(ai_target) \
+			and not bool(ai_target.get("is_destroyed")):
 		aim_pos = ai_target.global_position + Vector3.UP * 0.9
 		has_aim = true
 	elif (track_drone or _engaging) and _drone != null and is_instance_valid(_drone):
@@ -1634,59 +1671,64 @@ func _combat_engage(delta: float) -> void:
 		var lvl := _find_level_scene()
 		if lvl != null:
 			_drone = lvl.get_node_or_null("Drone") as Node3D
-	if _drone == null or not is_instance_valid(_drone):
-		return
-	var fc = _drone.get("flight_controller")
-	if fc == null or not bool(fc.state_armed):
-		return
 	var muzzle := _muzzle_world()
+	var fc = _drone.get("flight_controller") if (_drone != null and is_instance_valid(_drone)) else null
+	var drone_armed := fc != null and bool(fc.state_armed)
+	var drone_dist := muzzle.distance_to(_drone.global_position) if (_drone != null and is_instance_valid(_drone)) else 1e9
+	var convoy := _find_escort_convoy_target()
+	var convoy_dist := muzzle.distance_to(convoy.global_position) if convoy != null else 1e9
+	if convoy != null and convoy_dist <= fire_range and convoy_dist >= 3.0 \
+			and (not drone_armed or drone_dist > fire_range or convoy_dist < drone_dist * 0.65):
+		if _engage_convoy_target(convoy, muzzle):
+			return
+	ai_target = null
+	if not drone_armed:
+		return
 	var to := _drone.global_position - muzzle
-	var dist := to.length()
+	var dist := drone_dist
 	if dist > fire_range or dist < 3.0:
 		_retreating = false
 		return
 	_retreating = false
-	# Mobile engagement profiles: SAM and BMP hold distance instead of letting
-	# the drone close in; the helicopter orbits the target with lateral strafes.
-	if OS.get_name() == "iOS" or OS.has_feature("mobile") \
-			or OS.has_environment("MOBILE_UI"):
-		if kind == Kind.SAM or kind == Kind.BMP or kind == Kind.APC:
-			var keep_ratio := 0.35 if kind == Kind.SAM or kind == Kind.BMP else 0.45
-			var keep := fire_range * keep_ratio
-			if dist < keep:
-				var away := global_position - _drone.global_position
-				away.y = 0.0
-				if away.length_squared() < 0.01:
-					away = -global_transform.basis.z
-				var dir := away.normalized()
-				var step_pos := global_position + dir * move_speed * 0.55 * delta
-				var lim := _arena_limit()
-				if absf(step_pos.x) <= lim and absf(step_pos.z) <= lim \
-						and not _is_water_hazard(step_pos.x, step_pos.z) \
-						and not _is_path_blocked(dir, 2.0):
-					_retreating = true
-					rotation.y = lerp_angle(rotation.y, atan2(-dir.x, -dir.z),
-							clampf(delta * 3.0, 0.0, 1.0))
-					global_position = step_pos
-		elif kind == Kind.HELI:
-			_orbit_phase += delta * 0.55
-			var flat := Vector3(to.x, 0.0, to.z)
-			if flat.length_squared() > 0.01:
-				var ring_radius := fire_range * 0.55
-				var toward := -flat.normalized()
-				var strafe_dir := Vector3(-toward.z, 0.0, toward.x) * sin(_orbit_phase) * 0.8
-				var hold_pos := _drone.global_position + toward * ring_radius + strafe_dir * 10.0
-				var lim := _arena_limit() - 6.0
-				var pinned := absf(hold_pos.x) > lim or absf(hold_pos.z) > lim
+	# Engagement profiles: SAM and BMP hold distance instead of letting the
+	# drone close in; the helicopter orbits the target with lateral strafes.
+	if kind == Kind.SAM or kind == Kind.BMP or kind == Kind.APC:
+		var keep_ratio := 0.35 if kind == Kind.SAM or kind == Kind.BMP else 0.45
+		var keep := fire_range * keep_ratio
+		if dist < keep:
+			var away := global_position - _drone.global_position
+			away.y = 0.0
+			if away.length_squared() < 0.01:
+				away = -global_transform.basis.z
+			var dir := away.normalized()
+			var step_pos := global_position + dir * move_speed * 0.55 * delta
+			var lim := _arena_limit()
+			if absf(step_pos.x) <= lim and absf(step_pos.z) <= lim \
+					and not _is_water_hazard(step_pos.x, step_pos.z) \
+					and not _is_path_blocked(dir, 2.0):
+				_retreating = true
+				rotation.y = lerp_angle(rotation.y, atan2(-dir.x, -dir.z),
+						clampf(delta * 3.0, 0.0, 1.0))
+				global_position = step_pos
+	elif kind == Kind.HELI:
+		_orbit_phase += delta * 0.55
+		var flat := Vector3(to.x, 0.0, to.z)
+		if flat.length_squared() > 0.01:
+			var ring_radius := fire_range * 0.55
+			var toward := -flat.normalized()
+			var strafe_dir := Vector3(-toward.z, 0.0, toward.x) * sin(_orbit_phase) * 0.8
+			var hold_pos := _drone.global_position + toward * ring_radius + strafe_dir * 10.0
+			var lim := _arena_limit() - 6.0
+			var pinned := absf(hold_pos.x) > lim or absf(hold_pos.z) > lim
+			hold_pos.x = clampf(hold_pos.x, -lim, lim)
+			hold_pos.z = clampf(hold_pos.z, -lim, lim)
+			if pinned:
+				hold_pos = hold_pos.lerp(
+						Vector3(0.0, hold_pos.y, 0.0) + strafe_dir * 28.0, 0.35)
 				hold_pos.x = clampf(hold_pos.x, -lim, lim)
 				hold_pos.z = clampf(hold_pos.z, -lim, lim)
-				if pinned:
-					hold_pos = hold_pos.lerp(
-							Vector3(0.0, hold_pos.y, 0.0) + strafe_dir * 28.0, 0.35)
-					hold_pos.x = clampf(hold_pos.x, -lim, lim)
-					hold_pos.z = clampf(hold_pos.z, -lim, lim)
-				hold_pos.y = global_position.y
-				global_position = global_position.lerp(hold_pos, clampf(delta * 0.5, 0.0, 1.0))
+			hold_pos.y = global_position.y
+			global_position = global_position.lerp(hold_pos, clampf(delta * 0.5, 0.0, 1.0))
 	var space := get_world_3d().direct_space_state
 	var q := PhysicsRayQueryParameters3D.create(muzzle, _drone.global_position)
 	q.collision_mask = 1
@@ -1702,7 +1744,19 @@ func _combat_engage(delta: float) -> void:
 					clampf(delta * 2.4, 0.0, 1.0))
 			rotation.x = lerpf(rotation.x, 0.0, clampf(delta * 3.0, 0.0, 1.0))
 			rotation.z = lerpf(rotation.z, 0.0, clampf(delta * 3.0, 0.0, 1.0))
-	if _fire_cd <= 0.0:
+	var aim_ready := true
+	if kind == Kind.SAM:
+		var flat_aim := Vector3(to.x, 0.0, to.z)
+		if flat_aim.length_squared() > 0.01:
+			var world_aim := atan2(-flat_aim.x, -flat_aim.z)
+			if _turret != null:
+				var desired_local := wrapf(world_aim - rotation.y, -PI, PI)
+				aim_ready = absf(angle_difference(_turret.rotation.y, desired_local)) <= 0.35
+			else:
+				if _waypoints.is_empty() or _halt_left > 0.0:
+					rotation.y = lerp_angle(rotation.y, world_aim, clampf(delta * _turn_rate, 0.0, 1.0))
+				aim_ready = absf(angle_difference(rotation.y, world_aim)) <= 0.55
+	if aim_ready and _fire_cd <= 0.0:
 		_fire_cd = fire_interval + randf_range(-0.12, 0.20)
 		var lead := Vector3.ZERO
 		if _drone is RigidBody3D:
@@ -1737,7 +1791,35 @@ func _chaos_engage(delta: float) -> void:
 		_fire_at_unit(ai_target)
 
 
-func _fire_at_unit(target: Node3D) -> void:
+func _find_escort_convoy_target() -> Node3D:
+	if get_tree() == null or is_in_group("escort_convoy"):
+		return null
+	for node in get_tree().get_nodes_in_group("escort_convoy"):
+		var n := node as Node3D
+		if n != null and is_instance_valid(n) and not bool(n.get("is_destroyed")):
+			return n
+	return null
+
+
+func _engage_convoy_target(convoy: Node3D, muzzle: Vector3) -> bool:
+	var aim := convoy.global_position + Vector3.UP * 1.1
+	var space := get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.create(muzzle, aim)
+	q.collision_mask = 1
+	q.exclude = [get_rid()]
+	var hit := space.intersect_ray(q)
+	if not hit.is_empty() and hit.get("collider") != convoy:
+		return false
+	ai_target = convoy
+	_engaging = true
+	_retreating = false
+	if _fire_cd <= 0.0:
+		_fire_cd = maxf(fire_interval * 1.45, 0.95) + randf_range(-0.10, 0.25)
+		_fire_at_unit(convoy, 0.50)
+	return true
+
+
+func _fire_at_unit(target: Node3D, dmg_scale: float = 1.0) -> void:
 	var muzzle := _muzzle_world()
 	var aim := target.global_position + Vector3.UP * 0.9
 	var dir := (aim - muzzle).normalized()
@@ -1759,7 +1841,7 @@ func _fire_at_unit(target: Node3D) -> void:
 	if not hit.is_empty():
 		var collider = hit.get("collider")
 		if collider == target and target.has_method("take_damage"):
-			target.call("take_damage", tracer_damage, hit.get("position"))
+			target.call("take_damage", tracer_damage * dmg_scale, hit.get("position"))
 	_barrel_recoil = 1.0
 	_susp_pitch = clampf(_susp_pitch + (0.045 if kind == Kind.TANK else 0.018), -0.08, 0.08)
 	_spawn_muzzle_flash(muzzle)
@@ -1879,10 +1961,17 @@ func _is_water_hazard(x: float, z: float) -> bool:
 	var fmap := _frontline_map()
 	if fmap.is_empty():
 		return false
+	var h := FrontlineTerrainScript.height_at(fmap, x, z)
+	if fmap == "industrial":
+		var on_bridge := absf(x) < 18.0
+		var riv_z := -170.0 + 10.0 * sin(x * 0.015)
+		if not on_bridge and absf(z - riv_z) < 15.0 and h < -1.85:
+			return true
 	var wl := FrontlineTerrainScript.water_level(fmap)
 	if wl < -100.0:
 		return false
-	return FrontlineTerrainScript.height_at(fmap, x, z) < wl + 0.35
+	var depth_pad := 0.14 if fmap == "wetlands" else 0.38
+	return h < wl + depth_pad
 
 
 func _enforce_map_bounds() -> void:
@@ -1957,11 +2046,26 @@ func _ground_y(x: float, z: float) -> float:
 
 
 # ------------------------------------------------------------------ damage
+func _armor_mitigation(hit_position: Vector3, weak_mult: float) -> float:
+	if hit_position == Vector3.ZERO or weak_mult > 1.05:
+		return 1.0
+	if kind != Kind.TANK and kind != Kind.BMP and kind != Kind.APC:
+		return 1.0
+	var loc := to_local(hit_position)
+	var heavy := (kind == Kind.TANK)
+	# Outer blast splash beyond the hull is attenuated by spaced armor & distance,
+	# while direct hits inside the hull perimeter deal full unmitigated damage.
+	if loc.length() > 4.6:
+		return 0.42 if heavy else 0.62
+	return 1.0
+
+
 func take_damage(amount: float, hit_position: Vector3 = Vector3.ZERO) -> void:
 	if is_destroyed:
 		return
 	var multiplier := _weak_spot_multiplier(hit_position)
-	var applied := amount * multiplier
+	var armor_scale := _armor_mitigation(hit_position, multiplier)
+	var applied := amount * multiplier * armor_scale
 	health -= applied
 	var hp_ratio := health / maxf(max_health, 1.0)
 	if hp_ratio < 0.60 and hp_ratio > 0.0 and not _smoke_started:
@@ -2325,7 +2429,8 @@ func _update_crash_fall(delta: float) -> void:
 		if parent != null:
 			ExplosionScript.fire_column(parent, global_position, 2.4)
 			ExplosionScript.smoke_column(parent, global_position + Vector3.UP * 0.6, 6.0)
-	var gy := _crash_ground_y
+	var t_ground := _terrain_ground(global_position.x, global_position.z)
+	var gy := float(t_ground["y"]) if not t_ground.is_empty() else _crash_ground_y
 	if global_position.y <= gy + 0.55:
 		_crash_impact(gy)
 

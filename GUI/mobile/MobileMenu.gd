@@ -91,6 +91,12 @@ var _map_cards: Dictionary = {}
 var _maps_row: HBoxContainer = null
 var _mission_bar: ScrollContainer = null
 var _mission_buttons: Dictionary = {}
+var _diff_bar: HBoxContainer = null
+var _diff_buttons: Dictionary = {}
+var _briefing_btn: Button = null
+var _briefing_modal: Control = null
+var _briefing_title: Label = null
+var _briefing_body: Label = null
 var _play_caption: Label
 var _play_daily_lbl: Label = null
 var _loading_layer: CanvasLayer = null
@@ -2034,17 +2040,47 @@ func _build_play() -> void:
 		btn.set_meta("mode_id", int(m["id"]))
 		modes_row.add_child(btn)
 
+	var modes_spacer := Control.new()
+	modes_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	modes_row.add_child(modes_spacer)
+
+	_diff_bar = HBoxContainer.new()
+	_diff_bar.add_theme_constant_override("separation", _gap(5))
+	_diff_bar.visible = (_selected_mode == Global.PlayMode.COMBAT)
+	modes_row.add_child(_diff_bar)
+	var diff_defs := [
+		[Global.Difficulty.RECRUIT, "RECRUIT" if is_en else "РЕКРУТ"],
+		[Global.Difficulty.OPERATOR, "OPERATOR" if is_en else "ОПЕРАТОР"],
+		[Global.Difficulty.ACE, "ACE" if is_en else "АС"],
+	]
+	for dd in diff_defs:
+		var d_id := int(dd[0])
+		var db := _button(str(dd[1]), 34, Global.difficulty == d_id)
+		db.custom_minimum_size = Vector2(_ui_sz(82), _fs(34))
+		db.add_theme_font_size_override("font_size", _fs(13))
+		db.pressed.connect(_select_mobile_difficulty.bind(d_id))
+		_diff_bar.add_child(db)
+		_diff_buttons[d_id] = db
+
+	_briefing_btn = _button("BRIEFING" if is_en else "БРИФІНГ", 34, false)
+	_briefing_btn.custom_minimum_size = Vector2(_ui_sz(98), _fs(34))
+	_briefing_btn.add_theme_font_size_override("font_size", _fs(13))
+	_briefing_btn.visible = (_selected_mode == Global.PlayMode.COMBAT)
+	_briefing_btn.pressed.connect(_open_mobile_briefing)
+	modes_row.add_child(_briefing_btn)
+
 	var daily_row := HBoxContainer.new()
 	daily_row.add_theme_constant_override("separation", _gap(8))
 	v.add_child(daily_row)
 	var dc := Global.get_daily_challenge()
-	var dc_title := str(dc.get("title_en" if is_en else "title_uk", ""))
+	var dc_title := str(dc.get("title_en" if is_en else "title_ua", dc.get("title_uk", "")))
+	var dc_done := " ✓" if bool(dc.get("completed", false)) else ""
 	var trec := Global.get_training_record("course")
 	var rec_suffix := ""
 	if bool(trec.get("completed", false)):
 		rec_suffix = ("  ·  Course: %.1fs %s [%s]" if is_en else "  ·  Траса: %.1f с %s [%s]") % [
 			float(trec.get("best_time", 0.0)), "★".repeat(int(trec.get("stars", 1))), str(trec.get("best_rank", "B"))]
-	_play_daily_lbl = _label(("★ %s (+%d)%s" % [dc_title, int(dc.get("bonus_score", 500)), rec_suffix]), 13, MenuUI.FPV_CYAN)
+	_play_daily_lbl = _label(("★ %s (+%d)%s%s" % [dc_title, int(dc.get("bonus_score", 500)), dc_done, rec_suffix]), 13, MenuUI.FPV_CYAN)
 	_play_daily_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	daily_row.add_child(_play_daily_lbl)
 	var gc_play_btn := _button("Game Center" if is_en else "РЕКОРДИ", 34, false)
@@ -2132,6 +2168,8 @@ func _build_play() -> void:
 	start_mission_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	start_mission_btn.pressed.connect(_launch)
 	bottom_center.add_child(start_mission_btn)
+
+	_build_mobile_briefing_modal(screen, is_en)
 
 
 func _select_map(card_id: String, row: HBoxContainer = null) -> void:
@@ -2241,19 +2279,148 @@ func _select_mobile_mission(mission_id: int, special_id: int) -> void:
 
 
 func _refresh_mobile_mission_strip() -> void:
+	var is_combat := (_selected_mode == Global.PlayMode.COMBAT)
 	if _mission_bar != null:
-		_mission_bar.visible = (_selected_mode == Global.PlayMode.COMBAT)
+		_mission_bar.visible = is_combat
+	if _diff_bar != null:
+		_diff_bar.visible = is_combat
+	if _briefing_btn != null:
+		_briefing_btn.visible = is_combat
+	for d_id in _diff_buttons.keys():
+		var db: Button = _diff_buttons[d_id] as Button
+		if db != null:
+			_apply_button_primary_style(db, int(Global.difficulty) == int(d_id))
+	var is_en := MenuUI.is_english()
 	for m_id in range(1, 5):
 		var b: Button = _mission_buttons.get("tac:%d" % m_id, null) as Button
 		if b != null:
 			var unlocked := Global.is_mission_unlocked(m_id)
+			var mrec := Global.get_mission_record(m_id)
+			var m_stars := int(mrec.get("stars", 0)) if bool(mrec.get("completed", false)) else 0
+			b.text = ("TAC-0%d %s" % [m_id, "★".repeat(m_stars)]) if m_stars > 0 else ("TAC-0%d" % m_id)
 			b.disabled = not unlocked
 			b.modulate = Color(1, 1, 1, 1 if unlocked else 0.45)
 			_apply_button_primary_style(b, _selected_special == 0 and _selected_mission == m_id)
+	var op_prefix := "OP" if is_en else "СО"
 	for s_id in range(1, 10):
 		var b: Button = _mission_buttons.get("spec:%d" % s_id, null) as Button
 		if b != null:
+			var srec := Global.get_special_mission_record(s_id) if Global.has_method("get_special_mission_record") else {}
+			var s_stars := int(srec.get("stars", 0)) if bool(srec.get("completed", false)) else 0
+			var suffix := (" " + "★".repeat(s_stars)) if s_stars > 0 else ""
+			b.text = "%s-0%d · %s%s" % [op_prefix, s_id, Global.get_special_mission_name(s_id), suffix]
 			_apply_button_primary_style(b, _selected_special == s_id)
+
+
+func _select_mobile_difficulty(diff: int) -> void:
+	Global.difficulty = clampi(diff, 0, 2)
+	Global.menu_settings["difficulty"] = Global.difficulty
+	Global.save_menu_settings()
+	_refresh_mobile_mission_strip()
+	_update_play_caption()
+
+
+func _mobile_airframe_budget() -> int:
+	match Global.difficulty:
+		Global.Difficulty.RECRUIT:
+			return 5
+		Global.Difficulty.ACE:
+			return 2
+		_:
+			return 3
+
+
+func _build_mobile_briefing_modal(screen: Control, is_en: bool) -> void:
+	_briefing_modal = PanelContainer.new()
+	_briefing_modal.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_briefing_modal.visible = false
+	_briefing_modal.add_theme_stylebox_override("panel", _panel_style(
+			Color(0.015, 0.035, 0.028, 0.94), MenuUI.ACCENT, 2, 16))
+	screen.add_child(_briefing_modal)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", _gap(22))
+	margin.add_theme_constant_override("margin_right", _gap(22))
+	margin.add_theme_constant_override("margin_top", _gap(18))
+	margin.add_theme_constant_override("margin_bottom", _gap(18))
+	_briefing_modal.add_child(margin)
+
+	var bv := VBoxContainer.new()
+	bv.add_theme_constant_override("separation", _gap(10))
+	margin.add_child(bv)
+
+	var hdr := HBoxContainer.new()
+	bv.add_child(hdr)
+	_briefing_title = _label("BRIEFING" if is_en else "БРИФІНГ МІСІЇ", 24, MenuUI.FPV_AMBER)
+	_briefing_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hdr.add_child(_briefing_title)
+	var close_btn := _button("CLOSE" if is_en else "ЗАКРИТИ", 36, false)
+	close_btn.custom_minimum_size = Vector2(_ui_sz(116), _fs(36))
+	close_btn.pressed.connect(func():
+		if _briefing_modal != null:
+			_briefing_modal.visible = false)
+	hdr.add_child(close_btn)
+
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	bv.add_child(scroll)
+	_briefing_body = _label("", 15, MenuUI.TEXT)
+	_briefing_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_briefing_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(_briefing_body)
+
+
+func _open_mobile_briefing() -> void:
+	if _briefing_modal == null or _briefing_title == null or _briefing_body == null:
+		return
+	var is_en := MenuUI.is_english()
+	var mm = load("res://GUI/MainMenu.gd")
+	var craft_cap := _mobile_airframe_budget()
+	var lines: PackedStringArray = []
+	if _selected_special > 0:
+		var op_name := Global.get_special_mission_name(_selected_special)
+		_briefing_title.text = "%s-0%d · %s" % ["OP" if is_en else "СО", _selected_special, op_name]
+		var desc := ""
+		var sdiff := Global.get_difficulty_name()
+		if mm != null:
+			for md in mm.SPECIAL_MISSIONS:
+				if int(md.get("id", 0)) == _selected_special:
+					desc = str(md.get("desc", ""))
+					sdiff = str(md.get("diff", sdiff))
+					break
+		lines.append(desc if not desc.is_empty() else op_name)
+		lines.append("")
+		lines.append("%s: %s · %s: %d" % [
+			"DIFFICULTY" if is_en else "СКЛАДНІСТЬ", Global.get_difficulty_name(),
+			"AIRFRAMES" if is_en else "БОРТІВ НА ВИЛІТ", craft_cap])
+		lines.append("%s: %s" % ["PROFILE" if is_en else "ПРОФІЛЬ", sdiff])
+		var srec := Global.get_special_mission_record(_selected_special) if Global.has_method("get_special_mission_record") else {}
+		if bool(srec.get("completed", false)):
+			lines.append("%s: %d · ★%d" % [
+				"BEST SCORE" if is_en else "РЕКОРД",
+				int(srec.get("best_score", 0)), int(srec.get("stars", 1))])
+	else:
+		var mid := clampi(_selected_mission, 1, 4)
+		var b: Dictionary = mm.BRIEFINGS.get(mid, {}) if mm != null else {}
+		var content: Dictionary = mm.BRIEFINGS_EN.get(mid, b) if (mm != null and is_en) else b
+		_briefing_title.text = "%s · %s" % [str(b.get("code", "TAC-0%d" % mid)), str(content.get("name", b.get("name", "")))]
+		lines.append(str(content.get("op_name", b.get("op_name", ""))))
+		lines.append(str(content.get("intel", b.get("intel", ""))))
+		lines.append("")
+		lines.append("TASKS:" if is_en else "ЗАВДАННЯ:")
+		for t in content.get("tasks", b.get("tasks", [])):
+			lines.append("  ✔ " + str(t))
+		lines.append("")
+		lines.append("THREATS:" if is_en else "ЗАГРОЗИ:")
+		for th in content.get("threats", b.get("threats", [])):
+			lines.append("  • " + str(th))
+		lines.append("")
+		lines.append("%s: %s · %s: %d" % [
+			"DIFFICULTY" if is_en else "СКЛАДНІСТЬ", Global.get_difficulty_name(),
+			"AIRFRAMES" if is_en else "БОРТІВ НА ВИЛІТ", craft_cap])
+		lines.append("%s: %s" % ["RECOMMENDED" if is_en else "РЕКОМЕНДОВАНО", str(content.get("drone", b.get("drone", "")))])
+	_briefing_body.text = "\n".join(lines)
+	_briefing_modal.visible = true
 
 
 func _update_play_caption() -> void:
@@ -2267,14 +2434,16 @@ func _update_play_caption() -> void:
 	var mode_name := _mode_title(_selected_mode)
 	var mission_tag := ""
 	if _selected_mode == Global.PlayMode.COMBAT:
+		var d_tag := "%s/%d" % [Global.get_difficulty_name(), _mobile_airframe_budget()]
 		if _selected_special > 0:
-			mission_tag = " · %s-0%d (%s)" % [
+			mission_tag = " · %s-0%d (%s) · %s" % [
 				"OP" if MenuUI.is_english() else "СО",
 				_selected_special,
 				Global.get_special_mission_name(_selected_special),
+				d_tag,
 			]
 		else:
-			mission_tag = " · TAC-0%d" % _selected_mission
+			mission_tag = " · TAC-0%d · %s" % [_selected_mission, d_tag]
 	var dname := DroneCatalog.get_drone_name(Global.drone_preset)
 	if MenuUI.is_english():
 		_play_caption.text = "SELECTED: %s · %s%s · CRAFT: %s" % [map_name, mode_name, mission_tag, dname]

@@ -94,6 +94,13 @@ func _apply_damage() -> void:
 				seen[owner_ref.get_instance_id()] = true
 			var falloff := clampf(1.0 - distance / maxf(radius, 0.01), 0.15, 1.0)
 			target.take_damage(damage * falloff, global_position)
+		var alert_dist := maxf(radius * 2.4, 24.0)
+		for soldier in tree.get_nodes_in_group("enemy_infantry"):
+			if soldier == null or not is_instance_valid(soldier) or not (soldier is Node3D):
+				continue
+			if (soldier as Node3D).global_position.distance_to(global_position) <= alert_dist:
+				if soldier.has_method("notify_blast"):
+					soldier.call("notify_blast", global_position, alert_dist)
 	_push_drone()
 
 
