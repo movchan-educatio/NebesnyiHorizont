@@ -347,6 +347,52 @@ def wall_x_windows(name, length, height, thick, y, z0, win_w, win_h, win_z,
             (cursor + rest * 0.5, y, z0 + win_z + win_h * 0.5), rgb, collect=col)
 
 
+def _prism_yz(name, span_y, height, thick_x, loc, rgb, collect):
+    """Triangular gable-end wall in the YZ plane, extruded along X."""
+    hy = span_y * 0.5
+    hx = thick_x * 0.5
+    verts = [
+        (-hx, -hy, 0.0), (-hx, hy, 0.0), (-hx, 0.0, height),
+        (hx, -hy, 0.0), (hx, hy, 0.0), (hx, 0.0, height),
+    ]
+    faces = [(0, 1, 2), (3, 5, 4), (0, 2, 5, 3), (1, 4, 5, 2), (0, 3, 4, 1)]
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    ob = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(ob)
+    ob.location = loc
+    colourise(ob, rgb)
+    collect.append(ob)
+
+
+def _gable_along_x(name, length_x, span_y, height, loc, rgb, collect,
+                   ridge_gap=0.0, damaged=False):
+    """Gable roof running along X (3 bays), sloping down across Y."""
+    run = max((span_y - ridge_gap) * 0.5, span_y * 0.12)
+    slope = math.atan2(height, run)
+    slope_len = math.hypot(run, height) * 1.02
+    segs = 3
+    seg_x = length_x / float(segs)
+    for sign in (-1.0, 1.0):
+        for i in range(segs):
+            if damaged and sign > 0.0 and i == 1:
+                continue
+            cx = loc[0] - length_x * 0.5 + seg_x * (i + 0.5)
+            cy = loc[1] + sign * (ridge_gap * 0.5 + run * 0.5)
+            bpy.ops.mesh.primitive_cube_add(
+                size=1,
+                location=(cx, cy, loc[2] + height * 0.5),
+                rotation=(-sign * slope, 0.0, 0.0),
+            )
+            ob = bpy.context.object
+            ob.name = "%s_%s_%d" % (name, "R" if sign > 0 else "L", i)
+            ob.scale = (seg_x * 1.01, slope_len, 0.10)
+            bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+            colourise(ob, rgb)
+            collect.append(ob)
+
+
 def l_warehouse():
     parts, col = [], []
     box("slab", (42.0, 18.0, 0.3), (0, 0, 0.15), CONCRETE, collect=parts)
@@ -367,22 +413,25 @@ def l_warehouse():
         box("door_hazard_v", (0.45, 0.5, 6.2), (sx * 4.25, -8.8, 3.1), ORANGE,
             collect=parts)
     box("door_hazard_h", (9.0, 0.5, 0.45), (0, -8.8, 6.2), ORANGE, collect=parts)
-    # Roof with an open ridge slot for vertical dives.
-    gable("roof", 20.6, 42.6, 3.2, (0, 0, 7.0), RUST, parts, ridge_gap=1.6, damaged=True)
-    gable("roof_col", 20.6, 42.6, 3.2, (0, 0, 7.0), RUST, col, ridge_gap=1.6, damaged=True)
-    for sy in (-1.0, 1.0):
-        prism_xz("gable_end", 20.6, 3.2, 0.35, (0.0, sy * 8.98, 7.0),
-                 CONCRETE, parts)
-        prism_xz("gable_end_col", 20.6, 3.2, 0.35, (0.0, sy * 8.98, 7.0),
-                 CONCRETE, col)
+    # Roof running lengthwise along X (42.6 m) across the 18 m hall with an open ridge slot.
+    _gable_along_x("roof", 42.6, 19.6, 3.2, (0, 0, 7.0), RUST, parts,
+                   ridge_gap=1.6, damaged=True)
+    _gable_along_x("roof_col", 42.6, 19.6, 3.2, (0, 0, 7.0), RUST, col,
+                   ridge_gap=1.6, damaged=True)
+    for sx in (-1.0, 1.0):
+        _prism_yz("gable_end", 18.0, 3.2, 0.35, (sx * 20.8, 0.0, 7.0),
+                  CONCRETE, parts)
+        _prism_yz("gable_end_col", 18.0, 3.2, 0.35, (sx * 20.8, 0.0, 7.0),
+                  CONCRETE, col)
     soot_and_rust(parts, -8.98, [-14.0, -4.0, 6.0], 7.0, -1.0)
     soot_and_rust(parts, 8.98, [-10.0, 2.0, 12.0], 7.0, 1.0)
     rubble_pile(parts, 0.0, -10.0, 0.0, 10, 11)
     rubble_pile(parts, 18.0, -8.0, 0.0, 6, 12)
     for i in range(6):
         box("truss", (0.25, 17.0, 0.25), (-17.0 + i * 6.8, 0, 8.2), METAL, collect=parts)
+    # Roof vents seated directly on the undamaged -Y roof slope (slope z ~= 8.99 m at y = -4.2).
     for i in range(4):
-        box("vent", (1.2, 1.2, 0.9), (-12.0 + i * 8.0, 3.0, 10.4), METAL_LIGHT,
+        box("vent", (1.2, 1.2, 1.0), (-12.0 + i * 8.0, -4.2, 9.15), METAL_LIGHT,
             collect=parts)
     box("dock", (10.0, 2.0, 1.1), (0, -10.5, 0.55), CONCRETE_DARK, collect=parts)
     building_trim('warehouse', 42.0, 18.0, 7.0, 0.0, parts)
@@ -661,7 +710,12 @@ def build_one(name):
 
 
 def main():
-    for name in STRUCTURES:
+    import sys
+    only = []
+    if "--" in sys.argv:
+        only = [a for a in sys.argv[sys.argv.index("--") + 1:] if a in STRUCTURES]
+    targets = only if only else list(STRUCTURES.keys())
+    for name in targets:
         build_one(name)
 
 

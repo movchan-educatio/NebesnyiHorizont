@@ -1,8 +1,9 @@
 class_name QualityManager
 extends RefCounted
 
-## Three graphics presets.  Kept deliberately simple: LOW for weak/integrated
-## GPUs, MEDIUM for a balanced 60+ FPS look, HIGH for maximum quality.
+## Desktop presets remain fixed. The mobile profile alone uses adaptive 3D
+## resolution: it raises clarity while frame-time has room, then steps down
+## before sustained GPU load becomes a long-lived FPS drop. HUD stays native.
 ##
 ## The "smart" part: the costs that are almost invisible in a fast FPV flight
 ## are cut first, the things the eye actually notices are kept:
@@ -122,17 +123,18 @@ static func params() -> Dictionary:
 	# renderer.  Mutating the const directly raised "Dictionary is in
 	# read-only state" on iOS.
 	var p: Dictionary = PRESETS[level()].duplicate(true)
-	# Phone profile preserves the high-quality materials and near-field shadows,
-	# while limiting fill-rate/foliage and enabling adaptive internal resolution.
+	# Phone profile preserves high-quality materials and near-field shadows,
+	# while limiting fill-rate/foliage and keeping costly post effects off.
 	# The governor changes only 3D scale; the HUD remains at native resolution.
 	var mobile := OS.get_name() == "iOS" or OS.has_feature("mobile") \
 			or OS.has_environment("MOBILE_UI")
 	if mobile:
+		p["mobile_profile"] = true
 		var refresh := DisplayServer.screen_get_refresh_rate()
 		var mobile_target := 58.0 if refresh < 90.0 else 118.0
 		match level():
 			Level.LOW:
-				p.merge({"scale_3d": 0.67, "min_scale": 0.42, "max_scale": 0.72,
+				p.merge({"scale_3d": 0.67, "min_scale": 0.42, "max_scale": 0.80,
 					"fsr_sharpness": 0.85,
 					"adaptive": true, "target_fps": mobile_target,
 					"grass_count": 1100, "grass_range": 18.0,
@@ -141,7 +143,7 @@ static func params() -> Dictionary:
 					"ssao": false, "ssil": false, "volumetric_fog": false,
 					"glow": false, "fxaa": false}, true)
 			Level.MEDIUM:
-				p.merge({"scale_3d": 0.72, "min_scale": 0.52, "max_scale": 0.82,
+				p.merge({"scale_3d": 0.72, "min_scale": 0.52, "max_scale": 0.90,
 					"adaptive": true, "target_fps": mobile_target,
 					"grass_count": 2400, "grass_range": 24.0,
 					"veg_range": 850.0, "veg_density": 0.72, "mesh_lod": 1.25,

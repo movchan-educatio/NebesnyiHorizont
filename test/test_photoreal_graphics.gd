@@ -1,6 +1,6 @@
 extends Node
 
-## Automated verification suite for the 7 photorealistic mobile graphics upgrades:
+## Automated verification suite for the mobile-safe visual quality upgrades:
 ##   1. Baked AO in terrain COLOR.a + UV anti-tiling
 ##   2. Depth-texture-free water with baked vertex depth shoreline + Fresnel/sky reflection
 ##   3. Single-pass ContactShadows MultiMesh + trimmed shadow casters + near sun cascade split
@@ -8,6 +8,8 @@ extends Node
 ##   5. Mountain solar scatter + sky hemisphere ambient/reflection + map environment balance
 ##   6. Architectural base weathering shader + bilinear upscale RCAS sharpen
 ##   7. Zero hint_depth_texture / 3D screen-texture copies across all 7 scenes
+##   8. Adaptive resolution with bloom disabled on mobile
+##   9. Matched biome fade at the playable map edge and high-angle backdrop cull
 
 const FT := preload("res://scripts/util/frontline_terrain.gd")
 
@@ -79,6 +81,13 @@ func _verify_shader_sources() -> void:
 	var lite_src := _strip_shader_comments(FileAccess.get_file_as_string("res://shaders/terrain_pbr_lite.gdshader"))
 	_check(lite_src.find("rot") != -1 or lite_src.find("warp") != -1,
 			"terrain_pbr_lite.gdshader adds anti-tiling UV rotation/warp")
+	var full_src := _strip_shader_comments(FileAccess.get_file_as_string("res://shaders/terrain_pbr.gdshader"))
+	_check(lite_src.find("map_edge_tint") != -1 and full_src.find("map_edge_tint") != -1
+			and lite_src.find("edge_blend") != -1 and full_src.find("edge_blend") != -1,
+			"both terrain shaders softly tint the playable boundary without extra texture samples")
+	var terrain_src := FileAccess.get_file_as_string("res://scripts/util/frontline_terrain.gd")
+	_check(terrain_src.find("edge_blend") != -1 and terrain_src.find("world_haze") != -1,
+			"HorizonRing blends the map edge into the matching biome palette")
 
 	var tree_src := _strip_shader_comments(FileAccess.get_file_as_string("res://Assets/tree_wind.gdshader"))
 	_check(tree_src.find("BACKLIGHT") != -1 and tree_src.find("INSTANCE_CUSTOM") != -1,
@@ -117,7 +126,8 @@ func _verify_quality_manager_presets() -> void:
 		(gs as Dictionary)["quality"] = QualityManager.Level.MEDIUM
 		var p_med := QualityManager.params()
 		var med_atlas := int(p_med.get("shadow_atlas", 0))
-		_check(med_atlas >= 1536, "MEDIUM mobile preset shadow_atlas >= 1536 (got %d)" % med_atlas)
+		_check(med_atlas >= 1536 and not bool(p_med.get("glow", true)),
+				"MEDIUM mobile preset keeps its larger shadow atlas and disables bloom (got %d)" % med_atlas)
 		QualityManager.apply_sun(sun)
 		_check(sun.directional_shadow_split_1 >= 0.16 and sun.directional_shadow_split_1 <= 0.36,
 				"MEDIUM near sun cascade split_1 in [0.16, 0.36] (got %.3f)" % sun.directional_shadow_split_1)
@@ -138,8 +148,10 @@ func _verify_quality_manager_presets() -> void:
 	_check(env.reflected_light_source == Environment.REFLECTION_SOURCE_SKY,
 			"static sky uses REFLECTION_SOURCE_SKY for metallic/water glint")
 	QualityManager.apply_environment(env)
-	_check(not env.ssao_enabled and not env.ssil_enabled and not env.ssr_enabled and not env.volumetric_fog_enabled and not env.sdfgi_enabled,
-			"heavy screen-space passes remain OFF on mobile environment")
+	_check(not env.ssao_enabled and not env.ssil_enabled and not env.ssr_enabled \
+			and not env.volumetric_fog_enabled and not env.sdfgi_enabled \
+			and not env.glow_enabled,
+			"heavy screen-space passes and bloom remain OFF on mobile environment")
 
 	sun.queue_free()
 	if gs is Dictionary and OS.get_environment("DRONE_QUALITY").is_empty():
@@ -227,6 +239,7 @@ func _verify_level(entry: Dictionary) -> void:
 			var min_a := 2.0
 			var max_a := -1.0
 			var chunk_meshes := 0
+			var edge_fade_params := 0
 			for child in ft.find_children("*", "MeshInstance3D", true, false):
 				var mi := child as MeshInstance3D
 				if mi == null or mi.mesh == null or mi.mesh.get_surface_count() == 0:
@@ -239,6 +252,12 @@ func _verify_level(entry: Dictionary) -> void:
 				var spath := tmat.shader.resource_path
 				if not (spath.ends_with("terrain_pbr_lite.gdshader") or spath.ends_with("terrain_pbr.gdshader")):
 					continue
+				var edge_start: Variant = tmat.get_shader_parameter("map_edge_start")
+				var edge_end: Variant = tmat.get_shader_parameter("map_edge_end")
+				var edge_tint: Variant = tmat.get_shader_parameter("map_edge_tint")
+				if edge_start is float and edge_end is float and edge_tint is Color \
+						and float(edge_start) < float(edge_end):
+					edge_fade_params += 1
 				var arrs := mi.mesh.surface_get_arrays(0)
 				if arrs.size() > Mesh.ARRAY_COLOR and arrs[Mesh.ARRAY_COLOR] is PackedColorArray:
 					var cols: PackedColorArray = arrs[Mesh.ARRAY_COLOR]
@@ -249,6 +268,8 @@ func _verify_level(entry: Dictionary) -> void:
 						max_a = maxf(max_a, a)
 			_check(chunk_meshes > 0 and min_a < 0.85 and max_a >= 0.90,
 					"%s terrain COLOR.a encodes cavity AO variation [%.2f..%.2f] across %d terrain meshes" % [map_name, min_a, max_a, chunk_meshes])
+			_check(edge_fade_params > 0,
+					"%s terrain binds the soft map-edge fade uniforms" % map_name)
 
 			# Batched ContactShadows MultiMesh (no unbatched ContactShadow_* nodes)
 			var cs_mm := ft.get_node_or_null("ContactShadows") as MultiMeshInstance3D
@@ -294,6 +315,18 @@ func _verify_level(entry: Dictionary) -> void:
 				var sd: Variant = mm_mat.get_shader_parameter("sun_dir")
 				_check(sd is Vector3 and (sd as Vector3).length() > 0.5,
 						"%s MountainBackdrop sun_dir uniform bound (%s)" % [map_name, str(sd)])
+
+			var backdrop_count := 0
+			var backdrop_crop_ok := true
+			for bname in ["BgHorizonTreeline", "BgHorizonHills"]:
+				var bg := ft.get_node_or_null(bname) as MultiMeshInstance3D
+				if bg != null:
+					backdrop_count += 1
+					backdrop_crop_ok = backdrop_crop_ok \
+							and bg.visibility_range_end <= 400.0 \
+							and bg.visibility_range_fade_mode == GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+			_check(backdrop_count > 0 and backdrop_crop_ok,
+					"%s high-angle horizon props fade before reading as floating map-edge blobs" % map_name)
 
 			# Water vertex depth & ripple_normal checks
 			if bool(entry["has_water"]):

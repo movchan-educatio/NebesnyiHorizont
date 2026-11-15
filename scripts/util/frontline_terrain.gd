@@ -1179,77 +1179,81 @@ static func _build_themed_horizon_props(root: Node3D, map_name: String) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(map_name) + 9941
 	var half_edge := OUTER_HALF  # 192.0 m
-	var outer_margin := maxf(SAFE_STRUCTURE_BOUND + 58.0, half_edge + 28.0)  # 220.0 m (> OUTER_HALF + 20)
-	var min_r := 260.0
-	var max_r := 580.0
-	var canopy := FOLIAGE.make_canopy_mesh(5, 3, 0.22, 1.0, 1.0)
-	var haze_col := Color(0.64, 0.72, 0.78)
-	var base_tree := Color(0.24, 0.32, 0.18)
-	var base_hill := Color(0.32, 0.38, 0.24)
+	var outer_margin := maxf(SAFE_STRUCTURE_BOUND + 98.0, half_edge + 88.0)  # 280.0 m
+	var min_r := 360.0
+	var max_r := 540.0
+	var canopy := FOLIAGE.make_canopy_mesh(7, 4, 0.24, 1.0, 1.0)
+	var hill_mesh := FOLIAGE.make_canopy_mesh(8, 4, 0.08, 1.0, 1.0)
+	var base_tree := Color(0.18, 0.25, 0.13)
+	var base_hill := Color(0.28, 0.30, 0.16)
 	match map_name:
 		"steppe":
-			haze_col = Color(0.74, 0.75, 0.69)
-			base_tree = Color(0.32, 0.34, 0.20)
-			base_hill = Color(0.44, 0.42, 0.28)
+			base_tree = Color(0.24, 0.26, 0.15)
+			base_hill = Color(0.35, 0.32, 0.18)
+		"village":
+			base_tree = Color(0.18, 0.26, 0.13)
+			base_hill = Color(0.27, 0.30, 0.16)
 		"industrial":
-			haze_col = Color(0.62, 0.68, 0.74)
-			base_tree = Color(0.24, 0.28, 0.20)
-			base_hill = Color(0.34, 0.36, 0.30)
+			base_tree = Color(0.19, 0.23, 0.16)
+			base_hill = Color(0.25, 0.27, 0.21)
 		"wetlands":
-			haze_col = Color(0.64, 0.72, 0.72)
-			base_tree = Color(0.20, 0.29, 0.18)
-			base_hill = Color(0.26, 0.34, 0.22)
+			base_tree = Color(0.15, 0.23, 0.14)
+			base_hill = Color(0.19, 0.24, 0.15)
 
 	var tree_xfs: Array = []
 	var tree_cols: Array = []
 	var hill_xfs: Array = []
 	var hill_cols: Array = []
-	for i in range(28):
+	for i in range(24):
 		var p := _pick_outer_horizon_point(rng, min_r, max_r, outer_margin)
 		var yaw := rng.randf_range(0.0, TAU)
 		var dir := Vector2(cos(yaw), sin(yaw))
-		var count := rng.randi_range(4, 7)
-		var dist_t := clampf((p.length() - min_r) / maxf(max_r - min_r, 1.0), 0.0, 1.0)
-		var fog_blend := lerpf(0.38, 0.78, dist_t)
+		var perp := Vector2(-dir.y, dir.x)
+		var count := rng.randi_range(3, 6)
 		for j in range(count):
-			var q := p + dir * (float(j) * 12.0)
+			var q := p + dir * (float(j) * 11.0) + perp * rng.randf_range(-5.5, 5.5)
 			if q.length() < min_r or (absf(q.x) <= outer_margin and absf(q.y) <= outer_margin):
 				continue
 			var y := _height(map_name, q.x, q.y)
-			var s := rng.randf_range(5.0, 9.5)
-			tree_xfs.append(Transform3D(Basis(Vector3.UP, yaw).scaled(Vector3(s * 1.15, s * 0.95, s * 1.15)),
-					Vector3(q.x, y + s * 0.35, q.y)))
-			tree_cols.append(base_tree.lerp(haze_col, fog_blend))
-	for i in range(24):
-		var p := _pick_outer_horizon_point(rng, min_r, max_r, outer_margin)
-		if absf(p.x) <= outer_margin + 20.0 and absf(p.y) <= outer_margin + 20.0:
+			var s := rng.randf_range(0.6, 1.2)
+			tree_xfs.append(Transform3D(Basis(Vector3.UP, yaw + rng.randf_range(-0.6, 0.6))
+					.scaled(Vector3(s, s, s)), Vector3(q.x, y - 10.0, q.y)))
+			var shade := rng.randf_range(0.90, 1.10)
+			tree_cols.append(Color(base_tree.r * shade, base_tree.g * shade, base_tree.b * shade))
+	for i in range(18):
+		var p := _pick_outer_horizon_point(rng, min_r + 30.0, max_r, outer_margin + 20.0)
+		if absf(p.x) <= outer_margin + 35.0 and absf(p.y) <= outer_margin + 35.0:
 			continue
 		var y := _height(map_name, p.x, p.y)
-		var w := rng.randf_range(28.0, 56.0)
-		var h := rng.randf_range(4.5, 11.0)
-		var dist_t := clampf((p.length() - min_r) / maxf(max_r - min_r, 1.0), 0.0, 1.0)
-		hill_xfs.append(Transform3D(Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(Vector3(w, h, w * 0.72)),
-				Vector3(p.x, y + h * 0.15, p.y)))
-		hill_cols.append(base_hill.lerp(haze_col, lerpf(0.45, 0.82, dist_t)))
+		var w := rng.randf_range(1.2, 2.0)
+		var h := rng.randf_range(0.4, 0.8)
+		hill_xfs.append(Transform3D(Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(Vector3(w, h, w)),
+				Vector3(p.x, y - 10.0, p.y)))
+		var h_shade := rng.randf_range(0.94, 1.06)
+		hill_cols.append(Color(base_hill.r * h_shade, base_hill.g * h_shade, base_hill.b * h_shade))
 	for spec in [
-		["BgHorizonTreeline", tree_xfs, tree_cols],
-		["BgHorizonHills", hill_xfs, hill_cols],
+		["BgHorizonTreeline", canopy, tree_xfs, tree_cols],
+		["BgHorizonHills", hill_mesh, hill_xfs, hill_cols],
 	]:
-		var xfs: Array = spec[1]
-		var cols: Array = spec[2]
+		var mesh_ref: Mesh = spec[1]
+		var xfs: Array = spec[2]
+		var cols: Array = spec[3]
 		if xfs.is_empty():
 			continue
-		var mat := _mat(Color.WHITE, 0.98, 0.0)
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		# Lit ground/treeline colors that stay far out in the horizon and fade
+		# before overhead views so zero pale-blue unshaded blobs ever appear.
+		var mat := _mat(Color.WHITE, 0.96, 0.0)
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		mat.metallic_specular = 0.18
 		mat.disable_receive_shadows = true
 		mat.vertex_color_use_as_albedo = true
 		mat.vertex_color_is_srgb = true
-		var mmi := _multimesh(root, spec[0], canopy, mat, xfs, false, cols)
+		var mmi := _multimesh(root, spec[0], mesh_ref, mat, xfs, false, cols)
 		if mmi != null:
-			mmi.visibility_range_begin = 110.0
-			mmi.visibility_range_begin_margin = 35.0
-			mmi.visibility_range_end = 1100.0
-			mmi.visibility_range_end_margin = 120.0
+			mmi.visibility_range_begin = 60.0
+			mmi.visibility_range_begin_margin = 20.0
+			mmi.visibility_range_end = 190.0
+			mmi.visibility_range_end_margin = 35.0
 			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 
 
@@ -1884,29 +1888,43 @@ static func _apply_triplanar(node: Node) -> void:
 ## the cheap density that makes the open maps read as working farmland instead
 ## of an empty green field.
 static func _build_crop_fields(root: Node3D, map_name: String) -> void:
+	var mobile := OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")
+	if mobile and (map_name == "industrial" or map_name == "wetlands"):
+		return
 	var tex := load("res://Assets/handcrafted/textures/crop_rows.png") as Texture2D
 	if tex == null:
 		return
 	var mat := StandardMaterial3D.new()
 	mat.albedo_texture = tex
 	mat.vertex_color_use_as_albedo = true
-	mat.roughness = 0.95
+	mat.roughness = 0.96
+	mat.metallic_specular = 0.18 if mobile else 0.35
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	if mobile:
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(map_name) + 5150
-	# Muted field tints: the raw crop texture read as bright lime next to the
-	# terrain palette in the owner's recording.  Per-field vertex colours give
-	# variety without extra materials.
+	# Muted earthy fallow/stubble tints on mobile with alpha-feathered borders so
+	# plots melt naturally into terrain instead of reading as neon rectangles.
 	var field_tints := [
+		Color(0.56, 0.52, 0.36), Color(0.50, 0.46, 0.30),
+		Color(0.44, 0.46, 0.28), Color(0.48, 0.44, 0.28),
+	] if mobile else [
 		Color(0.78, 0.80, 0.58), Color(0.86, 0.80, 0.52),
 		Color(0.66, 0.76, 0.50), Color(0.72, 0.70, 0.46),
 	]
+	var wl := water_level(map_name)
+	var max_fields := 4 if mobile else 8
 	var placed := 0
 	var fields: Array = []
 	for _i in range(22):
 		var x := rng.randf_range(-155.0, 155.0)
 		var z := rng.randf_range(-155.0, 155.0)
 		if _hall_clear_zone(map_name, x, z):
+			continue
+		if mobile and (_structure_clear_zone(map_name, x, z, 22.0) \
+				or _road_factor(map_name, x, z) > 0.18):
 			continue
 		if map_name == "industrial" \
 				and Vector2(x, z).distance_to(Vector2(-105.0, -98.0)) < 75.0:
@@ -1920,8 +1938,18 @@ static func _build_crop_fields(root: Node3D, map_name: String) -> void:
 		if map_name == "wetlands" \
 				and Vector2(x, z).distance_to(Vector2(-56.0, -118.0)) < 55.0:
 			continue
-		var w := rng.randf_range(38.0, 68.0)
-		var d := rng.randf_range(30.0, 52.0)
+		var w := rng.randf_range(34.0, 54.0) if mobile else rng.randf_range(38.0, 68.0)
+		var d := rng.randf_range(28.0, 44.0) if mobile else rng.randf_range(30.0, 52.0)
+		if mobile:
+			var min_h := 9999.0
+			var max_h := -9999.0
+			for sgn_z in [-0.5, 0.0, 0.5]:
+				for sgn_x in [-0.5, 0.0, 0.5]:
+					var sh := mesh_surface_height(map_name, x + w * float(sgn_x), z + d * float(sgn_z))
+					min_h = minf(min_h, sh)
+					max_h = maxf(max_h, sh)
+			if min_h < wl + 0.65 or max_h - min_h > 1.85:
+				continue
 		var cells := 8
 		var verts := PackedVector3Array()
 		var norms := PackedVector3Array()
@@ -1930,16 +1958,22 @@ static func _build_crop_fields(root: Node3D, map_name: String) -> void:
 		var idx := PackedInt32Array()
 		var tint: Color = field_tints[placed % field_tints.size()]
 		for cz in range(cells + 1):
+			var v := float(cz) / float(cells)
 			for cx in range(cells + 1):
-				var px := x - w * 0.5 + w * float(cx) / float(cells)
-				var pz := z - d * 0.5 + d * float(cz) / float(cells)
+				var u := float(cx) / float(cells)
+				var px := x - w * 0.5 + w * u
+				var pz := z - d * 0.5 + d * v
 				# Use the rendered terrain triangle height, not the analytic
 				# field, so the crop plane cannot hover over a slope.
 				verts.append(Vector3(px, mesh_surface_height(map_name, px, pz) + 0.06, pz))
 				norms.append(Vector3.UP)
-				uvs.append(Vector2(float(cx) / float(cells) * w / 10.0,
-						float(cz) / float(cells) * d / 10.0))
-				colors.append(tint)
+				uvs.append(Vector2(u * w / 10.0, v * d / 10.0))
+				var col := tint
+				if mobile:
+					var edge_a := smoothstep(0.0, 0.22, u) * smoothstep(1.0, 0.78, u) \
+							* smoothstep(0.0, 0.22, v) * smoothstep(1.0, 0.78, v)
+					col.a = edge_a * 0.86
+				colors.append(col)
 		for cz in range(cells):
 			for cx in range(cells):
 				var a := cz * (cells + 1) + cx
@@ -1962,7 +1996,7 @@ static func _build_crop_fields(root: Node3D, map_name: String) -> void:
 		root.add_child(mi)
 		fields.append(mi)
 		placed += 1
-		if placed >= 8:
+		if placed >= max_fields:
 			break
 	if fields.size() > 1:
 		_merge_visual_chunks(root, fields, mat)
@@ -2041,6 +2075,7 @@ static func _add_mobile_ground_patches(root: Node3D, map_name: String) -> void:
 		"wetlands": [Color(0.26, 0.38, 0.28, 0.14), Color(0.36, 0.34, 0.24, 0.12)],
 	}
 	var patch_tints: Array = tints.get(map_name, [Color(0.4, 0.4, 0.3, 0.12)])
+	var wl := water_level(map_name)
 	var placed := 0
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(map_name) + 8821
@@ -2049,21 +2084,61 @@ static func _add_mobile_ground_patches(root: Node3D, map_name: String) -> void:
 		var site := _patch_site(map_name, base)
 		if site == Vector2.INF:
 			continue
-		var gy := mesh_surface_height(map_name, site.x, site.y)
-		var quad := QuadMesh.new()
-		quad.size = Vector2(rng.randf_range(28.0, 48.0), rng.randf_range(22.0, 40.0))
+		var pw := rng.randf_range(26.0, 44.0)
+		var pd := rng.randf_range(22.0, 38.0)
+		var yaw := rng.randf_range(0.0, TAU)
+		var ca := cos(yaw)
+		var sa := sin(yaw)
+		var tint: Color = patch_tints[i % patch_tints.size()]
+		var cells := 4
+		var verts := PackedVector3Array()
+		var norms := PackedVector3Array()
+		var colors := PackedColorArray()
+		var idx := PackedInt32Array()
+		var wet_hit := false
+		for gz in range(cells + 1):
+			var nz := float(gz) / float(cells) * 2.0 - 1.0
+			for gx in range(cells + 1):
+				var nx := float(gx) / float(cells) * 2.0 - 1.0
+				var lx := nx * pw * 0.5
+				var lz := nz * pd * 0.5
+				var wx := site.x + lx * ca - lz * sa
+				var wz := site.y + lx * sa + lz * ca
+				var wy := mesh_surface_height(map_name, wx, wz)
+				if wy < wl + 0.35:
+					wet_hit = true
+				verts.append(Vector3(wx, wy + 0.05, wz))
+				norms.append(Vector3.UP)
+				var radial := clampf(1.0 - (nx * nx + nz * nz), 0.0, 1.0)
+				colors.append(Color(tint.r, tint.g, tint.b, tint.a * radial * radial))
+		if wet_hit and placed >= 4:
+			continue
+		for gz in range(cells):
+			for gx in range(cells):
+				var a := gz * (cells + 1) + gx
+				idx.append_array([a, a + 1, a + cells + 1,
+						a + 1, a + cells + 2, a + cells + 1])
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = verts
+		arrays[Mesh.ARRAY_NORMAL] = norms
+		arrays[Mesh.ARRAY_COLOR] = colors
+		arrays[Mesh.ARRAY_INDEX] = idx
+		var mesh := ArrayMesh.new()
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 		var mat := StandardMaterial3D.new()
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mat.albedo_color = patch_tints[i % patch_tints.size()]
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		mat.roughness = 0.98
+		mat.metallic = 0.0
+		mat.metallic_specular = 0.14
+		mat.vertex_color_use_as_albedo = true
+		mat.vertex_color_is_srgb = true
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		var mi := MeshInstance3D.new()
 		mi.name = "MobileGroundPatch%d" % placed
-		mi.mesh = quad
+		mi.mesh = mesh
 		mi.material_override = mat
-		mi.position = Vector3(site.x, gy + 0.06, site.y)
-		mi.rotation.x = -PI * 0.5
-		mi.rotation.z = rng.randf_range(0.0, TAU)
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		mi.set_meta("no_batch", true)
 		root.add_child(mi)
@@ -2196,6 +2271,7 @@ static func _ground_material(map_name: String) -> ShaderMaterial:
 			"dirt_tint": Color(0.88, 0.74, 0.56),
 			"rock_tint": Color(0.92, 0.88, 0.80),
 			"mud_tint": Color(0.72, 0.66, 0.52),
+			"map_edge_tint": Color(0.36, 0.33, 0.17),
 			"detail_scale": 0.26,
 			"macro_scale": 0.014,
 			"grass_bias": 0.12,
@@ -2207,6 +2283,7 @@ static func _ground_material(map_name: String) -> ShaderMaterial:
 			"dirt_tint": Color(0.82, 0.70, 0.54),
 			"rock_tint": Color(0.90, 0.87, 0.80),
 			"mud_tint": Color(0.60, 0.56, 0.42),
+			"map_edge_tint": Color(0.275, 0.31, 0.155),
 			"detail_scale": 0.28,
 			"macro_scale": 0.02,
 			"grass_bias": 0.30,
@@ -2218,6 +2295,7 @@ static func _ground_material(map_name: String) -> ShaderMaterial:
 			"dirt_tint": Color(0.76, 0.68, 0.52),
 			"rock_tint": Color(0.92, 0.90, 0.84),
 			"mud_tint": Color(0.70, 0.68, 0.58),
+			"map_edge_tint": Color(0.25, 0.265, 0.20),
 			"detail_scale": 0.30,
 			"macro_scale": 0.016,
 			"grass_bias": 0.35,
@@ -2229,6 +2307,7 @@ static func _ground_material(map_name: String) -> ShaderMaterial:
 			"dirt_tint": Color(0.70, 0.66, 0.50),
 			"rock_tint": Color(0.82, 0.84, 0.76),
 			"mud_tint": Color(0.56, 0.60, 0.42),
+			"map_edge_tint": Color(0.185, 0.23, 0.13),
 			"detail_scale": 0.26,
 			"macro_scale": 0.018,
 			"grass_bias": 0.20,
@@ -2244,6 +2323,10 @@ static func _ground_material(map_name: String) -> ShaderMaterial:
 	for key in conf:
 		if uniforms.has(key):
 			mat.set_shader_parameter(key, conf[key])
+	if uniforms.has("map_edge_start"):
+		mat.set_shader_parameter("map_edge_start", 176.0)
+	if uniforms.has("map_edge_end"):
+		mat.set_shader_parameter("map_edge_end", OUTER_HALF)
 
 	var wl := water_level(map_name)
 	mat.set_shader_parameter("wet_height", wl)
@@ -3039,11 +3122,13 @@ static func _apply_cottage_materials(node: Node, style: int = 0) -> void:
 ## clipmap out to 3 km.  Without it the 1 km map reads as a square island
 ## floating in the sky when viewed from the air.
 static func _build_horizon_ring(root: Node3D, map_name: String,
-		_mat: ShaderMaterial) -> void:
+		ground_mat: ShaderMaterial) -> void:
 	const EXTENT := 960.0
 	const STEP := 24.0
-	const HOLE := 188.0
+	const HOLE_GRID := OUTER_HALF + STEP  # 216.0 m outer start for 24 m cells
+	const COLLAR_DIVS := 8                # 24 m / 8 = 3.0 m exact TerrainChunk match
 	var cells := int(EXTENT * 2.0 / STEP)
+	var stride := cells + 1
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var uvs := PackedVector2Array()
@@ -3051,7 +3136,7 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 	var indices := PackedInt32Array()
 	var base := -EXTENT
 	var wl := water_level(map_name)
-	var haze_col := Color(0.58, 0.65, 0.72)
+	var haze_col := Color(0.38, 0.42, 0.35)
 	var grass := Color(0.24, 0.30, 0.14)
 	var dry := Color(0.36, 0.34, 0.21)
 	var rock := Color(0.32, 0.30, 0.25)
@@ -3060,62 +3145,137 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 			grass = Color(0.29, 0.30, 0.14)
 			dry = Color(0.42, 0.36, 0.20)
 			rock = Color(0.36, 0.32, 0.24)
-			haze_col = Color(0.66, 0.67, 0.62)
+			haze_col = Color(0.45, 0.44, 0.34)
 		"village":
 			grass = Color(0.21, 0.30, 0.13)
 			dry = Color(0.34, 0.32, 0.18)
 			rock = Color(0.30, 0.28, 0.24)
-			haze_col = Color(0.58, 0.65, 0.72)
+			haze_col = Color(0.37, 0.41, 0.34)
 		"industrial":
 			grass = Color(0.20, 0.24, 0.15)
 			dry = Color(0.30, 0.29, 0.25)
 			rock = Color(0.28, 0.28, 0.26)
-			haze_col = Color(0.56, 0.62, 0.68)
+			haze_col = Color(0.34, 0.38, 0.42)
 		"wetlands":
 			grass = Color(0.15, 0.22, 0.11)
 			dry = Color(0.22, 0.24, 0.15)
 			rock = Color(0.10, 0.19, 0.20)
-			haze_col = Color(0.56, 0.64, 0.64)
-	for j in range(cells + 1):
-		for i in range(cells + 1):
+			haze_col = Color(0.32, 0.39, 0.39)
+
+	var append_horizon_vert := func(wx: float, wz: float, n_step: float) -> int:
+		var vi := verts.size()
+		var h := _height(map_name, wx, wz)
+		verts.append(Vector3(wx, h, wz))
+		var dx := _height(map_name, wx + n_step, wz) - _height(map_name, wx - n_step, wz)
+		var dz := _height(map_name, wx, wz + n_step) - _height(map_name, wx, wz - n_step)
+		var n := Vector3(-dx, 2.0 * n_step, -dz).normalized()
+		normals.append(n)
+		uvs.append(Vector2(wx, wz) * 0.08)
+		var slope := clampf((1.0 - n.y) * 2.6, 0.0, 1.0)
+		var patch := _noise2(wx * 0.008 + 11.0, wz * 0.008 - 7.0) * 0.5 + 0.5
+		var mix_t := 0.25 + patch * 0.50
+		if map_name == "steppe" or map_name == "village":
+			var field_wave := 0.5 + 0.5 * sin(wx * 0.011) * cos(wz * 0.011)
+			mix_t = clampf(mix_t * 0.75 + field_wave * 0.25, 0.2, 0.8)
+		var col := grass.lerp(dry, mix_t)
+		if map_name == "wetlands" and h < wl + 0.35:
+			col = col.lerp(rock, 0.55)
+		else:
+			col = col.lerp(rock, slope * 0.45)
+		var edge_metric := maxf(absf(wx), absf(wz))
+		var edge_blend := smoothstep(SAFE_STRUCTURE_BOUND, OUTER_HALF, edge_metric)
+		var edge_tint := grass.lerp(dry, 0.5)
+		col = col.lerp(edge_tint, edge_blend * 0.35)
+		var dist := Vector2(wx, wz).length()
+		var world_haze := smoothstep(320.0, EXTENT * 0.92, dist) * 0.28
+		col = col.lerp(haze_col, world_haze)
+		colors.append(col.srgb_to_linear())
+		return vi
+
+	for j in range(stride):
+		var wz := base + float(j) * STEP
+		for i in range(stride):
 			var wx := base + float(i) * STEP
-			var wz := base + float(j) * STEP
-			var h := _height(map_name, wx, wz)
-			if absf(wx) <= HOLE + 0.5 and absf(wz) <= HOLE + 0.5:
-				h -= 0.06
-			verts.append(Vector3(wx, h, wz))
-			var dx := _height(map_name, wx + STEP, wz) - _height(map_name, wx - STEP, wz)
-			var dz := _height(map_name, wx, wz + STEP) - _height(map_name, wx, wz - STEP)
-			var n := Vector3(-dx, 2.0 * STEP, -dz).normalized()
-			normals.append(n)
-			uvs.append(Vector2(wx, wz) * 0.08)
-			var slope := clampf((1.0 - n.y) * 2.6, 0.0, 1.0)
-			var patch := _noise2(wx * 0.045 + 11.0, wz * 0.045 - 7.0) * 0.5 + 0.5
-			var grain := _noise2(wx * 0.33, wz * 0.33) * 0.5 + 0.5
-			var mix_t := clampf(patch * 0.58 + grain * 0.16, 0.0, 1.0)
-			if map_name == "steppe" or map_name == "village":
-				var field_wave := 0.5 + 0.5 * sin(wx * 0.011) * cos(wz * 0.011)
-				mix_t = clampf(mix_t * 0.65 + field_wave * 0.35, 0.0, 1.0)
-			var col := grass.lerp(dry, mix_t)
-			if map_name == "wetlands" and h < wl + 0.35:
-				col = col.lerp(rock, 0.70)
-			else:
-				col = col.lerp(rock, slope * 0.52)
-			var dist := Vector2(wx, wz).length()
-			var far_haze := smoothstep(260.0, EXTENT * 0.92, dist) * 0.72
-			col = col.lerp(haze_col, far_haze)
-			colors.append(col)
+			append_horizon_vert.call(wx, wz, STEP)
+
 	for j in range(cells):
 		for i in range(cells):
 			var x0 := base + float(i) * STEP
 			var z0 := base + float(j) * STEP
-			if x0 >= -HOLE and x0 + STEP <= HOLE and z0 >= -HOLE and z0 + STEP <= HOLE:
+			if x0 >= -HOLE_GRID and x0 + STEP <= HOLE_GRID \
+					and z0 >= -HOLE_GRID and z0 + STEP <= HOLE_GRID:
 				continue
-			var a := j * (cells + 1) + i
+			var a := j * stride + i
 			var b := a + 1
-			var c := a + (cells + 1)
+			var c := a + stride
 			var d := c + 1
 			indices.append_array([a, b, c, b, d, c])
+
+	# Four 24x24 outer corners [±192..±216] x [±192..±216]
+	var c_low := int(round((-OUTER_HALF - base) / STEP)) - 1   # 31 -> -216
+	var c_high := int(round((OUTER_HALF - base) / STEP))        # 48 -> +192
+	for corner in [[c_low, c_low], [c_high, c_low], [c_low, c_high], [c_high, c_high]]:
+		var ci := int(corner[0])
+		var cj := int(corner[1])
+		var a := cj * stride + ci
+		var b := a + 1
+		var c := a + stride
+		var d := c + 1
+		indices.append_array([a, b, c, b, d, c])
+
+	# Watertight 3 m -> 24 m stitched collar along all four ±192 m sides.
+	var side_cells := int(round(OUTER_SIZE / STEP))            # 16
+	var g_start := int(round((-OUTER_HALF - base) / STEP))      # 32 -> -192
+	var g_end := int(round((OUTER_HALF - base) / STEP))         # 48 -> +192
+	var c_step := STEP / float(COLLAR_DIVS)                     # 3.0 m
+	var in_count := side_cells * COLLAR_DIVS + 1
+	for side in range(4):
+		var v_in := PackedInt32Array()
+		v_in.resize(in_count)
+		for k in range(in_count):
+			var p := -OUTER_HALF + float(k) * c_step
+			match side:
+				0: v_in[k] = append_horizon_vert.call(OUTER_HALF, p, c_step)
+				1: v_in[k] = append_horizon_vert.call(-OUTER_HALF, p, c_step)
+				2: v_in[k] = append_horizon_vert.call(p, OUTER_HALF, c_step)
+				_: v_in[k] = append_horizon_vert.call(p, -OUTER_HALF, c_step)
+		var mid := COLLAR_DIVS / 2
+		for m in range(side_cells):
+			var k0 := m * COLLAR_DIVS
+			var out0 := 0
+			var out1 := 0
+			var flip_cw := false
+			match side:
+				0:  # +X: x = +192 -> +216
+					out0 = (g_start + m) * stride + (g_end + 1)
+					out1 = (g_start + m + 1) * stride + (g_end + 1)
+					flip_cw = true
+				1:  # -X: x = -192 -> -216
+					out0 = (g_start + m) * stride + c_low
+					out1 = (g_start + m + 1) * stride + c_low
+					flip_cw = false
+				2:  # +Z: z = +192 -> +216
+					out0 = (g_end + 1) * stride + (g_start + m)
+					out1 = (g_end + 1) * stride + (g_start + m + 1)
+					flip_cw = false
+				_:  # -Z: z = -192 -> -216
+					out0 = c_low * stride + (g_start + m)
+					out1 = c_low * stride + (g_start + m + 1)
+					flip_cw = true
+			for s in range(0, mid):
+				if flip_cw:
+					indices.append_array([v_in[k0 + s], out0, v_in[k0 + s + 1]])
+				else:
+					indices.append_array([v_in[k0 + s], v_in[k0 + s + 1], out0])
+			if flip_cw:
+				indices.append_array([v_in[k0 + mid], out0, out1])
+			else:
+				indices.append_array([v_in[k0 + mid], out1, out0])
+			for s in range(mid, COLLAR_DIVS):
+				if flip_cw:
+					indices.append_array([v_in[k0 + s], out1, v_in[k0 + s + 1]])
+				else:
+					indices.append_array([v_in[k0 + s], v_in[k0 + s + 1], out1])
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
@@ -3128,14 +3288,26 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 	var mi := MeshInstance3D.new()
 	mi.name = "HorizonRing"
 	mi.mesh = mesh
-	var flat := StandardMaterial3D.new()
-	flat.albedo_color = Color.WHITE
-	flat.vertex_color_use_as_albedo = true
-	flat.vertex_color_is_srgb = true
-	flat.roughness = 1.0
-	flat.metallic = 0.0
-	flat.disable_receive_shadows = true
-	mi.material_override = flat
+	var ring_shader := load("res://shaders/horizon_ring.gdshader") as Shader
+	if ring_shader != null and ground_mat != null:
+		var rmat := ShaderMaterial.new()
+		rmat.shader = ring_shader
+		for key in ["grass_albedo", "dirt_albedo", "grass_tint", "dirt_tint",
+				"map_edge_tint", "detail_scale", "grass_bias", "macro_contrast",
+				"grass_roughness", "dirt_roughness"]:
+			var val: Variant = ground_mat.get_shader_parameter(key)
+			if val != null:
+				rmat.set_shader_parameter(key, val)
+		rmat.set_shader_parameter("haze_color", haze_col)
+		mi.material_override = rmat
+	else:
+		var flat := StandardMaterial3D.new()
+		flat.albedo_color = Color.WHITE
+		flat.vertex_color_use_as_albedo = true
+		flat.roughness = 0.96
+		flat.metallic = 0.0
+		flat.metallic_specular = 0.24
+		mi.material_override = flat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(mi)
 	var body := StaticBody3D.new()
@@ -7006,7 +7178,7 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 			flower_col.append(Color(0.72, 0.58, 0.62))
 
 	var bush_target := 240 if high_detail else (130 if detail_lvl > 0 else 55)
-	var bush_radius := 162.0 if high_detail else (146.0 if detail_lvl > 0 else 108.0)
+	var bush_radius := 174.0 if high_detail else (164.0 if detail_lvl > 0 else 148.0)
 	var bush_mesh := FOLIAGE.make_canopy_mesh(5, 2, 0.42, 0.55, 0.65)
 	var bush_mat := FOLIAGE.make_wind_material(
 			Color(0.11, 0.16, 0.055) if map_name == "wetlands" \
@@ -7053,7 +7225,7 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 		flower_node.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 
 	var tuft_target := maxi(700, int(round(4200.0 * tuft_mult)))
-	var tuft_radius := 166.0 if high_detail else (152.0 if detail_lvl > 0 else 132.0)
+	var tuft_radius := 176.0 if high_detail else (170.0 if detail_lvl > 0 else 164.0)
 	var tuft_base := Color(0.15, 0.20, 0.08)
 	var tuft_tip := Color(0.36, 0.42, 0.18)
 	match map_name:
@@ -7085,7 +7257,7 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 		if _road_factor(map_name, x, z) > 0.25:
 			continue
 		var y := mesh_surface_height(map_name, x, z)
-		if y < wl + 0.15:
+		if y < wl + (0.40 if map_name == "wetlands" else 0.15):
 			continue
 		var s := rng.randf_range(0.8, 1.9)
 		tuft_xf.append(Transform3D(

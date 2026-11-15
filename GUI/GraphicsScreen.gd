@@ -5,6 +5,8 @@ extends Control
 const MAIN_MENU := "res://GUI/MainMenu.tscn"
 
 const QUALITY_ITEMS := ["Низька (120+ FPS)", "Середня (баланс)", "Висока (максимум якості)"]
+const MOBILE_QUALITY_ITEMS_UA := ["Низька (авто FPS)", "Середня (адаптивна)", "Висока (деталі)"]
+const MOBILE_QUALITY_ITEMS_EN := ["LOW (adaptive FPS)", "MEDIUM (adaptive)", "HIGH (detail)"]
 const FPV_MODE_ITEMS := ["Аналог 5.8 GHz", "Digital O3 / Avatar", "FLIR White-Hot", "FLIR Black-Hot"]
 const WINDOW_ITEMS := ["Повноекранний", "Повноекранний (вікно)", "Вікно", "Вікно без рамки"]
 const RESOLUTION_VALUES := [100, 85, 75, 50]
@@ -92,11 +94,17 @@ func _build() -> void:
 		preset_row.add_child(q_btn)
 		_quality_buttons.append(q_btn)
 	box.add_child(preset_row)
-	var q_hint := MenuUI.body(
-			"НИЗЬКА — максимум FPS: FSR 67% (різкість 85%), легка рослинність, короткі тіні. СЕРЕДНЯ — баланс: FSR 55–85%, щільна трава, тіні 120 м. ВИСОКА — максимум якості: нативна роздільність, MSAA 2x, атмосферний туман, тіні 180 м."
-			if not MenuUI.is_english() else
-			"LOW = maximum FPS: FSR 67% (sharpness 85%), light foliage, short shadows. MEDIUM = balance: FSR 55–85%, dense grass, 120 m shadows. HIGH = maximum quality: native scale, MSAA 2x, height fog & aerial perspective, 180 m shadows.",
-			12, MenuUI.MUTED)
+	var mobile_ui := MenuUI.is_mobile_ui()
+	var q_hint_text: String
+	if mobile_ui:
+		q_hint_text = "Роздільність 3D автоматично адаптується до FPS, HUD лишається чітким. Вищі рівні додають рослинність і дальність тіней; важкі постефекти вимкнені."
+		if MenuUI.is_english():
+			q_hint_text = "3D resolution adapts to FPS while the HUD stays sharp. Higher tiers add foliage and shadow distance; heavy post effects stay off on mobile."
+	else:
+		q_hint_text = "НИЗЬКА — максимум FPS: FSR 67% (різкість 85%), легка рослинність, короткі тіні. СЕРЕДНЯ — баланс: FSR 55–85%, щільна трава, тіні 120 м. ВИСОКА — максимум якості: нативна роздільність, MSAA 2x, атмосферний туман, тіні 180 м."
+		if MenuUI.is_english():
+			q_hint_text = "LOW = maximum FPS: FSR 67% (sharpness 85%), light foliage, short shadows. MEDIUM = balance: FSR 55–85%, dense grass, 120 m shadows. HIGH = maximum quality: native scale, MSAA 2x, height fog & aerial perspective, 180 m shadows."
+	var q_hint := MenuUI.body(q_hint_text, 12, MenuUI.MUTED)
 	q_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(q_hint)
 
@@ -114,7 +122,11 @@ func _build() -> void:
 	grid.add_theme_constant_override("v_separation", 10)
 	scroll.add_child(grid)
 
-	_quality_option = MenuUI.option(QUALITY_ITEMS, current_q)
+	var quality_items := QUALITY_ITEMS
+	if mobile_ui:
+		quality_items = MOBILE_QUALITY_ITEMS_EN if MenuUI.is_english() \
+				else MOBILE_QUALITY_ITEMS_UA
+	_quality_option = MenuUI.option(quality_items, current_q)
 	_quality_option.item_selected.connect(_on_quality_changed)
 	_add_row(grid, "Рівень графіки (3 рівні)", _quality_option)
 

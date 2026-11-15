@@ -28,6 +28,9 @@ uniform vec4 grass_tint : source_color = vec4(1.0);
 uniform vec4 dirt_tint : source_color = vec4(1.0);
 uniform vec4 rock_tint : source_color = vec4(1.0);
 uniform vec4 mud_tint : source_color = vec4(1.0);
+uniform vec4 map_edge_tint : source_color = vec4(0.66, 0.67, 0.62, 1.0);
+uniform float map_edge_start = 162.0;
+uniform float map_edge_end = 192.0;
 
 uniform float detail_scale : hint_range(0.01, 1.0) = 0.16;
 uniform float macro_scale : hint_range(0.001, 0.2) = 0.02;
@@ -134,14 +137,29 @@ void fragment() {
 	albedo *= macro_lum * micro_lum * hue_mod;
 
 	// Wet ground is darker and slightly more saturated, like real marsh mud.
-	float lowland = 1.0 - smoothstep(wet_height - 0.4, wet_height + 2.6, v_world.y);
-	float wet = clamp(mud_w * 1.45 + lowland * (0.45 + cavity * 0.75) * mud_amount, 0.0, 1.0);
-	albedo *= mix(1.0, 0.60, wet);
+	float lowland = 1.0 - smoothstep(wet_height - 0.15, wet_height + 0.95, v_world.y);
+	float wet = clamp((mud_w * 0.45 + lowland * (0.65 + cavity * 0.45)) * mud_amount, 0.0, 0.65);
+	albedo *= mix(1.0, 0.72, wet);
 	albedo = mix(albedo, albedo * vec3(0.84, 0.80, 0.76), cavity * 0.50);
 	albedo *= mix(1.0, 0.58, cavity) * (1.0 + ridge * 0.05);
+	// Keep textured grass & dirt across the 192 m border into HorizonRing so
+	// playable edges stay textured and leave zero visible square frame.
+	float edge_metric = max(abs(v_world.x), abs(v_world.z));
+	float edge_warp = (macro_a - 0.5) * 14.0 + (macro_b - 0.5) * 6.0;
+	float edge_org = smoothstep(map_edge_start - 10.0, map_edge_end - 4.0, edge_metric + edge_warp);
+	float edge_pin = smoothstep(map_edge_end - 8.0, map_edge_end, edge_metric);
+	float edge_blend = max(edge_org, edge_pin);
+
+	float edge_grass_w = smoothstep(0.30, 0.74, macro_a * 0.72 + macro_b * 0.28 + grass_bias);
+	float edge_lum = mix(1.0 - macro_contrast * 0.65, 1.0 + macro_contrast * 0.65,
+			clamp(macro_a * 0.65 + macro_b * 0.35, 0.0, 1.0));
+	vec3 edge_hue = mix(vec3(0.96, 1.02, 0.96), vec3(1.04, 0.99, 0.95), macro_b);
+	vec3 seam_albedo = mix((c_grass * edge_grass_w + c_dirt * (1.0 - edge_grass_w))
+			* edge_lum * edge_hue, map_edge_tint.rgb * edge_lum, 0.14);
+	albedo = mix(albedo, seam_albedo, edge_blend);
 
 	ALBEDO = albedo;
-	AO = clamp(mix(1.0, 0.34, cavity), 0.22, 1.0);
+	AO = mix(clamp(mix(1.0, 0.34, cavity), 0.22, 1.0), 1.0, edge_blend);
 	AO_LIGHT_AFFECT = 0.65;
 
 	// ---- normals -----------------------------------------------------------
@@ -153,10 +171,10 @@ void fragment() {
 	vec3 n = n_grass * grass_w + n_dirt * dirt_w + n_rock * rock_w + n_mud * mud_w;
 	vec3 n_micro = texture(dirt_normal, uv_c).rgb * 2.0 - 1.0;
 	n += n_micro * micro_strength * micro_fade * 0.85;
-	n.xy *= normal_strength * detail_fade;
+	n.xy *= normal_strength * detail_fade * (1.0 - edge_blend * 0.85);
 	n.z = max(n.z, 0.25);
 	NORMAL_MAP = normalize(n) * 0.5 + 0.5;
-	NORMAL_MAP_DEPTH = 1.35;
+	NORMAL_MAP_DEPTH = mix(1.35, 0.22, edge_blend);
 
 	// ---- roughness / specular ---------------------------------------------
 	float rough = grass_roughness * grass_w + dirt_roughness * dirt_w
@@ -165,7 +183,8 @@ void fragment() {
 	// Dynamic micro-roughness derived from surface luminance for crisp tactile depth
 	float tex_luma = dot(albedo, vec3(0.299, 0.587, 0.114));
 	rough = clamp(rough + (tex_luma - 0.48) * 0.28 - cavity * 0.08, 0.18, 0.98);
-	ROUGHNESS = clamp(mix(rough, 0.15, wet * 0.86), 0.12, 1.0);
-	SPECULAR = mix(0.40, 0.85, wet);
+	float seam_rough = grass_roughness * edge_grass_w + dirt_roughness * (1.0 - edge_grass_w);
+	ROUGHNESS = clamp(mix(mix(rough, 0.44, wet * 0.75), seam_rough, edge_blend), 0.36, 1.0);
+	SPECULAR = mix(mix(0.34, 0.46, wet), 0.24, edge_blend);
 	METALLIC = 0.0;
 }

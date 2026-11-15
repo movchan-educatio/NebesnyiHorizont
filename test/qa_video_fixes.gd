@@ -215,8 +215,8 @@ func _run() -> void:
 	_check(stick_monitor.find_child("AxisLabel", true, false) == null,
 			"flight stick monitor has no axis captions")
 	stick_monitor.queue_free()
-	# Phone quality tiers keep the high-level art, while adapting only 3D scale
-	# and far foliage.  Desktop presets are left alone.
+	# Both profiles adapt internal 3D resolution; mobile additionally clamps
+	# scale and disables post effects so its GPU budget stays predictable.
 	var quality := load("res://scripts/util/quality_manager.gd")
 	var had_mobile_env := OS.has_environment("MOBILE_UI")
 	OS.set_environment("MOBILE_UI", "1")
@@ -226,8 +226,9 @@ func _run() -> void:
 	if had_mobile_env:
 		OS.set_environment("MOBILE_UI", "1")
 	_check(bool(phone_quality.get("adaptive", false))
-			and float(phone_quality.get("max_scale", 1.0)) < 1.0,
-			"mobile quality uses adaptive resolution and device-safe scale")
+			and float(phone_quality.get("max_scale", 1.0)) < 1.0
+			and not bool(phone_quality.get("glow", false)),
+			"mobile quality adapts resolution and keeps bloom off")
 	_check(not bool(desktop_quality.get("adaptive", false)),
 			"desktop quality profile is unchanged")
 

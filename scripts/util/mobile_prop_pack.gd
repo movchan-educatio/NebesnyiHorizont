@@ -508,13 +508,40 @@ static func _scene(prop_name: String, large: bool) -> PackedScene:
 static func _apply_material(node: Node3D, prop_name: String) -> void:
 	var mat: StandardMaterial3D = _materials.get(prop_name)
 	if mat == null:
+		var finish := _surface_finish(prop_name)
 		mat = StandardMaterial3D.new()
 		mat.vertex_color_use_as_albedo = true
-		mat.roughness = 0.9
-		mat.metallic = 0.0
+		mat.roughness = finish.x
+		mat.metallic = finish.y
+		mat.metallic_specular = 0.34 if finish.y >= 0.12 else 0.22
 		_materials[prop_name] = mat
 	for child in node.find_children("*", "MeshInstance3D", true, false):
 		(child as MeshInstance3D).material_override = mat
+
+
+## Keep the mobile prop meshes vertex-coloured and batched, but stop steel,
+## timber and concrete from all reading as the same dead-matte plastic. This is
+## material-only (no extra textures, meshes, or draw calls).
+static func _surface_finish(prop_name: String) -> Vector2:
+	match prop_name:
+		"antenna_mast":
+			return Vector2(0.48, 0.42)
+		"fuel_barrels":
+			return Vector2(0.58, 0.30)
+		"water_tower_small", "silo_small", "container_stack":
+			return Vector2(0.68, 0.20)
+		"truck_wreck", "apc_wreck":
+			return Vector2(0.74, 0.16)
+		"tank_traps":
+			return Vector2(0.62, 0.30)
+		"power_pole", "fence_section", "barn_small", "well_house", "haystack", "tent_military", "watchtower":
+			return Vector2(0.90, 0.02)
+		"greenhouse", "bus_stop", "checkpoint_booth", "billboard_ruined":
+			return Vector2(0.78, 0.08)
+		"jersey_barriers", "ruined_wall", "sandbag_nest":
+			return Vector2(0.96, 0.0)
+		_:
+			return Vector2(0.88, 0.03)
 
 
 static func _local_aabb(node: Node3D) -> AABB:

@@ -29,6 +29,9 @@ uniform vec4 grass_tint : source_color = vec4(1.0);
 uniform vec4 dirt_tint : source_color = vec4(1.0);
 uniform vec4 rock_tint : source_color = vec4(1.0);
 uniform vec4 mud_tint : source_color = vec4(1.0);
+uniform vec4 map_edge_tint : source_color = vec4(0.66, 0.67, 0.62, 1.0);
+uniform float map_edge_start = 162.0;
+uniform float map_edge_end = 192.0;
 
 uniform float detail_scale : hint_range(0.01, 1.0) = 0.16;
 uniform float macro_scale : hint_range(0.001, 0.2) = 0.02;
@@ -110,8 +113,10 @@ void fragment() {
 	mud_w /= sum_w;
 
 	// ---- albedo: one anti-tiled sample per layer --------------------------
-	vec3 albedo = texture(grass_albedo, uv_grass).rgb * grass_tint.rgb * grass_w
-			+ texture(dirt_albedo, uv_dirt).rgb * dirt_tint.rgb * dirt_w
+	vec3 tex_grass = texture(grass_albedo, uv_grass).rgb * grass_tint.rgb;
+	vec3 tex_dirt = texture(dirt_albedo, uv_dirt).rgb * dirt_tint.rgb;
+	vec3 albedo = tex_grass * grass_w
+			+ tex_dirt * dirt_w
 			+ texture(rock_albedo, uv_rock).rgb * rock_tint.rgb * rock_w
 			+ texture(mud_albedo, uv_mud).rgb * mud_tint.rgb * mud_w;
 
@@ -126,14 +131,29 @@ void fragment() {
 	albedo *= macro_lum * micro_lum * hue_mod;
 
 	// Baked cavity/trench/crater/roadside-verge AO + damp lowland wetness
-	float lowland = 1.0 - smoothstep(wet_height - 0.4, wet_height + 2.6, v_world.y);
-	float wet = clamp(mud_w * 1.45 + lowland * (0.45 + cavity * 0.75) * mud_amount, 0.0, 1.0);
-	albedo *= mix(1.0, 0.60, wet);
+	float lowland = 1.0 - smoothstep(wet_height - 0.15, wet_height + 0.95, v_world.y);
+	float wet = clamp((mud_w * 0.45 + lowland * (0.65 + cavity * 0.45)) * mud_amount, 0.0, 0.65);
+	albedo *= mix(1.0, 0.72, wet);
 	albedo = mix(albedo, albedo * vec3(0.84, 0.80, 0.76), cavity * 0.52);
 	albedo *= mix(1.0, 0.58, cavity) * (1.0 + ridge * 0.05);
+	// Carry textured grass & dirt across the 192 m border into HorizonRing so
+	// playable margins never turn into bald clay and leave zero square cut.
+	float edge_metric = max(abs(v_world.x), abs(v_world.z));
+	float edge_warp = (macro_a - 0.5) * 14.0 + (macro_b - 0.5) * 6.0;
+	float edge_org = smoothstep(map_edge_start - 10.0, map_edge_end - 4.0, edge_metric + edge_warp);
+	float edge_pin = smoothstep(map_edge_end - 8.0, map_edge_end, edge_metric);
+	float edge_blend = max(edge_org, edge_pin);
+
+	float edge_grass_w = smoothstep(0.30, 0.74, macro_a * 0.72 + macro_b * 0.28 + grass_bias);
+	float edge_lum = mix(1.0 - macro_contrast * 0.65, 1.0 + macro_contrast * 0.65,
+			clamp(macro_a * 0.65 + macro_b * 0.35, 0.0, 1.0));
+	vec3 edge_hue = mix(vec3(0.96, 1.02, 0.96), vec3(1.04, 0.99, 0.95), macro_b);
+	vec3 seam_albedo = mix((tex_grass * edge_grass_w + tex_dirt * (1.0 - edge_grass_w))
+			* edge_lum * edge_hue, map_edge_tint.rgb * edge_lum, 0.14);
+	albedo = mix(albedo, seam_albedo, edge_blend);
 
 	ALBEDO = albedo;
-	AO = clamp(mix(1.0, 0.34, cavity), 0.22, 1.0);
+	AO = mix(clamp(mix(1.0, 0.34, cavity), 0.22, 1.0), 1.0, edge_blend);
 	AO_LIGHT_AFFECT = 0.65;
 
 	// Normal mapping: blend normal maps per layer, rotated back to world tangent frame
@@ -146,17 +166,18 @@ void fragment() {
 	n_rock.xy = vec2(n_rock.x * 0.602 - n_rock.y * 0.799, n_rock.x * 0.799 + n_rock.y * 0.602);
 	n_mud.xy = vec2(n_mud.x * 0.966 + n_mud.y * 0.259, -n_mud.x * 0.259 + n_mud.y * 0.966);
 	vec3 n = n_grass * grass_w + n_dirt * dirt_w + n_rock * rock_w + n_mud * mud_w;
-	n.xy *= normal_strength;
+	n.xy *= normal_strength * (1.0 - edge_blend * 0.85);
 	n.z = max(n.z, 0.25);
 	NORMAL_MAP = normalize(n) * 0.5 + 0.5;
-	NORMAL_MAP_DEPTH = 1.15;
+	NORMAL_MAP_DEPTH = mix(1.15, 0.22, edge_blend);
 
 	float base_rough = grass_roughness * grass_w + dirt_roughness * dirt_w
 			+ rock_roughness * rock_w + mud_roughness * mud_w;
 	float tex_luma = dot(albedo, vec3(0.299, 0.587, 0.114));
 	base_rough = clamp(base_rough + (tex_luma - 0.48) * 0.24 - cavity * 0.08, 0.18, 0.98);
-	ROUGHNESS = clamp(mix(base_rough, 0.16, wet * 0.84), 0.12, 1.0);
-	SPECULAR = mix(0.36, 0.80, wet);
+	float seam_rough = grass_roughness * edge_grass_w + dirt_roughness * (1.0 - edge_grass_w);
+	ROUGHNESS = clamp(mix(mix(base_rough, 0.44, wet * 0.75), seam_rough, edge_blend), 0.36, 1.0);
+	SPECULAR = mix(mix(0.32, 0.46, wet), 0.24, edge_blend);
 	METALLIC = 0.0;
 }
 
