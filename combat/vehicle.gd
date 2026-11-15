@@ -55,6 +55,24 @@ const ENGINE_DB := {
 	Kind.TANK: 3.5, Kind.BMP: 2.0, Kind.APC: 1.5, Kind.TRUCK: 0.5,
 	Kind.SAM: 2.0, Kind.HELI: 4.5, Kind.SHAHED: 3.5,
 }
+## Extra model variants that reuse the behaviour of a base Kind (APC / TRUCK /
+## SAM) but swap in a dedicated GLB.  They carry their own wheels and tracks, so
+## the procedural wheel/belt overlays are skipped.  `yaw` rotates the GLB so its
+## front points along -Z.
+const VARIANTS := {
+	"btr8": {"kind": Kind.APC, "path": "res://Assets/vehicles/btr8_carrier.glb",
+		"size": 7.6, "yaw": PI, "box": Vector3(3.1, 3.6, 7.5),
+		"hp": 300.0, "points": 380, "tint": Color(0.92, 0.95, 0.86)},
+	"mtsm": {"kind": Kind.APC, "path": "res://Assets/vehicles/mtsm_transporter.glb",
+		"size": 8.0, "yaw": 0.0, "box": Vector3(3.5, 4.3, 8.0),
+		"hp": 260.0, "points": 320, "tint": Color(0.95, 0.97, 0.90)},
+	"ural": {"kind": Kind.TRUCK, "path": "res://Assets/vehicles/ural_4320.glb",
+		"size": 7.8, "yaw": PI, "box": Vector3(2.7, 3.1, 7.8),
+		"hp": 200.0, "points": 260, "tint": Color(0.95, 0.97, 0.90)},
+	"oreshnik": {"kind": Kind.SAM, "path": "res://Assets/vehicles/oreshnik_launcher.glb",
+		"size": 11.0, "yaw": 0.0, "box": Vector3(2.7, 2.4, 11.0),
+		"hp": 520.0, "points": 900, "tint": Color(0.95, 0.97, 0.92)},
+}
 const TracerScript = preload("res://combat/tracer.gd")
 const ExplosionScript = preload("res://combat/explosion.gd")
 const CombatSfxScript = preload("res://combat/sfx.gd")
@@ -69,6 +87,8 @@ const FrontlineTerrainScript = preload("res://scripts/util/frontline_terrain.gd"
 @export var tracer_speed := 120.0
 
 @export var kind: int = Kind.TANK
+## Optional model variant key from VARIANTS ("" = default model for `kind`).
+@export var variant: String = ""
 @export var max_health := 320.0
 @export var points := 300
 @export var move_speed := 9.0
@@ -274,6 +294,31 @@ func _configure_stats_by_kind() -> void:
 			points = 500
 			fire_range = 0.0
 			_turn_rate = 1.6
+	if _variant_has("hp"):
+		max_health = float(_variant_get("hp", max_health))
+		points = int(_variant_get("points", points))
+		if variant == "mtsm":
+			fire_range = 70.0
+			tracer_damage = 2.5
+		elif variant == "oreshnik":
+			fire_range = 135.0
+			fire_interval = 1.1
+			tracer_damage = 11.0
+			_turn_rate = 1.0
+
+
+func _variant_has(key: String) -> bool:
+	return variant != "" and VARIANTS.has(variant) and (VARIANTS[variant] as Dictionary).has(key)
+
+
+func _variant_get(key: String, fallback: Variant) -> Variant:
+	if _variant_has(key):
+		return (VARIANTS[variant] as Dictionary)[key]
+	return fallback
+
+
+func _model_box() -> Vector3:
+	return _variant_get("box", MODEL_BOX.get(kind, Vector3(3.0, 1.7, 6.0)))
 
 
 # ------------------------------------------------------------------ build
@@ -321,6 +366,11 @@ func _cyl(parent: Node3D, radius: float, height: float, pos: Vector3,
 
 
 func _build_body() -> void:
+	if _variant_has("path") and ResourceLoader.exists(String(_variant_get("path", ""))):
+		if _build_from_model(String(_variant_get("path", "")), float(_variant_get("size", 7.0))):
+			if kind == Kind.SAM and variant != "oreshnik":
+				_attach_sam_radar_turret()
+			return
 	if MODEL_PATHS.has(kind):
 		var path: String = MODEL_PATHS[kind]
 		# The original Apache has 46 separate material-bearing mesh objects.
@@ -408,7 +458,7 @@ func _build_from_model(path: String, target: float) -> bool:
 	model.set_meta("source_glb", path)
 	add_child(model)
 	model.rotation = Vector3(float(MODEL_PITCH.get(kind, 0.0)),
-			float(MODEL_YAW.get(kind, 0.0)), 0.0)
+			float(_variant_get("yaw", MODEL_YAW.get(kind, 0.0))), 0.0)
 	_normalise_model(model, target)
 	var bounds := DroneCatalog.model_bounds(model)
 	var center := bounds.get_center()
@@ -423,14 +473,14 @@ func _build_from_model(path: String, target: float) -> bool:
 	_add_vehicle_detail()
 
 	var box := DroneCatalog.model_bounds(model)
-	var size: Vector3 = MODEL_BOX.get(kind, box.size)
+	var size: Vector3 = _variant_get("box", MODEL_BOX.get(kind, box.size))
 	if size.length_squared() < 0.01:
 		size = Vector3(target * 0.45, target * 0.32, target * 0.85)
 	_vehicle_model = model
 	if OS.get_name() == "iOS" or OS.has_feature("mobile") \
 			or OS.has_environment("MOBILE_UI"):
 		_setup_mobile_lod_proxy(size)
-	if kind == Kind.APC or kind == Kind.TRUCK or kind == Kind.SAM:
+	if variant == "" and (kind == Kind.APC or kind == Kind.TRUCK or kind == Kind.SAM):
 		_setup_running_gear(size)
 	_muzzle_height = clampf(size.y * 0.82, 1.4, 3.0)
 	_half_len = maxf(size.z * 0.5, 2.0)
@@ -560,6 +610,7 @@ func _apply_vehicle_style(model: Node3D) -> void:
 			tint = Color(0.78, 0.74, 0.62)
 		Kind.SAM:
 			tint = Color(0.45, 0.51, 0.34)
+	tint = _variant_get("tint", tint)
 	for mi in model.find_children("*", "MeshInstance3D", true, false):
 		var mesh := mi as MeshInstance3D
 		if mesh == null or mesh.mesh == null:
@@ -573,6 +624,13 @@ func _apply_vehicle_style(model: Node3D) -> void:
 				mat = StandardMaterial3D.new()
 			if mat.albedo_texture != null:
 				mat.albedo_color = tint
+				if variant != "":
+					# Authored UV-textured variants keep their own UVs (no triplanar).
+					mat.roughness = clampf(maxf(mat.roughness, 0.55), 0.55, 0.92)
+					mat.metallic = minf(mat.metallic, 0.35)
+					mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+					mesh.set_surface_override_material(s, mat)
+					continue
 			else:
 				var base := Color(0.3, 0.3, 0.3)
 				if source is StandardMaterial3D:
@@ -919,7 +977,7 @@ func _add_vehicle_detail() -> void:
 			_box(self, Vector3(1.2, 0.28, 0.5), Vector3(0.0, 1.75, 1.8), dark)
 			_box(self, Vector3(1.45, 0.24, 0.85), Vector3(0.0, 1.98, -1.05), metal)
 	if EnemyMarkingsScript.is_russian_vehicle(self):
-		var mark_box: Vector3 = MODEL_BOX.get(kind, Vector3(3.0, 1.8, 5.0))
+		var mark_box: Vector3 = _variant_get("box", MODEL_BOX.get(kind, Vector3(3.0, 1.8, 5.0)))
 		if kind == Kind.HELI:
 			mark_box = Vector3(3.6, 2.8, 12.0)
 		elif kind == Kind.SHAHED:
@@ -933,7 +991,7 @@ func _add_vehicle_detail() -> void:
 ## first hit on each module also awards score, so a skilled pilot is rewarded
 ## for aiming instead of spraying the thickest armour.
 func _setup_weak_spots() -> void:
-	var box: Vector3 = MODEL_BOX.get(kind, Vector3(3.0, 1.7, 6.0))
+	var box: Vector3 = _variant_get("box", MODEL_BOX.get(kind, Vector3(3.0, 1.7, 6.0)))
 	var engine := Vector3(0.0, box.y * 0.55, box.z * 0.36)
 	var ammo := Vector3(box.x * 0.30, box.y * 0.74, -box.z * 0.08)
 	var engine_size := Vector3(0.95, 0.42, 0.08)
@@ -1093,7 +1151,7 @@ func _setup_engine_audio() -> void:
 	_engine_player.play()
 	# Tracked vehicles get a second clatter layer: the diesel alone reads as a
 	# truck, the metallic clanks are what make a T-72 recognisable.
-	if kind == Kind.TANK or kind == Kind.BMP:
+	if kind == Kind.TANK or kind == Kind.BMP or variant == "mtsm":
 		_track_player = CombatSfxScript.make_looping_player(
 				CombatSfxScript.track_clatter_stream(), -8.0, 65.0, 850.0)
 		_track_player.bus = &"Engine"

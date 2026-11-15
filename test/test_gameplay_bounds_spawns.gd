@@ -340,7 +340,7 @@ func _test_spawn_distances_and_reinforcements() -> void:
 			["res://sceneries/IndustrialLevel.tscn", "industrial"]]:
 		var s_path := String(sp_pair[0])
 		var s_map := String(sp_pair[1])
-		for spec_id in [1, 2, 3, 4, 5, 6]:
+		for spec_id in [1, 2, 3, 4, 5, 6, 7, 8, 9]:
 			var slvl := await _load_level(s_path, Global.PlayMode.COMBAT, 1, spec_id, true)
 			if slvl == null:
 				continue

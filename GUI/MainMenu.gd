@@ -24,6 +24,9 @@ const SPECIAL_MISSIONS := [
 	{"id": 4, "code": "CARG-04", "name": "Доставка вантажу", "desc": "Забрати й доставити вантаж", "diff": "Легка", "col": Color("79a58a")},
 	{"id": 5, "code": "NGHT-05", "name": "Нічний виліт", "desc": "Удар по ЗРК у темряві", "diff": "Важка", "col": Color("c96f67")},
 	{"id": 6, "code": "EW-06", "name": "Прорив РЕБ", "desc": "Пробитися крізь глушіння", "diff": "Екстрим", "col": Color("c96f67")},
+	{"id": 7, "code": "CONV-07", "name": "Тилова колона", "desc": "Знищити колону забезпечення: Урал, МТ-СМ, БТР", "diff": "Середня", "col": Color("e2c276")},
+	{"id": 8, "code": "MSL-08", "name": "Орешник", "desc": "Знищити ракетний комплекс і його охорону", "diff": "Важка", "col": Color("c96f67")},
+	{"id": 9, "code": "DEEP-09", "name": "Глибокий тил", "desc": "Комбінований удар по тиловій базі", "diff": "Екстрим", "col": Color("c96f67")},
 ]
 const START_SCREEN := "res://GUI/StartScreen.tscn"
 const GRAPHICS_SCREEN := "res://GUI/GraphicsScreen.tscn"
@@ -600,7 +603,7 @@ func _build() -> void:
 	var tut_star: String = " ★" if Global.is_tutorial_completed() else ""
 	var tut_btn := _build_mode_btn("🎓 Туторіал" + tut_star, "🎓 Tutorial" + tut_star, "10 модулів", "10 modules", Global.PlayMode.TUTORIAL)
 	var train_btn := _build_mode_btn("🌲 Тренування", "🌲 Training", "Полігон + траса", "Range + course", Global.PlayMode.TRAINING)
-	var combat_mode_btn := _build_mode_btn("⚔️ Бойовий", "⚔️ Combat", "4 місії + 6 СО", "4 missions + 6 ops", Global.PlayMode.COMBAT)
+	var combat_mode_btn := _build_mode_btn("⚔️ Бойовий", "⚔️ Combat", "4 місії + 9 СО", "4 missions + 9 ops", Global.PlayMode.COMBAT)
 	mode_grid.add_child(tut_btn)
 	mode_grid.add_child(train_btn)
 	mode_grid.add_child(combat_mode_btn)
@@ -652,7 +655,7 @@ func _build() -> void:
 	# their own objectives and do not touch campaign stars/records.
 	left_box.add_child(MenuUI.feel_section("Спецоперації"))
 	var special_hint := MenuUI.body(
-			"Окремі вильоти поза кампанією: розвідка, супровід, евакуація, доставка, нічний удар і прорив РЕБ.",
+			"Окремі вильоти поза кампанією: розвідка, супровід, евакуація, доставка, нічний удар, прорив РЕБ, тилова колона, «Орешник» і глибокий тил.",
 			11, MenuUI.FPV_MUTED)
 	special_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	left_box.add_child(special_hint)
@@ -1118,7 +1121,7 @@ func _continue_campaign() -> void:
 	Global.play_mode = Global.PlayMode.COMBAT
 	_selected_special = 0
 	Global.special_mission = 0
-	_selected_mission = Global.campaign_unlocked_mission()
+	_selected_mission = 1 if Global.campaign_is_complete() else Global.campaign_unlocked_mission()
 	Global.menu_settings["selected_mode"] = Global.PlayMode.COMBAT
 	Global.menu_settings["selected_mission"] = _selected_mission
 	Global.menu_settings["selected_special"] = 0
@@ -1392,7 +1395,7 @@ func _update_selection_ui() -> void:
 		_continue_campaign_btn.visible = (_selected_mode == Global.PlayMode.COMBAT \
 				and _selected_special == 0)
 		if Global.campaign_is_complete():
-			_continue_campaign_btn.text = "★  КАМПАНІЮ ЗАВЕРШЕНО" if not is_en_campaign else "★  CAMPAIGN COMPLETE"
+			_continue_campaign_btn.text = "↺  ПЕРЕПРОЙТИ КАМПАНІЮ: TAC-01" if not is_en_campaign else "↺  REPLAY CAMPAIGN: TAC-01"
 		else:
 			_continue_campaign_btn.text = ("▶  CONTINUE CAMPAIGN: TAC-0%d" if is_en_campaign
 					else "▶  ПРОДОВЖИТИ КАМПАНІЮ: TAC-0%d") % unlocked_mission
@@ -1614,7 +1617,7 @@ func _launch_current_selection() -> void:
 		else:
 			Global.special_mission = 0
 			if not Global.is_mission_unlocked(_selected_mission):
-				_selected_mission = Global.campaign_unlocked_mission()
+				_selected_mission = 1 if Global.campaign_is_complete() else Global.campaign_unlocked_mission()
 			Global.combat_mission = clampi(_selected_mission, 1, 4)
 			if not DroneCatalog.is_combat(Global.drone_preset):
 				QuadSettings.custom_rates = false

@@ -34,6 +34,7 @@ const FrontlineTerrainScript = preload("res://scripts/util/frontline_terrain.gd"
 @export var panic_range := 18.0
 @export var panic_chance := 0.25
 @export var scatter_speed := 4.8
+@export var variant: String = ""
 
 var health := 0.0
 var is_destroyed := false
@@ -140,7 +141,7 @@ func _build() -> void:
 	var team_id := 99
 	if get("team") != null:
 		team_id = int(get("team"))
-	if rig.setup_rig(team_id):
+	if rig.setup_rig(team_id, variant):
 		_model = rig
 		_detailed_rig = rig
 		_muzzle = rig.muzzle

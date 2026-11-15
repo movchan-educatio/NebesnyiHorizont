@@ -86,8 +86,10 @@ var _is_dragging_hero := false
 var _selected_map := "village"
 var _selected_mode := Global.PlayMode.TUTORIAL
 var _selected_mission := 1
+var _selected_special := 0
 var _map_cards: Dictionary = {}
 var _maps_row: HBoxContainer = null
+var _mission_bar: ScrollContainer = null
 var _mission_buttons: Dictionary = {}
 var _play_caption: Label
 var _play_daily_lbl: Label = null
@@ -347,6 +349,12 @@ func _ready() -> void:
 		_selected_mode = Global.sanitize_play_mode(int(Global.menu_settings["selected_mode"]))
 	else:
 		_selected_mode = Global.sanitize_play_mode(Global.play_mode)
+	if Global.menu_settings.has("selected_mission"):
+		_selected_mission = clampi(int(Global.menu_settings["selected_mission"]), 1, 4)
+	if Global.menu_settings.has("selected_special"):
+		_selected_special = clampi(int(Global.menu_settings["selected_special"]), 0, 9)
+	if not Global.is_mission_unlocked(_selected_mission):
+		_selected_mission = 1 if Global.campaign_is_complete() else Global.campaign_unlocked_mission()
 	if not embedded:
 		Global.play_mode = _selected_mode
 		if DisplayServer.get_name() != "headless":
@@ -857,8 +865,10 @@ func _show(name: String) -> void:
 	_back_btn.visible = name != "main"
 	if _top_brand != null:
 		_top_brand.visible = (name != "main")
-	if name == "play" and _maps_row != null:
-		_update_map_cards(_maps_row)
+	if name == "play":
+		if _maps_row != null:
+			_update_map_cards(_maps_row)
+		_refresh_mobile_mission_strip()
 	if name == "drone":
 		if _hangar_preview_idx != Global.drone_preset:
 			_hangar_preview_idx = Global.drone_preset
@@ -2048,6 +2058,8 @@ func _build_play() -> void:
 	)
 	daily_row.add_child(gc_play_btn)
 
+	_build_mobile_mission_strip(v, is_en)
+
 	# Map cards
 	_maps_row = HBoxContainer.new()
 	_maps_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -2178,6 +2190,72 @@ func _mode_title(mode_id: int) -> String:
 	return "TUTORIAL" if MenuUI.is_english() else "ТУТОРІАЛ"
 
 
+func _build_mobile_mission_strip(parent: VBoxContainer, is_en: bool) -> void:
+	_mission_buttons.clear()
+	_mission_bar = ScrollContainer.new()
+	_mission_bar.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_mission_bar.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	_mission_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_mission_bar.custom_minimum_size = Vector2(0, _fs(38))
+	_mission_bar.visible = (_selected_mode == Global.PlayMode.COMBAT)
+	parent.add_child(_mission_bar)
+
+	var strip := HBoxContainer.new()
+	strip.add_theme_constant_override("separation", _gap(6))
+	_mission_bar.add_child(strip)
+
+	for m_id in range(1, 5):
+		var unlocked := Global.is_mission_unlocked(m_id)
+		var b := _button("TAC-0%d" % m_id, 34, _selected_special == 0 and _selected_mission == m_id)
+		b.custom_minimum_size = Vector2(_ui_sz(78), _fs(34))
+		b.add_theme_font_size_override("font_size", _fs(14))
+		b.disabled = not unlocked
+		b.modulate = Color(1, 1, 1, 1 if unlocked else 0.45)
+		b.pressed.connect(_select_mobile_mission.bind(m_id, 0))
+		strip.add_child(b)
+		_mission_buttons["tac:%d" % m_id] = b
+
+	for s_id in range(1, 10):
+		var op_prefix := "OP" if is_en else "СО"
+		var b := _button("%s-0%d · %s" % [op_prefix, s_id, Global.get_special_mission_name(s_id)],
+				34, _selected_special == s_id)
+		b.custom_minimum_size = Vector2(0, _fs(34))
+		b.add_theme_font_size_override("font_size", _fs(14))
+		b.pressed.connect(_select_mobile_mission.bind(-1, s_id))
+		strip.add_child(b)
+		_mission_buttons["spec:%d" % s_id] = b
+	_refresh_mobile_mission_strip()
+
+
+func _select_mobile_mission(mission_id: int, special_id: int) -> void:
+	if mission_id >= 1:
+		_selected_mission = clampi(mission_id, 1, 4)
+	_selected_special = clampi(special_id, 0, 9)
+	if _selected_special == 0 and not Global.is_mission_unlocked(_selected_mission):
+		_selected_mission = 1 if Global.campaign_is_complete() else Global.campaign_unlocked_mission()
+	Global.menu_settings["selected_mission"] = _selected_mission
+	Global.menu_settings["selected_special"] = _selected_special
+	Global.save_menu_settings()
+	_refresh_mobile_mission_strip()
+	_update_play_caption()
+
+
+func _refresh_mobile_mission_strip() -> void:
+	if _mission_bar != null:
+		_mission_bar.visible = (_selected_mode == Global.PlayMode.COMBAT)
+	for m_id in range(1, 5):
+		var b: Button = _mission_buttons.get("tac:%d" % m_id, null) as Button
+		if b != null:
+			var unlocked := Global.is_mission_unlocked(m_id)
+			b.disabled = not unlocked
+			b.modulate = Color(1, 1, 1, 1 if unlocked else 0.45)
+			_apply_button_primary_style(b, _selected_special == 0 and _selected_mission == m_id)
+	for s_id in range(1, 10):
+		var b: Button = _mission_buttons.get("spec:%d" % s_id, null) as Button
+		if b != null:
+			_apply_button_primary_style(b, _selected_special == s_id)
+
+
 func _update_play_caption() -> void:
 	if _play_caption == null:
 		return
@@ -2187,11 +2265,21 @@ func _update_play_caption() -> void:
 			map_name = str(mp["name"]).to_upper()
 			break
 	var mode_name := _mode_title(_selected_mode)
+	var mission_tag := ""
+	if _selected_mode == Global.PlayMode.COMBAT:
+		if _selected_special > 0:
+			mission_tag = " · %s-0%d (%s)" % [
+				"OP" if MenuUI.is_english() else "СО",
+				_selected_special,
+				Global.get_special_mission_name(_selected_special),
+			]
+		else:
+			mission_tag = " · TAC-0%d" % _selected_mission
 	var dname := DroneCatalog.get_drone_name(Global.drone_preset)
 	if MenuUI.is_english():
-		_play_caption.text = "SELECTED: %s · %s · CRAFT: %s" % [map_name, mode_name, dname]
+		_play_caption.text = "SELECTED: %s · %s%s · CRAFT: %s" % [map_name, mode_name, mission_tag, dname]
 	else:
-		_play_caption.text = "ОБРАНО: %s · %s · ДРОН: %s" % [map_name, mode_name, dname]
+		_play_caption.text = "ОБРАНО: %s · %s%s · ДРОН: %s" % [map_name, mode_name, mission_tag, dname]
 
 
 func _update_play_modes(row: HBoxContainer) -> void:
@@ -2199,6 +2287,7 @@ func _update_play_modes(row: HBoxContainer) -> void:
 		if c is Button and c.has_meta("mode_id"):
 			var mid := int(c.get_meta("mode_id", -1))
 			_apply_button_primary_style(c, mid == _selected_mode)
+	_refresh_mobile_mission_strip()
 	_update_play_caption()
 
 
@@ -2223,13 +2312,19 @@ func _launch() -> void:
 	_selected_mode = Global.sanitize_play_mode(_selected_mode)
 	Global.play_mode = _selected_mode
 	if _selected_mode == Global.PlayMode.COMBAT:
-		Global.combat_mission = _selected_mission
-		Global.special_mission = 0
+		Global.special_mission = _selected_special
+		if _selected_special > 0:
+			Global.combat_mission = 1
+		else:
+			if not Global.is_mission_unlocked(_selected_mission):
+				_selected_mission = 1 if Global.campaign_is_complete() else Global.campaign_unlocked_mission()
+			Global.combat_mission = _selected_mission
 	else:
 		Global.special_mission = 0
 	Global.menu_settings["selected_map"] = _selected_map
 	Global.menu_settings["selected_mode"] = _selected_mode
 	Global.menu_settings["selected_mission"] = _selected_mission
+	Global.menu_settings["selected_special"] = _selected_special
 	Global.menu_settings["drone_preset"] = Global.drone_preset
 	Global.save_menu_settings()
 	var scenes := {
@@ -2610,18 +2705,7 @@ func _on_hangar_choose_pressed() -> void:
 	_load_hero_model(_hangar_preview_idx)
 	_update_hangar_info(_hangar_preview_idx)
 	_update_hangar_list_styles()
-	if _play_caption != null:
-		var map_name: String = _selected_map
-		for m in MAP_META:
-			if str(m["id"]) == _selected_map:
-				map_name = str(m["name"])
-				break
-		var mode_name: String = _mode_title(_selected_mode)
-		var dname: String = DroneCatalog.get_drone_name(Global.drone_preset)
-		if MenuUI.is_english():
-			_play_caption.text = "SELECTED: %s · %s · CRAFT: %s" % [map_name, mode_name, dname]
-		else:
-			_play_caption.text = "ОБРАНО: %s · %s · ДРОН: %s" % [map_name, mode_name, dname]
+	_update_play_caption()
 
 
 func _on_hangar_gui_input(event: InputEvent) -> void:

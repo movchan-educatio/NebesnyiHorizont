@@ -41,8 +41,12 @@ func _run() -> void:
 	var saved_menu := Global.menu_settings.duplicate(true)
 	var saved_records := Global.campaign_records.duplicate(true)
 	var saved_hud := GameSettings.hud_config.duplicate(true)
+	var saved_mode := int(Global.play_mode)
+	var saved_combat_m := int(Global.combat_mission)
+	var saved_special_m := int(Global.special_mission)
 
 	await _test_fleet_and_campaign()
+	await _test_campaign_replay()
 	await _test_ui_and_settings()
 	await _test_infantry_rig_and_crouch()
 	await _test_haptics_api_and_drone()
@@ -51,6 +55,9 @@ func _run() -> void:
 	Global.menu_settings = saved_menu
 	Global.campaign_records = saved_records
 	GameSettings.hud_config = saved_hud
+	Global.play_mode = saved_mode
+	Global.combat_mission = saved_combat_m
+	Global.special_mission = saved_special_m
 
 	print("[RELEASE-QA] mobile_ui=", MenuUI.is_mobile_ui(), " fails=", _fails)
 	get_tree().quit(0 if _fails == 0 else 1)
@@ -96,6 +103,51 @@ func _test_fleet_and_campaign() -> void:
 	_check(MainMenuScript.BRIEFINGS_EN.size() == 4
 			and not MainMenuScript.BRIEFINGS_EN.has(5),
 			"MainMenu BRIEFINGS_EN has 4 missions and drops TAC-05")
+
+
+func _test_campaign_replay() -> void:
+	for m in [1, 2, 3, 4]:
+		Global.campaign_records["mission_%d" % m] = {"completed": true, "stars": 3}
+	_check(Global.campaign_is_complete(), "campaign replay starts with 4/4 completed")
+
+	var mm := (load("res://GUI/MainMenu.tscn") as PackedScene).instantiate()
+	add_child(mm)
+	await get_tree().process_frame
+	mm.call("_continue_campaign")
+	_check(int(mm.get("_selected_mission")) == 1,
+			"MainMenu _continue_campaign resets complete campaign replay to TAC-01")
+	mm.queue_free()
+	await get_tree().process_frame
+
+	var mob := (load("res://GUI/mobile/MobileMenu.tscn") as PackedScene).instantiate()
+	add_child(mob)
+	await get_tree().process_frame
+	var m_btns: Dictionary = mob.get("_mission_buttons")
+	_check(m_btns.has("tac:1") and m_btns.has("tac:2") and m_btns.has("spec:9"),
+			"MobileMenu exposes campaign TAC-01..04 and Special Ops 1..9")
+	mob.call("_select_mobile_mission", 2, 0)
+	_check(int(mob.get("_selected_mission")) == 2 and int(mob.get("_selected_special")) == 0,
+			"MobileMenu allows selecting TAC-02 during campaign replay")
+	mob.queue_free()
+	await get_tree().process_frame
+
+	Global.chain_briefing_pending = false
+	Global.play_mode = Global.PlayMode.COMBAT
+	Global.special_mission = 0
+	Global.combat_mission = 1
+	var lvl := (load("res://sceneries/VillageLevel.tscn") as PackedScene).instantiate()
+	add_child(lvl)
+	await get_tree().process_frame
+	await get_tree().physics_frame
+	get_tree().paused = false
+	lvl.call("_finish_mission", "МІСІЮ 1/4 ВИКОНАНО!", false)
+	var next_btn := lvl.get("_next_mission_btn") as Button
+	_check(next_btn != null and next_btn.visible,
+			"BigLevel debrief keeps Next Mission button visible on TAC-01 campaign replay")
+	get_tree().paused = false
+	lvl.queue_free()
+	await get_tree().process_frame
+	await get_tree().process_frame
 
 	await get_tree().process_frame
 
@@ -328,6 +380,37 @@ func _test_infantry_rig_and_crouch() -> void:
 			"EnemyRifleman does not slide horizontally while crouched (delta=%.4f m)" % enemy_slide)
 	_check(chaos_slide < 0.002,
 			"ChaosSoldier does not slide horizontally while crouched (delta=%.4f m)" % chaos_slide)
+
+	var s_rig := DetailedSoldierRig.new()
+	add_child(s_rig)
+	await get_tree().process_frame
+	var s_ok := s_rig.setup_rig(1, "spetsnaz")
+	_check(s_ok and s_rig.rifle_pivot != null and s_rig.skeleton != null,
+			"Spetsnaz DetailedSoldierRig loads with procedural RiflePivot")
+	if s_ok and s_rig.skeleton != null:
+		var s_sk := s_rig.skeleton
+		var sb_pel := int(s_rig.get("_b_pelvis"))
+		var sb_calf := int(s_rig.get("_b_calf_l"))
+		var sb_foot := int(s_rig.get("_b_foot_l"))
+		s_rig.set("_crouch_target", 0.0)
+		s_rig.set("_crouch_t", 0.0)
+		s_rig.set("_crouch", 0.0)
+		s_rig.call("_update_pose", 0.0)
+		var s_to_rig := s_rig.global_transform.affine_inverse() * s_sk.global_transform
+		var s_foot0 := (s_to_rig * s_sk.get_bone_global_pose(sb_foot).origin).y
+		s_rig.set("_crouch_target", 1.0)
+		s_rig.set("_crouch_t", 1.0)
+		s_rig.set("_crouch", 1.0)
+		s_rig.call("_update_pose", 0.0)
+		s_to_rig = s_rig.global_transform.affine_inverse() * s_sk.global_transform
+		var s_pel := s_to_rig * s_sk.get_bone_global_pose(sb_pel).origin
+		var s_knee := s_to_rig * s_sk.get_bone_global_pose(sb_calf).origin
+		var s_foot1 := (s_to_rig * s_sk.get_bone_global_pose(sb_foot).origin).y
+		_check(absf(s_foot1 - s_foot0) <= 0.015,
+				"Spetsnaz crouch keeps foot vertically anchored (dy=%.4f)" % absf(s_foot1 - s_foot0))
+		_check(s_knee.z < s_pel.z,
+				"Spetsnaz crouch bends knees forward (-Z: knee=%.3f < pel=%.3f)" % [s_knee.z, s_pel.z])
+	s_rig.queue_free()
 
 	arena.queue_free()
 	await get_tree().process_frame

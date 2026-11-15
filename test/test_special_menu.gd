@@ -10,17 +10,17 @@ func _ready() -> void:
 	for i in range(6):
 		await get_tree().process_frame
 	var ok := true
-	if menu._special_mission_btns.size() != 6:
+	if menu._special_mission_btns.size() != 9:
 		printerr("[SPECIALUI] FAIL special buttons: ", menu._special_mission_btns.size())
 		ok = false
 	else:
-		print("[SPECIALUI] PASS special buttons=6")
+		print("[SPECIALUI] PASS special buttons=9")
 	menu._selected_mode = Global.PlayMode.COMBAT
-	menu._selected_special = 6
-	Global.special_mission = 6
+	menu._selected_special = 9
+	Global.special_mission = 9
 	menu._update_selection_ui()
 	await get_tree().process_frame
-	if not String(menu._launch_btn.text).contains("ПРОРИВ РЕБ"):
+	if not String(menu._launch_btn.text).contains("ГЛИБОКИЙ ТИЛ"):
 		printerr("[SPECIALUI] FAIL launch text: ", menu._launch_btn.text)
 		ok = false
 	else:

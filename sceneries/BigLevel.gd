@@ -2412,6 +2412,12 @@ func _special_mission_hint(mission_id: int) -> String:
 			return _txt("НІЧНИЙ УДАР ПО ЗРК", "NIGHT SAM STRIKE")
 		6:
 			return _txt("ПРОРИВ КРІЗЬ РЕБ", "EW BREACH")
+		7:
+			return _txt("ТИЛОВА КОЛОНА", "REAR CONVOY")
+		8:
+			return _txt("ОРЕШНИК", "ORESHNIK")
+		9:
+			return _txt("ГЛИБОКИЙ ТИЛ", "DEEP STRIKE")
 		_:
 			return _txt("СПЕЦОПЕРАЦІЯ", "SPECIAL OP")
 
@@ -2558,7 +2564,8 @@ func _show_results(reason: String) -> void:
 								completed, stars_total, Global.campaign_unlocked_mission()])
 	var can_next: bool = (Global.play_mode == Global.PlayMode.COMBAT \
 			and Global.special_mission == 0 and not _mission_failed \
-			and Global.combat_mission < 4 and not Global.campaign_is_complete())
+			and Global.combat_mission < 4 \
+			and Global.is_mission_unlocked(Global.combat_mission + 1))
 	if _next_mission_btn != null:
 		_next_mission_btn.visible = can_next
 		_next_mission_btn.text = "%s TAC-0%d  →" % [
@@ -2921,7 +2928,8 @@ func _save_training_ghost() -> void:
 
 # ------------------------------------------------------------------ vehicles
 func _add_vehicle(kind: int, waypoints: Array, speed: float, hostile: bool,
-		track: bool, height: float = 0.0, is_mission_target: bool = true) -> Vehicle:
+		track: bool, height: float = 0.0, is_mission_target: bool = true,
+		variant: String = "") -> Vehicle:
 	var is_air := (kind == Vehicle.Kind.HELI or kind == Vehicle.Kind.SHAHED)
 	if not waypoints.is_empty():
 		var shifted: Array = []
@@ -2963,6 +2971,7 @@ func _add_vehicle(kind: int, waypoints: Array, speed: float, hostile: bool,
 		waypoints = shifted
 	var vehicle := VEHICLE.new()
 	vehicle.kind = kind
+	vehicle.variant = variant
 	vehicle.move_speed = speed
 	vehicle.hostile = hostile
 	vehicle.track_drone = track
@@ -3082,7 +3091,8 @@ func _on_vehicle_destroyed(points: int, kind: int, vehicle: Vehicle = null) -> v
 
 
 func _add_mission_infantry(pos: Vector3, patrol_axis: Vector3, patrol_dist: float,
-		patrol_spd: float, count_as_primary: bool = true) -> Node3D:
+		patrol_spd: float, count_as_primary: bool = true,
+		variant: String = "") -> Node3D:
 	if not count_as_primary \
 			and QualityManager.get_active_level() == QualityManager.Level.LOW:
 		# LOW keeps every mission-critical soldier but skips the decorative
@@ -3104,6 +3114,10 @@ func _add_mission_infantry(pos: Vector3, patrol_axis: Vector3, patrol_dist: floa
 	pos.z = safe_inf.y
 	var unit := EnemyRiflemanScript.new()
 	unit.name = "MissionInfantry_%d" % _infantry_units.size()
+	unit.variant = variant
+	if variant == "spetsnaz":
+		unit.max_health = 75.0
+		unit.points = 220
 	add_child(unit)
 	var gy := _find_ground_y(pos.x, pos.z)
 	var ground_pos := Vector3(pos.x, gy, pos.z)
@@ -3681,10 +3695,12 @@ func _add_special_zone(pos: Vector3, radius: float, hold: float, label: String) 
 	})
 
 
-func _spawn_special_guards(spots: Array) -> void:
+func _spawn_special_guards(spots: Array, count_as_primary: bool = false,
+		variant: String = "") -> void:
 	for spot in spots:
 		var p: Vector3 = spot
-		_add_mission_infantry(p, Vector3(1.0, 0.0, 0.4), 13.0, 1.7, false)
+		_add_mission_infantry(p, Vector3(1.0, 0.0, 0.4), 13.0, 1.7,
+				count_as_primary, variant)
 
 
 func _spawn_special_strike(ew_breach: bool) -> void:
@@ -3702,9 +3718,75 @@ func _spawn_special_strike(ew_breach: bool) -> void:
 	_mission_targets_total += 1
 	_spawn_special_guards([
 		Vector3(-25.0, 0.0, 65.0), Vector3(28.0, 0.0, 45.0),
-	])
+	], false, "spetsnaz" if ew_breach else "")
 	if ew_breach:
-		_spawn_special_guards([Vector3(0.0, 0.0, -45.0)])
+		_spawn_special_guards([Vector3(0.0, 0.0, -45.0)], false, "spetsnaz")
+
+
+func _spawn_special_rear_convoy() -> void:
+	var btr_route := [
+		Vector3(-92.0, 0.0, 32.0), Vector3(88.0, 0.0, -32.0),
+		Vector3(72.0, 0.0, -82.0), Vector3(-92.0, 0.0, -24.0),
+	]
+	_add_vehicle(Vehicle.Kind.APC, btr_route, 8.6, true, true, 0.0, true, "btr8")
+	_mission_targets_total += 1
+	var mtsm_route := [
+		Vector3(78.0, 0.0, -18.0), Vector3(-78.0, 0.0, 22.0),
+		Vector3(-78.0, 0.0, -64.0), Vector3(78.0, 0.0, -64.0),
+	]
+	_add_vehicle(Vehicle.Kind.APC, mtsm_route, 6.6, true, true, 0.0, true, "mtsm")
+	_mission_targets_total += 1
+	var ural_route := [
+		Vector3(-72.0, 0.0, -52.0), Vector3(72.0, 0.0, 14.0),
+		Vector3(86.0, 0.0, -44.0),
+	]
+	_add_vehicle(Vehicle.Kind.TRUCK, ural_route, 7.4, true, false, 0.0, true, "ural")
+	_mission_targets_total += 1
+	_spawn_special_guards([
+		Vector3(-38.0, 0.0, 28.0), Vector3(40.0, 0.0, -48.0),
+	], true, "spetsnaz")
+
+
+func _spawn_special_oreshnik(deep_strike: bool) -> void:
+	var oreshnik_route := [
+		Vector3(-52.0, 0.0, -45.0), Vector3(52.0, 0.0, -45.0),
+		Vector3(52.0, 0.0, -95.0), Vector3(-52.0, 0.0, -95.0),
+	]
+	_add_vehicle(Vehicle.Kind.SAM, oreshnik_route, 3.4 if deep_strike else 3.2,
+			true, true, 0.0, true, "oreshnik")
+	_mission_targets_total += 1
+	var btr_route := [
+		Vector3(-78.0, 0.0, 18.0), Vector3(78.0, 0.0, 18.0),
+		Vector3(78.0, 0.0, -28.0), Vector3(-78.0, 0.0, -28.0),
+	]
+	_add_vehicle(Vehicle.Kind.APC, btr_route, 9.0 if deep_strike else 8.4,
+			true, true, 0.0, true, "btr8")
+	_mission_targets_total += 1
+	if deep_strike:
+		var sam_route := [
+			Vector3(-68.0, 0.0, -10.0), Vector3(68.0, 0.0, -10.0),
+			Vector3(68.0, 0.0, -78.0), Vector3(-68.0, 0.0, -78.0),
+		]
+		_add_vehicle(Vehicle.Kind.SAM, sam_route, 4.5, true, true)
+		_mission_targets_total += 1
+		var mtsm_route := [
+			Vector3(82.0, 0.0, 28.0), Vector3(-82.0, 0.0, 28.0),
+			Vector3(-82.0, 0.0, -56.0), Vector3(82.0, 0.0, -56.0),
+		]
+		_add_vehicle(Vehicle.Kind.APC, mtsm_route, 6.8, true, true, 0.0, true, "mtsm")
+		_mission_targets_total += 1
+		_spawn_special_guards([
+			Vector3(-28.0, 0.0, 35.0), Vector3(32.0, 0.0, -45.0),
+		], true, "spetsnaz")
+	else:
+		var ural_route := [
+			Vector3(-45.0, 0.0, -15.0), Vector3(45.0, 0.0, -65.0),
+		]
+		_add_vehicle(Vehicle.Kind.TRUCK, ural_route, 6.8, true, false, 0.0, true, "ural")
+		_mission_targets_total += 1
+		_spawn_special_guards([
+			Vector3(-32.0, 0.0, -25.0), Vector3(36.0, 0.0, -58.0),
+		], false, "spetsnaz")
 
 
 func _setup_special_escort() -> void:
@@ -3782,6 +3864,12 @@ func _spawn_special_mission(mission_id: int) -> void:
 			_spawn_special_strike(false)
 		6:
 			_spawn_special_strike(true)
+		7:
+			_spawn_special_rear_convoy()
+		8:
+			_spawn_special_oreshnik(false)
+		9:
+			_spawn_special_oreshnik(true)
 
 	if mission_id >= 5:
 		_special_extract_beacon = _spawn_special_beacon(_special_extract_point,
@@ -4679,7 +4767,7 @@ func _setup_reb() -> void:
 			and Global.combat_mission >= 3:
 		reb.add_ew_dome(Vector3(0.0, _terrain_y(0.0, -148.0), -148.0), 165.0, 0.95, true,
 				deg_to_rad(0.0), 90.0)
-	if Global.special_mission == 6:
+	if Global.special_mission in [6, 9]:
 		# EW breach: a deliberately dense corridor within compact arena bounds.
 		reb.add_ew_dome(Vector3(-48.0, _terrain_y(-48.0, -35.0), -35.0),
 				155.0, 0.95, false)
@@ -6019,7 +6107,7 @@ func _build_chain_briefing() -> void:
 	panel.add_child(box)
 
 	var code := Label.new()
-	code.text = "БРИФІНГ КАМПАНІЇ  ·  TAC-0%d / 5" % Global.combat_mission
+	code.text = "БРИФІНГ КАМПАНІЇ  ·  TAC-0%d / 4" % Global.combat_mission
 	code.add_theme_font_size_override("font_size", 14)
 	code.add_theme_color_override("font_color", MenuUI.FPV_AMBER)
 	box.add_child(code)

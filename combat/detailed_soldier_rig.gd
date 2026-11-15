@@ -9,12 +9,14 @@ class_name DetailedSoldierRig
 extends Node3D
 
 const MODEL_PATH := "res://Assets/combat/soldier_detailed_merged.glb"
+const SPETSNAZ_MODEL_PATH := "res://Assets/combat/spetsnaz_soldier.glb"
 const HEIGHT := 1.88
 const EnemyMarkingsScript = preload("res://combat/enemy_markings.gd")
 const WEAPON_BONE_NAME := "Line01_028"
 
 static var _stripped_mesh_cache: Dictionary = {}
 
+var variant: String = ""
 var model: Node3D = null
 var skeleton: Skeleton3D = null
 var muzzle: Marker3D = null
@@ -38,6 +40,7 @@ var _b_forearm_l := -1
 var _b_arm_r := -1
 var _b_forearm_r := -1
 var _rest := {}
+var _rig_axes := {}
 var _aim_pitch := 0.0
 var _aim_smooth := 0.0
 var _look_yaw := 0.0
@@ -77,21 +80,28 @@ const RIFLE_UP := Vector3(-0.495606, 0.859139, -0.127496)
 const RIFLE_MUZZLE_OFFSET := 0.4867
 
 
-func setup_rig(team_id: int = -1) -> bool:
+func setup_rig(team_id: int = -1, model_variant: String = "") -> bool:
 	if _ready_ok:
 		return true
-	var packed := load(MODEL_PATH) as PackedScene
+	variant = model_variant
+	var use_spetsnaz := (variant == "spetsnaz" and ResourceLoader.exists(SPETSNAZ_MODEL_PATH))
+	var path := SPETSNAZ_MODEL_PATH if use_spetsnaz else MODEL_PATH
+	var packed := load(path) as PackedScene
 	if packed == null:
-		push_warning("[DetailSoldier] missing " + MODEL_PATH)
+		push_warning("[DetailSoldier] missing " + path)
 		return false
 	model = packed.instantiate() as Node3D
 	if model == null:
 		return false
 	model.name = "Soldier"
-	# The authored file is authored lying on its back after the glTF axis
-	# conversion.  Stand it up and turn it so its face follows the node's -Z
-	# (the direction EnemyRifleman calls "forward").
-	model.rotation_degrees = Vector3(90.0, 180.0, 0.0)
+	if use_spetsnaz:
+		# spetsnaz_soldier.glb is baked upright facing -Z at 1.88 m in Blender.
+		model.rotation_degrees = Vector3.ZERO
+	else:
+		# The authored file is authored lying on its back after the glTF axis
+		# conversion.  Stand it up and turn it so its face follows the node's -Z
+		# (the direction EnemyRifleman calls "forward").
+		model.rotation_degrees = Vector3(90.0, 180.0, 0.0)
 	add_child(model)
 
 	var box := _bounds(model, self)
@@ -116,10 +126,10 @@ func setup_rig(team_id: int = -1) -> bool:
 	_capture_rest_heights()
 	if team_id == 0:
 		_build_team_patch(team_id)
-	elif QualityManager.get_active_level() != QualityManager.Level.LOW:
+	elif variant != "spetsnaz" and QualityManager.get_active_level() != QualityManager.Level.LOW:
 		# The shoulder marking is a separate one-draw mesh per soldier.  On the
 		# 60 FPS profiles the squad is seen from 20+ m, so skip it and keep the
-		# draw budget for the body mesh.
+		# draw budget for the body mesh.  Spetsnaz carries authored shoulder patches.
 		EnemyMarkingsScript.mark_infantry(self)
 	scale = Vector3.ONE * 1.8
 	_ready_ok = true
@@ -130,31 +140,96 @@ func setup_rig(team_id: int = -1) -> bool:
 
 
 func _cache_bones() -> void:
-	_b_pelvis = _bone("Bip01 Pelvis")
-	_b_thigh_l = _bone("Bip01 L Thigh")
-	_b_thigh_r = _bone("Bip01 R Thigh")
-	_b_calf_l = _bone("Bip01 L Calf")
-	_b_calf_r = _bone("Bip01 R Calf")
-	_b_foot_l = _bone("Bip01 L Foot")
-	_b_foot_r = _bone("Bip01 R Foot")
-	_b_spine = _bone("Bip01 Spine")
-	_b_spine1 = _bone("Bip01 Spine1")
-	_b_spine2 = _bone("Bip01 Spine2")
-	_b_spine3 = _bone("Bip01 Spine3")
-	_b_neck = _bone("Bip01 Neck")
-	_b_head = _bone("Bip01 Head")
-	_b_support = _bone("Bip01 L UpperArm")
-	_b_forearm_l = _bone("Bip01 L Forearm")
-	_b_arm_r = _bone("Bip01 R UpperArm")
-	_b_forearm_r = _bone("Bip01 R Forearm")
+	if variant == "spetsnaz":
+		_b_pelvis = _bone("Bip01_Pelvis")
+		_b_thigh_l = _bone("Bip01_L_Thigh")
+		_b_thigh_r = _bone("Bip01_R_Thigh")
+		_b_calf_l = _bone("Bip01_L_Calf")
+		_b_calf_r = _bone("Bip01_R_Calf")
+		_b_foot_l = _bone("Bip01_L_Foot")
+		_b_foot_r = _bone("Bip01_R_Foot")
+		_b_spine = _bone("Bip01_Spine_")
+		_b_spine1 = _bone("Bip01_Spine1")
+		_b_spine2 = _bone("Bip01_Spine2")
+		_b_spine3 = _bone("Bip01_Spine4")
+		_b_neck = _bone("Bip01_Neck1")
+		_b_head = _bone("Bip01_Head1")
+		_b_support = _bone("Bip01_L_UpperArm")
+		_b_forearm_l = _bone("Bip01_L_Forearm")
+		_b_arm_r = _bone("Bip01_R_UpperArm")
+		_b_forearm_r = _bone("Bip01_R_Forearm")
+	else:
+		_b_pelvis = _bone("Bip01 Pelvis")
+		_b_thigh_l = _bone("Bip01 L Thigh")
+		_b_thigh_r = _bone("Bip01 R Thigh")
+		_b_calf_l = _bone("Bip01 L Calf")
+		_b_calf_r = _bone("Bip01 R Calf")
+		_b_foot_l = _bone("Bip01 L Foot")
+		_b_foot_r = _bone("Bip01 R Foot")
+		_b_spine = _bone("Bip01 Spine")
+		_b_spine1 = _bone("Bip01 Spine1")
+		_b_spine2 = _bone("Bip01 Spine2")
+		_b_spine3 = _bone("Bip01 Spine3")
+		_b_neck = _bone("Bip01 Neck")
+		_b_head = _bone("Bip01 Head")
+		_b_support = _bone("Bip01 L UpperArm")
+		_b_forearm_l = _bone("Bip01 L Forearm")
+		_b_arm_r = _bone("Bip01 R UpperArm")
+		_b_forearm_r = _bone("Bip01 R Forearm")
+	_rig_axes.clear()
+	var skel_to_rig := (global_transform.affine_inverse() * skeleton.global_transform).basis
 	for idx in [_b_pelvis, _b_thigh_l, _b_thigh_r, _b_calf_l, _b_calf_r,
 			_b_foot_l, _b_foot_r, _b_spine, _b_spine1, _b_spine2, _b_spine3,
 			_b_neck, _b_head, _b_support, _b_forearm_l, _b_arm_r, _b_forearm_r]:
 		if idx >= 0:
 			_rest[idx] = skeleton.get_bone_pose_rotation(idx)
+			var p_idx := skeleton.get_bone_parent(idx)
+			var p_basis := skel_to_rig * (skeleton.get_bone_global_rest(p_idx).basis if p_idx >= 0 else Basis.IDENTITY)
+			var inv_p := p_basis.inverse()
+			_rig_axes[idx] = {
+				"x": (inv_p * Vector3.RIGHT).normalized(),
+				"y": (inv_p * Vector3.UP).normalized(),
+				"z": (inv_p * Vector3.BACK).normalized(),
+			}
+
+
+func _rot_rig(idx: int, axis_key: String, angle: float) -> Quaternion:
+	if not _rig_axes.has(idx):
+		return Quaternion.IDENTITY
+	var ax: Vector3 = _rig_axes[idx].get(axis_key, Vector3.RIGHT)
+	return Quaternion(ax, angle)
+
+
+func _set_spetsnaz_arms(reload_blend: float = 0.0, aim_pitch: float = 0.0) -> void:
+	if _b_arm_r >= 0:
+		skeleton.set_bone_pose_rotation(_b_arm_r,
+				_rot_rig(_b_arm_r, "x", deg_to_rad(8.0) + aim_pitch * 0.35)
+				* _rot_rig(_b_arm_r, "y", deg_to_rad(12.0))
+				* _rot_rig(_b_arm_r, "z", deg_to_rad(-22.0))
+				* _rest[_b_arm_r])
+	if _b_forearm_r >= 0:
+		skeleton.set_bone_pose_rotation(_b_forearm_r,
+				_rot_rig(_b_forearm_r, "x", deg_to_rad(42.0))
+				* _rot_rig(_b_forearm_r, "y", deg_to_rad(14.0))
+				* _rest[_b_forearm_r])
+	if _b_support >= 0:
+		skeleton.set_bone_pose_rotation(_b_support,
+				_rot_rig(_b_support, "x", deg_to_rad(38.0 - 20.0 * reload_blend) + aim_pitch * 0.35)
+				* _rot_rig(_b_support, "y", deg_to_rad(-38.0 + 20.0 * reload_blend))
+				* _rot_rig(_b_support, "z", deg_to_rad(24.0))
+				* _rest[_b_support])
+	if _b_forearm_l >= 0:
+		skeleton.set_bone_pose_rotation(_b_forearm_l,
+				_rot_rig(_b_forearm_l, "x", deg_to_rad(6.0 - 14.0 * reload_blend))
+				* _rot_rig(_b_forearm_l, "y", deg_to_rad(-24.0 + 16.0 * reload_blend))
+				* _rest[_b_forearm_l])
 
 
 func _apply_base_pose() -> void:
+	if variant == "spetsnaz":
+		# Fold arms down and forward from A-pose into a combat rifle-ready hold.
+		_set_spetsnaz_arms(0.0, 0.0)
+		return
 	# The bind pose leaves the support arm straight out (a T-pose).  Fold it
 	# across the chest so both hands read as holding the rifle.
 	if _b_support >= 0:
@@ -199,10 +274,12 @@ func _build_rifle_prop() -> void:
 ## drop: six primitives, one shared material, plus the muzzle marker.
 func _build_procedural_rifle() -> void:
 	var grip_pos := Vector3(0.303, 1.235, -0.090)
-	var b_r_hand := _bone("Bip01 R Hand")
+	var b_r_hand := _bone("Bip01_R_Hand" if variant == "spetsnaz" else "Bip01 R Hand")
 	if skeleton != null and b_r_hand >= 0:
 		skeleton.force_update_all_bone_transforms()
 		grip_pos = to_local(skeleton.to_global(skeleton.get_bone_global_pose(b_r_hand).origin))
+	elif variant == "spetsnaz":
+		grip_pos = Vector3(0.14, 1.25, -0.34)
 	rifle_pivot = Node3D.new()
 	rifle_pivot.name = "RiflePivot"
 	# Place RifleGrip (local (0, -0.08, -0.015)) right in the trigger hand bone.
@@ -416,29 +493,6 @@ func _update_pose(_delta: float) -> void:
 	# anti-phased, so the right foot uses the mirrored sign.  Amplitude fades
 	# out when crouching or standing still.
 	var heel_toe := 0.15 * cos(_walk_phase) * clampf(walk_w, 0.0, 1.0)
-	if _b_thigh_l >= 0:
-		skeleton.set_bone_pose_rotation(_b_thigh_l,
-				Quaternion(Vector3.FORWARD, swing * amp + crouch_hip) * _rest[_b_thigh_l])
-	if _b_thigh_r >= 0:
-		skeleton.set_bone_pose_rotation(_b_thigh_r,
-				Quaternion(Vector3.FORWARD, -swing * amp + crouch_hip) * _rest[_b_thigh_r])
-	if _b_calf_l >= 0:
-		skeleton.set_bone_pose_rotation(_b_calf_l,
-				Quaternion(Vector3.FORWARD,
-				maxf(0.0, -swing) * 0.85 * walk_w + crouch_knee) * _rest[_b_calf_l])
-	if _b_calf_r >= 0:
-		skeleton.set_bone_pose_rotation(_b_calf_r,
-				Quaternion(Vector3.FORWARD,
-				maxf(0.0, swing) * 0.85 * walk_w + crouch_knee) * _rest[_b_calf_r])
-	if _b_foot_l >= 0:
-		skeleton.set_bone_pose_rotation(_b_foot_l,
-				Quaternion(Vector3.FORWARD, swing * 0.22 * walk_w
-				- heel_toe + crouch_foot) * _rest[_b_foot_l])
-	if _b_foot_r >= 0:
-		skeleton.set_bone_pose_rotation(_b_foot_r,
-				Quaternion(Vector3.FORWARD, -swing * 0.22 * walk_w
-				+ heel_toe + crouch_foot) * _rest[_b_foot_r])
-
 	var breath := sin(_breath_phase) * 0.025
 	var flinch_pitch := _hit_flinch * 0.28
 	var flinch_yaw := _hit_flinch * 0.22 * _hit_dir
@@ -447,29 +501,54 @@ func _update_pose(_delta: float) -> void:
 	var lean := -_aim_smooth * 0.22 + 0.24 * _crouch + breath + flinch_pitch \
 			+ 0.06 * _kick - 0.10 * _run_blend
 	var head_pitch := -_aim_smooth * 0.38 - 0.14 * _crouch - breath * 0.5 - flinch_pitch * 0.6
-	if _b_spine2 >= 0:
-		skeleton.set_bone_pose_rotation(_b_spine2,
-				Quaternion(Vector3.BACK, lean * 0.45) * Quaternion(Vector3.UP, flinch_yaw * 0.5) * _rest[_b_spine2])
-	if _b_spine3 >= 0:
-		skeleton.set_bone_pose_rotation(_b_spine3,
-				Quaternion(Vector3.BACK, lean * 0.65) * Quaternion(Vector3.UP, flinch_yaw * 0.5) * _rest[_b_spine3])
-	if _b_neck >= 0:
-		skeleton.set_bone_pose_rotation(_b_neck,
-				Quaternion(Vector3.BACK, head_pitch * 0.5) * Quaternion(Vector3.UP, _look_yaw_smooth * 0.45) * _rest[_b_neck])
-	if _b_head >= 0:
-		skeleton.set_bone_pose_rotation(_b_head,
-				Quaternion(Vector3.BACK, head_pitch * 0.5) * Quaternion(Vector3.UP, _look_yaw_smooth * 0.55) * _rest[_b_head])
-
 	var reload_blend := 0.0
 	if _reload_time > 0.0 and _reload_duration > 0.0:
 		var prog := 1.0 - (_reload_time / _reload_duration)
 		reload_blend = sin(prog * PI)
 
-	if _b_support >= 0:
-		var sup_yaw := deg_to_rad(90.0 - 38.0 * reload_blend)
-		var sup_pitch := -0.45 * reload_blend
-		skeleton.set_bone_pose_rotation(_b_support,
-				Quaternion(Vector3.UP, sup_yaw) * Quaternion(Vector3.RIGHT, sup_pitch))
+	if variant == "spetsnaz":
+		_apply_spetsnaz_bones(swing, walk_w, amp, crouch_hip, crouch_knee,
+				crouch_foot, heel_toe, lean, head_pitch, flinch_yaw, reload_blend)
+	else:
+		if _b_thigh_l >= 0:
+			skeleton.set_bone_pose_rotation(_b_thigh_l,
+					Quaternion(Vector3.FORWARD, swing * amp + crouch_hip) * _rest[_b_thigh_l])
+		if _b_thigh_r >= 0:
+			skeleton.set_bone_pose_rotation(_b_thigh_r,
+					Quaternion(Vector3.FORWARD, -swing * amp + crouch_hip) * _rest[_b_thigh_r])
+		if _b_calf_l >= 0:
+			skeleton.set_bone_pose_rotation(_b_calf_l,
+					Quaternion(Vector3.FORWARD,
+					maxf(0.0, -swing) * 0.85 * walk_w + crouch_knee) * _rest[_b_calf_l])
+		if _b_calf_r >= 0:
+			skeleton.set_bone_pose_rotation(_b_calf_r,
+					Quaternion(Vector3.FORWARD,
+					maxf(0.0, swing) * 0.85 * walk_w + crouch_knee) * _rest[_b_calf_r])
+		if _b_foot_l >= 0:
+			skeleton.set_bone_pose_rotation(_b_foot_l,
+					Quaternion(Vector3.FORWARD, swing * 0.22 * walk_w
+					- heel_toe + crouch_foot) * _rest[_b_foot_l])
+		if _b_foot_r >= 0:
+			skeleton.set_bone_pose_rotation(_b_foot_r,
+					Quaternion(Vector3.FORWARD, -swing * 0.22 * walk_w
+					+ heel_toe + crouch_foot) * _rest[_b_foot_r])
+		if _b_spine2 >= 0:
+			skeleton.set_bone_pose_rotation(_b_spine2,
+					Quaternion(Vector3.BACK, lean * 0.45) * Quaternion(Vector3.UP, flinch_yaw * 0.5) * _rest[_b_spine2])
+		if _b_spine3 >= 0:
+			skeleton.set_bone_pose_rotation(_b_spine3,
+					Quaternion(Vector3.BACK, lean * 0.65) * Quaternion(Vector3.UP, flinch_yaw * 0.5) * _rest[_b_spine3])
+		if _b_neck >= 0:
+			skeleton.set_bone_pose_rotation(_b_neck,
+					Quaternion(Vector3.BACK, head_pitch * 0.5) * Quaternion(Vector3.UP, _look_yaw_smooth * 0.45) * _rest[_b_neck])
+		if _b_head >= 0:
+			skeleton.set_bone_pose_rotation(_b_head,
+					Quaternion(Vector3.BACK, head_pitch * 0.5) * Quaternion(Vector3.UP, _look_yaw_smooth * 0.55) * _rest[_b_head])
+		if _b_support >= 0:
+			var sup_yaw := deg_to_rad(90.0 - 38.0 * reload_blend)
+			var sup_pitch := -0.45 * reload_blend
+			skeleton.set_bone_pose_rotation(_b_support,
+					Quaternion(Vector3.UP, sup_yaw) * Quaternion(Vector3.RIGHT, sup_pitch))
 
 	var foot_correction := 0.0
 	var chest_dy := -0.28 * _crouch
@@ -511,39 +590,110 @@ func _update_pose(_delta: float) -> void:
 				* Basis(Vector3.FORWARD, roll_tilt + sway_roll) * _rifle_basis
 
 
+func _apply_spetsnaz_bones(swing: float, walk_w: float, amp: float,
+		crouch_hip: float, crouch_knee: float, crouch_foot: float, heel_toe: float,
+		lean: float, head_pitch: float, flinch_yaw: float, reload_blend: float) -> void:
+	if _b_thigh_l >= 0:
+		skeleton.set_bone_pose_rotation(_b_thigh_l,
+				_rot_rig(_b_thigh_l, "x", swing * amp + crouch_hip) * _rest[_b_thigh_l])
+	if _b_thigh_r >= 0:
+		skeleton.set_bone_pose_rotation(_b_thigh_r,
+				_rot_rig(_b_thigh_r, "x", -swing * amp + crouch_hip) * _rest[_b_thigh_r])
+	if _b_calf_l >= 0:
+		skeleton.set_bone_pose_rotation(_b_calf_l,
+				_rot_rig(_b_calf_l, "x", -(maxf(0.0, -swing) * 0.85 * walk_w + crouch_knee)) * _rest[_b_calf_l])
+	if _b_calf_r >= 0:
+		skeleton.set_bone_pose_rotation(_b_calf_r,
+				_rot_rig(_b_calf_r, "x", -(maxf(0.0, swing) * 0.85 * walk_w + crouch_knee)) * _rest[_b_calf_r])
+	if _b_foot_l >= 0:
+		skeleton.set_bone_pose_rotation(_b_foot_l,
+				_rot_rig(_b_foot_l, "x", -swing * 0.22 * walk_w + heel_toe - crouch_foot) * _rest[_b_foot_l])
+	if _b_foot_r >= 0:
+		skeleton.set_bone_pose_rotation(_b_foot_r,
+				_rot_rig(_b_foot_r, "x", swing * 0.22 * walk_w - heel_toe - crouch_foot) * _rest[_b_foot_r])
+	if _b_spine2 >= 0:
+		skeleton.set_bone_pose_rotation(_b_spine2,
+				_rot_rig(_b_spine2, "x", -lean * 0.45) * _rot_rig(_b_spine2, "y", flinch_yaw * 0.5) * _rest[_b_spine2])
+	if _b_spine3 >= 0:
+		skeleton.set_bone_pose_rotation(_b_spine3,
+				_rot_rig(_b_spine3, "x", -lean * 0.65) * _rot_rig(_b_spine3, "y", flinch_yaw * 0.5) * _rest[_b_spine3])
+	if _b_neck >= 0:
+		skeleton.set_bone_pose_rotation(_b_neck,
+				_rot_rig(_b_neck, "x", -head_pitch * 0.5) * _rot_rig(_b_neck, "y", _look_yaw_smooth * 0.45) * _rest[_b_neck])
+	if _b_head >= 0:
+		skeleton.set_bone_pose_rotation(_b_head,
+				_rot_rig(_b_head, "x", -head_pitch * 0.5) * _rot_rig(_b_head, "y", _look_yaw_smooth * 0.55) * _rest[_b_head])
+	_set_spetsnaz_arms(reload_blend, _aim_smooth)
+
+
 func _apply_death_pose() -> void:
 	var k := 1.0 - pow(1.0 - _death_progress, 2.4)
 	# Articulated multi-bone collapse onto the ground (never a rigid T-pose plank)
 	var knee_buckle := 1.15 * k
 	var hip_fold := 0.72 * k if _death_variant != 1 else 0.38 * k
-	if _b_thigh_l >= 0:
-		skeleton.set_bone_pose_rotation(_b_thigh_l,
-				Quaternion(Vector3.FORWARD, hip_fold) * _rest[_b_thigh_l])
-	if _b_thigh_r >= 0:
-		skeleton.set_bone_pose_rotation(_b_thigh_r,
-				Quaternion(Vector3.FORWARD, hip_fold * 0.82) * _rest[_b_thigh_r])
-	if _b_calf_l >= 0:
-		skeleton.set_bone_pose_rotation(_b_calf_l,
-				Quaternion(Vector3.FORWARD, knee_buckle) * _rest[_b_calf_l])
-	if _b_calf_r >= 0:
-		skeleton.set_bone_pose_rotation(_b_calf_r,
-				Quaternion(Vector3.FORWARD, knee_buckle * 0.88) * _rest[_b_calf_r])
-	if _b_spine2 >= 0:
-		var sp_pitch := (0.42 if _death_variant == 0 else -0.28) * k
-		skeleton.set_bone_pose_rotation(_b_spine2,
-				Quaternion(Vector3.BACK, sp_pitch) * _rest[_b_spine2])
-	if _b_spine3 >= 0:
-		var sp3_pitch := (0.48 if _death_variant == 0 else -0.32) * k
-		skeleton.set_bone_pose_rotation(_b_spine3,
-				Quaternion(Vector3.BACK, sp3_pitch) * _rest[_b_spine3])
-	if _b_head >= 0:
-		skeleton.set_bone_pose_rotation(_b_head,
-				Quaternion(Vector3.BACK, 0.45 * k) * Quaternion(Vector3.UP, 0.35 * k) * _rest[_b_head])
-	if _b_support >= 0:
-		skeleton.set_bone_pose_rotation(_b_support,
-				Quaternion(Vector3.UP, deg_to_rad(90.0 - 52.0 * k)))
+	var sp_pitch := (0.42 if _death_variant == 0 else -0.28) * k
+	var sp3_pitch := (0.48 if _death_variant == 0 else -0.32) * k
+	if variant == "spetsnaz":
+		if _b_thigh_l >= 0:
+			skeleton.set_bone_pose_rotation(_b_thigh_l,
+					_rot_rig(_b_thigh_l, "x", hip_fold) * _rest[_b_thigh_l])
+		if _b_thigh_r >= 0:
+			skeleton.set_bone_pose_rotation(_b_thigh_r,
+					_rot_rig(_b_thigh_r, "x", hip_fold * 0.82) * _rest[_b_thigh_r])
+		if _b_calf_l >= 0:
+			skeleton.set_bone_pose_rotation(_b_calf_l,
+					_rot_rig(_b_calf_l, "x", -knee_buckle) * _rest[_b_calf_l])
+		if _b_calf_r >= 0:
+			skeleton.set_bone_pose_rotation(_b_calf_r,
+					_rot_rig(_b_calf_r, "x", -knee_buckle * 0.88) * _rest[_b_calf_r])
+		if _b_spine2 >= 0:
+			skeleton.set_bone_pose_rotation(_b_spine2,
+					_rot_rig(_b_spine2, "x", -sp_pitch) * _rest[_b_spine2])
+		if _b_spine3 >= 0:
+			skeleton.set_bone_pose_rotation(_b_spine3,
+					_rot_rig(_b_spine3, "x", -sp3_pitch) * _rest[_b_spine3])
+		if _b_head >= 0:
+			skeleton.set_bone_pose_rotation(_b_head,
+					_rot_rig(_b_head, "x", -0.45 * k) * _rot_rig(_b_head, "y", 0.35 * k) * _rest[_b_head])
+		if _b_support >= 0:
+			skeleton.set_bone_pose_rotation(_b_support,
+					_rot_rig(_b_support, "x", deg_to_rad(38.0 - 30.0 * k))
+					* _rot_rig(_b_support, "y", deg_to_rad(-38.0 + 28.0 * k))
+					* _rot_rig(_b_support, "z", deg_to_rad(24.0 - 18.0 * k))
+					* _rest[_b_support])
+		if _b_arm_r >= 0:
+			skeleton.set_bone_pose_rotation(_b_arm_r,
+					_rot_rig(_b_arm_r, "x", deg_to_rad(8.0 - 6.0 * k))
+					* _rot_rig(_b_arm_r, "y", deg_to_rad(12.0 - 8.0 * k))
+					* _rot_rig(_b_arm_r, "z", deg_to_rad(-22.0 + 18.0 * k))
+					* _rest[_b_arm_r])
+	else:
+		if _b_thigh_l >= 0:
+			skeleton.set_bone_pose_rotation(_b_thigh_l,
+					Quaternion(Vector3.FORWARD, hip_fold) * _rest[_b_thigh_l])
+		if _b_thigh_r >= 0:
+			skeleton.set_bone_pose_rotation(_b_thigh_r,
+					Quaternion(Vector3.FORWARD, hip_fold * 0.82) * _rest[_b_thigh_r])
+		if _b_calf_l >= 0:
+			skeleton.set_bone_pose_rotation(_b_calf_l,
+					Quaternion(Vector3.FORWARD, knee_buckle) * _rest[_b_calf_l])
+		if _b_calf_r >= 0:
+			skeleton.set_bone_pose_rotation(_b_calf_r,
+					Quaternion(Vector3.FORWARD, knee_buckle * 0.88) * _rest[_b_calf_r])
+		if _b_spine2 >= 0:
+			skeleton.set_bone_pose_rotation(_b_spine2,
+					Quaternion(Vector3.BACK, sp_pitch) * _rest[_b_spine2])
+		if _b_spine3 >= 0:
+			skeleton.set_bone_pose_rotation(_b_spine3,
+					Quaternion(Vector3.BACK, sp3_pitch) * _rest[_b_spine3])
+		if _b_head >= 0:
+			skeleton.set_bone_pose_rotation(_b_head,
+					Quaternion(Vector3.BACK, 0.45 * k) * Quaternion(Vector3.UP, 0.35 * k) * _rest[_b_head])
+		if _b_support >= 0:
+			skeleton.set_bone_pose_rotation(_b_support,
+					Quaternion(Vector3.UP, deg_to_rad(90.0 - 52.0 * k)))
 	if model != null:
-		var drop_y := -0.78 * k
+		var drop_y := (-0.14 if variant == "spetsnaz" else -0.78) * k
 		model.position = _base_model_pos + Vector3(0.0, drop_y, 0.0)
 		var pitch_fall := deg_to_rad(74.0) if _death_variant == 0 else (deg_to_rad(-68.0) if _death_variant == 1 else deg_to_rad(52.0))
 		var roll_fall := deg_to_rad(64.0) if _death_variant == 2 else deg_to_rad(14.0)
