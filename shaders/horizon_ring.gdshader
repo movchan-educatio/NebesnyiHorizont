@@ -19,6 +19,7 @@ uniform float grass_bias : hint_range(-1.0, 1.0) = 0.0;
 uniform float macro_contrast : hint_range(0.0, 1.0) = 0.28;
 uniform float grass_roughness : hint_range(0.0, 1.0) = 0.94;
 uniform float dirt_roughness : hint_range(0.0, 1.0) = 0.93;
+uniform float cloud_shadow_strength : hint_range(0.0, 0.5) = 0.16;
 
 varying vec3 v_world;
 
@@ -70,7 +71,17 @@ void fragment() {
 	float far_smooth = smoothstep(218.0, 410.0, edge_metric);
 	vec3 col = mix(seam_albedo, far_ground, far_smooth);
 
-	float world_haze = smoothstep(310.0, 920.0, radial) * 0.56;
+	// Synchronized cloud shadow drift + subtle distant woodland silhouette darkening
+	vec2 cloud_p = v_world.xz * 0.0095 + vec2(TIME * 0.012, TIME * 0.007);
+	float cloud_w = (sin(cloud_p.x + cos(cloud_p.y * 0.8)) * 0.5 + 0.5)
+			* (cos(cloud_p.y * 1.15 - cloud_p.x * 0.45) * 0.5 + 0.5);
+	float cloud_mul = mix(1.0 - cloud_shadow_strength * 0.85, 1.0 + cloud_shadow_strength * 0.2,
+			smoothstep(0.18, 0.72, cloud_w));
+	float distant_belt = sin(atan(v_world.z, v_world.x) * 5.0 + 1.3) * 0.5 + 0.5;
+	float belt_band = smoothstep(330.0, 470.0, radial) * (1.0 - smoothstep(560.0, 780.0, radial));
+	col *= cloud_mul * mix(1.0, 0.84, belt_band * smoothstep(0.35, 0.82, broad_roll * 0.65 + distant_belt * 0.35));
+
+	float world_haze = smoothstep(310.0, 920.0, radial) * 0.58;
 	col = mix(col, haze_color.rgb, world_haze);
 
 	ALBEDO = col;

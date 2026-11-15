@@ -40,5 +40,9 @@ void fragment() {
 			anti_sun * scatter_strength * 0.48 * (0.25 + 0.75 * t));
 	vec3 sun_haze = mix(color_haze, sun_scatter_color, 0.68);
 	c = mix(c, sun_haze, scatter_strength * (0.34 * fwd_broad + 0.42 * fwd_halo) * (0.35 + 0.65 * t));
+	// Soft ground-hugging valley mist & drifting cloud shadow across distant slopes.
+	float valley_mist = (1.0 - smoothstep(0.0, 0.44, t)) * 0.52;
+	float ridge_cloud = sin(v_world_pos.x * 0.0042 + v_world_pos.z * 0.0038 + TIME * 0.01) * 0.5 + 0.5;
+	c = mix(c * mix(0.88, 1.04, ridge_cloud), mix(color_haze, sun_haze, 0.28), valley_mist);
 	ALBEDO = c;
 }

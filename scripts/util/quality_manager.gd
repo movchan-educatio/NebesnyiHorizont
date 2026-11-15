@@ -158,7 +158,7 @@ static func params() -> Dictionary:
 					"shadow_distance": 145.0, "shadow_atlas": 1536,
 					"msaa": Viewport.MSAA_DISABLED,
 					"ssao": false, "ssil": false, "volumetric_fog": false,
-					"glow": false, "fxaa": false}, true)
+					"glow": false, "fxaa": true}, true)
 	# QA switches used by the FPS benchmark to isolate expensive passes.
 	if OS.has_environment("QA_NO_FOG"):
 		p = p.duplicate(true)
@@ -274,6 +274,7 @@ static func _apply_static_sky(env: Environment) -> void:
 		env.sky.set_meta("lowspec_sky_process", env.sky.process_mode)
 		env.sky.set_meta("lowspec_sky_rot", env.sky_rotation)
 	env.background_mode = Environment.BG_SKY
+	env.background_energy_multiplier = 1.0
 	env.sky.sky_material = mat
 	env.sky.process_mode = Sky.PROCESS_MODE_INCREMENTAL
 	env.sky_rotation.y = PI

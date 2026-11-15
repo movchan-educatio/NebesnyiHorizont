@@ -45,6 +45,7 @@ uniform float dirt_roughness : hint_range(0.0, 1.0) = 0.93;
 uniform float rock_roughness : hint_range(0.0, 1.0) = 0.86;
 uniform float mud_roughness : hint_range(0.0, 1.0) = 0.78;
 uniform float macro_contrast : hint_range(0.0, 1.0) = 0.28;
+uniform float cloud_shadow_strength : hint_range(0.0, 0.5) = 0.16;
 
 varying vec3 v_world;
 varying vec3 v_world_normal;
@@ -121,12 +122,24 @@ void fragment() {
 			+ texture(mud_albedo, uv_mud).rgb * mud_tint.rgb * mud_w;
 
 	float proc_macro = clamp(macro_a * 0.60 + macro_b * 0.40, 0.0, 1.0);
-	float micro_wave = 0.5 + 0.5 * sin(v_world.x * 0.31 + v_world.z * 0.27)
-			* cos(v_world.z * 0.37 - v_world.x * 0.23);
-	float micro_var = clamp(grain * 0.65 + micro_wave * 0.35, 0.0, 1.0);
+	float view_dist = length(v_world - CAMERA_POSITION_WORLD);
+	float micro_fade = 1.0 - smoothstep(10.0, 46.0, view_dist);
+	// Non-periodic world-space organic value noise (replaces sine grids so no striping appears)
+	vec2 m_uv = v_world.xz * 1.45 + vec2(37.1, 19.7);
+	vec2 m_i = floor(m_uv);
+	vec2 m_f = m_uv - m_i;
+	vec2 m_u = m_f * m_f * (3.0 - 2.0 * m_f);
+	vec4 m_h = fract(sin(vec4(
+			dot(m_i, vec2(127.1, 311.7)),
+			dot(m_i + vec2(1.0, 0.0), vec2(127.1, 311.7)),
+			dot(m_i + vec2(0.0, 1.0), vec2(127.1, 311.7)),
+			dot(m_i + vec2(1.0, 1.0), vec2(127.1, 311.7)))) * 43758.5453);
+	float micro_c = mix(mix(m_h.x, m_h.y, m_u.x), mix(m_h.z, m_h.w, m_u.x), m_u.y);
+	float micro_var = clamp(grain * 0.55 + micro_c * 0.45, 0.0, 1.0);
 	float macro_lum = mix(1.0 - macro_contrast, 1.0 + macro_contrast,
 			clamp(macro * 0.45 + proc_macro * 0.45 + grain * 0.10, 0.0, 1.0));
-	float micro_lum = mix(0.93, 1.07, clamp(proc_macro * 0.65 + micro_var * 0.35, 0.0, 1.0));
+	float micro_lum = mix(0.93, 1.07, clamp(proc_macro * 0.60 + micro_var * 0.40, 0.0, 1.0))
+			* (1.0 + (micro_c - 0.5) * 0.10 * micro_fade);
 	vec3 hue_mod = mix(vec3(0.96, 1.02, 0.96), vec3(1.04, 0.99, 0.95), macro_b);
 	albedo *= macro_lum * micro_lum * hue_mod;
 
@@ -134,8 +147,8 @@ void fragment() {
 	float lowland = 1.0 - smoothstep(wet_height - 0.15, wet_height + 0.95, v_world.y);
 	float wet = clamp((mud_w * 0.45 + lowland * (0.65 + cavity * 0.45)) * mud_amount, 0.0, 0.65);
 	albedo *= mix(1.0, 0.72, wet);
-	albedo = mix(albedo, albedo * vec3(0.84, 0.80, 0.76), cavity * 0.52);
-	albedo *= mix(1.0, 0.58, cavity) * (1.0 + ridge * 0.05);
+	albedo = mix(albedo, albedo * vec3(0.84, 0.80, 0.76), cavity * 0.54);
+	albedo *= mix(1.0, 0.54, cavity) * (1.0 + ridge * 0.05);
 	// Carry textured grass & dirt across the 192 m border into HorizonRing so
 	// playable margins never turn into bald clay and leave zero square cut.
 	float edge_metric = max(abs(v_world.x), abs(v_world.z));
@@ -152,9 +165,17 @@ void fragment() {
 			* edge_lum * edge_hue, map_edge_tint.rgb * edge_lum, 0.14);
 	albedo = mix(albedo, seam_albedo, edge_blend);
 
+	// Soft drifting cloud-shadow patches (zero extra texture reads)
+	vec2 cloud_p = v_world.xz * 0.0095 + vec2(TIME * 0.012, TIME * 0.007);
+	float cloud_w = (sin(cloud_p.x + cos(cloud_p.y * 0.8)) * 0.5 + 0.5)
+			* (cos(cloud_p.y * 1.15 - cloud_p.x * 0.45) * 0.5 + 0.5);
+	float cloud_mul = mix(1.0 - cloud_shadow_strength, 1.0 + cloud_shadow_strength * 0.25,
+			smoothstep(0.18, 0.72, cloud_w));
+	albedo *= cloud_mul;
+
 	ALBEDO = albedo;
-	AO = mix(clamp(mix(1.0, 0.34, cavity), 0.22, 1.0), 1.0, edge_blend);
-	AO_LIGHT_AFFECT = 0.65;
+	AO = mix(clamp(mix(1.0, 0.32, cavity), 0.20, 1.0), 1.0, edge_blend);
+	AO_LIGHT_AFFECT = 0.68;
 
 	// Normal mapping: blend normal maps per layer, rotated back to world tangent frame
 	vec3 n_grass = texture(grass_normal, uv_grass).rgb * 2.0 - 1.0;
@@ -166,15 +187,17 @@ void fragment() {
 	n_rock.xy = vec2(n_rock.x * 0.602 - n_rock.y * 0.799, n_rock.x * 0.799 + n_rock.y * 0.602);
 	n_mud.xy = vec2(n_mud.x * 0.966 + n_mud.y * 0.259, -n_mud.x * 0.259 + n_mud.y * 0.966);
 	vec3 n = n_grass * grass_w + n_dirt * dirt_w + n_rock * rock_w + n_mud * mud_w;
+	n.xy += vec2(micro_c - 0.5, grain - 0.5) * (0.055 * micro_fade);
 	n.xy *= normal_strength * (1.0 - edge_blend * 0.85);
 	n.z = max(n.z, 0.25);
 	NORMAL_MAP = normalize(n) * 0.5 + 0.5;
-	NORMAL_MAP_DEPTH = mix(1.15, 0.22, edge_blend);
+	NORMAL_MAP_DEPTH = mix(1.18, 0.22, edge_blend);
 
 	float base_rough = grass_roughness * grass_w + dirt_roughness * dirt_w
 			+ rock_roughness * rock_w + mud_roughness * mud_w;
 	float tex_luma = dot(albedo, vec3(0.299, 0.587, 0.114));
-	base_rough = clamp(base_rough + (tex_luma - 0.48) * 0.24 - cavity * 0.08, 0.18, 0.98);
+	base_rough = clamp(base_rough + (tex_luma - 0.48) * 0.24
+			+ (micro_c - 0.5) * 0.09 * micro_fade - cavity * 0.08, 0.18, 0.98);
 	float seam_rough = grass_roughness * edge_grass_w + dirt_roughness * (1.0 - edge_grass_w);
 	ROUGHNESS = clamp(mix(mix(base_rough, 0.44, wet * 0.75), seam_rough, edge_blend), 0.36, 1.0);
 	SPECULAR = mix(mix(0.32, 0.46, wet), 0.24, edge_blend);

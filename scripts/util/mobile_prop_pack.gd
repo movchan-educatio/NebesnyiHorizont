@@ -235,6 +235,8 @@ static func _place(root: Node3D, pack: Node3D, terrain, map_name: String,
 	inst.set_meta("pack_floating", floating)
 	if terrain != null:
 		terrain.call("reserve_area", site, radius + (4.5 if (large or radius >= 3.5) else 1.5))
+		if not floating:
+			terrain.call("add_contact_shadow", root, map_name, site, maxf(radius * 0.88, 1.35), prop_name, 0.76)
 	placed.append({"pos": site, "radius": radius, "name": prop_name,
 			"large": large})
 
@@ -300,6 +302,8 @@ static func _place_forge(root: Node3D, pack: Node3D, terrain, map_name: String,
 	inst.set_meta("pack_forge", true)
 	if terrain != null:
 		terrain.call("reserve_area", site, radius + 4.5)
+		if not floating:
+			terrain.call("add_contact_shadow", root, map_name, site, maxf(radius * 0.92, 2.2), "Forge_" + prop_name, 0.78)
 	placed.append({"pos": site, "radius": radius, "name": prop_name,
 			"large": false, "forge": true})
 	return true

@@ -51,14 +51,14 @@ func setup(p_map: String, quality: int) -> void:
 	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	map_name = p_map
 	_rng.seed = hash(map_name) + 90210
-	radius = 30.0
+	radius = 34.0
 	count = 6000
 	if quality == QualityManager.Level.MEDIUM:
-		radius = 22.0
-		count = 2400
+		radius = 26.0
+		count = 2800
 	elif quality == QualityManager.Level.LOW:
-		radius = 16.0
-		count = 1000
+		radius = 20.0
+		count = 1350
 	if map_name == "steppe":
 		base_color = Color(0.052, 0.078, 0.024)
 		tip_color = Color(0.19, 0.24, 0.062)
@@ -104,17 +104,16 @@ func _build_pattern() -> void:
 	_local_basis.resize(count)
 	for i in range(count):
 		var a := _rng.randf_range(0.0, TAU)
-		var r := sqrt(_rng.randf()) * radius
+		var r := pow(_rng.randf(), 0.70) * radius
 		_local_xz[i] = Vector2(cos(a) * r, sin(a) * r)
 		var s := _rng.randf_range(1.0, 1.7)
 		_local_basis[i] = Basis(Vector3.UP, _rng.randf_range(0.0, TAU)).scaled(
 				Vector3(s, _rng.randf_range(0.9, 1.5), s))
 
 
-## Wide-blade clump built for the near camera.  The vegetation-library clump
-## uses 9-18 mm blades, which alias into dark pinpricks at 720p; these ribbons
-## are 2.4-5 cm wide and 0.25-0.85 m tall, so the carpet reads as grass rather
-## than noise.  Vertex colours darken the roots and keep the tips bright.
+## Multi-blade crossed grass clumps built for the near camera. Grouping blades
+## into 5 three-blade tufts inside one clump boosts apparent ground coverage ~3x
+## per MultiMesh instance while keeping low-altitude silhouettes thick and crisp.
 func _make_lush_mesh() -> ArrayMesh:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7719
@@ -123,42 +122,46 @@ func _make_lush_mesh() -> ArrayMesh:
 	var uvs := PackedVector2Array()
 	var colors := PackedColorArray()
 	var indices := PackedInt32Array()
-	var blades := 10
-	for b in range(blades):
-		var angle := rng.randf() * TAU
-		var dist := rng.randf_range(0.0, 0.34)
-		var bx := cos(angle) * dist
-		var bz := sin(angle) * dist
-		var yaw := rng.randf() * TAU
-		var half_w := rng.randf_range(0.012, 0.024)
-		var h := rng.randf_range(0.26, 0.58)
-		var lean := rng.randf_range(0.05, 0.20)
-		var right := Vector3(cos(yaw), 0.0, sin(yaw)) * half_w
-		var forward := Vector3(-sin(yaw), 0.0, cos(yaw)) * lean
-		var root := Vector3(bx, -0.02, bz)
-		var mid := root + Vector3(0.0, h * 0.55, 0.0) + forward * 0.4
-		var tip := root + Vector3(0.0, h, 0.0) + forward
-		var v0 := vertices.size()
-		vertices.append(root - right)
-		vertices.append(root + right)
-		vertices.append(mid - right * 0.55)
-		vertices.append(mid + right * 0.55)
-		vertices.append(tip)
-		uvs.append(Vector2(0.0, 1.0))
-		uvs.append(Vector2(1.0, 1.0))
-		uvs.append(Vector2(0.2, 0.45))
-		uvs.append(Vector2(0.8, 0.45))
-		uvs.append(Vector2(0.5, 0.0))
-		var shade := rng.randf_range(0.82, 1.12)
-		colors.append(Color(0.48, 0.46, 0.38) * shade)
-		colors.append(Color(0.48, 0.46, 0.38) * shade)
-		colors.append(Color(0.76, 0.74, 0.58) * shade)
-		colors.append(Color(0.76, 0.74, 0.58) * shade)
-		colors.append(Color(1.0, 1.0, 0.9) * shade)
-		for _k in range(5):
-			normals.append(Vector3(0.0, 1.0, 0.0))
-		indices.append_array([v0, v0 + 1, v0 + 3,
-			v0, v0 + 3, v0 + 2, v0 + 2, v0 + 3, v0 + 4])
+	var clusters := 5
+	for c in range(clusters):
+		var c_angle := rng.randf() * TAU
+		var c_dist := rng.randf_range(0.0, 0.28) if c > 0 else 0.0
+		var cx := cos(c_angle) * c_dist
+		var cz := sin(c_angle) * c_dist
+		var base_yaw := rng.randf() * TAU
+		for b in range(3):
+			var yaw := base_yaw + float(b) * (TAU / 3.0) + rng.randf_range(-0.22, 0.22)
+			var half_w := rng.randf_range(0.026, 0.044)
+			var h := rng.randf_range(0.32, 0.68)
+			var lean := rng.randf_range(0.07, 0.24)
+			var right := Vector3(cos(yaw), 0.0, sin(yaw)) * half_w
+			var forward := Vector3(-sin(yaw), 0.0, cos(yaw)) * lean
+			var bx := cx + forward.x * 0.08
+			var bz := cz + forward.z * 0.08
+			var root := Vector3(bx, -0.02, bz)
+			var mid := root + Vector3(0.0, h * 0.56, 0.0) + forward * 0.42
+			var tip := root + Vector3(0.0, h, 0.0) + forward
+			var v0 := vertices.size()
+			vertices.append(root - right)
+			vertices.append(root + right)
+			vertices.append(mid - right * 0.58)
+			vertices.append(mid + right * 0.58)
+			vertices.append(tip)
+			uvs.append(Vector2(0.0, 1.0))
+			uvs.append(Vector2(1.0, 1.0))
+			uvs.append(Vector2(0.2, 0.45))
+			uvs.append(Vector2(0.8, 0.45))
+			uvs.append(Vector2(0.5, 0.0))
+			var shade := rng.randf_range(0.80, 1.14)
+			colors.append(Color(0.42, 0.40, 0.32) * shade)
+			colors.append(Color(0.42, 0.40, 0.32) * shade)
+			colors.append(Color(0.76, 0.74, 0.58) * shade)
+			colors.append(Color(0.76, 0.74, 0.58) * shade)
+			colors.append(Color(1.02, 1.00, 0.88) * shade)
+			for _k in range(5):
+				normals.append(Vector3(0.0, 1.0, 0.0))
+			indices.append_array([v0, v0 + 1, v0 + 3,
+				v0, v0 + 3, v0 + 2, v0 + 2, v0 + 3, v0 + 4])
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices

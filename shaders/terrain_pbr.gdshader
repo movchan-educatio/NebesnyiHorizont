@@ -45,6 +45,7 @@ uniform float rock_roughness : hint_range(0.0, 1.0) = 0.86;
 uniform float mud_roughness : hint_range(0.0, 1.0) = 0.78;
 uniform float macro_contrast : hint_range(0.0, 1.0) = 0.28;
 uniform float micro_strength : hint_range(0.0, 1.0) = 0.35;
+uniform float cloud_shadow_strength : hint_range(0.0, 0.5) = 0.16;
 
 varying vec3 v_world;
 varying vec3 v_world_normal;
@@ -157,6 +158,13 @@ void fragment() {
 	vec3 seam_albedo = mix((c_grass * edge_grass_w + c_dirt * (1.0 - edge_grass_w))
 			* edge_lum * edge_hue, map_edge_tint.rgb * edge_lum, 0.14);
 	albedo = mix(albedo, seam_albedo, edge_blend);
+
+	vec2 cloud_p = v_world.xz * 0.0095 + vec2(TIME * 0.012, TIME * 0.007);
+	float cloud_w = (sin(cloud_p.x + cos(cloud_p.y * 0.8)) * 0.5 + 0.5)
+			* (cos(cloud_p.y * 1.15 - cloud_p.x * 0.45) * 0.5 + 0.5);
+	float cloud_mul = mix(1.0 - cloud_shadow_strength, 1.0 + cloud_shadow_strength * 0.25,
+			smoothstep(0.18, 0.72, cloud_w));
+	albedo *= cloud_mul;
 
 	ALBEDO = albedo;
 	AO = mix(clamp(mix(1.0, 0.34, cavity), 0.22, 1.0), 1.0, edge_blend);
