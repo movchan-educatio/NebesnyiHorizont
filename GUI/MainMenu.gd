@@ -18,15 +18,15 @@ const FRONTLINE_LEVELS := {
 ## never offered as a normal map: only the four finished frontline maps are.
 const SELECTABLE_MAPS := ["steppe", "village", "industrial", "wetlands"]
 const SPECIAL_MISSIONS := [
-	{"id": 1, "code": "REC-01", "name": "Розвідка", "desc": "Пройти 3 зони спостереження", "diff": "Легка", "col": Color("79a58a")},
-	{"id": 2, "code": "ESC-02", "name": "Супровід", "desc": "Провести дружню колону", "diff": "Середня", "col": Color("e2c276")},
-	{"id": 3, "code": "EVAC-03", "name": "Евакуація", "desc": "Забрати пілота й повернутися", "diff": "Середня", "col": Color("e2c276")},
-	{"id": 4, "code": "CARG-04", "name": "Доставка вантажу", "desc": "Забрати й доставити вантаж", "diff": "Легка", "col": Color("79a58a")},
-	{"id": 5, "code": "NGHT-05", "name": "Нічний виліт", "desc": "Удар по ЗРК у темряві", "diff": "Важка", "col": Color("c96f67")},
-	{"id": 6, "code": "EW-06", "name": "Прорив РЕБ", "desc": "Пробитися крізь глушіння", "diff": "Екстрим", "col": Color("c96f67")},
-	{"id": 7, "code": "CONV-07", "name": "Тилова колона", "desc": "Знищити колону забезпечення: Урал, МТ-СМ, БТР", "diff": "Середня", "col": Color("e2c276")},
-	{"id": 8, "code": "MSL-08", "name": "Орешник", "desc": "Знищити ракетний комплекс і його охорону", "diff": "Важка", "col": Color("c96f67")},
-	{"id": 9, "code": "DEEP-09", "name": "Глибокий тил", "desc": "Комбінований удар по тиловій базі", "diff": "Екстрим", "col": Color("c96f67")},
+	{"id": 1, "code": "REC-01", "name": "Розвідка", "name_en": "Reconnaissance", "desc": "Пройти 3 зони спостереження", "desc_en": "Survey all three observation zones.", "diff": "Легка", "diff_en": "Easy", "col": Color("79a58a")},
+	{"id": 2, "code": "ESC-02", "name": "Супровід", "name_en": "Convoy Escort", "desc": "Провести дружню колону", "desc_en": "Escort the friendly convoy to its destination.", "diff": "Середня", "diff_en": "Medium", "col": Color("e2c276")},
+	{"id": 3, "code": "EVAC-03", "name": "Евакуація", "name_en": "Pilot Extraction", "desc": "Забрати пілота й повернутися", "desc_en": "Locate the downed pilot and return to base.", "diff": "Середня", "diff_en": "Medium", "col": Color("e2c276")},
+	{"id": 4, "code": "CARG-04", "name": "Доставка вантажу", "name_en": "Cargo Delivery", "desc": "Забрати й доставити вантаж", "desc_en": "Recover and deliver the cargo.", "diff": "Легка", "diff_en": "Easy", "col": Color("79a58a")},
+	{"id": 5, "code": "NGHT-05", "name": "Нічний виліт", "name_en": "Night Strike", "desc": "Удар по ЗРК у темряві", "desc_en": "Strike the SAM site under cover of darkness.", "diff": "Важка", "diff_en": "Hard", "col": Color("c96f67")},
+	{"id": 6, "code": "EW-06", "name": "Прорив РЕБ", "name_en": "EW Breach", "desc": "Пробитися крізь глушіння", "desc_en": "Penetrate the enemy electronic-warfare jamming zone.", "diff": "Екстрим", "diff_en": "Extreme", "col": Color("c96f67")},
+	{"id": 7, "code": "CONV-07", "name": "Тилова колона", "name_en": "Rear-Area Convoy", "desc": "Знищити колону забезпечення: Урал, МТ-СМ, БТР", "desc_en": "Destroy the supply convoy: Ural truck, MTSM carrier, and BTR.", "diff": "Середня", "diff_en": "Medium", "col": Color("e2c276")},
+	{"id": 8, "code": "MSL-08", "name": "Орешник", "name_en": "Oreshnik Strike", "desc": "Знищити ракетний комплекс і його охорону", "desc_en": "Destroy the Oreshnik launcher and its escort.", "diff": "Важка", "diff_en": "Hard", "col": Color("c96f67")},
+	{"id": 9, "code": "DEEP-09", "name": "Глибокий тил", "name_en": "Deep-Strike Operation", "desc": "Комбінований удар по тиловій базі", "desc_en": "Conduct a combined strike on the rear-area base.", "diff": "Екстрим", "diff_en": "Extreme", "col": Color("c96f67")},
 ]
 const START_SCREEN := "res://GUI/StartScreen.tscn"
 const GRAPHICS_SCREEN := "res://GUI/GraphicsScreen.tscn"
@@ -973,6 +973,7 @@ func _build_mode_btn(uk_title: String, en_title: String, uk_desc: String, en_des
 
 
 func _build_mission_btn(md: Dictionary, special := false) -> Button:
+	var is_en := MenuUI.is_english()
 	var btn := Button.new()
 	btn.custom_minimum_size = Vector2(0, 44)
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1013,19 +1014,22 @@ func _build_mission_btn(md: Dictionary, special := false) -> Button:
 
 	var title_lbl := Label.new()
 	title_lbl.name = "Title"
-	title_lbl.text = str(md["name"])
+	var name_ua := str(md["name"])
+	title_lbl.text = str(md.get("name_en", MenuUI.translate_text(name_ua))) if is_en else name_ua
 	title_lbl.add_theme_font_size_override("font_size", 13)
 	title_lbl.add_theme_color_override("font_color", MenuUI.BUTTON_TEXT)
 	vbox.add_child(title_lbl)
 
 	var desc_lbl := Label.new()
 	desc_lbl.name = "Description"
-	desc_lbl.text = str(md["desc"])
+	var desc_ua := str(md["desc"])
+	desc_lbl.text = str(md.get("desc_en", MenuUI.translate_text(desc_ua))) if is_en else desc_ua
 	desc_lbl.add_theme_font_size_override("font_size", 10)
 	desc_lbl.add_theme_color_override("font_color", Color("59645c"))
 	vbox.add_child(desc_lbl)
 
 	var diff_badge := PanelContainer.new()
+	diff_badge.name = "DifficultyBadge"
 	var d_sb := StyleBoxFlat.new()
 	d_sb.bg_color = Color(accent_col.r, accent_col.g, accent_col.b, 0.15)
 	d_sb.border_color = accent_col
@@ -1038,7 +1042,9 @@ func _build_mission_btn(md: Dictionary, special := false) -> Button:
 	diff_badge.add_theme_stylebox_override("panel", d_sb)
 
 	var diff_lbl := Label.new()
-	diff_lbl.text = str(md["diff"])
+	diff_lbl.name = "Difficulty"
+	var diff_ua := str(md["diff"])
+	diff_lbl.text = str(md.get("diff_en", MenuUI.translate_text(diff_ua))) if is_en else diff_ua
 	diff_lbl.add_theme_font_size_override("font_size", 10)
 	diff_lbl.add_theme_color_override("font_color", MenuUI.BUTTON_TEXT)
 	diff_badge.add_child(diff_lbl)
@@ -1224,6 +1230,17 @@ func _update_selection_ui() -> void:
 		sb.add_theme_stylebox_override("focus", s_hover_sb)
 		var s_title := sb.get_node_or_null("HBox/VBox/Title") as Label
 		var s_desc := sb.get_node_or_null("HBox/VBox/Description") as Label
+		var s_diff := sb.get_node_or_null("HBox/DifficultyBadge/Difficulty") as Label
+		var s_def := _special_mission_def(int(sid))
+		if s_title != null and not s_def.is_empty():
+			s_title.text = str(s_def.get("name_en" if MenuUI.is_english() else "name",
+					s_def.get("name", "")))
+		if s_desc != null and not s_def.is_empty():
+			s_desc.text = str(s_def.get("desc_en" if MenuUI.is_english() else "desc",
+					s_def.get("desc", "")))
+		if s_diff != null and not s_def.is_empty():
+			s_diff.text = str(s_def.get("diff_en" if MenuUI.is_english() else "diff",
+					s_def.get("diff", "")))
 		if s_title != null:
 			s_title.add_theme_color_override("font_color",
 					MenuUI.BUTTON_ACTIVE_TEXT if s_active else MenuUI.BUTTON_TEXT)
@@ -2027,8 +2044,8 @@ func _update_drone_intel() -> void:
 	var idx := Global.drone_preset
 	var total := DroneCatalog.count()
 	var p := DroneCatalog.preset(idx)
-	var drone_preset_name := DroneCatalog.get_drone_name(idx).to_upper()
-	var drone_tag := DroneCatalog.get_drone_tag(idx)
+	var drone_preset_name := MenuUI.translate_text(DroneCatalog.get_drone_name(idx)).to_upper()
+	var drone_tag := MenuUI.translate_text(DroneCatalog.get_drone_tag(idx))
 	if is_en:
 		_drone_title_lbl.text = "ACTIVE CRAFT [%d/%d]:  %s  [%s]" % [idx + 1, total, drone_preset_name, drone_tag]
 	else:
@@ -2603,4 +2620,3 @@ func _exit_tree() -> void:
 	_settings_overlay = null
 	_loading_layer = null
 	_loading_bar = null
-

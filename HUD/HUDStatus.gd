@@ -1,5 +1,6 @@
 extends Label
 
+const MenuUI = preload("res://GUI/ui/MenuUI.gd")
 
 enum Status {DISARMED, ARMED, LAUNCH, TURTLE, RECOVERY}
 
@@ -27,30 +28,37 @@ func _is_mobile() -> bool:
 			or OS.has_environment("MOBILE_UI")
 
 
+func _tx(ua: String, en: String) -> String:
+	return en if MenuUI.is_english() else ua
+
+
 func set_status(s: int) -> void:
 	if s < Status.size():
 		status = s
 		var status_text := ""
 		match status:
 			Status.DISARMED:
-				status_text = "ДВИГУНИ ВИМКНЕНО  (АРМ — увімкнути)" if _is_mobile() \
-						else "ДВИГУНИ ВИМКНЕНО  (ПРОБІЛ — увімкнути)"
+				status_text = _tx("ДВИГУНИ ВИМКНЕНО  (АРМ — увімкнути)",
+						"MOTORS DISARMED  (TAP ARM TO START)") if _is_mobile() \
+						else _tx("ДВИГУНИ ВИМКНЕНО  (ПРОБІЛ — увімкнути)",
+						"MOTORS DISARMED  (SPACE TO ARM)")
 			Status.ARMED:
-				status_text = "ДВИГУНИ УВІМКНЕНО — ГАЗ УГОРУ"
+				status_text = _tx("ДВИГУНИ УВІМКНЕНО — ГАЗ УГОРУ",
+						"MOTORS ARMED — RAISE THROTTLE")
 				message_timer.start(1.0)
 			Status.LAUNCH:
-				status_text = "ЗАПУСК"
+				status_text = _tx("ЗАПУСК", "LAUNCH")
 			Status.TURTLE:
-				status_text = "ПЕРЕВЕРНУТО"
+				status_text = _tx("ПЕРЕВЕРНУТО", "TURTLE MODE")
 			Status.RECOVERY:
-				status_text = "АВТОВІДНОВЛЕННЯ"
+				status_text = _tx("АВТОВІДНОВЛЕННЯ", "AUTO RECOVERY")
 		if status != Status.ARMED and not message_timer.is_stopped():
 			message_timer.stop()
 		set_message(status_text)
 
 
 func set_message(msg: String = "") -> void:
-	text = "\n\n\n\n\n\n\n%s" % msg
+	text = "\n\n\n\n\n\n\n%s" % MenuUI.translate_text(msg)
 
 
 func clear_message() -> void:
@@ -81,11 +89,13 @@ func _on_arm_failed(reason) -> void:
 	var reason_msg := ""
 	var r_str := str(reason)
 	if r_str == str(FlightController.ArmFail.THROTTLE_HIGH) or r_str == "THROTTLE_NOT_LOW" or r_str == "THROTTLE_HIGH":
-		reason_msg = "ГАЗ НЕ В НУЛІ — ОПУСТІТЬ ГАЗ"
+		reason_msg = _tx("ГАЗ НЕ В НУЛІ — ОПУСТІТЬ ГАЗ",
+				"THROTTLE NOT ZERO — LOWER THROTTLE")
 	elif r_str == str(FlightController.ArmFail.CRASH_RECOVERY_MODE) or r_str == "CRASH_RECOVERY_MODE":
-		reason_msg = "РЕЖИМ ВІДНОВЛЕННЯ"
+		reason_msg = _tx("РЕЖИМ ВІДНОВЛЕННЯ", "RECOVERY MODE")
 	else:
-		reason_msg = "ОПУСТІТЬ ГАЗ, ЩОБ УВІМКНУТИ ДВИГУНИ"
+		reason_msg = _tx("ОПУСТІТЬ ГАЗ, ЩОБ УВІМКНУТИ ДВИГУНИ",
+				"LOWER THROTTLE TO ARM MOTORS")
 	set_message("*** %s ***" % reason_msg)
 	message_timer.start(2.0)
 

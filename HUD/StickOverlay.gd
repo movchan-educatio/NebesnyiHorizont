@@ -7,6 +7,7 @@ extends Control
 
 
 const STICK_SCENE := preload("res://HUD/HUDStickInput.tscn")
+const MenuUI := preload("res://GUI/ui/MenuUI.gd")
 ## The widget is authored at 128x128 with a 50 px dot travel from the centre.
 const WIDGET_SIZE := 128.0
 ## Distance from the bottom of the screen to the centre of the boxes.
@@ -60,6 +61,10 @@ func _make_caption(text: String) -> Label:
 	return l
 
 
+func _tx(ua: String, en: String) -> String:
+	return en if MenuUI.is_english() else ua
+
+
 ## Tutorial-only focus: "left", "right", "both" or "none".  The focused stick
 ## frame is tinted and captioned so a beginner can see which stick the current
 ## lesson is talking about.
@@ -68,13 +73,15 @@ func set_tutorial_focus(mode: String) -> void:
 	var show := mode != "none"
 	if _left_cap != null:
 		_left_cap.visible = show
-		_left_cap.text = "ЛІВИЙ СТІК · ГАЗ / РИСКАННЯ"
+		_left_cap.text = _tx("ЛІВИЙ СТІК · ГАЗ / РИСКАННЯ",
+				"LEFT STICK · THROTTLE / YAW")
 		_left_cap.add_theme_color_override("font_color",
 				Color(1.0, 0.82, 0.35) if (mode == "left" or mode == "both")
 				else Color(0.55, 0.62, 0.55))
 	if _right_cap != null:
 		_right_cap.visible = show
-		_right_cap.text = "ПРАВИЙ СТІК · ТАНГАЖ / КРЕН"
+		_right_cap.text = _tx("ПРАВИЙ СТІК · ТАНГАЖ / КРЕН",
+				"RIGHT STICK · PITCH / ROLL")
 		_right_cap.add_theme_color_override("font_color",
 				Color(1.0, 0.82, 0.35) if (mode == "right" or mode == "both")
 				else Color(0.55, 0.62, 0.55))

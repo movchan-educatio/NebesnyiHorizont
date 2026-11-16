@@ -20,6 +20,7 @@ const MODEL_PATHS := {
 	Kind.SHAHED: "res://Assets/Drones/shahed-136.glb",
 }
 const MOBILE_HELI_MODEL := "res://Assets/vehicles/apache_hecu_half-life_mobile.glb"
+const MOBILE_TARGET_SCALE := 1.20
 const VEHICLE_GROUND_BOUND := 152.0
 const VEHICLE_AIR_BOUND := 168.0
 const MODEL_SIZE := {
@@ -231,6 +232,13 @@ func _ready() -> void:
 	sync_to_physics = false
 	_build_body()
 	_setup_weak_spots()
+	# Scale the complete mobile target hierarchy (visuals, procedural details,
+	# and CollisionShape3D) as one unit.  The PC model and collider stay at 1:1.
+	if _is_mobile_target_platform():
+		scale *= Vector3.ONE * MOBILE_TARGET_SCALE
+		_half_len *= MOBILE_TARGET_SCALE
+		_muzzle_height *= MOBILE_TARGET_SCALE
+		_wheel_radius *= MOBILE_TARGET_SCALE
 	_setup_engine_audio()
 	if halt_interval > 0.0:
 		_halt_cd = randf_range(halt_interval * 0.4, halt_interval)
@@ -319,7 +327,13 @@ func _variant_get(key: String, fallback: Variant) -> Variant:
 
 
 func _model_box() -> Vector3:
-	return _variant_get("box", MODEL_BOX.get(kind, Vector3(3.0, 1.7, 6.0)))
+	var box: Vector3 = _variant_get("box", MODEL_BOX.get(kind, Vector3(3.0, 1.7, 6.0)))
+	return box * MOBILE_TARGET_SCALE if _is_mobile_target_platform() else box
+
+
+func _is_mobile_target_platform() -> bool:
+	return OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")
 
 
 # ------------------------------------------------------------------ build

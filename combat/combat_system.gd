@@ -3,6 +3,7 @@
 class_name CombatSystem
 extends Node3D
 
+const MenuUI = preload("res://GUI/ui/MenuUI.gd")
 const PayloadScript = preload("res://combat/payload.gd")
 const ExplosionScript = preload("res://combat/explosion.gd")
 const Ballistics = preload("res://combat/ballistics.gd")
@@ -527,7 +528,9 @@ func drop_payload() -> bool:
 	if _drone != null and _drone.has_method("drop_payload_action"):
 		dropped_weight = _drone.drop_payload_action()
 	if dropped_weight > 0.001:
-		_message("СКИД: -%.2f кг (ТЯГА ЗРОСЛА)" % dropped_weight, Color(1.0, 0.9, 0.55), 1.5)
+		var drop_message := ("PAYLOAD DROP: -%.2f kg (THRUST INCREASED)" if MenuUI.is_english()
+				else "СКИД: -%.2f кг (ТЯГА ЗРОСЛА)") % dropped_weight
+		_message(drop_message, Color(1.0, 0.9, 0.55), 1.5)
 	else:
 		_message("BOMB AWAY", Color(1.0, 0.9, 0.55), 1.2)
 	_update_hud()

@@ -274,7 +274,9 @@ static func _apply_static_sky(env: Environment) -> void:
 		env.sky.set_meta("lowspec_sky_process", env.sky.process_mode)
 		env.sky.set_meta("lowspec_sky_rot", env.sky_rotation)
 	env.background_mode = Environment.BG_SKY
-	env.background_energy_multiplier = 1.0
+	if OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI"):
+		env.background_energy_multiplier = 1.0
 	env.sky.sky_material = mat
 	env.sky.process_mode = Sky.PROCESS_MODE_INCREMENTAL
 	env.sky_rotation.y = PI

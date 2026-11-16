@@ -12,6 +12,7 @@ extends CanvasLayer
 
 signal mode_changed(using_touch: bool)
 
+const MenuUI = preload("res://GUI/ui/MenuUI.gd")
 const NO_TOUCH := -2
 const MOUSE_TOUCH := -1
 const MARGIN := 40.0
@@ -84,6 +85,10 @@ var _touch_sensitivity := 1.0
 var _touch_expo := 0.2
 
 
+func _tx(ua: String, en: String) -> String:
+	return en if MenuUI.is_english() else ua
+
+
 func _ready() -> void:
 	layer = 30
 	_root = Control.new()
@@ -99,7 +104,7 @@ func _ready() -> void:
 
 	_arm_button = Button.new()
 	_arm_button.name = "TouchArmButton"
-	_arm_button.text = "АРМ"
+	_arm_button.text = _tx("АРМ", "ARM")
 	_arm_button.focus_mode = Control.FOCUS_NONE
 	_arm_button.mouse_filter = Control.MOUSE_FILTER_STOP
 	_arm_button.add_theme_font_size_override("font_size", 28)
@@ -109,7 +114,7 @@ func _ready() -> void:
 	_arm_button.button_down.connect(_on_arm_pressed)
 	_root.add_child(_arm_button)
 
-	_pause_button = _make_top_button("МЕНЮ", _on_pause_pressed)
+	_pause_button = _make_top_button(_tx("МЕНЮ", "MENU"), _on_pause_pressed)
 	_more_button = _make_top_button("", Callable(self, "_on_more_pressed"))
 	_more_button.name = "TouchMoreButton"
 	var more_tex := MenuIcons.icon_more(Color(0.90, 0.96, 0.91))
@@ -118,13 +123,13 @@ func _ready() -> void:
 		_more_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		_more_button.expand_icon = false
 	else:
-		_more_button.text = "ОПЦ"
+		_more_button.text = _tx("ОПЦ", "OPTIONS")
 
 	_build_more_panel()
 
 	_drop_button = Button.new()
 	_drop_button.name = "TouchDropButton"
-	_drop_button.text = "СКИД"
+	_drop_button.text = _tx("СКИД", "DROP")
 	_drop_button.focus_mode = Control.FOCUS_NONE
 	_drop_button.mouse_filter = Control.MOUSE_FILTER_STOP
 	_drop_button.add_theme_font_size_override("font_size", 24)
@@ -152,8 +157,23 @@ func _ready() -> void:
 	refresh_touch_settings()
 	get_viewport().size_changed.connect(_layout)
 	_layout()
-	_update_mode_button()
+	_refresh_language_labels()
+
+
+func _refresh_language_labels() -> void:
+	if _arm_button != null:
+		_arm_button.text = _tx("АРМ", "ARM")
+	if _pause_button != null:
+		_pause_button.text = _tx("МЕНЮ", "MENU")
+	if _more_button != null and _more_button.icon == null:
+		_more_button.text = _tx("ОПЦ", "OPTIONS")
+	if _drop_button != null:
+		_drop_button.text = _tx("СКИД", "DROP")
+	if _setup_root != null:
+		MenuUI.localize_tree(_setup_root)
 	_refresh_more_panel_labels()
+	_update_mode_button()
+	_sync_flight_mode_label()
 
 
 func begin(owner_id: int = 0) -> void:
@@ -165,6 +185,7 @@ func begin(owner_id: int = 0) -> void:
 	if not _should_enable():
 		set_enabled(false)
 		return
+	_refresh_language_labels()
 	set_enabled(true)
 	if OS.has_environment("TOUCH_SETUP_TEST"):
 		call_deferred("_on_setup_pressed")
@@ -402,48 +423,52 @@ func _build_more_panel() -> void:
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vb.add_child(grid)
 
-	_float_button = _make_quick_btn("ПЛАВ. СТІК: ВИКЛ", _on_toggle_floating_sticks)
+	_float_button = _make_quick_btn(_tx("ПЛАВ. СТІК: ВИКЛ", "FLOATING STICK: OFF"), _on_toggle_floating_sticks)
 	_float_button.name = "TouchFloatingButton"
 	grid.add_child(_float_button)
 
-	_spring_button = _make_quick_btn("ГАЗ: КЛАСИК", _on_toggle_left_spring)
+	_spring_button = _make_quick_btn(_tx("ГАЗ: КЛАСИК", "THROTTLE: CLASSIC"), _on_toggle_left_spring)
 	_spring_button.name = "TouchSpringButton"
 	grid.add_child(_spring_button)
 
-	_tilt_down_button = _make_quick_btn("КАМЕРА -5°", _adjust_camera_tilt.bind(-5.0))
+	_tilt_down_button = _make_quick_btn(_tx("КАМЕРА -5°", "CAMERA -5°"), _adjust_camera_tilt.bind(-5.0))
 	_tilt_down_button.name = "TouchTiltDownButton"
 	grid.add_child(_tilt_down_button)
 
-	_tilt_up_button = _make_quick_btn("КАМЕРА +5°", _adjust_camera_tilt.bind(5.0))
+	_tilt_up_button = _make_quick_btn(_tx("КАМЕРА +5°", "CAMERA +5°"), _adjust_camera_tilt.bind(5.0))
 	_tilt_up_button.name = "TouchTiltUpButton"
 	grid.add_child(_tilt_up_button)
 
-	_flight_button = _make_quick_btn("РЕЖИМ: ANGLE", _on_flight_pressed)
+	_flight_button = _make_quick_btn(_tx("РЕЖИМ: ANGLE", "MODE: ANGLE"), _on_flight_pressed)
 	_flight_button.name = "TouchFlightModeButton"
 	grid.add_child(_flight_button)
 
-	_mode_button = _make_quick_btn("ВВІД: СЕНСОР", _on_mode_pressed)
+	_mode_button = _make_quick_btn(_tx("ВВІД: СЕНСОР", "INPUT: TOUCH"), _on_mode_pressed)
 	_mode_button.name = "TouchModeButton"
 	grid.add_child(_mode_button)
 
-	_video_button = _make_quick_btn("ВІДЕО", _on_action_pressed.bind("cycle_video_mode"))
+	_video_button = _make_quick_btn(_tx("ВІДЕО", "VIDEO"), _on_action_pressed.bind("cycle_video_mode"))
 	_video_button.name = "TouchVideoButton"
 	grid.add_child(_video_button)
 
-	_reset_button = _make_quick_btn("РЕСЕТ", _on_action_pressed.bind("respawn"))
+	_reset_button = _make_quick_btn(_tx("РЕСЕТ", "RESET"), _on_action_pressed.bind("respawn"))
 	_reset_button.name = "TouchResetButton"
 	grid.add_child(_reset_button)
 
-	_panel_menu_button = _make_quick_btn("МЕНЮ / ПАУЗА", _on_pause_pressed)
+	_panel_menu_button = _make_quick_btn(_tx("МЕНЮ / ПАУЗА", "MENU / PAUSE"), _on_pause_pressed)
 	_panel_menu_button.name = "TouchPanelMenuButton"
 	vb.add_child(_panel_menu_button)
 
 
 func _refresh_more_panel_labels() -> void:
 	if _float_button != null:
-		_float_button.text = "ПЛАВ. СТІК: ВКЛ" if _touch_floating_sticks else "ПЛАВ. СТІК: ВИКЛ"
+		_float_button.text = _tx(
+				"ПЛАВ. СТІК: ВКЛ" if _touch_floating_sticks else "ПЛАВ. СТІК: ВИКЛ",
+				"FLOATING STICK: ON" if _touch_floating_sticks else "FLOATING STICK: OFF")
 	if _spring_button != null:
-		_spring_button.text = "ГАЗ: ПРУЖИНА" if _touch_left_spring else "ГАЗ: КЛАСИК"
+		_spring_button.text = _tx(
+				"ГАЗ: ПРУЖИНА" if _touch_left_spring else "ГАЗ: КЛАСИК",
+				"THROTTLE: SPRING" if _touch_left_spring else "THROTTLE: CLASSIC")
 	_style_more_panel_buttons()
 
 
@@ -485,7 +510,9 @@ func _on_toggle_floating_sticks() -> void:
 		if _drawer != null:
 			_drawer.queue_redraw()
 	_refresh_more_panel_labels()
-	_show_toast("ПЛАВАЮЧИЙ СТІК: %s" % ("ВКЛ" if _touch_floating_sticks else "ВИКЛ"))
+	_show_toast(_tx(
+			"ПЛАВАЮЧИЙ СТІК: %s" % ("ВКЛ" if _touch_floating_sticks else "ВИКЛ"),
+			"FLOATING STICK: %s" % ("ON" if _touch_floating_sticks else "OFF")))
 
 
 func _on_toggle_left_spring() -> void:
@@ -505,7 +532,9 @@ func _on_toggle_left_spring() -> void:
 		if _drawer != null:
 			_drawer.queue_redraw()
 	_refresh_more_panel_labels()
-	_show_toast("ЛІВИЙ СТІК: %s" % ("ПРУЖИНА (ANGLE)" if _touch_left_spring else "КЛАСИК 0-100%"))
+	_show_toast(_tx(
+			"ЛІВИЙ СТІК: %s" % ("ПРУЖИНА (ANGLE)" if _touch_left_spring else "КЛАСИК 0-100%"),
+			"LEFT STICK: %s" % ("SPRING (ANGLE)" if _touch_left_spring else "CLASSIC 0-100%")))
 
 
 func _adjust_camera_tilt(delta_deg: float) -> void:
@@ -536,13 +565,14 @@ func _adjust_camera_tilt(delta_deg: float) -> void:
 			qs.set("angle", int(roundf(new_pitch)))
 		if scene != null and scene.has_method("_on_camera_tilt_changed"):
 			scene.call("_on_camera_tilt_changed", new_pitch)
-		_show_toast("КАМЕРА: %+d°" % int(roundf(new_pitch)))
+		_show_toast(_tx("КАМЕРА: %+d°" % int(roundf(new_pitch)),
+				"CAMERA: %+d°" % int(roundf(new_pitch))))
 	else:
 		var cur_q := int(qs.get("angle")) if qs != null else 0
 		var next_q := clampi(cur_q + roundi(delta_deg), -35, 45)
 		if qs != null:
 			qs.set("angle", next_q)
-		_show_toast("КАМЕРА: %+d°" % next_q)
+		_show_toast(_tx("КАМЕРА: %+d°" % next_q, "CAMERA: %+d°" % next_q))
 
 
 func _on_more_pressed() -> void:
@@ -696,18 +726,21 @@ func _apply_button_style() -> void:
 
 func _update_mode_button() -> void:
 	if _mode_button != null:
-		_mode_button.text = "ВВІД: СЕНСОР" if touch_mode else "ВВІД: ПУЛЬТ"
+		_mode_button.text = _tx("ВВІД: СЕНСОР", "INPUT: TOUCH") if touch_mode \
+				else _tx("ВВІД: ПУЛЬТ", "INPUT: RC")
 		_style_more_panel_buttons()
 	if _drop_button != null:
 		_drop_button.visible = enabled and touch_mode and not _preview
 		var action := _touch_payload_action()
-		_drop_button.text = "БЧ" if action == "activate_payload" else "СКИД"
+		_drop_button.text = _tx("БЧ", "WARHEAD") if action == "activate_payload" \
+				else _tx("СКИД", "DROP")
 
 
 func _on_mode_pressed() -> void:
 	Haptics.trigger_ui_tap()
 	set_controller_only(touch_mode)
-	_show_toast("ВВІД: %s" % ("СЕНСОР" if touch_mode else "ПУЛЬТ"))
+	_show_toast(_tx("ВВІД: %s" % ("СЕНСОР" if touch_mode else "ПУЛЬТ"),
+			"INPUT: %s" % ("TOUCH" if touch_mode else "RC")))
 
 
 func _on_arm_pressed() -> void:
@@ -721,10 +754,11 @@ func _on_arm_pressed() -> void:
 	if fc != null:
 		if bool(fc.get("state_armed")):
 			fc.request_disarm()
-			_show_toast("ДИСАРМ")
+			_show_toast(_tx("ДИСАРМ", "DISARM"))
 		else:
 			var armed := bool(fc.call("request_arm", true))
-			_show_toast("АРМ" if armed else "АРМ НЕ ДОЗВОЛЕНО")
+			_show_toast(_tx("АРМ", "ARM") if armed \
+					else _tx("АРМ НЕ ДОЗВОЛЕНО", "ARMING NOT ALLOWED"))
 			if not armed:
 				Haptics.trigger_ui_tap()
 		return
@@ -754,7 +788,7 @@ func _on_flight_pressed() -> void:
 		_sync_flight_mode_label()
 		var after := int(fc.get("flight_mode"))
 		var mode_txt := "ANGLE" if after == 1 else ("ACRO" if after == 0 else "HORIZON")
-		_show_toast("РЕЖИМ: %s" % mode_txt)
+		_show_toast(_tx("РЕЖИМ: %s" % mode_txt, "MODE: %s" % mode_txt))
 		return
 	_dispatch_action("cycle_flight_modes")
 
@@ -764,9 +798,10 @@ func _on_action_pressed(action: String) -> void:
 	if action == "deploy_payload":
 		var actual_action := _touch_payload_action()
 		if not _payload_available(actual_action):
-			_show_toast("НЕМАЄ БОЄПРИПАСУ")
+			_show_toast(_tx("НЕМАЄ БОЄПРИПАСУ", "NO PAYLOAD AVAILABLE"))
 			return
-		_show_toast("БЧ АКТИВОВАНО" if actual_action == "activate_payload" else "СКИД")
+		_show_toast(_tx("БЧ АКТИВОВАНО", "WARHEAD DETONATED")
+				if actual_action == "activate_payload" else _tx("СКИД", "DROP"))
 		_dispatch_action(actual_action)
 		return
 	_dispatch_action(action)
@@ -802,7 +837,7 @@ func _payload_available(action: String = "deploy_payload") -> bool:
 func _show_toast(text: String) -> void:
 	if _toast == null:
 		return
-	_toast.text = text
+	_toast.text = MenuUI.translate_text(text)
 	_toast.visible = true
 	_toast_time = 1.4
 
@@ -851,12 +886,12 @@ func _sync_flight_mode_label() -> void:
 	var drone := scene.get_node_or_null("Drone")
 	var fc = drone.get("flight_controller") if drone != null else null
 	if fc == null:
-		_flight_button.text = "РЕЖИМ"
+		_flight_button.text = _tx("РЕЖИМ", "MODE")
 		return
 	var mode := int(fc.get("flight_mode"))
 	var names := ["ACRO", "ANGLE", "SPEED", "TRACK", "LAUNCH", "TURTLE", "AUTO", "HORIZON"]
 	var label: String = names[mode] if mode >= 0 and mode < names.size() else str(mode)
-	_flight_button.text = "РЕЖИМ: %s" % label
+	_flight_button.text = _tx("РЕЖИМ: %s" % label, "MODE: %s" % label)
 
 
 func _dispatch_action(action: String) -> void:
@@ -915,13 +950,15 @@ func _build_setup_panel() -> void:
 	margin.add_child(vb)
 
 	var title := Label.new()
-	title.text = "НАЛАШТУВАННЯ ELRS / СЕНСОРА"
+	title.text = _tx("НАЛАШТУВАННЯ ELRS / СЕНСОРА", "ELRS / TOUCH SETUP")
 	title.add_theme_font_size_override("font_size", 22)
 	title.add_theme_color_override("font_color", Color(0.92, 0.97, 1.0))
 	vb.add_child(title)
 
 	var hint := Label.new()
-	hint.text = "Тут — ARM, режими й відео. Скид, застосування БЧ, ресет та інші дії призначаються в «Налаштування → КЕРУВАННЯ» (працює з ELRS на телефоні)."
+	hint.text = _tx(
+		"Тут — ARM, режими й відео. Скид, застосування БЧ, ресет та інші дії призначаються в «Налаштування → КЕРУВАННЯ» (працює з ELRS на телефоні).",
+		"Configure ARM, flight modes, and video here. Payload release, warhead activation, reset, and other actions are assigned under Settings → Controls. ELRS works over your phone's local Wi-Fi.")
 	hint.add_theme_font_size_override("font_size", 12)
 	hint.add_theme_color_override("font_color", Color(0.70, 0.82, 0.90))
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -942,37 +979,37 @@ func _build_setup_panel() -> void:
 		grid.add_child(label)
 		_channel_labels.append(label)
 
-	_arm_option = _make_mapping_row(vb, "Канал ARM", "arm",
+	_arm_option = _make_mapping_row(vb, _tx("Канал ARM", "ARM CHANNEL"), "arm",
 			_elrs_channel("arm_channel", 4))
-	_mode_option = _make_mapping_row(vb, "Канал режимів", "mode",
+	_mode_option = _make_mapping_row(vb, _tx("Канал режимів", "FLIGHT MODE CHANNEL"), "mode",
 			_elrs_channel("mode_channel", 5))
-	_video_option = _make_mapping_row(vb, "Канал відео", "video",
+	_video_option = _make_mapping_row(vb, _tx("Канал відео", "VIDEO CHANNEL"), "video",
 			_elrs_channel("video_channel", 6))
 
 	var invert_box := HBoxContainer.new()
 	invert_box.add_theme_constant_override("separation", 22)
 	vb.add_child(invert_box)
 	_invert_elrs_check = CheckBox.new()
-	_invert_elrs_check.text = "Інверсія крену (ELRS)"
+	_invert_elrs_check.text = _tx("Інверсія крену (ELRS)", "Invert ELRS roll")
 	_invert_elrs_check.add_theme_font_size_override("font_size", 15)
 	_invert_elrs_check.add_theme_color_override("font_color", Color(0.92, 0.97, 1.0))
 	_invert_elrs_check.toggled.connect(_on_invert_elrs_toggled)
 	invert_box.add_child(_invert_elrs_check)
 	_invert_touch_check = CheckBox.new()
-	_invert_touch_check.text = "Інверсія крену (сенсор)"
+	_invert_touch_check.text = _tx("Інверсія крену (сенсор)", "Invert touch roll")
 	_invert_touch_check.add_theme_font_size_override("font_size", 15)
 	_invert_touch_check.add_theme_color_override("font_color", Color(0.92, 0.97, 1.0))
 	_invert_touch_check.toggled.connect(_on_invert_touch_toggled)
 	invert_box.add_child(_invert_touch_check)
 	_invert_touch_pitch_check = CheckBox.new()
-	_invert_touch_pitch_check.text = "Інверсія тангажу (сенсор)"
+	_invert_touch_pitch_check.text = _tx("Інверсія тангажу (сенсор)", "Invert touch pitch")
 	_invert_touch_pitch_check.add_theme_font_size_override("font_size", 15)
 	_invert_touch_pitch_check.add_theme_color_override("font_color", Color(0.92, 0.97, 1.0))
 	_invert_touch_pitch_check.toggled.connect(_on_invert_touch_pitch_toggled)
 	invert_box.add_child(_invert_touch_pitch_check)
 
 	var close := Button.new()
-	close.text = "ЗАКРИТИ"
+	close.text = _tx("ЗАКРИТИ", "CLOSE")
 	close.focus_mode = Control.FOCUS_NONE
 	close.add_theme_font_size_override("font_size", 18)
 	close.custom_minimum_size = Vector2(0, 42)

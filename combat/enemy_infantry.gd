@@ -13,6 +13,7 @@ const INFANTRY_IMPOSTOR_ATLAS := "res://Assets/combat/soldier_impostor_atlas.png
 ## a sane 1.9 m skeleton, unlike the HECU rip whose bind matrices are scaled x100
 ## and collapse inside Godot.
 const SOLDIER_MODEL := "res://Assets/combat/rifleman.glb"
+const MOBILE_TARGET_SCALE := 1.20
 const TracerScript = preload("res://combat/tracer.gd")
 const ExplosionScript = preload("res://combat/explosion.gd")
 const CombatSfxScript = preload("res://combat/sfx.gd")
@@ -119,6 +120,10 @@ func _ready() -> void:
 	_walk_phase = fmod(float(abs(get_instance_id())) * 0.6180339, TAU)
 	_build()
 	_build_lod_proxy()
+	# Keep the desktop target unchanged.  Scaling the body uniformly also scales
+	# the attached CollisionShape3D, including its crouched/prone adjustments.
+	if _mobile_visual_lod_enabled():
+		scale *= Vector3.ONE * MOBILE_TARGET_SCALE
 	var scene := _find_level_scene()
 	_drone = scene.get_node_or_null("Drone") as Drone if scene != null else null
 	_combat = scene.get_node_or_null("CombatSystem") if scene != null else null

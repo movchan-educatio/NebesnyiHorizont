@@ -28,6 +28,15 @@ var _restart_sent := false
 static var _restart_test_used := false
 
 
+func _is_mobile() -> bool:
+	return OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")
+
+
+func _tx(ua: String, en: String) -> String:
+	return en if MenuUI.is_english() else ua
+
+
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	message.modulate = Color(1, 1, 1, 0)
@@ -37,6 +46,7 @@ func _ready() -> void:
 	results.visible = false
 	again_button.pressed.connect(_on_again_pressed)
 	_build_menu_button()
+	MenuUI.localize_tree(self)
 
 
 func _build_menu_button() -> void:
@@ -45,7 +55,7 @@ func _build_menu_button() -> void:
 		return
 	var menu_button := Button.new()
 	menu_button.name = "MenuButton"
-	menu_button.text = "ЗАВЕРШИТИ"
+	menu_button.text = _tx("ЗАВЕРШИТИ", "END SORTIE")
 	menu_button.custom_minimum_size = Vector2(160, 0)
 	menu_button.pressed.connect(_on_menu_pressed)
 	parent.add_child(menu_button)
@@ -79,12 +89,13 @@ func set_stats(remaining: int, total: int, ammo: int, ammo_max: int, score: int,
 		health: float, health_max: float, time_text: String) -> void:
 	targets_label.text = "TGT %d/%d" % [remaining, total]
 	if ammo_max <= 0:
-		ammo_label.text = "СКИД: ВІДСУТНІЙ"
+		ammo_label.text = _tx("СКИД: ВІДСУТНІЙ", "PAYLOAD: NONE")
 	else:
-		ammo_label.text = "СКИД %d/%d" % [ammo, ammo_max]
+		ammo_label.text = _tx("СКИД %d/%d" % [ammo, ammo_max],
+				"DROP %d/%d" % [ammo, ammo_max])
 	score_label.text = "SCR %04d" % score
 	health_label.text = "HP %03d" % int(round(maxf(health, 0.0)))
-	timer_label.text = "TIME %s" % time_text
+	timer_label.text = _tx("ЧАС %s" % time_text, "TIME %s" % time_text)
 
 	if remaining <= 0:
 		targets_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
@@ -118,10 +129,19 @@ func show_results(time_text: String, score: int, killed: int, total: int,
 		aa_killed: int, aa_total: int, inf_killed: int = 0, inf_total: int = 0) -> void:
 	_restart_sent = false
 	root.visible = false
-	results_kicker.text = "РЕЗУЛЬТАТИ ВИЛЬОТУ"
-	results_title.text = "ПІДСУМКИ МІСІЇ"
-	again_button.text = "ПРОЛЕТІТИ ЩЕ РАЗ  [ENTER]"
-	results_footer.text = "НАТИСНІТЬ ENTER АБО КНОПКУ, ЩОБ ПОЧАТИ ЗНОВУ"
+	results_kicker.text = _tx("РЕЗУЛЬТАТИ ВИЛЬОТУ", "SORTIE RESULTS")
+	results_title.text = _tx("ПІДСУМКИ МІСІЇ", "MISSION DEBRIEF")
+	again_button.text = _tx("ПРОЛЕТІТИ ЩЕ РАЗ  [ENTER]", "FLY AGAIN  [ENTER]")
+	results_footer.text = _tx(
+		"НАТИСНІТЬ ENTER АБО КНОПКУ, ЩОБ ПОЧАТИ ЗНОВУ",
+		"PRESS ENTER OR THE BUTTON TO RESTART")
+	if _is_mobile():
+		# TouchControls is a separate CanvasLayer at layer 30.  Keep the debrief
+		# above it and hide the flight-only controls while the result modal is up.
+		layer = 120
+		var touch := get_node_or_null("/root/TouchControls")
+		if touch != null and touch.has_method("set_enabled"):
+			touch.call("set_enabled", false)
 	var level := get_tree().current_scene
 	if level != null:
 		var level_hud = level.get("_hud")
@@ -139,9 +159,11 @@ func show_results(time_text: String, score: int, killed: int, total: int,
 	if Global.has_method("get_pilot_rank_info"):
 		var rinfo = Global.call("get_pilot_rank_info")
 		if rinfo is Dictionary:
-			var r_ua := String(rinfo.get("rank_ua", ""))
+			var rank_name := String(rinfo.get(
+					"rank_en" if MenuUI.is_english() else "rank_ua", ""))
 			var r_xp := int(rinfo.get("xp", 0))
-			rank_line = "\nЗВАННЯ            %s (%d XP)" % [r_ua, r_xp]
+			rank_line = _tx("\nЗВАННЯ            %s (%d XP)",
+					"\nRANK              %s (%d XP)") % [rank_name, r_xp]
 	var total_hits := killed + aa_killed + inf_killed
 	var level_drops := 0
 	if level != null:
@@ -155,7 +177,9 @@ func show_results(time_text: String, score: int, killed: int, total: int,
 		int(round(100.0 * float(mini(total_hits, level_drops)) / float(maxi(level_drops, 1)))),
 		mini(total_hits, level_drops), level_drops
 	] if level_drops > 0 else "—"
-	results_stats.text = "ЧАС ПОЛЬОТУ       %s\nОЧКИ              %d\nЦІЛІ              %d / %d\nЗЕНІТКИ           %d / %d\nПІХОТА            %d / %d\nТОЧНІСТЬ          %s%s" % [
+	results_stats.text = _tx(
+		"ЧАС ПОЛЬОТУ       %s\nОЧКИ              %d\nЦІЛІ              %d / %d\nЗЕНІТКИ           %d / %d\nПІХОТА            %d / %d\nТОЧНІСТЬ          %s%s",
+		"FLIGHT TIME       %s\nSCORE             %d\nTARGETS           %d / %d\nAIR DEFENSE       %d / %d\nINFANTRY          %d / %d\nACCURACY          %s%s") % [
 		time_text, score, killed, total, aa_killed, aa_total, inf_killed, inf_total, acc_str, rank_line
 	]
 	results.visible = true
@@ -174,7 +198,7 @@ func show_message(text: String, color: Color = Color(0.85, 1.0, 0.65),
 		duration: float = 2.0) -> void:
 	if _message_tween != null and _message_tween.is_valid():
 		_message_tween.kill()
-	message.text = text
+	message.text = MenuUI.translate_text(text)
 	message.modulate = Color(color.r, color.g, color.b, 1.0)
 	_message_tween = create_tween()
 	_message_tween.tween_interval(maxf(duration, 0.2))

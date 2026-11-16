@@ -16,6 +16,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
+	OS.set_environment("MOBILE_UI", "1")
 	var args := OS.get_cmdline_user_args()
 	var scene_name := String(args[0]) if not args.is_empty() else "VillageLevel"
 	var output := OS.get_environment("MOBILE_MAP_SHOT_DIR")
@@ -42,6 +43,16 @@ func _run() -> void:
 		get_tree().quit(1)
 		return
 	var terrain := level.get_node_or_null("FrontlineTerrain") as Node3D
+	var follow_grass := level.get_node_or_null("FollowGrass") as MultiMeshInstance3D
+	var grass_ready := follow_grass != null and follow_grass.multimesh != null \
+			and follow_grass.multimesh.instance_count > 0 \
+			and not bool(follow_grass.get("_building"))
+	if not grass_ready:
+		_failures += 1
+		push_warning("[MOBILE_MAP_VIEWS] initial FollowGrass batch is not ready on " + map_name)
+	else:
+		print("[MOBILE_MAP_VIEWS] ", map_name, " initial grass instances=",
+				follow_grass.multimesh.instance_count)
 	var beacons := terrain.find_children("MobileBeacon_*", "Node3D", true, false) \
 			if terrain != null else []
 	if beacons.size() < 2:

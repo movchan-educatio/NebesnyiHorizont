@@ -39,9 +39,14 @@ func set_spawn_clear(center: Vector3, radius: float) -> void:
 
 ## Build the first carpet while the loading card is still up, so the first
 ## visible frame does not pay the rebuild cost.
-func prime(center: Vector3) -> void:
-	if _built:
-		_rebuild(Vector3(center.x, 0.0, center.z))
+func prime(center: Vector3, wait_for_initial_build: bool = false) -> void:
+	if not _built:
+		return
+	var ground_center := Vector3(center.x, 0.0, center.z)
+	if wait_for_initial_build:
+		await _rebuild(ground_center)
+	else:
+		_rebuild(ground_center)
 
 
 func setup(p_map: String, quality: int) -> void:

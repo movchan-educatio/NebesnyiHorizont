@@ -90,6 +90,12 @@ static var _contact_shadow_queues: Dictionary = {}
 static var _height_tex_cache: Dictionary = {}
 static var _prop_detail_cache: Dictionary = {}
 
+
+static func _is_mobile_platform() -> bool:
+	return OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")
+
+
 const STRUCT_AO_CIRCLES := {
 	"village": [Vector3(18.0, -68.0, 15.0), Vector3(-34.0, 56.0, 12.0), Vector3(-95.0, 118.0, 11.0), Vector3(54.0, -96.0, 14.0)],
 	"steppe": [Vector3(-128.0, 38.0, 12.0), Vector3(-132.0, -132.0, 12.0), Vector3(36.0, 128.0, 14.0)],
@@ -460,7 +466,8 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 		_build_hall_occluders(root, map_name)
 	_spawn_handcrafted_assets(root, map_name)
 	_build_unique_pois(root, map_name)
-	_build_mobile_hero_landmarks(root, map_name)
+	if _is_mobile_platform():
+		_build_mobile_hero_landmarks(root, map_name)
 	_build_landmarks(root, map_name)
 	_build_blender_landmarks(root, map_name)
 	_add_war_wear(root, map_name)
@@ -476,10 +483,9 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 	_dress_handcrafted_sites(root, map_name)
 	_add_wall_decals(root, map_name)
 	_add_map_mist(root, map_name)
-	if not OS.has_environment("QA_NO_MOBILE_PATCHES"):
+	if _is_mobile_platform() and not OS.has_environment("QA_NO_MOBILE_PATCHES"):
 		_add_mobile_ground_patches(root, map_name)
-	if (OS.get_name() == "iOS" or OS.has_feature("mobile") \
-			or OS.has_environment("MOBILE_UI")) \
+	if _is_mobile_platform() \
 			and not OS.has_environment("QA_NO_MOBILE_PACK"):
 		var pack = load("res://scripts/util/mobile_prop_pack.gd")
 		if pack != null:
@@ -2347,9 +2353,9 @@ static func _ground_material(map_name: String) -> ShaderMaterial:
 		if uniforms.has(key):
 			mat.set_shader_parameter(key, conf[key])
 	if uniforms.has("map_edge_start"):
-		mat.set_shader_parameter("map_edge_start", 176.0)
+		mat.set_shader_parameter("map_edge_start", 176.0 if _is_mobile_platform() else 1000.0)
 	if uniforms.has("map_edge_end"):
-		mat.set_shader_parameter("map_edge_end", OUTER_HALF)
+		mat.set_shader_parameter("map_edge_end", OUTER_HALF if _is_mobile_platform() else 1100.0)
 
 	var wl := water_level(map_name)
 	mat.set_shader_parameter("wet_height", wl)
@@ -2363,14 +2369,16 @@ static func _ground_material(map_name: String) -> ShaderMaterial:
 	else:
 		mat.set_shader_parameter("wet_falloff", 4.0)
 	if uniforms.has("cloud_shadow_strength"):
-		var cs := 0.16
-		match map_name:
-			"steppe", "village":
-				cs = 0.18
-			"industrial":
-				cs = 0.10
-			"wetlands":
-				cs = 0.09
+		var cs := 0.0
+		if _is_mobile_platform():
+			cs = 0.16
+			match map_name:
+				"steppe", "village":
+					cs = 0.18
+				"industrial":
+					cs = 0.10
+				"wetlands":
+					cs = 0.09
 		mat.set_shader_parameter("cloud_shadow_strength", cs)
 	return mat
 
@@ -3160,8 +3168,9 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 		ground_mat: ShaderMaterial) -> void:
 	const EXTENT := 960.0
 	const STEP := 24.0
-	const HOLE_GRID := OUTER_HALF + STEP  # 216.0 m outer start for 24 m cells
 	const COLLAR_DIVS := 8                # 24 m / 8 = 3.0 m exact TerrainChunk match
+	var mobile := _is_mobile_platform()
+	var hole_grid := OUTER_HALF + STEP if mobile else 188.0
 	var cells := int(EXTENT * 2.0 / STEP)
 	var stride := cells + 1
 	var verts := PackedVector3Array()
@@ -3196,10 +3205,24 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 			dry = Color(0.22, 0.24, 0.15)
 			rock = Color(0.10, 0.19, 0.20)
 			haze_col = Color(0.32, 0.39, 0.39)
+	if not mobile:
+		match map_name:
+			"steppe":
+				haze_col = Color(0.66, 0.67, 0.62)
+			"village":
+				haze_col = Color(0.58, 0.65, 0.72)
+			"industrial":
+				haze_col = Color(0.56, 0.62, 0.68)
+			"wetlands":
+				haze_col = Color(0.56, 0.64, 0.64)
+			_:
+				haze_col = Color(0.58, 0.65, 0.72)
 
 	var append_horizon_vert := func(wx: float, wz: float, n_step: float) -> int:
 		var vi := verts.size()
 		var h := _height(map_name, wx, wz)
+		if not mobile and absf(wx) <= 188.5 and absf(wz) <= 188.5:
+			h -= 0.06
 		verts.append(Vector3(wx, h, wz))
 		var dx := _height(map_name, wx + n_step, wz) - _height(map_name, wx - n_step, wz)
 		var dz := _height(map_name, wx, wz + n_step) - _height(map_name, wx, wz - n_step)
@@ -3207,22 +3230,30 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 		normals.append(n)
 		uvs.append(Vector2(wx, wz) * 0.08)
 		var slope := clampf((1.0 - n.y) * 2.6, 0.0, 1.0)
-		var patch := _noise2(wx * 0.008 + 11.0, wz * 0.008 - 7.0) * 0.5 + 0.5
-		var mix_t := 0.25 + patch * 0.50
+		var patch_scale := 0.008 if mobile else 0.045
+		var patch := _noise2(wx * patch_scale + 11.0, wz * patch_scale - 7.0) * 0.5 + 0.5
+		var mix_t := 0.25 + patch * 0.50 if mobile else clampf(patch * 0.58, 0.0, 1.0)
+		if not mobile:
+			var grain := _noise2(wx * 0.33, wz * 0.33) * 0.5 + 0.5
+			mix_t = clampf(mix_t + grain * 0.16, 0.0, 1.0)
 		if map_name == "steppe" or map_name == "village":
 			var field_wave := 0.5 + 0.5 * sin(wx * 0.011) * cos(wz * 0.011)
-			mix_t = clampf(mix_t * 0.75 + field_wave * 0.25, 0.2, 0.8)
+			mix_t = clampf(mix_t * (0.75 if mobile else 0.65)
+					+ field_wave * (0.25 if mobile else 0.35),
+					0.2 if mobile else 0.0, 0.8 if mobile else 1.0)
 		var col := grass.lerp(dry, mix_t)
 		if map_name == "wetlands" and h < wl + 0.35:
-			col = col.lerp(rock, 0.55)
+			col = col.lerp(rock, 0.55 if mobile else 0.70)
 		else:
-			col = col.lerp(rock, slope * 0.45)
+			col = col.lerp(rock, slope * (0.45 if mobile else 0.52))
 		var edge_metric := maxf(absf(wx), absf(wz))
-		var edge_blend := smoothstep(SAFE_STRUCTURE_BOUND, OUTER_HALF, edge_metric)
+		var edge_blend := smoothstep(SAFE_STRUCTURE_BOUND, OUTER_HALF, edge_metric) if mobile else 0.0
 		var edge_tint := grass.lerp(dry, 0.5)
 		col = col.lerp(edge_tint, edge_blend * 0.35)
 		var dist := Vector2(wx, wz).length()
-		var world_haze := smoothstep(320.0, EXTENT * 0.92, dist) * 0.28
+		var haze_start := 320.0 if mobile else 260.0
+		var haze_strength := 0.28 if mobile else 0.72
+		var world_haze := smoothstep(haze_start, EXTENT * 0.92, dist) * haze_strength
 		col = col.lerp(haze_col, world_haze)
 		colors.append(col.srgb_to_linear())
 		return vi
@@ -3237,8 +3268,8 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 		for i in range(cells):
 			var x0 := base + float(i) * STEP
 			var z0 := base + float(j) * STEP
-			if x0 >= -HOLE_GRID and x0 + STEP <= HOLE_GRID \
-					and z0 >= -HOLE_GRID and z0 + STEP <= HOLE_GRID:
+			if x0 >= -hole_grid and x0 + STEP <= hole_grid \
+					and z0 >= -hole_grid and z0 + STEP <= hole_grid:
 				continue
 			var a := j * stride + i
 			var b := a + 1
@@ -3249,7 +3280,9 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 	# Four 24x24 outer corners [±192..±216] x [±192..±216]
 	var c_low := int(round((-OUTER_HALF - base) / STEP)) - 1   # 31 -> -216
 	var c_high := int(round((OUTER_HALF - base) / STEP))        # 48 -> +192
-	for corner in [[c_low, c_low], [c_high, c_low], [c_low, c_high], [c_high, c_high]]:
+	var corner_specs: Array = [[c_low, c_low], [c_high, c_low],
+			[c_low, c_high], [c_high, c_high]] if mobile else []
+	for corner in corner_specs:
 		var ci := int(corner[0])
 		var cj := int(corner[1])
 		var a := cj * stride + ci
@@ -3264,7 +3297,8 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 	var g_end := int(round((OUTER_HALF - base) / STEP))         # 48 -> +192
 	var c_step := STEP / float(COLLAR_DIVS)                     # 3.0 m
 	var in_count := side_cells * COLLAR_DIVS + 1
-	for side in range(4):
+	var collar_sides: Array = [0, 1, 2, 3] if mobile else []
+	for side in collar_sides:
 		var v_in := PackedInt32Array()
 		v_in.resize(in_count)
 		for k in range(in_count):
@@ -3324,7 +3358,7 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 	mi.name = "HorizonRing"
 	mi.mesh = mesh
 	var ring_shader := load("res://shaders/horizon_ring.gdshader") as Shader
-	if ring_shader != null and ground_mat != null:
+	if mobile and ring_shader != null and ground_mat != null:
 		var rmat := ShaderMaterial.new()
 		rmat.shader = ring_shader
 		for key in ["grass_albedo", "dirt_albedo", "grass_tint", "dirt_tint",
@@ -3339,9 +3373,10 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 		var flat := StandardMaterial3D.new()
 		flat.albedo_color = Color.WHITE
 		flat.vertex_color_use_as_albedo = true
-		flat.roughness = 0.96
+		flat.vertex_color_is_srgb = true
+		flat.roughness = 1.0
 		flat.metallic = 0.0
-		flat.metallic_specular = 0.24
+		flat.disable_receive_shadows = true
 		mi.material_override = flat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(mi)
@@ -4076,7 +4111,8 @@ static func _add_map_mist(root: Node3D, map_name: String) -> void:
 		fm.height_falloff = 0.3
 		fog.material = fm
 		root.add_child(fog)
-	_add_mobile_mist_ribbons(root, map_name)
+	if _is_mobile_platform():
+		_add_mobile_mist_ribbons(root, map_name)
 
 
 static func _asset_on(root: Node3D, map_name: String, asset_name: String,
@@ -4342,7 +4378,8 @@ static func _build_village(root: Node3D, map_name: String) -> void:
 		village_river_wps.append(Vector3(rx, wl, rz))
 	var v_boat := MOVING_PATROL_BOAT.create_patrol_boat(village_river_wps, wl, 0.0)
 	root.add_child(v_boat)
-	_build_village_river_reeds(root, map_name, wl)
+	if _is_mobile_platform():
+		_build_village_river_reeds(root, map_name, wl)
 
 	# One curated cottage + barn homestead cleanly outside HeroHall and road bounds.
 	var farm_site := _reserve_near_site(root, map_name, Vector2(-34.0, 56.0), 14.0, 28.0, false)
@@ -7162,6 +7199,7 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 		return
 	var q_lvl := QualityManager.get_active_level()
 	var high_detail := q_lvl == QualityManager.Level.HIGH
+	var mobile := _is_mobile_platform()
 	var tuft_mult := float(QualityManager.get_value("grass_tuft_mult", 0.55 if high_detail else 0.35))
 	var detail_lvl := int(QualityManager.get_value("ground_detail_level", 1 if q_lvl != QualityManager.Level.LOW else 0))
 	var rock_target := 220 if high_detail else (150 if detail_lvl > 0 else 100)
@@ -7226,8 +7264,10 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 		else:
 			flower_col.append(Color(0.72, 0.58, 0.62))
 
-	var bush_target := 270 if high_detail else (160 if detail_lvl > 0 else 75)
-	var bush_radius := 174.0 if high_detail else (164.0 if detail_lvl > 0 else 148.0)
+	var bush_target := (270 if high_detail else (160 if detail_lvl > 0 else 75)) if mobile \
+			else (240 if high_detail else (130 if detail_lvl > 0 else 55))
+	var bush_radius := (174.0 if high_detail else (164.0 if detail_lvl > 0 else 148.0)) if mobile \
+			else (162.0 if high_detail else (146.0 if detail_lvl > 0 else 108.0))
 	var bush_mesh := FOLIAGE.make_canopy_mesh(5, 2, 0.42, 0.55, 0.65)
 	var bush_mat := FOLIAGE.make_wind_material(
 			Color(0.11, 0.16, 0.055) if map_name == "wetlands" \
@@ -7273,8 +7313,10 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 		flower_node.visibility_range_end_margin = 20.0
 		flower_node.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 
-	var tuft_target := maxi(1050, int(round(5400.0 * tuft_mult)))
-	var tuft_radius := 176.0 if high_detail else (172.0 if detail_lvl > 0 else 168.0)
+	var tuft_target := maxi(1050, int(round(5400.0 * tuft_mult))) if mobile \
+			else maxi(700, int(round(4200.0 * tuft_mult)))
+	var tuft_radius := (176.0 if high_detail else (172.0 if detail_lvl > 0 else 168.0)) if mobile \
+			else (166.0 if high_detail else (152.0 if detail_lvl > 0 else 132.0))
 	var tuft_base := Color(0.15, 0.20, 0.08)
 	var tuft_tip := Color(0.36, 0.42, 0.18)
 	match map_name:
@@ -7319,30 +7361,49 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 		tuft_col.append(Color(c_var * 1.12, c_var * 0.98, c_var * 0.74) if is_straw
 				else Color(c_var * 0.92, c_var, c_var * 0.88))
 
-	var verge_target := int(tuft_target * 0.25)
-	var roads := _road_points(map_name)
-	if not roads.is_empty():
-		var verge_tries := verge_target * 4
-		while tuft_xf.size() < verge_target and verge_tries > 0:
-			verge_tries -= 1
-			var pl: PackedVector2Array = roads[rng.randi() % roads.size()]
-			if pl.size() < 2:
+	if mobile:
+		var verge_target := int(tuft_target * 0.25)
+		var roads := _road_points(map_name)
+		if not roads.is_empty():
+			var verge_tries := verge_target * 4
+			while tuft_xf.size() < verge_target and verge_tries > 0:
+				verge_tries -= 1
+				var pl: PackedVector2Array = roads[rng.randi() % roads.size()]
+				if pl.size() < 2:
+					continue
+				var si := rng.randi() % (pl.size() - 1)
+				var seg_a := pl[si]
+				var seg_b := pl[si + 1]
+				var pt := seg_a.lerp(seg_b, rng.randf())
+				var seg_dir := (seg_b - seg_a).normalized()
+				var side_n := Vector2(-seg_dir.y, seg_dir.x)
+				var side := -1.0 if rng.randf() < 0.5 else 1.0
+				var vp := pt + side_n * (side * rng.randf_range(2.6, 5.4))
+				add_tuft.call(vp.x, vp.y, 0.28)
+		tries = tuft_target * 4
+		while tuft_xf.size() < tuft_target and tries > 0:
+			tries -= 1
+			add_tuft.call(rng.randf_range(-tuft_radius, tuft_radius),
+					rng.randf_range(-tuft_radius, tuft_radius), 0.25)
+	else:
+		# Desktop keeps its original random field scatter and tuft scale range.
+		tries = tuft_target * 4
+		while tuft_xf.size() < tuft_target and tries > 0:
+			tries -= 1
+			var x := rng.randf_range(-tuft_radius, tuft_radius)
+			var z := rng.randf_range(-tuft_radius, tuft_radius)
+			if _road_factor(map_name, x, z) > 0.25:
 				continue
-			var si := rng.randi() % (pl.size() - 1)
-			var seg_a := pl[si]
-			var seg_b := pl[si + 1]
-			var pt := seg_a.lerp(seg_b, rng.randf())
-			var seg_dir := (seg_b - seg_a).normalized()
-			var side_n := Vector2(-seg_dir.y, seg_dir.x)
-			var side := -1.0 if rng.randf() < 0.5 else 1.0
-			var vp := pt + side_n * (side * rng.randf_range(2.6, 5.4))
-			add_tuft.call(vp.x, vp.y, 0.28)
-	tries = tuft_target * 4
-	while tuft_xf.size() < tuft_target and tries > 0:
-		tries -= 1
-		add_tuft.call(rng.randf_range(-tuft_radius, tuft_radius),
-				rng.randf_range(-tuft_radius, tuft_radius), 0.25)
-	var tuft_node := _multimesh(root, "FieldTufts", tuft_mesh, tuft_mat, tuft_xf, false, tuft_col)
+			var y := mesh_surface_height(map_name, x, z)
+			if y < wl + 0.15:
+				continue
+			var s := rng.randf_range(0.8, 1.9)
+			tuft_xf.append(Transform3D(
+					Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(
+							Vector3(s, rng.randf_range(0.9, 1.6), s)),
+					Vector3(x, y, z)))
+	var tuft_node := _multimesh(root, "FieldTufts", tuft_mesh, tuft_mat,
+			tuft_xf, false, tuft_col if mobile else [])
 	if tuft_node != null:
 		tuft_node.visibility_range_end = tuft_radius + 20.0
 		tuft_node.visibility_range_end_margin = 20.0
@@ -8939,4 +9000,3 @@ static func _build_village_river_reeds(root: Node3D, map_name: String, wl: float
 		mmi.visibility_range_end = 185.0
 		mmi.visibility_range_end_margin = 20.0
 		mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
-

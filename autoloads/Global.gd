@@ -1,5 +1,6 @@
 extends Node
 
+const LocScript = preload("res://scripts/util/localization_manager.gd")
 
 signal game_mode_changed
 signal leaderboard_requested
@@ -49,10 +50,27 @@ const SPECIAL_MISSION_NAMES := {
 	8: "ОРЕШНИК",
 	9: "ГЛИБОКИЙ ТИЛ",
 }
+const SPECIAL_MISSION_NAMES_EN := {
+	1: "RECONNAISSANCE",
+	2: "CONVOY ESCORT",
+	3: "PILOT EXTRACTION",
+	4: "CARGO DELIVERY",
+	5: "NIGHT STRIKE",
+	6: "EW BREACH",
+	7: "REAR-AREA CONVOY",
+	8: "ORESHNIK",
+	9: "DEEP-STRIKE OPERATION",
+}
+
+
+func _is_english() -> bool:
+	return LocScript.get_language() == LocScript.Language.EN
 
 
 func get_special_mission_name(mission_id: int = -1) -> String:
 	var id := special_mission if mission_id < 0 else mission_id
+	if _is_english():
+		return str(SPECIAL_MISSION_NAMES_EN.get(id, "SPECIAL OPERATION"))
 	return str(SPECIAL_MISSION_NAMES.get(id, "СПЕЦОПЕРАЦІЯ"))
 ## Set by the results screen when "Next mission" is pressed.  The next level
 ## shows its briefing overlay before flight so the campaign flows
@@ -80,11 +98,12 @@ var calibration_return_scene := ""
 
 
 func get_difficulty_name() -> String:
+	var is_en := _is_english()
 	match difficulty:
-		Difficulty.RECRUIT: return "РЕКРУТ"
-		Difficulty.OPERATOR: return "ОПЕРАТОР"
-		Difficulty.ACE: return "АС"
-		_: return "ОПЕРАТОР"
+		Difficulty.RECRUIT: return "RECRUIT" if is_en else "РЕКРУТ"
+		Difficulty.OPERATOR: return "OPERATOR" if is_en else "ОПЕРАТОР"
+		Difficulty.ACE: return "ACE" if is_en else "АС"
+		_: return "OPERATOR" if is_en else "ОПЕРАТОР"
 
 
 func get_difficulty_time_limit() -> float:

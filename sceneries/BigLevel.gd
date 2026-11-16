@@ -42,6 +42,7 @@ const MIN_ENEMY_SPAWN_DIST_AIR := 95.0
 var _map_root: Node3D = null
 var _triggers: Node3D = null
 var _hud: CanvasLayer = null
+var _results_canvas_layer: CanvasLayer = null
 var _hud_label: Label = null
 var _hud_message: Label = null
 var _elrs_status_label: Label = null
@@ -414,9 +415,9 @@ func _ready() -> void:
 		FoliageSystemScript.spawn_dense_grass(self, g_center, g_rad, g_cnt,
 				g_base, g_tip, frontline_map,
 				Vector3(d.global_position.x, 0.0, d.global_position.z), 9.0)
-		if not frontline_map.is_empty():
-			# Grass follows the active camera, so every part of every map gets
-			# the same dense near-field blades, not only the spawn apron.
+		if _is_mobile_runtime() and not frontline_map.is_empty():
+			# The mobile camera-follow carpet avoids the low-resolution close
+			# grass gap.  Desktop keeps its original static vegetation layout.
 			var fg_script = load("res://scripts/util/follow_grass.gd")
 			if fg_script != null:
 				var fg = fg_script.new()
@@ -425,8 +426,15 @@ func _ready() -> void:
 				fg.setup(frontline_map, QualityManagerScript.get_active_level())
 				fg.set_spawn_clear(Vector3(d.global_position.x, 0.0,
 						d.global_position.z), 9.0)
-				fg.prime(Vector3(d.global_position.x, 0.0,
-						d.global_position.z))
+				var grass_center := Vector3(d.global_position.x, 0.0,
+						d.global_position.z)
+				if _is_mobile_runtime():
+					# Keep the loading card up until the first MultiMesh buffer is
+					# uploaded; later camera-follow rebuilds remain asynchronous.
+					await fg.prime(grass_center, true)
+				else:
+					# Preserve the existing desktop loading and rendering behavior.
+					fg.prime(grass_center)
 	_hide_drone_visuals(d)
 	var preset_drone := get_node_or_null("Drone")
 	if preset_drone != null:
@@ -2148,7 +2156,8 @@ func _capture_player_screenshot() -> void:
 		DirAccess.make_dir_recursive_absolute(dir)
 		path = dir.path_join("nebesnyi_" + stamp + ".png")
 		err = image.save_png(path)
-	_set_flash("СКРІНШОТ: " + ("збережено" if err == OK else "помилка " + str(err)))
+	_set_flash(_txt("СКРІНШОТ: " + ("збережено" if err == OK else "помилка " + str(err)),
+			"SCREENSHOT: " + ("SAVED" if err == OK else "ERROR " + str(err))))
 	print("[SHOT_USER] ", path, " err=", err)
 	if d != null:
 		d.freeze = was_frozen
@@ -2276,9 +2285,11 @@ func _on_drone_armed(_mode: int) -> void:
 func _on_arm_failed(reason) -> void:
 	var text := str(reason)
 	if text == "THROTTLE_NOT_LOW" or text == "1":
-		_set_flash("АРМІНГ ЗАБЛОКОВАНО: ЗНИЗЬТЕ ГАЗ ДО НУЛЯ!")
+		_set_flash(_txt("АРМІНГ ЗАБЛОКОВАНО: ЗНИЗЬТЕ ГАЗ ДО НУЛЯ!",
+				"ARMING BLOCKED: LOWER THROTTLE TO ZERO!"))
 	else:
-		_set_flash("АРМІНГ НЕ ВДАВСЯ: %s" % text)
+		_set_flash(_txt("АРМІНГ НЕ ВДАВСЯ: %s", "ARMING FAILED: %s")
+				% MenuUI.translate_text(text))
 
 
 func _on_respawned() -> void:
@@ -2555,12 +2566,13 @@ func _play_radio_callout(text: String, force := false, line_key: String = "") ->
 	if not line_key.is_empty() and Audio != null and Audio.has_method("play_radio_line"):
 		dur = maxf(float(Audio.call("play_radio_line", line_key)), 2.2)
 	else:
-		CombatSfxScript.play_radio(self, text)
+		CombatSfxScript.play_radio(self, MenuUI.translate_text(text))
 		_route_last_sfx_bus(&"Radio")
 	_audio_duck_timer = maxf(dur, 2.6)
 	var sub_node: Control = _radio_subtitle_panel if _radio_subtitle_panel != null else _radio_subtitle
 	if _radio_subtitle != null:
-		_radio_subtitle.text = "%s · %s" % [_txt("РАДІО", "RADIO"), text]
+		_radio_subtitle.text = "%s · %s" % [
+				_txt("РАДІО", "RADIO"), MenuUI.translate_text(text)]
 		if sub_node != null:
 			sub_node.visible = true
 		_radio_subtitle_timer = maxf(dur + 1.2, 4.4)
@@ -2677,9 +2689,13 @@ func _show_results(reason: String) -> void:
 		return
 	if _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active():
 		_kill_cam.cancel()
+	if _is_mobile_runtime():
+		_hide_mobile_gameplay_hud()
+		if _results_canvas_layer != null:
+			_results_canvas_layer.visible = true
 	_results.visible = true
 	if _results_title != null:
-		_results_title.text = reason
+		_results_title.text = MenuUI.translate_text(reason)
 		if _mission_failed:
 			_results_title.add_theme_color_override("font_color", MenuUI.DANGER)
 		else:
@@ -2753,7 +2769,7 @@ func _show_results(reason: String) -> void:
 			else:
 				best_line = "%s\n%s %d / %d" % [
 					_combat_mission_banner(Global.combat_mission),
-					_txt("ЗНИЩЕНО ЦІЛЕЙ   ", "TARGETS DOWN    "),
+					_txt("ЗНИЩЕНО ЦІЛЕЙ   ", "TARGETS DESTROYED "),
 					_mission_targets_destroyed, _mission_targets_total
 				]
 				if not _mission_failed:
@@ -2766,7 +2782,7 @@ func _show_results(reason: String) -> void:
 						if _results_title != null:
 							_results_title.text = _txt(
 								"ОПЕРАЦІЮ ЗАВЕРШЕНО — КАМПАНІЮ ПРОЙДЕНО!",
-								"OPERATION COMPLETE — CAMPAIGN CLEARED!")
+								"OPERATION COMPLETE — CAMPAIGN FINISHED!")
 					else:
 						campaign_line = _txt(
 							"КАМПАНІЯ        %d/4 · ★ %d/12 · ДАЛІ: TAC-0%d\n" % [
@@ -2899,6 +2915,29 @@ func _show_results(reason: String) -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	if can_next and _next_mission_btn != null:
 		_next_mission_btn.grab_focus()
+
+
+func _hide_mobile_gameplay_hud() -> void:
+	# The debrief has its own top-priority CanvasLayer.  Hide every flight-only
+	# layer explicitly so neither the game OSD nor touch controls show beneath it.
+	if _hud != null:
+		_hud.visible = false
+	for node_name in ["CombatHUD", "Help", "FPVOverlay"]:
+		var ui_node := get_node_or_null(node_name)
+		if ui_node is CanvasLayer:
+			(ui_node as CanvasLayer).visible = false
+		elif ui_node is CanvasItem:
+			(ui_node as CanvasItem).visible = false
+	var drone := get_node_or_null("Drone")
+	if drone != null:
+		var drone_hud = drone.get("hud")
+		if drone_hud is CanvasItem:
+			(drone_hud as CanvasItem).visible = false
+	if _touch_controls != null:
+		if _touch_controls.has_method("set_enabled"):
+			_touch_controls.call("set_enabled", false)
+		elif _touch_controls is CanvasLayer:
+			(_touch_controls as CanvasLayer).visible = false
 
 
 func _on_next_mission_pressed() -> void:
@@ -3741,20 +3780,20 @@ func _on_audio_resumed() -> void:
 func _kind_name(kind: int) -> String:
 	match kind:
 		Vehicle.Kind.TANK:
-			return "ТАНК"
+			return _txt("ТАНК", "TANK")
 		Vehicle.Kind.APC:
-			return "БТР"
+			return _txt("БТР", "APC")
 		Vehicle.Kind.TRUCK:
-			return "ВАНТАЖІВКА"
+			return _txt("ВАНТАЖІВКА", "TRUCK")
 		Vehicle.Kind.BMP:
-			return "БМП"
+			return _txt("БМП", "IFV")
 		Vehicle.Kind.SAM:
-			return "ЗРК"
+			return _txt("ЗРК", "SAM")
 		Vehicle.Kind.HELI:
-			return "ГЕЛІКОПТЕР"
+			return _txt("ГЕЛІКОПТЕР", "HELICOPTER")
 		Vehicle.Kind.SHAHED:
-			return "ШАХЕД"
-	return "ЦІЛЬ"
+			return _txt("ШАХЕД", "SHAHED-136")
+	return _txt("ЦІЛЬ", "TARGET")
 
 
 func _loop_waypoints(cx: float, cz: float, radius: float, count: int,
@@ -4200,8 +4239,9 @@ func _update_escort_mission(delta: float, drone: Drone) -> void:
 		_special_convoy_far_timer += delta
 		if _special_convoy_far_timer > 4.0 and not _special_convoy_warned:
 			_special_convoy_warned = true
-			_set_flash("НЕ ВІДРИВАЙТЕСЯ ВІД КОЛОНИ!")
-			_play_radio_callout("ТРИМАЙТЕСЬ БЛИЖЧЕ ДО КОЛОНИ", true)
+			_set_flash(_txt("НЕ ВІДРИВАЙТЕСЯ ВІД КОЛОНИ!", "STAY WITH THE CONVOY!"))
+			_play_radio_callout(_txt("ТРИМАЙТЕСЬ БЛИЖЧЕ ДО КОЛОНИ",
+					"KEEP CLOSER TO THE CONVOY"), true)
 		if _special_convoy_far_timer > 12.0:
 			_special_fail("КОЛОНУ ВТРАЧЕНО — СУПРОВІД ПРОВАЛЕНО")
 	else:
@@ -4226,8 +4266,10 @@ func _complete_special_zone() -> void:
 		_finish_special_success()
 		return
 	var next_zone: Dictionary = _special_zones[_special_index]
-	_set_flash("ЗОНУ ПРОЙДЕНО — ДАЛІ: %s" % str(next_zone["label"]))
-	_play_radio_callout("ЗОНУ ПРОЙДЕНО — РУХАЙТЕСЬ ДАЛІ", true)
+	var next_label := MenuUI.translate_text(str(next_zone["label"]))
+	_set_flash(_txt("ЗОНУ ПРОЙДЕНО — ДАЛІ: %s", "ZONE CLEARED — NEXT: %s") % next_label)
+	_play_radio_callout(_txt("ЗОНУ ПРОЙДЕНО — РУХАЙТЕСЬ ДАЛІ",
+			"ZONE CLEARED — MOVE TO THE NEXT"), true)
 
 
 func _finish_special_success() -> void:
@@ -4236,15 +4278,18 @@ func _finish_special_success() -> void:
 	for beacon in _special_beacons:
 		if is_instance_valid(beacon):
 			beacon.visible = false
-	_play_radio_callout("ОПЕРАЦІЮ ВИКОНАНО — ГАРНА РОБОТА", true)
-	_finish_mission("СПЕЦОПЕРАЦІЮ «%s» ВИКОНАНО!" \
+	_play_radio_callout(_txt("ОПЕРАЦІЮ ВИКОНАНО — ГАРНА РОБОТА",
+			"OPERATION COMPLETE — GOOD WORK"), true)
+	_finish_mission(_txt("СПЕЦОПЕРАЦІЮ «%s» ВИКОНАНО!",
+			"SPECIAL OPERATION ‘%s’ COMPLETE!") \
 			% Global.get_special_mission_name(Global.special_mission), false)
 
 
 func _special_fail(reason: String) -> void:
 	if _mission_finished:
 		return
-	_play_radio_callout("ОПЕРАЦІЮ ПРОВАЛЕНО — ПОВЕРТАЙСЯ НА БАЗУ", true)
+	_play_radio_callout(_txt("ОПЕРАЦІЮ ПРОВАЛЕНО — ПОВЕРТАЙСЯ НА БАЗУ",
+			"MISSION FAILED — RETURN TO BASE"), true)
 	_finish_mission(reason, true)
 
 
@@ -4256,7 +4301,7 @@ func get_special_objective_info() -> Dictionary:
 	if _special_extract_active:
 		return {
 			"pos": _special_extract_point,
-			"label": "ВИХІД · БАЗА",
+			"label": _txt("ВИХІД · БАЗА", "EXFIL · BASE"),
 			"progress": clampf(_special_extract_hold / 3.0, 0.0, 1.0),
 			"show_progress": true,
 			"color": Color(0.35, 0.95, 0.75),
@@ -4267,7 +4312,7 @@ func get_special_objective_info() -> Dictionary:
 				_special_convoy.global_position) / total, 0.0, 1.0)
 		return {
 			"pos": _special_convoy.global_position,
-			"label": "КОЛОНА",
+			"label": _txt("КОЛОНА", "CONVOY"),
 			"progress": travelled,
 			"show_progress": true,
 			"color": Color(1.0, 0.82, 0.42),
@@ -4276,7 +4321,7 @@ func get_special_objective_info() -> Dictionary:
 		var zone: Dictionary = _special_zones[_special_index]
 		return {
 			"pos": zone["pos"],
-			"label": str(zone["label"]),
+			"label": MenuUI.translate_text(str(zone["label"])),
 			"progress": clampf(_special_hold / maxf(float(zone["hold"]), 0.01), 0.0, 1.0),
 			"show_progress": true,
 			"color": Color(0.35, 0.95, 0.75),
@@ -5166,9 +5211,9 @@ func _update_telemetry(delta: float) -> void:
 	var ammo_line := ""
 	if Global.play_mode == Global.PlayMode.COMBAT and is_combat:
 		if has_drop:
-			ammo_line = "СКИД %d  [G]\n" % _ammo_count()
+			ammo_line = _txt("СКИД %d  [G]\n", "DROP %d  [G]\n") % _ammo_count()
 		else:
-			ammo_line = "БЧ 1x  [F]\n"
+			ammo_line = _txt("БЧ 1x  [F]\n", "WARHEAD 1x  [F]\n")
 	_scene_uptime += delta
 	if _scene_uptime > 0.6:
 		# Engine FPS is already smoothed over real frames; deriving it from the
@@ -5178,7 +5223,7 @@ func _update_telemetry(delta: float) -> void:
 	var batt_tag := ""
 	var low_voltage := cell_v < 3.5
 	if low_voltage:
-		batt_tag = "  НИЗЬКА НАПРУГА!"
+		batt_tag = _txt("  НИЗЬКА НАПРУГА!", "  LOW VOLTAGE!")
 	var jamming: bool = _reb != null and _reb.limits_enabled \
 			and _reb.reb_zones_enabled and _reb.in_ew > 0.08
 	var warn_phase := int(Time.get_ticks_msec() / 280) % 2 == 0
@@ -5186,7 +5231,7 @@ func _update_telemetry(delta: float) -> void:
 	if _reb != null:
 		var jam_tag := ""
 		if jamming:
-			jam_tag = "  ПРИДУШЕННЯ" if warn_phase else ""
+			jam_tag = _txt("  ПРИДУШЕННЯ", "  JAMMED") if warn_phase else ""
 		var link_status := _reb.get_status_text()
 		# The REB subsystem keeps English tokens for QA; the HUD speaks
 		# Ukrainian, so translate only the displayed copy.
@@ -5207,11 +5252,11 @@ func _update_telemetry(delta: float) -> void:
 		lq_line = "\nLQ %d%%  %s%s  |  %.0f ms" % [
 				_reb.get_lq_percent(), link_status, jam_tag, _reb.latency_ms]
 	var q_lvl := QualityManagerScript.get_active_level()
-	var q_short := "НИЗ"
+	var q_short := _txt("НИЗ", "LOW")
 	if q_lvl == 1:
-		q_short = "СЕР"
+		q_short = _txt("СЕР", "MED")
 	elif q_lvl == 2:
-		q_short = "ВИС"
+		q_short = _txt("ВИС", "HIGH")
 	elif q_lvl == 3:
 		q_short = "UFDS"
 	if _wind_player != null:
@@ -5240,7 +5285,8 @@ func _update_telemetry(delta: float) -> void:
 		_low_battery_announced = true
 		_set_flash("НИЗЬКА НАПРУГА БАТАРЕЇ — ПРИЗЕМЛЮЙТЕСЬ" if not MenuUI.is_english()
 				else "LOW BATTERY — LAND NOW")
-		_play_radio_callout("БАТАРЕЯ КРИТИЧНА — ПОВЕРТАЙСЯ НА БАЗУ", true)
+		_play_radio_callout(_txt("БАТАРЕЯ КРИТИЧНА — ПОВЕРТАЙСЯ НА БАЗУ",
+				"BATTERY CRITICAL — RETURN TO BASE"), true)
 	elif not low_voltage:
 		_low_battery_announced = false
 	if jamming != _ew_was_active:
@@ -5248,7 +5294,8 @@ func _update_telemetry(delta: float) -> void:
 		_play_alert("ew_enter" if jamming else "ew_exit", -7.0)
 		if jamming:
 			Haptics.pulse(80, 0.35, "ew")
-			_play_radio_callout("РЕБ! ГЛУШІННЯ — ВТРАТА ЗВ'ЯЗКУ", true)
+			_play_radio_callout(_txt("РЕБ! ГЛУШІННЯ — ВТРАТА ЗВ'ЯЗКУ",
+				"EW JAMMING — CONTROL LINK DEGRADED"), true)
 	if jamming and not _jamming_announced:
 		_jamming_announced = true
 		_set_flash("РЕБ: ГЛУШІННЯ · JAMMING" if not MenuUI.is_english()
@@ -5877,8 +5924,9 @@ func _drop_heavy_bomb() -> void:
 		tw.tween_property(_bomb_release_arm, "rotation_degrees:x",
 				_bomb_release_arm.rotation_degrees.x - 55.0, 0.22)
 	CombatSfxScript.play_drop(self, spawn, -2.0)
-	var label := "82-мм міна" if _bomb_kind == "82mm" else _bomb_kind
-	_set_message("СКИД: %s · залишилось %d" % [label, _bomb_nodes.size()])
+	var label := _txt("82-мм міна", "82 mm mortar") if _bomb_kind == "82mm" else _bomb_kind
+	_set_message(_txt("СКИД: %s · залишилось %d", "DROP: %s · %d remaining")
+			% [label, _bomb_nodes.size()])
 	if _bomb_nodes.is_empty():
 		_set_flash("БОЄКОМПЛЕКТ ВИЧЕРПАНО" if not MenuUI.is_english()
 				else "BOMBS EXPENDED")
@@ -6052,7 +6100,8 @@ func _drop_fpv_payload() -> void:
 		if drone.has_method("drop_payload_action"):
 			var dropped_w: float = drone.drop_payload_action()
 			if dropped_w > 0.001:
-				_set_message("СКИД: -%.2f кг (ТЯГА ЗРОСЛА)" % dropped_w)
+				_set_message(_txt("СКИД: -%.2f кг (ТЯГА ЗРОСЛА)",
+						"PAYLOAD DROP: -%.2f kg (THRUST INCREASED)") % dropped_w)
 
 	payload.global_position = drop_pos
 	payload.linear_velocity = drop_vel
@@ -6077,7 +6126,8 @@ func _activate_fpv_payload() -> void:
 		return
 	var p := DroneCatalog.preset(Global.drone_preset)
 	if bool(p.get("has_drop", false)):
-		_set_flash("У цього дрона немає БЧ — використайте СКИД (G)")
+		_set_flash(_txt("У цього дрона немає БЧ — використайте СКИД (G)",
+				"THIS AIRCRAFT HAS NO WARHEAD — USE DROP (G)"))
 		return
 	var drone := get_node_or_null("Drone") as Drone
 	if drone == null or not is_instance_valid(drone):
@@ -6228,7 +6278,16 @@ func _build_results() -> void:
 	_results.process_mode = Node.PROCESS_MODE_ALWAYS
 	_results.visible = false
 	_results.theme = MenuUI.theme()
-	_hud.add_child(_results)
+	if _is_mobile_runtime():
+		_results_canvas_layer = CanvasLayer.new()
+		_results_canvas_layer.name = "MobileResultsCanvasLayer"
+		_results_canvas_layer.layer = 120
+		_results_canvas_layer.process_mode = Node.PROCESS_MODE_ALWAYS
+		add_child(_results_canvas_layer)
+		_results_canvas_layer.add_child(_results)
+	else:
+		# Preserve the original desktop canvas and sort order.
+		_hud.add_child(_results)
 
 	var dim := ColorRect.new()
 	dim.color = Color(0.04, 0.06, 0.04, 0.88)
@@ -6260,7 +6319,7 @@ func _build_results() -> void:
 	panel.add_child(box)
 
 	var title := Label.new()
-	title.text = "МІСІЮ ВИКОНАНО"
+	title.text = _txt("МІСІЮ ВИКОНАНО", "MISSION COMPLETE")
 	title.add_theme_font_size_override("font_size", 34)
 	title.add_theme_color_override("font_color", MenuUI.FPV_TEXT)
 	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
@@ -6382,7 +6441,8 @@ func _build_chain_briefing() -> void:
 	panel.add_child(box)
 
 	var code := Label.new()
-	code.text = "БРИФІНГ КАМПАНІЇ  ·  TAC-0%d / 4" % Global.combat_mission
+	code.text = _txt("БРИФІНГ КАМПАНІЇ  ·  TAC-0%d / 4",
+			"CAMPAIGN BRIEFING  ·  TAC-0%d / 4") % Global.combat_mission
 	code.add_theme_font_size_override("font_size", 14)
 	code.add_theme_color_override("font_color", MenuUI.FPV_AMBER)
 	box.add_child(code)
@@ -6412,7 +6472,9 @@ func _build_chain_briefing() -> void:
 	box.add_child(phases)
 
 	var progress := Label.new()
-	progress.text = "КАМПАНІЯ %d/4 · ★ %d/12 · СКЛАДНІСТЬ: %s · ЛІМІТ: %s" % [
+	progress.text = _txt(
+		"КАМПАНІЯ %d/4 · ★ %d/12 · СКЛАДНІСТЬ: %s · ЛІМІТ: %s",
+		"CAMPAIGN %d/4 · ★ %d/12 · DIFFICULTY: %s · TIME LIMIT: %s") % [
 		Global.campaign_completed_count(), Global.campaign_stars_total(),
 		Global.get_difficulty_name(), _format_countdown(Global.get_difficulty_time_limit())]
 	progress.add_theme_font_size_override("font_size", 12)
@@ -6426,7 +6488,7 @@ func _build_chain_briefing() -> void:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	actions.add_child(spacer)
 	_chain_brief_start = Button.new()
-	_chain_brief_start.text = "  ▶  ПОЧАТИ ВИЛІТ  "
+	_chain_brief_start.text = _txt("  ▶  ПОЧАТИ ВИЛІТ  ", "  ▶  START SORTIE  ")
 	_chain_brief_start.custom_minimum_size = Vector2(280, 48)
 	_chain_brief_start.add_theme_font_size_override("font_size", 16)
 	_chain_brief_start.add_theme_color_override("font_color", MenuUI.BUTTON_ACTIVE_TEXT)
@@ -6443,17 +6505,27 @@ func _build_chain_briefing() -> void:
 func _mission_chain_tasks(mission_id: int) -> String:
 	match mission_id:
 		1:
-			return "ЗАВДАННЯ: виявити та знищити 6 піхотинців у лісосмузі.\nЦІЛІ: піхота, окопи, кулеметні точки."
+			return _txt(
+				"ЗАВДАННЯ: виявити та знищити 6 піхотинців у лісосмузі.\nЦІЛІ: піхота, окопи, кулеметні точки.",
+				"MISSION: Locate and neutralize six infantry in the tree line.\nTARGETS: infantry, trenches, and machine-gun positions.")
 		2:
-			return "ЗАВДАННЯ: знищити танк Т-72 та БТР-90, що маневрують біля заводу.\nЦІЛІ: 2 одиниці бронетехніки + піхота прикриття."
+			return _txt(
+				"ЗАВДАННЯ: знищити танк Т-72 та БТР-90, що маневрують біля заводу.\nЦІЛІ: 2 одиниці бронетехніки + піхота прикриття.",
+				"MISSION: Destroy the T-72 tank and BTR-90 maneuvering near the plant.\nTARGETS: two armored vehicles with infantry escort.")
 		3:
-			return "ЗАВДАННЯ: перехопити ударний гелікоптер і знищити мобільну ППО.\nЦІЛІ: гелікоптер, ЗРК, прикриття."
+			return _txt(
+				"ЗАВДАННЯ: перехопити ударний гелікоптер і знищити мобільну ППО.\nЦІЛІ: гелікоптер, ЗРК, прикриття.",
+				"MISSION: Intercept the attack helicopter and destroy the mobile air-defense unit.\nTARGETS: helicopter, SAM system, and escort.")
 		_:
-			return "ЗАВДАННЯ: перехопити два «Шахеди-136» на маршруті.\nЦІЛІ: 2 БПЛА, ЗРК і БМП прикриття."
+			return _txt(
+				"ЗАВДАННЯ: перехопити два «Шахеди-136» на маршруті.\nЦІЛІ: 2 БПЛА, ЗРК і БМП прикриття.",
+				"MISSION: Intercept two Shahed-136 UAVs along their route.\nTARGETS: two UAVs, a SAM system, and an IFV escort.")
 
 
 func _mission_phase_plan_text(_mission_id: int) -> String:
-	return "ФАЗИ: РОЗВІДКА (підлетіти до зони та утримати 3 с) → УДАР (знищити цілі) → ВИХІД (повернутися в зону евакуації)."
+	return _txt(
+		"ФАЗИ: РОЗВІДКА (підлетіти до зони та утримати 3 с) → УДАР (знищити цілі) → ВИХІД (повернутися в зону евакуації).",
+		"PHASES: RECON (reach and hold the zone for 3 s) → STRIKE (destroy the targets) → EXFIL (return to the extraction zone).")
 
 
 func _show_chain_briefing() -> void:
@@ -6474,12 +6546,15 @@ func _close_chain_briefing() -> void:
 	get_tree().paused = false
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	if _is_mobile_runtime():
-		_set_flash("АРМ — УВІМКНУТИ ДВИГУНИ · ПІСЛЯ АРМУ ПОЧНЕТЬСЯ МІСІЯ")
+		_set_flash(_txt("АРМ — УВІМКНУТИ ДВИГУНИ · ПІСЛЯ АРМУ ПОЧНЕТЬСЯ МІСІЯ",
+				"TAP ARM TO START MOTORS · THE MISSION BEGINS WHEN ARMED"))
 	else:
-		_set_flash("SPACE — УВІМКНУТИ ДВИГУНИ · ПІСЛЯ АРМУ ПОЧНЕТЬСЯ МІСІЯ")
+		_set_flash(_txt("SPACE — УВІМКНУТИ ДВИГУНИ · ПІСЛЯ АРМУ ПОЧНЕТЬСЯ МІСІЯ",
+				"PRESS SPACE TO ARM MOTORS · THE MISSION BEGINS WHEN ARMED"))
 
 
 func _set_flash(text: String) -> void:
+	text = MenuUI.translate_text(text)
 	if _hud_message != null:
 		_hud_message.text = text
 		_hud_message.visible = not text.is_empty()
@@ -6494,6 +6569,7 @@ func _set_flash(text: String) -> void:
 
 
 func _set_message(text: String) -> void:
+	text = MenuUI.translate_text(text)
 	if _hud_message != null:
 		_hud_message.text = text
 		_hud_message.visible = not text.is_empty()
@@ -7080,7 +7156,10 @@ func _input(event: InputEvent) -> void:
 		var next_q := (QualityManagerScript.get_active_level() + 1) % 3
 		Graphics.apply_quality_preset(next_q)
 		Graphics.save_graphics_settings()
-		_set_flash("ГРАФІКА: %s" % QualityManagerScript.level_name_ua(next_q))
+		var quality_ua: String = ["НИЗЬКА", "СЕРЕДНЯ", "ВИСОКА"][clampi(next_q, 0, 2)]
+		var quality_en: String = ["LOW", "MEDIUM", "HIGH"][clampi(next_q, 0, 2)]
+		_set_flash(_txt("ГРАФІКА: %s", "GRAPHICS: %s")
+				% _txt(quality_ua, quality_en))
 	if event is InputEventKey and event.is_pressed() and not event.is_echo():
 		if event.keycode == KEY_F4:
 			cycle_vision_mode()
@@ -7107,7 +7186,7 @@ func _input(event: InputEvent) -> void:
 		if video_overlay != null and video_overlay.has_method("set_user_visible"):
 			video_overlay.call("set_user_visible", true)
 		var mode := Graphics.cycle_fpv_video_mode()
-		_set_flash("ВІДЕО: %s" % Graphics.fpv_video_mode_name(mode))
+		_set_flash(_txt("ВІДЕО: %s", "VIDEO: %s") % Graphics.fpv_video_mode_name(mode))
 	if event.is_action_pressed("toggle_weather"):
 		_weather = (_weather + 1) % 5
 		GameSettings.hud_config["weather"] = _weather

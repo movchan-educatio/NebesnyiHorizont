@@ -33,10 +33,10 @@ var _bg_tex: Texture2D
 var _bg_blur_tex: Texture2D
 var _knob_tex: Texture2D
 const MAP_META := [
-	{"id": "steppe", "name": "СТЕП", "tag": "ВІДКРИТА МІСЦЕВІСТЬ", "diff": "ЛЕГКА", "col": "79a58a"},
-	{"id": "village", "name": "СЕЛО", "tag": "МІСЬКА ЗАБУДОВА", "diff": "СЕРЕДНЯ", "col": "e2c276"},
-	{"id": "industrial", "name": "ПРОМЗОНА", "tag": "ЗАВОДИ Й ТРУБИ", "diff": "СКЛАДНА", "col": "c96f67"},
-	{"id": "wetlands", "name": "БОЛОТА", "tag": "ВОДА Й ОЧЕРЕТ", "diff": "СКЛАДНА", "col": "79a58a"},
+	{"id": "steppe", "name": "СТЕП", "name_en": "STEPPE", "tag": "ВІДКРИТА МІСЦЕВІСТЬ", "tag_en": "OPEN TERRAIN", "diff": "ЛЕГКА", "diff_en": "EASY", "col": "79a58a"},
+	{"id": "village", "name": "СЕЛО", "name_en": "VILLAGE", "tag": "МІСЬКА ЗАБУДОВА", "tag_en": "BUILT-UP AREA", "diff": "СЕРЕДНЯ", "diff_en": "MEDIUM", "col": "e2c276"},
+	{"id": "industrial", "name": "ПРОМЗОНА", "name_en": "INDUSTRIAL ZONE", "tag": "ЗАВОДИ Й ТРУБИ", "tag_en": "FACTORY COMPLEX", "diff": "СКЛАДНА", "diff_en": "HARD", "col": "c96f67"},
+	{"id": "wetlands", "name": "БОЛОТА", "name_en": "WETLANDS", "tag": "ВОДА Й ОЧЕРЕТ", "tag_en": "WATER & REEDS", "diff": "СКЛАДНА", "diff_en": "HARD", "col": "79a58a"},
 ]
 const MODE_META := [
 	{"id": 3, "name": "ТУТОРІАЛ", "name_en": "TUTORIAL"},
@@ -474,7 +474,9 @@ func _process(delta: float) -> void:
 			var yaw_pct := int(round(yaw * 100.0))
 			var pit_pct := int(round(-pit * 100.0))
 			var rol_pct := int(round(rol * 100.0))
-			_stick_readout.text = "ГАЗ: %d%%  •  РИСКАННЯ: %+d%%  •  ТАНГАЖ: %+d%%  •  КРЕН: %+d%%" % [thr_pct, yaw_pct, pit_pct, rol_pct]
+			_stick_readout.text = ("THROTTLE: %d%%  •  YAW: %+d%%  •  PITCH: %+d%%  •  ROLL: %+d%%" \
+				if MenuUI.is_english() else "ГАЗ: %d%%  •  РИСКАННЯ: %+d%%  •  ТАНГАЖ: %+d%%  •  КРЕН: %+d%%") \
+				% [thr_pct, yaw_pct, pit_pct, rol_pct]
 
 		# RadioMaster TX12 3D stick deflections:
 		# In Mode 2, Throttle ranges 0.0 (idle/bottom) to 1.0 (full/top).
@@ -567,7 +569,7 @@ func _ui_sz(px: float) -> int:
 
 func _label(text: String, size: float, color: Color = MenuUI.TEXT) -> Label:
 	var l := Label.new()
-	l.text = text
+	l.text = MenuUI.translate_text(text)
 	l.add_theme_font_size_override("font_size", _fs(size))
 	l.add_theme_color_override("font_color", color)
 	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.65))
@@ -628,7 +630,12 @@ func _button_style(bg: Color, border: Color, border_width: int = 1, radius: int 
 
 func _button(text: String, height: float = 48.0, primary: bool = false) -> Button:
 	var b := Button.new()
-	b.text = text
+	var leading_spaces := ""
+	for character in text:
+		if character != " ":
+			break
+		leading_spaces += " "
+	b.text = leading_spaces + MenuUI.translate_text(text.strip_edges())
 	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	b.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
 	b.focus_mode = Control.FOCUS_NONE
@@ -930,16 +937,16 @@ func _update_status() -> void:
 	var valid: bool = elrs != null and bool(elrs.get("valid"))
 	var status := str(elrs.get("status_text")) if elrs != null else ""
 	if valid or status.find("ПОТІК") >= 0:
-		_elrs_label.text = "ELRS: ПОТІК"
+		_elrs_label.text = MenuUI.translate_text("ELRS: ПОТІК")
 		_elrs_label.add_theme_color_override("font_color", MenuUI.FPV_GREEN)
 		if _input_label != null:
-			_input_label.text = "ВХІД: ELRS (POCKET)"
+			_input_label.text = MenuUI.translate_text("ВХІД: ELRS (POCKET)")
 			_input_label.add_theme_color_override("font_color", MenuUI.FPV_GREEN)
 	else:
-		_elrs_label.text = status if not status.is_empty() else "ELRS: ВИМК."
+		_elrs_label.text = MenuUI.translate_text(status if not status.is_empty() else "ELRS: ВИМК.")
 		_elrs_label.add_theme_color_override("font_color", MenuUI.MUTED)
 		if _input_label != null:
-			_input_label.text = "ВХІД: СЕНСОР"
+			_input_label.text = MenuUI.translate_text("ВХІД: СЕНСОР")
 			_input_label.add_theme_color_override("font_color", MenuUI.FPV_CYAN)
 
 
@@ -1168,7 +1175,7 @@ func _build_3d_hero() -> Control:
 	prev_btn.pressed.connect(_select_prev_drone)
 	bottom_selector.add_child(prev_btn)
 
-	var play_text := "ПРОДОВЖИТИ ПОЛІТ" if is_pause_mode else "ПОЧАТИ ВИЛЬОТ"
+	var play_text := "ПРОДОВЖИТИ ПОЛІТ" if is_pause_mode else "ПОЧАТИ ВИЛІТ"
 	var play_btn := _button(play_text, 50, true)
 	play_btn.custom_minimum_size.x = _ui_sz(260)
 	play_btn.pressed.connect(func():
@@ -1368,9 +1375,9 @@ func _ensure_preview_scale(holder: Node3D, model: Node3D, target: float,
 func _update_hero_drone_info(preset_idx: int) -> void:
 	var p := DroneCatalog.preset(preset_idx)
 	if _hero_drone_name != null:
-		_hero_drone_name.text = DroneCatalog.get_drone_name(preset_idx)
+		_hero_drone_name.text = MenuUI.translate_text(DroneCatalog.get_drone_name(preset_idx))
 	if _hero_drone_tag != null:
-		_hero_drone_tag.text = DroneCatalog.get_drone_tag(preset_idx)
+		_hero_drone_tag.text = MenuUI.translate_text(DroneCatalog.get_drone_tag(preset_idx))
 	if _hero_drone_specs != null:
 		var mass := int(round((float(p.get("dry", 0.4)) + float(p.get("batt", 0.2))) * 1000.0))
 		var twr := float(p.get("twr", 5.0))
@@ -2009,7 +2016,7 @@ func _build_rates() -> void:
 			var hud: Dictionary = gs.get("hud_config")
 			hud["mobile_rate_profiles"] = _rate_profiles.duplicate(true)
 			gs.save_config()
-		save_rates_btn.text = "✓  ЗБЕРЕЖЕНО!"
+		save_rates_btn.text = MenuUI.translate_text("✓  ЗБЕРЕЖЕНО!")
 	)
 	right_v.add_child(save_rates_btn)
 
@@ -2131,18 +2138,27 @@ func _build_play() -> void:
 			img_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			card_v.add_child(img_rect)
 
-		var name_lbl := _label(str(mp["name"]), 24, MenuUI.TEXT)
+		var name_lbl := _label(str(mp.get("name_en" if is_en else "name", mp["name"])), 24, MenuUI.TEXT)
+		name_lbl.set_meta("map_text_ua", str(mp["name"]))
+		name_lbl.set_meta("map_text_en", str(mp.get("name_en", mp["name"])))
 		name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card_v.add_child(name_lbl)
-		var tag_lbl := _label(str(mp["tag"]), 13, MenuUI.FPV_AMBER)
+		var tag_lbl := _label(str(mp.get("tag_en" if is_en else "tag", mp["tag"])), 13, MenuUI.FPV_AMBER)
+		tag_lbl.set_meta("map_text_ua", str(mp["tag"]))
+		tag_lbl.set_meta("map_text_en", str(mp.get("tag_en", mp["tag"])))
 		tag_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card_v.add_child(tag_lbl)
-		var diff_lbl := _label("СКЛАДНІСТЬ: " + str(mp.get("diff", "СЕРЕДНЯ")), 12, MenuUI.MUTED)
+		var diff_lbl := _label(("DIFFICULTY: " if is_en else "СКЛАДНІСТЬ: ")
+				+ str(mp.get("diff_en" if is_en else "diff",
+				"MEDIUM" if is_en else "СЕРЕДНЯ")), 12, MenuUI.MUTED)
+		diff_lbl.set_meta("map_text_ua", "СКЛАДНІСТЬ: " + str(mp.get("diff", "СЕРЕДНЯ")))
+		diff_lbl.set_meta("map_text_en", "DIFFICULTY: " + str(mp.get("diff_en", "MEDIUM")))
 		diff_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card_v.add_child(diff_lbl)
 
 		var is_sel := (str(mp["id"]) == _selected_map)
-		var sel_btn := _button("ОБРАНО ✓" if is_sel else "ОБРАТИ", 46, is_sel)
+		var sel_btn := _button(("SELECTED ✓" if is_sel else "SELECT") if is_en \
+				else ("ОБРАНО ✓" if is_sel else "ОБРАТИ"), 46, is_sel)
 		sel_btn.pressed.connect(func():
 			_select_map(card_id)
 		)
@@ -2163,7 +2179,7 @@ func _build_play() -> void:
 	bottom_center.add_child(_play_caption)
 	_update_play_caption()
 
-	var start_mission_btn := _button("ПОЧАТИ ВИЛЬОТ", 62, true)
+	var start_mission_btn := _button("ПОЧАТИ ВИЛІТ", 62, true)
 	start_mission_btn.custom_minimum_size = Vector2(_fs(420), _fs(62))
 	start_mission_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	start_mission_btn.pressed.connect(_launch)
@@ -2385,8 +2401,8 @@ func _open_mobile_briefing() -> void:
 		if mm != null:
 			for md in mm.SPECIAL_MISSIONS:
 				if int(md.get("id", 0)) == _selected_special:
-					desc = str(md.get("desc", ""))
-					sdiff = str(md.get("diff", sdiff))
+					desc = str(md.get("desc_en" if is_en else "desc", md.get("desc", "")))
+					sdiff = str(md.get("diff_en" if is_en else "diff", sdiff))
 					break
 		lines.append(desc if not desc.is_empty() else op_name)
 		lines.append("")
@@ -2426,10 +2442,11 @@ func _open_mobile_briefing() -> void:
 func _update_play_caption() -> void:
 	if _play_caption == null:
 		return
-	var map_name := "СЕЛО"
+	var is_en := MenuUI.is_english()
+	var map_name := "VILLAGE" if is_en else "СЕЛО"
 	for mp in MAP_META:
 		if str(mp["id"]) == _selected_map:
-			map_name = str(mp["name"]).to_upper()
+			map_name = str(mp.get("name_en" if is_en else "name", mp["name"])).to_upper()
 			break
 	var mode_name := _mode_title(_selected_mode)
 	var mission_tag := ""
@@ -2444,7 +2461,7 @@ func _update_play_caption() -> void:
 			]
 		else:
 			mission_tag = " · TAC-0%d · %s" % [_selected_mission, d_tag]
-	var dname := DroneCatalog.get_drone_name(Global.drone_preset)
+	var dname := MenuUI.translate_text(DroneCatalog.get_drone_name(Global.drone_preset))
 	if MenuUI.is_english():
 		_play_caption.text = "SELECTED: %s · %s%s · CRAFT: %s" % [map_name, mode_name, mission_tag, dname]
 	else:
@@ -2461,6 +2478,7 @@ func _update_play_modes(row: HBoxContainer) -> void:
 
 
 func _update_map_cards(row: HBoxContainer) -> void:
+	var is_en := MenuUI.is_english()
 	for c in row.get_children():
 		var mid := str(c.get_meta("map_id", ""))
 		var is_sel := (mid == _selected_map)
@@ -2472,8 +2490,15 @@ func _update_map_cards(row: HBoxContainer) -> void:
 		))
 		var b: Button = c.get_meta("btn", null) as Button
 		if b != null:
-			b.text = "ОБРАНО ✓" if is_sel else "ОБРАТИ"
+			b.text = ("SELECTED ✓" if is_sel else "SELECT") if is_en \
+					else ("ОБРАНО ✓" if is_sel else "ОБРАТИ")
 			_apply_button_primary_style(b, is_sel)
+		var card_content := c.get_child(0) as VBoxContainer if c.get_child_count() > 0 else null
+		if card_content != null:
+			for child in card_content.get_children():
+				if child is Label and child.has_meta("map_text_ua"):
+					var label := child as Label
+					label.text = str(label.get_meta("map_text_en" if is_en else "map_text_ua"))
 	_update_play_caption()
 
 
@@ -2794,9 +2819,9 @@ func _update_hangar_info(preset_idx: int) -> void:
 	var p := DroneCatalog.preset(preset_idx)
 	var is_en := MenuUI.is_english()
 	if _hangar_drone_name != null:
-		_hangar_drone_name.text = DroneCatalog.get_drone_name(preset_idx)
+		_hangar_drone_name.text = MenuUI.translate_text(DroneCatalog.get_drone_name(preset_idx))
 	if _hangar_drone_tag != null:
-		_hangar_drone_tag.text = DroneCatalog.get_drone_tag(preset_idx)
+		_hangar_drone_tag.text = MenuUI.translate_text(DroneCatalog.get_drone_tag(preset_idx))
 	if _hangar_specs_lbl != null:
 		var mass: int = int(round((float(p.get("dry", 0.4)) + float(p.get("batt", 0.2))) * 1000.0))
 		var twr: float = float(p.get("twr", 5.0))
@@ -2830,7 +2855,8 @@ func _update_hangar_list_styles() -> void:
 			var tag_lbl := c.find_child("TagLabel", true, false) as Label
 
 			if title_lbl != null:
-				title_lbl.text = "%d. %s%s" % [idx + 1, DroneCatalog.get_drone_name(idx), mark]
+				title_lbl.text = "%d. %s%s" % [idx + 1,
+						MenuUI.translate_text(DroneCatalog.get_drone_name(idx)), mark]
 				if is_sel:
 					title_lbl.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 				elif is_cur:
@@ -2839,7 +2865,8 @@ func _update_hangar_list_styles() -> void:
 					title_lbl.add_theme_color_override("font_color", Color(0.90, 0.94, 0.92))
 
 			if tag_lbl != null:
-				tag_lbl.text = DroneCatalog.get_drone_tag(idx).to_upper()
+				tag_lbl.text = MenuUI.translate_text(
+						DroneCatalog.get_drone_tag(idx).to_upper())
 				if is_sel:
 					tag_lbl.add_theme_color_override("font_color", Color(0.55, 0.92, 0.68))
 				elif is_cur:

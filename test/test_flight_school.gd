@@ -5,13 +5,19 @@
 ## so every state transition is exercised without a human pilot.
 
 const FlightSchool = preload("res://scripts/util/flight_school.gd")
+const LocScript = preload("res://scripts/util/localization_manager.gd")
 
 var school: FlightSchool = null
 var drone: Drone = null
+var _saved_records: Dictionary = {}
+var _saved_language: int = LocScript.Language.UA
 
 
 func _ready() -> void:
 	OS.set_environment("DRONE_TUTORIAL_SKIP_BRIEF", "1")
+	_saved_records = Global.campaign_records.duplicate(true)
+	_saved_language = LocScript.get_language()
+	LocScript.set_language(LocScript.Language.UA, false)
 	print("=== FLIGHT SCHOOL 10-MODULE QA ===")
 	Global.play_mode = Global.PlayMode.TUTORIAL
 	Global.drone_preset = 0
@@ -162,6 +168,9 @@ func _ready() -> void:
 	print("[OK] pilot error assistant")
 
 	print("=== RESULT: FLIGHT SCHOOL 10-MODULE QA PASS ===")
+	Global.campaign_records = _saved_records
+	Global.save_campaign_records()
+	LocScript.set_language(_saved_language, false)
 	get_tree().quit(0)
 
 
