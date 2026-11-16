@@ -95,6 +95,7 @@ var _selected_mission := 1
 var _selected_special := 0
 var _map_cards: Dictionary = {}
 var _maps_row: HBoxContainer = null
+var _mission_row: HBoxContainer = null
 var _mission_bar: ScrollContainer = null
 var _mission_buttons: Dictionary = {}
 var _diff_bar: HBoxContainer = null
@@ -1105,47 +1106,6 @@ func _build_main() -> void:
 
 	left.add_child(chg_card)
 	left.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
-
-	var quit_btn := _button("", 50)
-	quit_btn.custom_minimum_size = Vector2(_ui_sz(300), _ui_sz(50))
-	quit_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	quit_btn.pressed.connect(func(): get_tree().quit())
-
-	var quit_content := HBoxContainer.new()
-	quit_content.alignment = BoxContainer.ALIGNMENT_CENTER
-	quit_content.add_theme_constant_override("separation", _gap(8))
-	quit_content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	quit_content.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	quit_btn.add_child(quit_content)
-
-	var q_icon := TextureRect.new()
-	q_icon.texture = MenuIcons.icon_close(Color(0.95, 0.42, 0.42))
-	var q_isz: int = _fs(17)
-	q_icon.custom_minimum_size = Vector2(q_isz, q_isz)
-	q_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	q_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	q_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	quit_content.add_child(q_icon)
-
-	var q_text := _label("ВИХІД З ГРИ", 19, MenuUI.TEXT)
-	q_text.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	quit_content.add_child(q_text)
-
-	# iOS forbids programmatic app termination: SceneTree.quit() is a no-op on
-	# iPhone/iPad.  Do not show a button that cannot work; tell the pilot how
-	# Apple expects the app to be closed instead.  Desktop keeps the button.
-	var is_ios := OS.get_name() == "iOS" or OS.has_feature("ios") \
-			or OS.has_environment("SIMULATE_IOS")
-	if is_ios:
-		quit_btn.visible = false
-		var close_hint := _label("iOS: закрий гру свайпом догори", 13, MenuUI.MUTED)
-		close_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		left.add_child(close_hint)
-		left.add_child(_spacer(14))
-	else:
-		left.add_child(quit_btn)
-		# Lift exit button comfortably from the bottom screen edge
-		left.add_child(_spacer(14))
 
 	# Right 3D Rotating Drone Hero
 	var hero := _build_3d_hero()
@@ -2293,13 +2253,18 @@ func _mode_title(mode_id: int) -> String:
 
 func _build_mobile_mission_strip(parent: VBoxContainer, is_en: bool) -> void:
 	_mission_buttons.clear()
+	_mission_row = HBoxContainer.new()
+	_mission_row.add_theme_constant_override("separation", _gap(6))
+	_mission_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_mission_row.visible = (_selected_mode == Global.PlayMode.COMBAT)
+	parent.add_child(_mission_row)
+
 	_mission_bar = ScrollContainer.new()
 	_mission_bar.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_mission_bar.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	_mission_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_mission_bar.custom_minimum_size = Vector2(0, _fs(38))
-	_mission_bar.visible = (_selected_mode == Global.PlayMode.COMBAT)
-	parent.add_child(_mission_bar)
+	_mission_row.add_child(_mission_bar)
 
 	var strip := HBoxContainer.new()
 	strip.add_theme_constant_override("separation", _gap(6))
@@ -2325,9 +2290,16 @@ func _build_mobile_mission_strip(parent: VBoxContainer, is_en: bool) -> void:
 		b.pressed.connect(_select_mobile_mission.bind(-1, s_id))
 		strip.add_child(b)
 		_mission_buttons["spec:%d" % s_id] = b
-	var scroll_hint := _label("»", 22, MenuUI.FPV_AMBER)
-	scroll_hint.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	strip.add_child(scroll_hint)
+
+	var scroll_btn := _button("»", 34, false)
+	scroll_btn.custom_minimum_size = Vector2(_ui_sz(40), _fs(34))
+	scroll_btn.add_theme_font_size_override("font_size", _fs(18))
+	scroll_btn.add_theme_color_override("font_color", MenuUI.FPV_AMBER)
+	scroll_btn.pressed.connect(func():
+		if _mission_bar != null:
+			_mission_bar.scroll_horizontal += _ui_sz(280)
+	)
+	_mission_row.add_child(scroll_btn)
 	_refresh_mobile_mission_strip()
 
 
@@ -2346,6 +2318,8 @@ func _select_mobile_mission(mission_id: int, special_id: int) -> void:
 
 func _refresh_mobile_mission_strip() -> void:
 	var is_combat := (_selected_mode == Global.PlayMode.COMBAT)
+	if _mission_row != null:
+		_mission_row.visible = is_combat
 	if _mission_bar != null:
 		_mission_bar.visible = is_combat
 	if _diff_bar != null:

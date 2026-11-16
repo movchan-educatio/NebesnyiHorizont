@@ -648,9 +648,14 @@ func get_records_report(is_en: bool = false) -> String:
 	for m_id in range(1, 5):
 		var rec := get_mission_record(m_id)
 		if bool(rec.get("completed", false)):
-			lines.append("  • TAC-0%d: %s · %d pts · %.1fs" % [
-				m_id, "★".repeat(maxi(1, int(rec.get("stars", 1)))),
-				int(rec.get("best_score", 0)), float(rec.get("best_time", 0.0))])
+			var sc := int(rec.get("best_score", 0))
+			var bt := float(rec.get("best_time", 0.0))
+			var st := "★".repeat(maxi(1, int(rec.get("stars", 1))))
+			if sc > 0 or bt > 0.0:
+				lines.append("  • TAC-0%d: %s · %d pts · %.1fs" % [m_id, st, sc, bt])
+			else:
+				lines.append("  • TAC-0%d: %s · %s" % [
+					m_id, st, "COMPLETED" if is_en else "ВИКОНАНО"])
 		else:
 			lines.append("  • TAC-0%d: —" % m_id)
 	lines.append("")
