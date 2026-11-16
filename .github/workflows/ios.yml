@@ -170,6 +170,51 @@ jobs:
                       print("Error neutralizing", img_p, e)
           '
 
+      - name: Force ASCII CFBundleDisplayName (AltStore 3009 fix)
+        run: |
+          python3 -c '
+          import glob, plistlib, os, re
+
+          for p in glob.glob("build/ios/**/*.plist", recursive=True):
+              base = os.path.basename(p)
+              if base == "Info.plist" or base.endswith("-Info.plist"):
+                  try:
+                      with open(p, "rb") as f:
+                          pl = plistlib.load(f)
+                  except Exception:
+                      continue
+                  if not isinstance(pl, dict):
+                      continue
+                  changed = False
+                  for key in ("CFBundleDisplayName", "CFBundleName"):
+                      if key in pl and pl[key] != "NebesnyiHorizont":
+                          pl[key] = "NebesnyiHorizont"
+                          changed = True
+                  if "CFBundleExecutable" in pl and "CFBundleDisplayName" not in pl:
+                      pl["CFBundleDisplayName"] = "NebesnyiHorizont"
+                      changed = True
+                  if changed:
+                      with open(p, "wb") as f:
+                          plistlib.dump(pl, f)
+                  print("Patched plist:", p, "-> display=", pl.get("CFBundleDisplayName"), "name=", pl.get("CFBundleName"))
+
+          for s in glob.glob("build/ios/**/InfoPlist.strings", recursive=True):
+              with open(s, "wb") as f:
+                  f.write(b"\"CFBundleDisplayName\" = \"NebesnyiHorizont\";\n")
+              print("Patched InfoPlist.strings:", s)
+
+          for pb in glob.glob("build/ios/**/*.pbxproj", recursive=True):
+              txt = open(pb, "r", encoding="utf-8").read()
+              new_txt = re.sub(
+                  r"(INFOPLIST_KEY_CFBundleDisplayName\s*=\s*)[^;]+;",
+                  r"\1\"NebesnyiHorizont\";",
+                  txt,
+              )
+              if new_txt != txt:
+                  open(pb, "w", encoding="utf-8").write(new_txt)
+                  print("Patched pbxproj INFOPLIST_KEY_CFBundleDisplayName in", pb)
+          '
+
       - name: Select newest available Xcode
         run: |
           set -e
@@ -280,6 +325,19 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
           rm -rf build/DerivedData
+          python3 -c '
+          import glob, plistlib
+          for p in glob.glob("build/ios/App.xcarchive/Products/Applications/*.app/Info.plist"):
+              with open(p, "rb") as f:
+                  pl = plistlib.load(f)
+              for k in ("CFBundleDisplayName", "CFBundleName"):
+                  if pl.get(k) != "NebesnyiHorizont":
+                      pl[k] = "NebesnyiHorizont"
+              with open(p, "wb") as f:
+                  plistlib.dump(pl, f)
+              assert pl.get("CFBundleDisplayName", "").isascii(), "Non-ASCII CFBundleDisplayName!"
+              print("Verified archive Info.plist:", p, pl.get("CFBundleDisplayName"), pl.get("CFBundleName"))
+          '
           cd build/ios
           rm -rf Payload
           mkdir -p Payload
