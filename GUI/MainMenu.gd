@@ -718,8 +718,8 @@ func _build() -> void:
 
 	_foot_status_lbl = Label.new()
 	_foot_status_lbl.text = _ui_text(
-			"НЕБЕСНИЙ ГОРИЗОНТ · ТАКТИЧНИЙ FPV-СИМУЛЯТОР · v1.6.0-test",
-			"NEBESNYI HORIZONT · TACTICAL FPV SIMULATOR · v1.6.0-test")
+			"НЕБЕСНИЙ ГОРИЗОНТ · ТАКТИЧНИЙ FPV-СИМУЛЯТОР · v1.18.0",
+			"NEBESNYI HORIZONT · TACTICAL FPV SIMULATOR · v1.18.0")
 	_foot_status_lbl.add_theme_font_size_override("font_size", 11)
 	_foot_status_lbl.add_theme_color_override("font_color", MenuUI.FPV_MUTED)
 	bottom_bar.add_child(_foot_status_lbl)
@@ -1342,7 +1342,7 @@ func _update_selection_ui() -> void:
 		_launch_btn.text += "  ·  " + str(_selected_map).to_upper()
 	if _daily_lbl != null:
 		var dc := Global.get_daily_challenge()
-		var dc_title := str(dc.get("title_en" if is_en else "title_uk", ""))
+		var dc_title := str(dc.get("title_en" if is_en else "title_ua", dc.get("title_uk", "")))
 		var dc_status := ("DONE" if is_en else "ВИКОНАНО") if bool(dc.get("completed", false)) else ("+%d PTS" if is_en else "+%d ОЧК.") % int(dc.get("bonus_score", 500))
 		_daily_lbl.text = ("★ DAILY: %s · %s" if is_en else "★ ВИКЛИК ДНЯ: %s · %s") % [dc_title, dc_status]
 	if _quick_tut_btn != null:
@@ -1358,7 +1358,7 @@ func _update_selection_ui() -> void:
 	if _top_title_lbl != null:
 		_top_title_lbl.text = "SORTIE SETUP" if is_en else "Підготовка до вильоту"
 	if _foot_status_lbl != null:
-		_foot_status_lbl.text = "NEBESNYI HORIZONT · TACTICAL FPV SIMULATOR · v1.6.0-test" if is_en else "НЕБЕСНИЙ ГОРИЗОНТ · ТАКТИЧНИЙ FPV-СИМУЛЯТОР · v1.6.0-test"
+		_foot_status_lbl.text = "NEBESNYI HORIZONT · TACTICAL FPV SIMULATOR · v1.18.0" if is_en else "НЕБЕСНИЙ ГОРИЗОНТ · ТАКТИЧНИЙ FPV-СИМУЛЯТОР · v1.18.0"
 
 	if _quick_diff_container != null:
 		_quick_diff_container.visible = (_selected_mode == Global.PlayMode.COMBAT)

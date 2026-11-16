@@ -636,7 +636,7 @@ func get_records_report(is_en: bool = false) -> String:
 	var dc: Dictionary = campaign_records.get("daily_challenge", {})
 	lines.append("%s: %s (%d XP)" % [
 		"PILOT RANK" if is_en else "РАНГ ПІЛОТА",
-		str(rank_info.get("en" if is_en else "ua", "")),
+		str(rank_info.get("rank_en" if is_en else "rank_ua", "")),
 		xp])
 	lines.append("%s: %d  (%s)" % [
 		"DAILY STREAK" if is_en else "ЩОДЕННА СЕРІЯ",

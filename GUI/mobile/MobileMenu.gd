@@ -1076,15 +1076,15 @@ func _build_main() -> void:
 	var chg_hdr := HBoxContainer.new()
 	chg_hdr.add_child(_label("ОНОВЛЕННЯ // СПИСОК ЗМІН", 13, MenuUI.FPV_AMBER))
 	chg_hdr.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
-	chg_hdr.add_child(_label("v1.6.0", 12, MenuUI.FPV_GREEN))
+	chg_hdr.add_child(_label("v1.18.0", 12, MenuUI.FPV_GREEN))
 	chg_v.add_child(chg_hdr)
 
 	var dc := Global.get_daily_challenge()
 	var is_en := MenuUI.is_english()
-	var dc_title := str(dc.get("title_en" if is_en else "title_uk", ""))
+	var dc_title := str(dc.get("title_en" if is_en else "title_ua", dc.get("title_uk", "")))
 	var dc_line := ("★ ВИКЛИК ДНЯ: %s (+%d)" if not is_en else "★ DAILY CHALLENGE: %s (+%d)") % [dc_title, int(dc.get("bonus_score", 500))]
 	var trec := Global.get_training_record("course")
-	var course_line := "• Траса тренування: пройдіть 6 воріт на ★ / S–B (з Привидом)"
+	var course_line := "• Траса тренування: пройдіть ворота на ★ / S–B (з Привидом)"
 	if bool(trec.get("completed", false)):
 		course_line = ("• Траса: рекорд %.1f с · %s [%s]" if not is_en else "• Course best: %.1fs · %s [%s]") % [
 			float(trec.get("best_time", 0.0)), "★".repeat(int(trec.get("stars", 1))), str(trec.get("best_rank", "B"))]
@@ -1093,7 +1093,7 @@ func _build_main() -> void:
 		dc_line,
 		course_line,
 		"• Режими: Туторіал (м’яка Angle) → Тренування → Бойовий",
-		"• Пресети Xbox / PS / MFi / USB-C ELRS, UA/EN та Safe Area",
+		"• Геймпади, ELRS Wi-Fi, UA/EN та Safe Area",
 	]
 	for c_txt in changes:
 		var cl := Label.new()
@@ -2147,15 +2147,6 @@ func _build_play() -> void:
 	_play_daily_lbl = _label(("★ %s (+%d)%s%s" % [dc_title, int(dc.get("bonus_score", 500)), dc_done, rec_suffix]), 13, MenuUI.FPV_CYAN)
 	_play_daily_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	daily_row.add_child(_play_daily_lbl)
-	var gc_play_label := ("Game Center" if Global.is_game_center_available() else "RECORDS") \
-			if is_en else "РЕКОРДИ"
-	var gc_play_btn := _button(gc_play_label, 34, false)
-	gc_play_btn.icon = MenuIcons.icon_trophy(MenuUI.FPV_AMBER, 20)
-	gc_play_btn.expand_icon = false
-	gc_play_btn.add_theme_constant_override("h_separation", _gap(6))
-	gc_play_btn.custom_minimum_size = Vector2(_ui_sz(160), _ui_sz(34))
-	gc_play_btn.pressed.connect(_open_mobile_records)
-	daily_row.add_child(gc_play_btn)
 
 	_build_mobile_mission_strip(v, is_en)
 
@@ -2334,6 +2325,9 @@ func _build_mobile_mission_strip(parent: VBoxContainer, is_en: bool) -> void:
 		b.pressed.connect(_select_mobile_mission.bind(-1, s_id))
 		strip.add_child(b)
 		_mission_buttons["spec:%d" % s_id] = b
+	var scroll_hint := _label("»", 22, MenuUI.FPV_AMBER)
+	scroll_hint.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	strip.add_child(scroll_hint)
 	_refresh_mobile_mission_strip()
 
 
@@ -2411,7 +2405,7 @@ func _build_mobile_briefing_modal(host: Control, is_en: bool) -> void:
 	_briefing_modal.z_index = 40
 	_briefing_modal.visible = false
 	_briefing_modal.add_theme_stylebox_override("panel", _panel_style(
-			Color(0.015, 0.035, 0.028, 0.94), MenuUI.ACCENT, 2, 16))
+			Color(0.012, 0.028, 0.022, 0.988), MenuUI.ACCENT, 2, 16))
 	host.add_child(_briefing_modal)
 
 	var safe_m: Dictionary = MenuUI.get_safe_margins(_vsize())
@@ -3234,6 +3228,13 @@ func _build_settings_tab_sim() -> void:
 	ctrl_row.add_child(ctrl_sw)
 	sv.add_child(ctrl_row)
 
+	var touch_layout_label := ("TOUCH LAYOUT" if is_en else "НАЛАШТУВАТИ HUD") \
+			if compact else ("CUSTOMIZE TOUCH LAYOUT" if is_en \
+			else "НАЛАШТУВАТИ РОЗТАШУВАННЯ HUD")
+	var touch_layout_button := _button(touch_layout_label, 52, true)
+	touch_layout_button.pressed.connect(_open_touch_layout_settings)
+	sv.add_child(touch_layout_button)
+
 	var sens_row := HBoxContainer.new()
 	sens_row.add_theme_constant_override("separation", _gap(12))
 	var sens_lbl := _label("Чутливість:" if compact else "Чутливість сенсора:",
@@ -3277,13 +3278,6 @@ func _build_settings_tab_sim() -> void:
 	expo_row.add_child(expo_sl)
 	expo_row.add_child(expo_val_lbl)
 	sv.add_child(expo_row)
-
-	var touch_layout_label := ("TOUCH LAYOUT" if is_en else "НАЛАШТУВАТИ HUD") \
-			if compact else ("CUSTOMIZE TOUCH LAYOUT" if is_en \
-			else "НАЛАШТУВАТИ РОЗТАШУВАННЯ HUD")
-	var touch_layout_button := _button(touch_layout_label, 52, true)
-	touch_layout_button.pressed.connect(_open_touch_layout_settings)
-	sv.add_child(touch_layout_button)
 
 
 func _open_touch_layout_settings() -> void:
