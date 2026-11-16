@@ -200,20 +200,20 @@ jobs:
 
           for s in glob.glob("build/ios/**/InfoPlist.strings", recursive=True):
               with open(s, "wb") as f:
-                  f.write(b"\"CFBundleDisplayName\" = \"NebesnyiHorizont\";\n")
+                  plistlib.dump({"CFBundleDisplayName": "NebesnyiHorizont"}, f)
               print("Patched InfoPlist.strings:", s)
 
           for pb in glob.glob("build/ios/**/*.pbxproj", recursive=True):
               txt = open(pb, "r", encoding="utf-8").read()
               new_txt = re.sub(
                   r"(INFOPLIST_KEY_CFBundleDisplayName\s*=\s*)[^;]+;",
-                  r"\1\"NebesnyiHorizont\";",
+                  lambda m: m.group(1) + "\"NebesnyiHorizont\";",
                   txt,
               )
               if new_txt != txt:
                   open(pb, "w", encoding="utf-8").write(new_txt)
                   print("Patched pbxproj INFOPLIST_KEY_CFBundleDisplayName in", pb)
-          '
+          ' && plutil -lint build/ios/*.xcodeproj/project.pbxproj
 
       - name: Select newest available Xcode
         run: |
