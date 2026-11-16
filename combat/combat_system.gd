@@ -489,7 +489,7 @@ func drop_payload() -> bool:
 		return false
 	var controller := _drone.get_node_or_null("FlightController") as FlightController
 	if controller == null or not controller.state_armed:
-		_message("СПОЧАТКУ УВІМКНІТЬ ДВИГУНИ (ПРОБІЛ)", Color(1.0, 0.55, 0.3), 1.6)
+		_message("СПОЧАТКУ УВІМКНІТЬ ДВИГУНИ (ARM)", Color(1.0, 0.55, 0.3), 1.6)
 		return false
 	if ammo <= 0:
 		_message("НЕМАЄ БОЄПРИПАСІВ — R ДЛЯ ПЕРЕЗАРЯДКИ", Color(1.0, 0.45, 0.3), 1.8)

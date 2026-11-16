@@ -108,6 +108,11 @@ static func reserve_area(p: Vector2, radius: float) -> void:
 	_reserved_zones.append({"pos": p, "radius": radius})
 
 
+## Public snapshot for systems that must place routes away from authored props.
+static func get_reserved_areas() -> Array:
+	return _reserved_zones.duplicate(true)
+
+
 static func reset_structure_registry(terrain_root: Node) -> void:
 	if terrain_root == null:
 		_structure_registry.clear()

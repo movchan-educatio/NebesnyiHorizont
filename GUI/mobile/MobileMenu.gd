@@ -62,6 +62,12 @@ var _bg_blur: TextureRect
 var _screen_scrim: ColorRect
 var _root: VBoxContainer
 var _content: Control
+var _masthead: HBoxContainer = null
+var _chips: HBoxContainer = null
+var _gc_top_btn: Button = null
+var _lang_top_btn: Button = null
+var _main_logo: Label = null
+var _main_hero: Control = null
 var _screens: Dictionary = {}
 var _current := "main"
 var _back_btn: Button
@@ -378,6 +384,9 @@ func _ready() -> void:
 	_build_drone()
 	_build_settings()
 	_show("main")
+	if not get_viewport().size_changed.is_connected(_on_mobile_viewport_resized):
+		get_viewport().size_changed.connect(_on_mobile_viewport_resized)
+	_apply_masthead_layout()
 	_update_status()
 	MenuUI.localize_tree(self)
 	set_process(true)
@@ -773,7 +782,8 @@ func _build_root() -> void:
 	margin.add_child(_root)
 
 	# Top Masthead
-	var top := HBoxContainer.new()
+	_masthead = HBoxContainer.new()
+	var top := _masthead
 	top.custom_minimum_size.y = _fs(46)
 	top.add_theme_constant_override("separation", _gap(10))
 	_root.add_child(top)
@@ -815,13 +825,15 @@ func _build_root() -> void:
 	top_spacer_right.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	top.add_child(top_spacer_right)
 
-	var chips := HBoxContainer.new()
+	_chips = HBoxContainer.new()
+	var chips := _chips
 	chips.alignment = BoxContainer.ALIGNMENT_END
 	chips.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	chips.add_theme_constant_override("separation", _gap(6))
 	top.add_child(chips)
 
-	var gc_top_btn := _button("GC" if MenuUI.is_english() else "РЕКОРДИ", 32, false)
+	_gc_top_btn = _button("GC" if MenuUI.is_english() else "РЕКОРДИ", 32, false)
+	var gc_top_btn := _gc_top_btn
 	gc_top_btn.icon = MenuIcons.icon_trophy(MenuUI.FPV_AMBER, 20)
 	gc_top_btn.expand_icon = false
 	gc_top_btn.add_theme_constant_override("h_separation", _gap(6))
@@ -834,7 +846,8 @@ func _build_root() -> void:
 	)
 	chips.add_child(gc_top_btn)
 
-	var lang_top_btn := _button("EN" if MenuUI.is_english() else "UA", 32, false)
+	_lang_top_btn = _button("EN" if MenuUI.is_english() else "UA", 32, false)
+	var lang_top_btn := _lang_top_btn
 	lang_top_btn.custom_minimum_size = Vector2(_ui_sz(48), _ui_sz(32))
 	lang_top_btn.pressed.connect(func():
 		Loc.toggle_language()
@@ -878,6 +891,7 @@ func _show(name: String) -> void:
 	_back_btn.visible = name != "main"
 	if _top_brand != null:
 		_top_brand.visible = (name != "main")
+	_apply_masthead_layout()
 	if name == "play":
 		if _maps_row != null:
 			_update_map_cards(_maps_row)
@@ -889,6 +903,39 @@ func _show(name: String) -> void:
 		_update_hangar_list_styles()
 	_screen_scrim.color = Color(0.015, 0.045, 0.035, 0.10 if name == "main" else 0.22)
 	_update_status()
+
+
+func _on_mobile_viewport_resized() -> void:
+	_apply_masthead_layout()
+	if _root != null:
+		_root.queue_sort()
+
+
+func _apply_masthead_layout() -> void:
+	if _masthead == null:
+		return
+	var compact := _vsize().x < 700.0
+	if _main_logo != null:
+		_main_logo.add_theme_font_size_override("font_size",
+				_fs(24 if _vsize().x < 520.0 else 30))
+	if _main_hero != null:
+		# A portrait phone cannot fit the nav rail and the 3D hangar card side
+		# by side; leaving the hero in the HBox produced a clipped sliver.
+		_main_hero.visible = not (_vsize().x < 700.0 and _vsize().y > _vsize().x)
+	if _top_brand != null:
+		_top_brand.visible = not compact and _current != "main"
+	if _gc_top_btn != null:
+		_gc_top_btn.text = "" if compact else ("GC" if MenuUI.is_english() else "РЕКОРДИ")
+		_gc_top_btn.custom_minimum_size = Vector2(_ui_sz(44 if compact else (82 if MenuUI.is_english() else 124)),
+				_ui_sz(32))
+	if _elrs_chip != null:
+		_elrs_chip.visible = not compact
+	if _input_chip != null:
+		_input_chip.visible = not compact
+	if _back_btn != null:
+		_back_btn.custom_minimum_size.x = _ui_sz(104 if compact else 150)
+	if _chips != null:
+		_chips.add_theme_constant_override("separation", _gap(6 if compact else 6))
 
 
 func _on_back() -> void:
@@ -928,6 +975,13 @@ func show_drone() -> void:
 
 func show_settings() -> void:
 	_show("settings")
+
+
+func show_settings_tab(tab_id: String) -> void:
+	show_settings()
+	if _settings_tab_buttons.has(tab_id):
+		_settings_tab = tab_id
+		_switch_settings_tab()
 
 
 func _update_status() -> void:
@@ -972,6 +1026,7 @@ func _build_main() -> void:
 	title_box.add_theme_constant_override("separation", _gap(2))
 
 	var main_logo := _label("НЕБЕСНИЙ ГОРИЗОНТ", 30, MenuUI.TEXT)
+	_main_logo = main_logo
 	main_logo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title_box.add_child(main_logo)
 
@@ -1093,6 +1148,7 @@ func _build_main() -> void:
 
 	# Right 3D Rotating Drone Hero
 	var hero := _build_3d_hero()
+	_main_hero = hero
 	hero.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hero.size_flags_stretch_ratio = 0.58
 	h.add_child(hero)
@@ -2930,24 +2986,44 @@ func _build_settings() -> void:
 	v.add_theme_constant_override("separation", _gap(10))
 	screen.add_child(v)
 
-	v.add_child(_label("НАЛАШТУВАННЯ ТА СИМУЛЯЦІЯ", 32, MenuUI.TEXT))
+	var compact := _vsize().x < 700.0
+	var settings_heading := "SETTINGS" if MenuUI.is_english() else "НАЛАШТУВАННЯ"
+	if not compact:
+		settings_heading = "SETTINGS & SIMULATION" if MenuUI.is_english() \
+				else "НАЛАШТУВАННЯ ТА СИМУЛЯЦІЯ"
+	var heading := _label(settings_heading, 32, MenuUI.TEXT)
+	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(heading)
 
 	# 4 Tabs Bar
-	var tabs_row := HBoxContainer.new()
-	tabs_row.add_theme_constant_override("separation", _gap(8))
+	var tabs_row: Container
+	if compact:
+		var tabs_grid := GridContainer.new()
+		tabs_grid.columns = 1
+		tabs_grid.add_theme_constant_override("h_separation", _gap(8))
+		tabs_grid.add_theme_constant_override("v_separation", _gap(6))
+		tabs_row = tabs_grid
+	else:
+		var tabs_hbox := HBoxContainer.new()
+		tabs_hbox.add_theme_constant_override("separation", _gap(8))
+		tabs_row = tabs_hbox
 	v.add_child(tabs_row)
 
 	var tab_defs := [
-		{"id": "sim", "label": "СИМУЛЯЦІЯ ТА РЕБ"},
-		{"id": "hud", "label": "ІНТЕРФЕЙС (HUD)"},
-		{"id": "gfx", "label": "ГРАФІКА ТА FPS"},
-		{"id": "sys", "label": "ЗВУК ТА СИСТЕМА"},
+		{"id": "sim", "label": ("SIMULATION" if MenuUI.is_english() else "СИМУЛЯЦІЯ") \
+				if compact else ("СИМУЛЯЦІЯ ТА РЕБ" if not MenuUI.is_english() else "SIMULATION & EW")},
+		{"id": "hud", "label": "HUD" if compact else ("ІНТЕРФЕЙС (HUD)" if not MenuUI.is_english() else "INTERFACE (HUD)")},
+		{"id": "gfx", "label": ("GRAPHICS" if MenuUI.is_english() else "ГРАФІКА") \
+				if compact else ("ГРАФІКА ТА FPS" if not MenuUI.is_english() else "GRAPHICS & FPS")},
+		{"id": "sys", "label": ("SYSTEM" if MenuUI.is_english() else "СИСТЕМА") \
+				if compact else ("ЗВУК ТА СИСТЕМА" if not MenuUI.is_english() else "AUDIO & SYSTEM")},
 	]
 
 	for td in tab_defs:
 		var tab_id: String = td["id"]
 		var btn := _button(td["label"], 48, tab_id == _settings_tab)
-		btn.add_theme_font_size_override("font_size", _fs(20))
+		btn.add_theme_font_size_override("font_size", _fs(16 if compact else 20))
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		btn.pressed.connect(func():
 			_settings_tab = tab_id
@@ -2999,19 +3075,39 @@ func _build_settings_tab_sim() -> void:
 	sv.add_theme_constant_override("separation", _gap(14))
 	scroll.add_child(sv)
 
-	sv.add_child(_label("ТРЕНАЖЕР / СИМУЛЯЦІЯ РЕАЛІЗМУ", 24, MenuUI.FPV_AMBER))
-	sv.add_child(_label("Полегшення та фізика діють одразу під час польоту", 14, MenuUI.MUTED))
+	var compact := _vsize().x < 700.0
+	var is_en := MenuUI.is_english()
+	sv.add_child(_label(
+			("TRAINING / REALISM" if is_en else "ТРЕНАЖЕР / РЕАЛІЗМ") if compact \
+			else ("TRAINING / SIMULATION REALISM" if is_en else "ТРЕНАЖЕР / СИМУЛЯЦІЯ РЕАЛІЗМУ"),
+			20 if compact else 24, MenuUI.FPV_AMBER))
+	sv.add_child(_label(
+			("Assists active in flight" if is_en else "Полегшення під час польоту") if compact \
+			else ("Assists and physics apply during flight" if is_en else "Полегшення та фізика діють одразу під час польоту"),
+			13 if compact else 14, MenuUI.MUTED))
 
-	var prof_row := HBoxContainer.new()
-	prof_row.add_theme_constant_override("separation", _gap(12))
-	prof_row.add_child(_label("Профіль реалізму:", 20, MenuUI.TEXT))
+	var prof_row: BoxContainer
+	if compact:
+		var prof_vbox := VBoxContainer.new()
+		prof_vbox.add_theme_constant_override("separation", _gap(6))
+		prof_row = prof_vbox
+		sv.add_child(_label("Профіль:" if not is_en else "PROFILE:", 16, MenuUI.TEXT))
+	else:
+		var prof_hbox := HBoxContainer.new()
+		prof_hbox.add_theme_constant_override("separation", _gap(12))
+		prof_row = prof_hbox
+		prof_row.add_child(_label("Профіль реалізму:" if not is_en else "Realism profile:", 20, MenuUI.TEXT))
 
 	var cur_prof: String = str(GameSettings.hud_config.get("realism_profile", GameSettings.REALISM_ARCADE))
-	var arcade_btn := _button("АРКАДА (ПОЛЕГШЕНА)", 44, cur_prof == GameSettings.REALISM_ARCADE)
+	var arcade_text := ("ARCADE" if is_en else "АРКАДА") if compact \
+			else ("ARCADE (ASSISTED)" if is_en else "АРКАДА (ПОЛЕГШЕНА)")
+	var arcade_btn := _button(arcade_text, 44, cur_prof == GameSettings.REALISM_ARCADE)
 	arcade_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	prof_row.add_child(arcade_btn)
 
-	var combat_btn := _button("БОЙОВИЙ РЕАЛІЗМ", 44, cur_prof == GameSettings.REALISM_COMBAT)
+	var combat_text := ("COMBAT" if is_en else "БОЙОВИЙ") if compact \
+			else ("COMBAT REALISM" if is_en else "БОЙОВИЙ РЕАЛІЗМ")
+	var combat_btn := _button(combat_text, 44, cur_prof == GameSettings.REALISM_COMBAT)
 	combat_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	prof_row.add_child(combat_btn)
 
@@ -3030,19 +3126,19 @@ func _build_settings_tab_sim() -> void:
 	sv.add_child(prof_row)
 
 	var grid := GridContainer.new()
-	grid.columns = 2
+	grid.columns = 1 if compact else 2
 	grid.add_theme_constant_override("h_separation", _gap(24))
 	grid.add_theme_constant_override("v_separation", _gap(12))
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sv.add_child(grid)
 
 	var sim_items := [
-		["link_limit", "Обмеження зв'язку (дальність/рельєф)"],
-		["reb_zones", "Зони РЕБ (глушіння)"],
-		["wind_sim", "Імітація вітру та поривів"],
-		["angle_mode", "Режим Angle (стабілізація)"],
-		["acro_mode", "Режим Acro (ручний)"],
-		["infinite_battery", "Нескінченна батарея (тренажер)"],
+		["link_limit", "Зв'язок" if compact else "Обмеження зв'язку (дальність/рельєф)"],
+		["reb_zones", "РЕБ" if compact else "Зони РЕБ (глушіння)"],
+		["wind_sim", "Вітер" if compact else "Імітація вітру та поривів"],
+		["angle_mode", "Режим Angle" if compact else "Режим Angle (стабілізація)"],
+		["acro_mode", "Режим Acro" if compact else "Режим Acro (ручний)"],
+		["infinite_battery", "Батарея без кінця" if compact else "Нескінченна батарея (тренажер)"],
 	]
 
 	for item in sim_items:
@@ -3050,7 +3146,7 @@ func _build_settings_tab_sim() -> void:
 		var label_txt: String = item[1]
 		var row := HBoxContainer.new()
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var lbl := _label(label_txt, 18, MenuUI.TEXT)
+		var lbl := _label(label_txt, 16 if compact else 18, MenuUI.TEXT)
 		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(lbl)
 
@@ -3064,18 +3160,20 @@ func _build_settings_tab_sim() -> void:
 		row.add_child(sw)
 		grid.add_child(row)
 
-	sv.add_child(_label("СЕНСОРНЕ КЕРУВАННЯ (TOUCH)", 20, MenuUI.FPV_AMBER))
+	sv.add_child(_label(("TOUCH HUD" if is_en else "СЕНСОРНИЙ HUD") if compact \
+			else ("СЕНСОРНЕ КЕРУВАННЯ (TOUCH)" if not is_en else "TOUCH CONTROLS"),
+			18 if compact else 20, MenuUI.FPV_AMBER))
 
 	var touch_grid := GridContainer.new()
-	touch_grid.columns = 2
+	touch_grid.columns = 1 if compact else 2
 	touch_grid.add_theme_constant_override("h_separation", _gap(24))
 	touch_grid.add_theme_constant_override("v_separation", _gap(10))
 	touch_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sv.add_child(touch_grid)
 
 	var touch_items := [
-		["touch_floating_sticks", "Плаваючий стік", false],
-		["touch_left_spring", "Авто-центр газу (Angle)", false],
+		["touch_floating_sticks", "Плаваючий стік" if not is_en else "Floating sticks", false],
+		["touch_left_spring", "Пружина газу (Angle)" if compact else "Авто-центр газу (Angle)", false],
 	]
 	for t_item in touch_items:
 		var t_key: String = t_item[0]
@@ -3083,7 +3181,7 @@ func _build_settings_tab_sim() -> void:
 		var t_def: bool = bool(t_item[2])
 		var trow := HBoxContainer.new()
 		trow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var tlbl := _label(t_lbl_txt, 18, MenuUI.TEXT)
+		var tlbl := _label(t_lbl_txt, 16 if compact else 18, MenuUI.TEXT)
 		tlbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		trow.add_child(tlbl)
 		var tsw := ToggleSwitch.new(bool(Global.menu_settings.get(t_key, t_def)))
@@ -3099,7 +3197,9 @@ func _build_settings_tab_sim() -> void:
 
 	var ctrl_row := HBoxContainer.new()
 	ctrl_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var ctrl_lbl := _label("Режим пульта (вимкнути сенсорні стіки)", 18, MenuUI.TEXT)
+	var ctrl_text := ("Режим пульта" if compact else "Режим пульта (вимкнути сенсорні стіки)") \
+			if not is_en else ("Controller mode" if compact else "Controller-only mode (disable touch sticks)")
+	var ctrl_lbl := _label(ctrl_text, 16 if compact else 18, MenuUI.TEXT)
 	ctrl_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ctrl_row.add_child(ctrl_lbl)
 	var is_ctrl_locked := str(Global.menu_settings.get("touch_input_mode", "auto")).to_lower() == "controller"
@@ -3117,12 +3217,13 @@ func _build_settings_tab_sim() -> void:
 
 	var sens_row := HBoxContainer.new()
 	sens_row.add_theme_constant_override("separation", _gap(12))
-	var sens_lbl := _label("Чутливість сенсора:", 18, MenuUI.TEXT)
-	sens_lbl.custom_minimum_size.x = _fs(210)
+	var sens_lbl := _label("Чутливість:" if compact else "Чутливість сенсора:",
+			16 if compact else 18, MenuUI.TEXT)
+	sens_lbl.custom_minimum_size.x = _fs(128 if compact else 210)
 	sens_row.add_child(sens_lbl)
 	var cur_sens := clampf(float(Global.menu_settings.get("touch_sensitivity", 1.0)), 0.4, 1.6)
-	var sens_val_lbl := _label("%.2fx" % cur_sens, 18, MenuUI.FPV_GREEN)
-	sens_val_lbl.custom_minimum_size.x = _fs(64)
+	var sens_val_lbl := _label("%.2fx" % cur_sens, 16 if compact else 18, MenuUI.FPV_GREEN)
+	sens_val_lbl.custom_minimum_size.x = _fs(48 if compact else 64)
 	var sens_sl := _slider(cur_sens, 0.4, 1.6, 0.05, func(val: float):
 		var v := clampf(val, 0.4, 1.6)
 		sens_val_lbl.text = "%.2fx" % v
@@ -3138,12 +3239,13 @@ func _build_settings_tab_sim() -> void:
 
 	var expo_row := HBoxContainer.new()
 	expo_row.add_theme_constant_override("separation", _gap(12))
-	var expo_lbl := _label("Експо сенсора:", 18, MenuUI.TEXT)
-	expo_lbl.custom_minimum_size.x = _fs(210)
+	var expo_lbl := _label("Експо:" if compact else "Експо сенсора:",
+			16 if compact else 18, MenuUI.TEXT)
+	expo_lbl.custom_minimum_size.x = _fs(128 if compact else 210)
 	expo_row.add_child(expo_lbl)
 	var cur_expo := clampf(float(Global.menu_settings.get("touch_expo", 0.2)), 0.0, 0.7)
-	var expo_val_lbl := _label("%.2f" % cur_expo, 18, MenuUI.FPV_GREEN)
-	expo_val_lbl.custom_minimum_size.x = _fs(64)
+	var expo_val_lbl := _label("%.2f" % cur_expo, 16 if compact else 18, MenuUI.FPV_GREEN)
+	expo_val_lbl.custom_minimum_size.x = _fs(48 if compact else 64)
 	var expo_sl := _slider(cur_expo, 0.0, 0.7, 0.05, func(val: float):
 		var v := clampf(val, 0.0, 0.7)
 		expo_val_lbl.text = "%.2f" % v
@@ -3157,6 +3259,19 @@ func _build_settings_tab_sim() -> void:
 	expo_row.add_child(expo_val_lbl)
 	sv.add_child(expo_row)
 
+	var touch_layout_label := ("TOUCH LAYOUT" if is_en else "НАЛАШТУВАТИ HUD") \
+			if compact else ("CUSTOMIZE TOUCH LAYOUT" if is_en \
+			else "НАЛАШТУВАТИ РОЗТАШУВАННЯ HUD")
+	var touch_layout_button := _button(touch_layout_label, 52, true)
+	touch_layout_button.pressed.connect(_open_touch_layout_settings)
+	sv.add_child(touch_layout_button)
+
+
+func _open_touch_layout_settings() -> void:
+	var touch := get_node_or_null("/root/TouchControls")
+	if touch != null and touch.has_method("open_layout_editor"):
+		touch.call("open_layout_editor", true)
+
 
 func _refresh_sim_toggles() -> void:
 	for key in _sim_toggles.keys():
@@ -3166,21 +3281,31 @@ func _refresh_sim_toggles() -> void:
 
 
 func _build_settings_tab_hud() -> void:
+	var compact := _vsize().x < 700.0
 	var card := _panel(Color(0.025, 0.065, 0.05, 0.92), Color(0.38, 0.54, 0.42, 0.55), 1, 16)
 	card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_settings_body_container.add_child(card)
 	_settings_panels["hud"] = card
 
+	var scroll := ScrollContainer.new()
+	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	card.add_child(scroll)
 	var sv := VBoxContainer.new()
+	sv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sv.add_theme_constant_override("separation", _gap(14))
-	card.add_child(sv)
+	scroll.add_child(sv)
 
-	sv.add_child(_label("ЕЛЕМЕНТИ БОЙОВОГО ТА ПОЛЬОТНОГО ІНТЕРФЕЙСУ (HUD / OSD)", 24, MenuUI.FPV_AMBER))
+	var hud_heading := ("HUD / OSD" if MenuUI.is_english() else "НАЛАШТУВАННЯ HUD / OSD") \
+			if compact else ("COMBAT / FLIGHT HUD ELEMENTS" if MenuUI.is_english() \
+			else "ЕЛЕМЕНТИ БОЙОВОГО ТА ПОЛЬОТНОГО ІНТЕРФЕЙСУ (HUD / OSD)")
+	sv.add_child(_label(hud_heading, 18 if compact else 24, MenuUI.FPV_AMBER))
 
 	# FPS Counter row (Toggle + Slider 5..60 + Number)
 	var fps_row := HBoxContainer.new()
 	fps_row.add_theme_constant_override("separation", _gap(12))
-	var fps_lbl := _label("Лічильник FPS:", 18, MenuUI.TEXT)
+	var fps_lbl := _label("FPS:" if compact else ("FPS:" if MenuUI.is_english() else "Лічильник FPS:"),
+			16 if compact else 18, MenuUI.TEXT)
 	fps_row.add_child(fps_lbl)
 
 	var is_fps_on: bool = int(GameSettings.hud_config.get("fps", 0)) > 0
@@ -3212,23 +3337,24 @@ func _build_settings_tab_hud() -> void:
 		GameSettings.save_hud_config()
 	)
 
-	# 9 HUD toggles in 2 columns
+	# HUD toggles use one column on phones so labels never disappear beyond the
+	# portrait safe area.
 	var grid := GridContainer.new()
-	grid.columns = 2
+	grid.columns = 1 if compact else 2
 	grid.add_theme_constant_override("h_separation", _gap(24))
 	grid.add_theme_constant_override("v_separation", _gap(10))
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sv.add_child(grid)
 
 	var hud_items := [
-		["ladder", "Шкала тангажу"],
+		["ladder", "Шкала тангажу" if not compact else "Тангаж"],
 		["speed", "Швидкість"],
 		["altitude", "Висота"],
 		["heading", "Курс"],
-		["sticks", "Позиція стіків"],
-		["rpm", "Оберти моторів"],
-		["osd", "Увесь OSD (H)"],
-		["fpv_rig", "FPV-обвіс: вусики + бомба (J)"],
+		["sticks", "Позиція стіків" if not compact else "Стіки"],
+		["rpm", "Оберти моторів" if not compact else "Оберти"],
+		["osd", "Увесь OSD (H)" if not compact else "Увесь OSD"],
+		["fpv_rig", "FPV-обвіс: вусики + бомба (J)" if not compact else "FPV-обвіс"],
 	]
 
 	for item in hud_items:
@@ -3236,7 +3362,7 @@ func _build_settings_tab_hud() -> void:
 		var label_txt: String = item[1]
 		var row := HBoxContainer.new()
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var lbl := _label(label_txt, 18, MenuUI.TEXT)
+		var lbl := _label(label_txt, 16 if compact else 18, MenuUI.TEXT)
 		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(lbl)
 
@@ -3252,8 +3378,10 @@ func _build_settings_tab_hud() -> void:
 
 	sv.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
 
-	var reset_hud_btn := _button("СКИНУТИ HUD ДО СТАНДАРТНИХ", 44)
-	reset_hud_btn.custom_minimum_size.x = _fs(280)
+	var reset_hud_text := ("RESET HUD" if MenuUI.is_english() else "СКИНУТИ HUD") if compact \
+			else ("RESET HUD TO DEFAULTS" if MenuUI.is_english() else "СКИНУТИ HUD ДО СТАНДАРТНИХ")
+	var reset_hud_btn := _button(reset_hud_text, 44)
+	reset_hud_btn.custom_minimum_size.x = _fs(140 if compact else 280)
 	reset_hud_btn.pressed.connect(func():
 		GameSettings.reset_hud_to_defaults()
 		for k in _hud_toggles.keys():
@@ -3265,25 +3393,46 @@ func _build_settings_tab_hud() -> void:
 
 
 func _build_settings_tab_gfx() -> void:
+	var compact := _vsize().x < 700.0
+	var is_en := MenuUI.is_english()
 	var card := _panel(Color(0.025, 0.065, 0.05, 0.92), Color(0.38, 0.54, 0.42, 0.55), 1, 16)
 	card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_settings_body_container.add_child(card)
 	_settings_panels["gfx"] = card
 
+	var scroll := ScrollContainer.new()
+	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	card.add_child(scroll)
 	var sv := VBoxContainer.new()
+	sv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sv.add_theme_constant_override("separation", _gap(14))
-	card.add_child(sv)
+	scroll.add_child(sv)
 
-	sv.add_child(_label("ГРАФІКА ТА ОПТИМІЗАЦІЯ ДЛЯ IPHONE 14", 24, MenuUI.FPV_AMBER))
+	var gfx_heading := ("GRAPHICS / FPS" if is_en else "ГРАФІКА / FPS") if compact \
+			else ("GRAPHICS & IPHONE 14 OPTIMIZATION" if is_en \
+			else "ГРАФІКА ТА ОПТИМІЗАЦІЯ ДЛЯ IPHONE 14")
+	sv.add_child(_label(gfx_heading, 18 if compact else 24, MenuUI.FPV_AMBER))
 
 	# 3 Quality Presets Row
-	var q_row := HBoxContainer.new()
-	q_row.add_theme_constant_override("separation", _gap(10))
+	var q_row: BoxContainer
+	if compact:
+		var q_vbox := VBoxContainer.new()
+		q_vbox.add_theme_constant_override("separation", _gap(6))
+		q_row = q_vbox
+	else:
+		var q_hbox := HBoxContainer.new()
+		q_hbox.add_theme_constant_override("separation", _gap(10))
+		q_row = q_hbox
 	var cur_q := clampi(int(Graphics.graphics_settings.get("quality", 0)), 0, 2)
-	var q_labels := ["1. НИЗЬКА (120+ FPS)", "2. СЕРЕДНЯ (БАЛАНС)", "3. ВИСОКА (МАКСИМУМ)"]
+	var q_labels := [
+		("LOW" if is_en else "НИЗЬКА") if compact else "1. НИЗЬКА (120+ FPS)",
+		("MEDIUM" if is_en else "СЕРЕДНЯ") if compact else "2. СЕРЕДНЯ (БАЛАНС)",
+		("HIGH" if is_en else "ВИСОКА") if compact else "3. ВИСОКА (МАКСИМУМ)",
+	]
 	var q_btns: Array[Button] = []
 	for q_i in range(3):
-		var q_btn := _button(q_labels[q_i], 44, q_i == cur_q)
+		var q_btn := _button(q_labels[q_i], 42 if compact else 44, q_i == cur_q)
 		q_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var target_q := q_i
 		q_btn.pressed.connect(func():
@@ -3296,7 +3445,7 @@ func _build_settings_tab_gfx() -> void:
 	sv.add_child(q_row)
 
 	var grid := GridContainer.new()
-	grid.columns = 2
+	grid.columns = 1 if compact else 2
 	grid.add_theme_constant_override("h_separation", _gap(24))
 	grid.add_theme_constant_override("v_separation", _gap(10))
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -3305,11 +3454,14 @@ func _build_settings_tab_gfx() -> void:
 	# FPV video channel dropdown
 	var fpv_row := HBoxContainer.new()
 	fpv_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	fpv_row.add_child(_label("FPV-канал (відеолінк):", 18, MenuUI.TEXT))
+	fpv_row.add_child(_label(("FPV CHANNEL:" if is_en else "FPV-КАНАЛ:") if compact \
+			else ("FPV video channel:" if is_en else "FPV-канал (відеолінк):"),
+			16 if compact else 18, MenuUI.TEXT))
 	var fpv_opt := OptionButton.new()
-	fpv_opt.custom_minimum_size = Vector2(_fs(190), _fs(40))
+	fpv_opt.custom_minimum_size = Vector2(_fs(100 if compact else 190), _fs(40))
 	_style_option_button(fpv_opt)
-	var fpv_modes := ["Аналог 5.8 GHz", "Digital O3 / Avatar", "FLIR White-Hot", "FLIR Black-Hot"]
+	var fpv_modes := ["ANALOG", "DIGITAL", "FLIR W", "FLIR B"] if compact \
+			else ["Аналог 5.8 GHz", "Digital O3 / Avatar", "FLIR White-Hot", "FLIR Black-Hot"]
 	for item in fpv_modes:
 		fpv_opt.add_item(item)
 	fpv_opt.selected = clampi(int(Graphics.graphics_settings.get("fpv_video_mode", 0)), 0, 3)
@@ -3322,9 +3474,11 @@ func _build_settings_tab_gfx() -> void:
 	# Resolution scale dropdown
 	var res_row := HBoxContainer.new()
 	res_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	res_row.add_child(_label("Масштаб роздільності:", 18, MenuUI.TEXT))
+	res_row.add_child(_label(("RESOLUTION:" if is_en else "РОЗДІЛЬНІСТЬ:") if compact \
+			else ("Resolution scale:" if is_en else "Масштаб роздільності:"),
+			16 if compact else 18, MenuUI.TEXT))
 	var res_opt := OptionButton.new()
-	res_opt.custom_minimum_size = Vector2(_fs(160), _fs(40))
+	res_opt.custom_minimum_size = Vector2(_fs(96 if compact else 160), _fs(40))
 	_style_option_button(res_opt)
 	var res_vals := [100, 85, 75, 50]
 	var res_items := ["100%", "85%", "75%", "50%"]
@@ -3344,9 +3498,11 @@ func _build_settings_tab_gfx() -> void:
 	# Shadows quality
 	var sh_row := HBoxContainer.new()
 	sh_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	sh_row.add_child(_label("Якість тіней:", 18, MenuUI.TEXT))
+	sh_row.add_child(_label(("SHADOWS:" if is_en else "ТІНІ:") if compact \
+			else ("Shadow quality:" if is_en else "Якість тіней:"),
+			16 if compact else 18, MenuUI.TEXT))
 	var sh_opt := OptionButton.new()
-	sh_opt.custom_minimum_size = Vector2(_fs(160), _fs(40))
+	sh_opt.custom_minimum_size = Vector2(_fs(96 if compact else 160), _fs(40))
 	_style_option_button(sh_opt)
 	var sh_items := ["Вимкнено", "Низька", "Середня", "Висока", "Ультра"]
 	for item in sh_items:
@@ -3363,9 +3519,11 @@ func _build_settings_tab_gfx() -> void:
 	# MSAA
 	var msaa_row := HBoxContainer.new()
 	msaa_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	msaa_row.add_child(_label("Згладжування (MSAA):", 18, MenuUI.TEXT))
+	msaa_row.add_child(_label(("MSAA:" if is_en else "MSAA:") if compact \
+			else ("Anti-aliasing (MSAA):" if is_en else "Згладжування (MSAA):"),
+			16 if compact else 18, MenuUI.TEXT))
 	var msaa_opt := OptionButton.new()
-	msaa_opt.custom_minimum_size = Vector2(_fs(160), _fs(40))
+	msaa_opt.custom_minimum_size = Vector2(_fs(80 if compact else 160), _fs(40))
 	_style_option_button(msaa_opt)
 	var msaa_items := ["Вимкнено", "2x", "4x", "8x", "16x"]
 	for item in msaa_items:
@@ -3382,11 +3540,13 @@ func _build_settings_tab_gfx() -> void:
 	# Fisheye mode
 	var fish_row := HBoxContainer.new()
 	fish_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	fish_row.add_child(_label("FPV-об'єктив (риб'яче око):", 18, MenuUI.TEXT))
+	fish_row.add_child(_label(("LENS:" if is_en else "ОБ'ЄКТИВ:") if compact \
+			else ("Fisheye lens:" if is_en else "FPV-об'єктив (риб'яче око):"),
+			16 if compact else 18, MenuUI.TEXT))
 	var fish_opt := OptionButton.new()
-	fish_opt.custom_minimum_size = Vector2(_fs(160), _fs(40))
+	fish_opt.custom_minimum_size = Vector2(_fs(88 if compact else 160), _fs(40))
 	_style_option_button(fish_opt)
-	var fish_items := ["Вимкнено", "Повний", "Швидкий"]
+	var fish_items := ["OFF", "FULL", "FAST"] if compact else ["Вимкнено", "Повний", "Швидкий"]
 	for item in fish_items:
 		fish_opt.add_item(item)
 	fish_opt.selected = clampi(int(Graphics.graphics_settings.get("fisheye_mode", 0)), 0, 2)
@@ -3400,12 +3560,15 @@ func _build_settings_tab_gfx() -> void:
 	# FPS limit
 	var fps_lim_row := HBoxContainer.new()
 	fps_lim_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	fps_lim_row.add_child(_label("Обмеження FPS:", 18, MenuUI.TEXT))
+	fps_lim_row.add_child(_label(("FPS LIMIT:" if is_en else "FPS ЛІМІТ:") if compact \
+			else ("FPS limit:" if is_en else "Обмеження FPS:"),
+			16 if compact else 18, MenuUI.TEXT))
 	var fps_lim_opt := OptionButton.new()
-	fps_lim_opt.custom_minimum_size = Vector2(_fs(190), _fs(40))
+	fps_lim_opt.custom_minimum_size = Vector2(_fs(100 if compact else 190), _fs(40))
 	_style_option_button(fps_lim_opt)
 	var fps_lim_vals := [0, 30, 60, 90, 120, 144]
-	var fps_lim_items := ["Без обмежень", "30", "60", "90", "120 (iPhone Pro)", "144"]
+	var fps_lim_items := ["UNLIMITED", "30", "60", "90", "120", "144"] if compact \
+			else ["Без обмежень", "30", "60", "90", "120 (iPhone Pro)", "144"]
 	for item in fps_lim_items:
 		fps_lim_opt.add_item(item)
 	var cur_fps_lim: int = int(Graphics.graphics_settings.get("fps_limit", 60))
@@ -3422,7 +3585,9 @@ func _build_settings_tab_gfx() -> void:
 	# V-Sync toggle
 	var vsync_row := HBoxContainer.new()
 	vsync_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vsync_row.add_child(_label("Вертикальна синхронізація (V-Sync):", 18, MenuUI.TEXT))
+	vsync_row.add_child(_label(("V-SYNC" if is_en else "V-SYNC") if compact \
+			else ("Vertical sync (V-Sync):" if is_en else "Вертикальна синхронізація (V-Sync):"),
+			16 if compact else 18, MenuUI.TEXT))
 	var vsync_sw := ToggleSwitch.new(bool(Graphics.graphics_settings.get("vsync", true)))
 	vsync_sw.toggled.connect(func(on: bool):
 		Graphics.graphics_settings["vsync"] = on
@@ -3433,8 +3598,10 @@ func _build_settings_tab_gfx() -> void:
 
 	sv.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
 
-	var reset_gfx_btn := _button("СКИНУТИ ГРАФІКУ ДО СТАНДАРТНИХ", 48)
-	reset_gfx_btn.custom_minimum_size.x = _fs(280)
+	var reset_gfx_text := ("RESET GRAPHICS" if MenuUI.is_english() else "СКИНУТИ ГРАФІКУ") if compact \
+			else ("RESET GRAPHICS TO DEFAULTS" if MenuUI.is_english() else "СКИНУТИ ГРАФІКУ ДО СТАНДАРТНИХ")
+	var reset_gfx_btn := _button(reset_gfx_text, 48)
+	reset_gfx_btn.custom_minimum_size.x = _fs(150 if compact else 280)
 	reset_gfx_btn.pressed.connect(func():
 		Graphics.reset_to_defaults()
 		_refresh_gfx_tab()
@@ -3451,6 +3618,7 @@ func _refresh_gfx_tab() -> void:
 
 
 func _build_settings_tab_sys() -> void:
+	var compact := _vsize().x < 700.0
 	var card := _panel(Color(0.025, 0.065, 0.05, 0.92), Color(0.38, 0.54, 0.42, 0.55), 1, 16)
 	card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_settings_body_container.add_child(card)
@@ -3467,20 +3635,26 @@ func _build_settings_tab_sys() -> void:
 	scroll.add_child(sv)
 
 	var is_en := MenuUI.is_english()
-	sv.add_child(_label("AUDIO & SYSTEM" if is_en else "ЗВУК ТА СИСТЕМА", 24, MenuUI.FPV_AMBER))
+	var sys_heading := ("AUDIO / SYSTEM" if is_en else "ЗВУК / СИСТЕМА") if compact \
+			else ("AUDIO & SYSTEM" if is_en else "ЗВУК ТА СИСТЕМА")
+	sv.add_child(_label(sys_heading, 18 if compact else 24, MenuUI.FPV_AMBER))
 
 	# 1. Master Volume
 	var vol_box := VBoxContainer.new()
 	vol_box.add_theme_constant_override("separation", _gap(6))
 	var vol_hdr := HBoxContainer.new()
-	vol_hdr.add_child(_label("Master Audio Volume" if is_en else "Загальна гучність аудіо", 20, MenuUI.TEXT))
+	vol_hdr.add_child(_label(("Volume" if is_en else "Гучність") if compact \
+			else ("Master Audio Volume" if is_en else "Загальна гучність аудіо"),
+			16 if compact else 20, MenuUI.TEXT))
 	var cur_vol: float = round(float(Audio.audio_settings.get("master_volume", 1.0)) * 100.0)
-	var vol_lbl := _label("%d%%" % int(cur_vol), 20, MenuUI.FPV_GREEN)
-	vol_lbl.custom_minimum_size.x = _fs(60)
+	var vol_lbl := _label("%d%%" % int(cur_vol), 16 if compact else 20, MenuUI.FPV_GREEN)
+	vol_lbl.custom_minimum_size.x = _fs(48 if compact else 60)
 	vol_hdr.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
 	vol_hdr.add_child(vol_lbl)
 	vol_box.add_child(vol_hdr)
-	vol_box.add_child(_label("Controls motors, prop wash, wind, radio and effects" if is_en else "Регулює звук моторів FPV, свист гвинтів, вітер та ефекти", 14, MenuUI.MUTED))
+	vol_box.add_child(_label(("Motors, wind, radio & FX" if is_en else "Мотори, вітер, радіо й ефекти") if compact \
+			else ("Controls motors, prop wash, wind, radio and effects" if is_en else "Регулює звук моторів FPV, свист гвинтів, вітер та ефекти"),
+			12 if compact else 14, MenuUI.MUTED))
 
 	var vol_slider := _slider(cur_vol, 0, 100, 1, func(val: float):
 		vol_lbl.text = "%d%%" % int(val)
@@ -3502,21 +3676,29 @@ func _build_settings_tab_sys() -> void:
 			{"id": "Warning", "uk": "Сигнали тривоги (Warning)", "en": "Low-Batt / Alerts (Warning)"},
 		]
 		var bus_grid := GridContainer.new()
-		bus_grid.columns = 2
+		bus_grid.columns = 1 if compact else 2
 		bus_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		bus_grid.add_theme_constant_override("h_separation", _gap(16))
 		bus_grid.add_theme_constant_override("v_separation", _gap(8))
 		for entry in bus_names:
 			var bid := str(entry["id"])
 			var btitle := str(entry["en" if is_en else "uk"])
+			if compact:
+				btitle = str({
+					"Engine": "ENGINE" if is_en else "МОТОРИ",
+					"Wind": "WIND" if is_en else "ВІТЕР",
+					"Combat": "COMBAT" if is_en else "БОЙОВІ",
+					"Radio": "RADIO" if is_en else "РАДІО",
+					"Warning": "ALERTS" if is_en else "ТРИВОГА",
+				}.get(bid, btitle))
 			var bval := roundf(float(Audio.get_subbus_volume_linear(bid)) * 100.0)
 			var bv := VBoxContainer.new()
 			bv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			bv.add_theme_constant_override("separation", _gap(2))
 			var bh := HBoxContainer.new()
-			bh.add_child(_label(btitle, 15, MenuUI.TEXT))
+			bh.add_child(_label(btitle, 14 if compact else 15, MenuUI.TEXT))
 			bh.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
-			var bl := _label("%d%%" % int(bval), 15, MenuUI.FPV_CYAN)
+			var bl := _label("%d%%" % int(bval), 14 if compact else 15, MenuUI.FPV_CYAN)
 			bh.add_child(bl)
 			bv.add_child(bh)
 			var bs := _slider(bval, 0, 100, 1, func(val: float):
@@ -3532,8 +3714,12 @@ func _build_settings_tab_sys() -> void:
 	var hap_box := HBoxContainer.new()
 	var hap_info := VBoxContainer.new()
 	hap_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hap_info.add_child(_label("Haptic Feedback (Vibration)" if is_en else "Тактильний відгук (Haptics / Вібрація)", 20, MenuUI.TEXT))
-	hap_info.add_child(_label("Taptic Engine feedback on G-force, landing and impacts" if is_en else "Вібрація Taptic Engine iPhone при перевантаженнях, торканні землі та вибухах", 14, MenuUI.MUTED))
+	hap_info.add_child(_label(("Haptics" if is_en else "Тактильний відгук") if compact \
+			else ("Haptic Feedback (Vibration)" if is_en else "Тактильний відгук (Haptics / Вібрація)"),
+			16 if compact else 20, MenuUI.TEXT))
+	hap_info.add_child(_label(("Impact / landing vibration" if is_en else "Вібрація при ударах і посадці") if compact \
+			else ("Taptic Engine feedback on G-force, landing and impacts" if is_en else "Вібрація Taptic Engine iPhone при перевантаженнях, торканні землі та вибухах"),
+			12 if compact else 14, MenuUI.MUTED))
 	hap_box.add_child(hap_info)
 	var is_hap: bool = bool(Global.menu_settings.get("haptics_enabled", true))
 	var hap_sw := ToggleSwitch.new(is_hap)
@@ -3548,12 +3734,18 @@ func _build_settings_tab_sys() -> void:
 	var safe_box := HBoxContainer.new()
 	var safe_info := VBoxContainer.new()
 	safe_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	safe_info.add_child(_label("iPhone Safe Area / Dynamic Island", 20, MenuUI.TEXT))
-	safe_info.add_child(_label("Automatic insets for Notch, Dynamic Island and Home bar" if is_en else "Автоматичні поля від динамічного острова (Dynamic Island) та закруглень", 14, MenuUI.MUTED))
+	safe_info.add_child(_label("Safe area" if compact else "iPhone Safe Area / Dynamic Island", 16 if compact else 20, MenuUI.TEXT))
+	safe_info.add_child(_label(("Notch / home bar" if is_en else "Виріз / домашня панель") if compact \
+			else ("Automatic insets for Notch, Dynamic Island and Home bar" if is_en else "Автоматичні поля від динамічного острова (Dynamic Island) та закруглень"),
+			12 if compact else 14, MenuUI.MUTED))
 	safe_box.add_child(safe_info)
 	var sm := MenuUI.get_safe_margins(_vsize())
-	var safe_tag := _label(("ACTIVE (L%d T%d R%d B%d)" if is_en else "АКТИВНА (Л%d В%d П%d Н%d)") % [
-		int(sm.get("left", 0)), int(sm.get("top", 0)), int(sm.get("right", 0)), int(sm.get("bottom", 0))], 16, MenuUI.FPV_GREEN)
+	var safe_tag_text := "ACTIVE" if is_en else "АКТИВНА"
+	if not compact:
+		safe_tag_text = ("ACTIVE (L%d T%d R%d B%d)" if is_en else "АКТИВНА (Л%d В%d П%d Н%d)") % [
+			int(sm.get("left", 0)), int(sm.get("top", 0)),
+			int(sm.get("right", 0)), int(sm.get("bottom", 0))]
+	var safe_tag := _label(safe_tag_text, 16, MenuUI.FPV_GREEN)
 	safe_box.add_child(safe_tag)
 	sv.add_child(safe_box)
 
@@ -3561,11 +3753,15 @@ func _build_settings_tab_sys() -> void:
 	var lang_box := HBoxContainer.new()
 	var lang_info := VBoxContainer.new()
 	lang_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	lang_info.add_child(_label("Interface & HUD Language" if is_en else "Мова інтерфейсу та HUD", 20, MenuUI.TEXT))
-	lang_info.add_child(_label("Switch between Ukrainian and English across menus and telemetry" if is_en else "Перемикання української та англійської мов для меню, дронів та OSD", 14, MenuUI.MUTED))
+	lang_info.add_child(_label(("Language" if is_en else "Мова інтерфейсу") if compact \
+			else ("Interface & HUD Language" if is_en else "Мова інтерфейсу та HUD"),
+			16 if compact else 20, MenuUI.TEXT))
+	lang_info.add_child(_label(("Menus and HUD language" if is_en else "Мова меню та HUD") if compact \
+			else ("Switch between Ukrainian and English across menus and telemetry" if is_en else "Перемикання української та англійської мов для меню, дронів та OSD"),
+			12 if compact else 14, MenuUI.MUTED))
 	lang_box.add_child(lang_info)
-	var lang_btn := _button("ENGLISH (EN) → UA" if is_en else "УКРАЇНСЬКА (UA) → EN", 42, true)
-	lang_btn.custom_minimum_size = Vector2(_ui_sz(230), _ui_sz(42))
+	var lang_btn := _button("EN / UA" if compact else ("ENGLISH (EN) → UA" if is_en else "УКРАЇНСЬКА (UA) → EN"), 42, true)
+	lang_btn.custom_minimum_size = Vector2(_ui_sz(100 if compact else 230), _ui_sz(42))
 	lang_btn.pressed.connect(func():
 		Loc.toggle_language()
 		MenuUI.localize_tree(self)
@@ -3578,14 +3774,17 @@ func _build_settings_tab_sys() -> void:
 	var gc_box := HBoxContainer.new()
 	var gc_info := VBoxContainer.new()
 	gc_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	gc_info.add_child(_label("Game Center & Records" if is_en else "Game Center та таблиця рекордів", 20, MenuUI.TEXT))
-	gc_info.add_child(_label(Global.get_leaderboard_summary(is_en), 14, MenuUI.MUTED))
+	gc_info.add_child(_label(("Records" if is_en else "Рекорди") if compact \
+			else ("Game Center & Records" if is_en else "Game Center та таблиця рекордів"),
+			16 if compact else 20, MenuUI.TEXT))
+	gc_info.add_child(_label(("Leaderboard" if is_en else "Таблиця лідерів") if compact \
+			else Global.get_leaderboard_summary(is_en), 12 if compact else 14, MenuUI.MUTED))
 	gc_box.add_child(gc_info)
-	var gc_btn := _button("OPEN" if is_en else "ВІДКРИТИ", 40, false)
+	var gc_btn := _button(("OPEN" if is_en else "ВІДКРИТИ"), 40, false)
 	gc_btn.icon = MenuIcons.icon_trophy(MenuUI.FPV_AMBER, 22)
 	gc_btn.expand_icon = false
 	gc_btn.add_theme_constant_override("h_separation", _gap(8))
-	gc_btn.custom_minimum_size = Vector2(_ui_sz(150), _ui_sz(40))
+	gc_btn.custom_minimum_size = Vector2(_ui_sz(88 if compact else 150), _ui_sz(40))
 	gc_btn.pressed.connect(func():
 		Global.open_game_center_leaderboard()
 	)
@@ -3624,6 +3823,9 @@ func _spacer(height: float, flags: int = Control.SIZE_SHRINK_CENTER) -> Control:
 
 
 func _exit_tree() -> void:
+	var vp := get_viewport()
+	if vp != null and vp.size_changed.is_connected(_on_mobile_viewport_resized):
+		vp.size_changed.disconnect(_on_mobile_viewport_resized)
 	if _prefetch_timer != null and is_instance_valid(_prefetch_timer):
 		_prefetch_timer.stop()
 		_prefetch_timer.queue_free()

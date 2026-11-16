@@ -65,8 +65,16 @@ func _run() -> void:
 				continue
 			var method_name := parts[0]
 			var file_stem := parts[1]
+			var method_arg := ""
+			if method_name.contains("="):
+				var call_parts := method_name.split("=", true, 1)
+				method_name = call_parts[0]
+				method_arg = call_parts[1]
 			if _screen.has_method(method_name):
-				_screen.call(method_name)
+				if method_arg.is_empty():
+					_screen.call(method_name)
+				else:
+					_screen.call(method_name, method_arg)
 			else:
 				print("[UISHOT] no method ", method_name)
 			await get_tree().create_timer(wait_time).timeout

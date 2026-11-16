@@ -8,6 +8,13 @@ extends AnimatableBody3D
 signal destroyed(points: int)
 
 enum Kind {TANK, APC, TRUCK, BMP, SAM, HELI, SHAHED}
+enum ShahedPhase {PATROL, APPROACH, DIVE, OVERSHOOT}
+
+const SHAHED_ACQUIRE_RANGE := 210.0
+const SHAHED_BREAK_OFF_RANGE := 265.0
+const SHAHED_DIVE_RANGE := 96.0
+const SHAHED_DIVE_PASS_TIMEOUT := 4.6
+const SHAHED_RECOVERY_TIME := 2.0
 
 ## Authored GLB models for all combat vehicle types.
 const MODEL_PATHS := {
@@ -113,6 +120,13 @@ var _reverse_left := 0.0
 var _retreating := false
 var _orbit_phase := 0.0
 var _last_obstacle_normal := Vector3.ZERO
+var _shahed_phase := ShahedPhase.PATROL
+var _shahed_phase_timer := 0.0
+var _shahed_attack_cooldown := 0.0
+var _shahed_dive_yaw := 0.0
+var _shahed_dive_start_position := Vector3.ZERO
+var _shahed_recovery_yaw := 0.0
+var _shahed_attack_resolved := false
 
 var _waypoints: PackedVector3Array = PackedVector3Array()
 var _wp_index := 0
@@ -302,7 +316,7 @@ func _configure_stats_by_kind() -> void:
 			max_health = 90.0
 			points = 500
 			fire_range = 0.0
-			_turn_rate = 1.6
+			_turn_rate = 1.9
 	if _variant_has("hp"):
 		max_health = float(_variant_get("hp", max_health))
 		points = int(_variant_get("points", points))
@@ -1251,6 +1265,11 @@ func set_waypoints(points: Array) -> void:
 		v.z = clampf(v.z, -lim, lim)
 		_waypoints.append(v)
 	_wp_index = 0
+	if kind == Kind.SHAHED:
+		_shahed_phase = ShahedPhase.PATROL
+		_shahed_phase_timer = 0.0
+		_shahed_attack_cooldown = 0.0
+		_shahed_attack_resolved = false
 	var info := _sample_ground(global_position.x, global_position.z)
 	_ground = info["y"]
 	_ground_normal = info["normal"]
@@ -1317,6 +1336,9 @@ func _physics_process(delta: float) -> void:
 
 
 func _move_along_route(delta: float) -> void:
+	if kind == Kind.SHAHED:
+		_move_shahed_along_route(delta)
+		return
 	var target := _waypoints[_wp_index]
 	var flat := target - global_position
 	flat.y = 0.0
@@ -1332,16 +1354,6 @@ func _move_along_route(delta: float) -> void:
 
 	var desired_yaw := atan2(-flat.x, -flat.z)
 	var effective_speed_boost := 1.0
-	# Shahed intercept: steer toward an armed drone instead of orbiting blindly
-	# once inside tactical engagement radius.
-	if kind == Kind.SHAHED and _drone != null and is_instance_valid(_drone):
-		var fc = _drone.get("flight_controller")
-		if fc != null and bool(fc.state_armed):
-			var to_drone := _drone.global_position - global_position
-			to_drone.y = 0.0
-			if to_drone.length() < 140.0 and to_drone.length_squared() > 0.01:
-				desired_yaw = atan2(-to_drone.x, -to_drone.z)
-				effective_speed_boost = 1.25
 	if meander_amplitude > 0.0 and not _engaging and kind != Kind.HELI and kind != Kind.SHAHED:
 		_weave_phase += delta * (0.75 if kind == Kind.TANK else 1.25)
 		desired_yaw += sin(_weave_phase) * meander_amplitude
@@ -1468,6 +1480,203 @@ func _move_along_route(delta: float) -> void:
 	_enforce_map_bounds()
 
 
+## Shahed-136 attack profile: patrol its route, commit to a short lead pursuit,
+## then make a steep, non-orbiting dive.  A pass triggers a proximity warhead
+## and a straight overshoot/recovery before the next attack run.
+func _move_shahed_along_route(delta: float) -> void:
+	if _waypoints.is_empty():
+		_step = 0.0
+		return
+	if _wp_index < 0 or _wp_index >= _waypoints.size():
+		_wp_index = 0
+
+	_update_shahed_attack_state(delta)
+	var route_target := _waypoints[_wp_index]
+	var route_flat := route_target - global_position
+	route_flat.y = 0.0
+	if _shahed_phase == ShahedPhase.PATROL and route_flat.length() < 8.0:
+		_wp_index = (_wp_index + 1) % _waypoints.size()
+		route_target = _waypoints[_wp_index]
+		route_flat = route_target - global_position
+		route_flat.y = 0.0
+
+	var desired_yaw := atan2(-route_flat.x, -route_flat.z)
+	var speed_boost := 1.0
+	if _shahed_phase == ShahedPhase.APPROACH or _shahed_phase == ShahedPhase.DIVE:
+		var aim := _shahed_aim_position()
+		var to_aim := aim - global_position
+		to_aim.y = 0.0
+		if _shahed_phase == ShahedPhase.DIVE:
+			desired_yaw = _shahed_dive_yaw
+			speed_boost = 1.30
+		else:
+			if to_aim.length_squared() > 0.01:
+				desired_yaw = atan2(-to_aim.x, -to_aim.z)
+			speed_boost = 1.14
+	elif _shahed_phase == ShahedPhase.OVERSHOOT:
+		desired_yaw = _shahed_recovery_yaw
+		speed_boost = 1.10
+
+	var lim := _arena_limit()
+	var margin := 12.0
+	if absf(global_position.x) > lim - margin or absf(global_position.z) > lim - margin:
+		var fwd_desired := Vector3(-sin(desired_yaw), 0.0, -cos(desired_yaw))
+		var moving_out := (global_position.x > lim - margin and fwd_desired.x > 0.0) \
+				or (global_position.x < -(lim - margin) and fwd_desired.x < 0.0) \
+				or (global_position.z > lim - margin and fwd_desired.z > 0.0) \
+				or (global_position.z < -(lim - margin) and fwd_desired.z < 0.0)
+		if moving_out:
+			var inward := Vector3(-global_position.x, 0.0, -global_position.z)
+			if inward.length_squared() > 0.01:
+				desired_yaw = lerp_angle(desired_yaw,
+						atan2(-inward.x, -inward.z), 0.72)
+
+	var yaw_diff := angle_difference(rotation.y, desired_yaw)
+	var prev_yaw := rotation.y
+	rotation.y = lerp_angle(rotation.y, desired_yaw,
+			clampf(delta * _turn_rate, 0.0, 1.0))
+	_yaw_vel = angle_difference(prev_yaw, rotation.y) / maxf(delta, 0.001)
+	_steer_angle = clampf(yaw_diff * 0.65, -0.46, 0.46)
+	rotation.z = lerpf(rotation.z,
+			clampf(-yaw_diff * 0.45, -0.40, 0.40), clampf(delta * 3.0, 0.0, 1.0))
+	var pitch_target := 0.0
+	match _shahed_phase:
+		ShahedPhase.APPROACH:
+			pitch_target = -0.08
+		ShahedPhase.DIVE:
+			pitch_target = -0.48
+		ShahedPhase.OVERSHOOT:
+			pitch_target = 0.18
+	rotation.x = lerpf(rotation.x, pitch_target, clampf(delta * 2.8, 0.0, 1.0))
+
+	var speed := move_speed * _damage_speed_mult * speed_boost
+	_step = speed * delta
+	var forward := Vector3(-sin(rotation.y), 0.0, -cos(rotation.y))
+	if forward.length_squared() > 0.001:
+		global_position += forward.normalized() * _step
+	_enforce_map_bounds()
+	_shahed_check_attack_pass()
+
+
+func _shahed_target_armed() -> bool:
+	if not hostile or is_destroyed or _combat_disabled():
+		return false
+	if _drone == null or not is_instance_valid(_drone):
+		var level := _find_level_scene()
+		if level != null:
+			_drone = level.get_node_or_null("Drone") as Node3D
+	if _drone == null or not is_instance_valid(_drone):
+		return false
+	var controller = _drone.get("flight_controller")
+	return controller != null and bool(controller.state_armed)
+
+
+func _update_shahed_attack_state(delta: float) -> void:
+	if not _shahed_target_armed():
+		_shahed_phase = ShahedPhase.PATROL
+		_shahed_phase_timer = 0.0
+		_shahed_attack_cooldown = 0.0
+		_shahed_attack_resolved = false
+		return
+	var to_target := _drone.global_position - global_position
+	var flat_to_target := Vector3(to_target.x, 0.0, to_target.z)
+	var distance := flat_to_target.length()
+	match _shahed_phase:
+		ShahedPhase.PATROL:
+			_shahed_attack_cooldown = maxf(_shahed_attack_cooldown - delta, 0.0)
+			if distance <= SHAHED_ACQUIRE_RANGE and _shahed_attack_cooldown <= 0.0:
+				_shahed_phase = ShahedPhase.APPROACH
+				_shahed_phase_timer = 0.0
+		ShahedPhase.APPROACH:
+			_shahed_phase_timer += delta
+			if distance > SHAHED_BREAK_OFF_RANGE:
+				_shahed_phase = ShahedPhase.PATROL
+				_shahed_attack_cooldown = 0.8
+			elif distance <= SHAHED_DIVE_RANGE:
+				var aim := _shahed_aim_position()
+				var to_aim := aim - global_position
+				to_aim.y = 0.0
+				if to_aim.length_squared() > 0.01:
+					var aim_yaw := atan2(-to_aim.x, -to_aim.z)
+					var aligned := absf(angle_difference(rotation.y, aim_yaw)) <= deg_to_rad(52.0)
+					if not aligned and distance > 36.0:
+						return
+					_shahed_dive_yaw = aim_yaw
+				else:
+					_shahed_dive_yaw = rotation.y
+				_shahed_phase = ShahedPhase.DIVE
+				_shahed_phase_timer = 0.0
+				_shahed_attack_resolved = false
+				_shahed_dive_start_position = global_position
+		ShahedPhase.DIVE:
+			_shahed_phase_timer += delta
+			if distance > SHAHED_BREAK_OFF_RANGE or _shahed_phase_timer > SHAHED_DIVE_PASS_TIMEOUT:
+				_shahed_begin_overshoot()
+		ShahedPhase.OVERSHOOT:
+			_shahed_phase_timer += delta
+			if _shahed_phase_timer >= SHAHED_RECOVERY_TIME:
+				_shahed_phase = ShahedPhase.PATROL
+				_shahed_phase_timer = 0.0
+				_shahed_attack_cooldown = 1.2
+
+
+func _shahed_aim_position() -> Vector3:
+	if _drone == null or not is_instance_valid(_drone):
+		return global_position
+	var target_pos := _drone.global_position
+	var target_velocity := Vector3.ZERO
+	if _drone is RigidBody3D:
+		target_velocity = (_drone as RigidBody3D).linear_velocity
+	else:
+		var velocity_value = _drone.get("linear_velocity")
+		if velocity_value is Vector3:
+			target_velocity = velocity_value
+	var lead := clampf(global_position.distance_to(target_pos) / maxf(move_speed, 1.0),
+			0.15, 0.85)
+	return target_pos + target_velocity * lead
+
+
+func _shahed_check_attack_pass() -> void:
+	if _shahed_phase != ShahedPhase.DIVE or _shahed_attack_resolved \
+			or not _shahed_target_armed():
+		return
+	var to_target := _drone.global_position - global_position
+	var flat_to_target := Vector3(to_target.x, 0.0, to_target.z)
+	var forward := Vector3(-sin(rotation.y), 0.0, -cos(rotation.y))
+	var horizontal_distance := flat_to_target.length()
+	var dive_travel := global_position.distance_to(_shahed_dive_start_position)
+	var passed_target := flat_to_target.dot(forward) < -3.0 \
+			and horizontal_distance < 30.0 and dive_travel > 10.0
+	if global_position.distance_to(_drone.global_position) <= 9.5:
+		_shahed_attack_resolved = true
+		var level := _find_level_scene()
+		var combat := level.get_node_or_null("CombatSystem") if level != null else null
+		if combat != null and combat.has_method("damage_drone"):
+			var damage := 36.0
+			if Global.difficulty == Global.Difficulty.RECRUIT:
+				damage = 25.0
+			elif Global.difficulty == Global.Difficulty.ACE:
+				damage = 46.0
+			combat.call("damage_drone", damage, _drone.global_position, global_position)
+		if get_parent() != null:
+			ExplosionScript.spawn(get_parent(), global_position, 6.0, 0.0)
+		if OS.has_environment("DRONE_SHAHED_DEBUG"):
+			print("[SHAHED] proximity warhead hit at ", global_position)
+		_shahed_begin_overshoot()
+	elif passed_target or _shahed_phase_timer >= SHAHED_DIVE_PASS_TIMEOUT:
+		if OS.has_environment("DRONE_SHAHED_DEBUG"):
+			print("[SHAHED] attack pass missed; re-attack after recovery")
+		_shahed_begin_overshoot()
+
+
+func _shahed_begin_overshoot() -> void:
+	_shahed_phase = ShahedPhase.OVERSHOOT
+	_shahed_phase_timer = 0.0
+	_shahed_recovery_yaw = rotation.y
+	_shahed_attack_cooldown = SHAHED_RECOVERY_TIME + 1.2
+	_shahed_attack_resolved = true
+
+
 func _is_path_blocked(forward: Vector3, dist: float) -> bool:
 	# Cast past the front bumper rather than only from the center of the chassis.
 	var probe_dist := maxf(dist, _half_len + 2.2)
@@ -1543,9 +1752,25 @@ func _update_height(delta: float) -> void:
 		var info := _sample_ground(global_position.x, global_position.z)
 		gy = float(info["y"])
 		n = info["normal"]
-	if kind == Kind.HELI or kind == Kind.SHAHED:
+	if kind == Kind.HELI:
 		global_position.y = lerpf(global_position.y, gy + cruise_height,
 				clampf(delta * 2.0, 0.0, 1.0))
+	elif kind == Kind.SHAHED:
+		if _shahed_phase == ShahedPhase.DIVE and _shahed_target_armed():
+			# The cruise-altitude servo yields during an attack run.  Keep a small
+			# terrain/rotor clearance while descending toward the drone's altitude.
+			var dive_floor := gy + 4.5
+			var attack_height := minf(global_position.y, _drone.global_position.y + 2.0)
+			var target_height := maxf(dive_floor, attack_height)
+			global_position.y = move_toward(global_position.y, target_height,
+					delta * 22.0)
+		elif _shahed_phase == ShahedPhase.OVERSHOOT:
+			var recovery_height := gy + maxf(cruise_height + 9.0, 42.0)
+			global_position.y = move_toward(global_position.y, recovery_height,
+					delta * 15.0)
+		else:
+			global_position.y = lerpf(global_position.y, gy + cruise_height,
+					clampf(delta * 2.0, 0.0, 1.0))
 	else:
 		# Strictly clamp ground vehicles to the terrain surface so they never float.
 		_ground = lerpf(_ground, gy, clampf(delta * 18.0, 0.0, 1.0))

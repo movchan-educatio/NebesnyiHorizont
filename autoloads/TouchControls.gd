@@ -77,12 +77,28 @@ var _spring_button: Button = null
 var _tilt_down_button: Button = null
 var _tilt_up_button: Button = null
 var _panel_menu_button: Button = null
+var _layout_button: Button = null
 var _left_anchor := Vector2.ZERO
 var _right_anchor := Vector2.ZERO
 var _touch_floating_sticks := false
 var _touch_left_spring := false
 var _touch_sensitivity := 1.0
 var _touch_expo := 0.2
+var _touch_ui_scale := 1.0
+var _touch_layout_positions: Dictionary = {}
+var _layout_editor_root: Control = null
+var _layout_toolbar: PanelContainer = null
+var _layout_editor_title: Label = null
+var _layout_editor_hint: Label = null
+var _layout_reset_button: Button = null
+var _layout_done_button: Button = null
+var _layout_scale_slider: HSlider = null
+var _layout_scale_label: Label = null
+var _layout_editing := false
+var _layout_close_preview_after := false
+var _layout_drag_id := ""
+var _layout_drag_pointer := NO_TOUCH
+var _layout_drag_offset := Vector2.ZERO
 
 
 func _tx(ua: String, en: String) -> String:
@@ -104,7 +120,7 @@ func _ready() -> void:
 
 	_arm_button = Button.new()
 	_arm_button.name = "TouchArmButton"
-	_arm_button.text = _tx("АРМ", "ARM")
+	_arm_button.text = _tx("ARM", "ARM")
 	_arm_button.focus_mode = Control.FOCUS_NONE
 	_arm_button.mouse_filter = Control.MOUSE_FILTER_STOP
 	_arm_button.add_theme_font_size_override("font_size", 28)
@@ -151,6 +167,7 @@ func _ready() -> void:
 	_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_toast.visible = false
 	_root.add_child(_toast)
+	_build_layout_editor()
 
 	visible = false
 	set_process_input(false)
@@ -162,13 +179,25 @@ func _ready() -> void:
 
 func _refresh_language_labels() -> void:
 	if _arm_button != null:
-		_arm_button.text = _tx("АРМ", "ARM")
+		_arm_button.text = _tx("ARM", "ARM")
 	if _pause_button != null:
 		_pause_button.text = _tx("МЕНЮ", "MENU")
 	if _more_button != null and _more_button.icon == null:
 		_more_button.text = _tx("ОПЦ", "OPTIONS")
 	if _drop_button != null:
 		_drop_button.text = _tx("СКИД", "DROP")
+	if _layout_button != null:
+		_layout_button.text = _tx("НАЛАШТУВАТИ ЕКРАН", "CUSTOMIZE TOUCH LAYOUT")
+	if _layout_editor_title != null:
+		_layout_editor_title.text = _tx("РОЗТАШУВАННЯ СЕНСОРНОГО HUD", "TOUCH HUD LAYOUT")
+	if _layout_editor_hint != null:
+		_layout_editor_hint.text = _tx(
+				"Перетягніть стіки й кнопки · масштаб змінює весь HUD",
+				"Drag sticks/buttons · scale adjusts the whole HUD")
+	if _layout_reset_button != null:
+		_layout_reset_button.text = _tx("СКИНУТИ", "RESET")
+	if _layout_done_button != null:
+		_layout_done_button.text = _tx("ГОТОВО", "DONE")
 	if _setup_root != null:
 		MenuUI.localize_tree(_setup_root)
 	_refresh_more_panel_labels()
@@ -226,8 +255,8 @@ func set_menu_preview(on: bool) -> void:
 			_setup_root.visible = false
 		_drawer.queue_redraw()
 		return
-	if not _preview:
-		return
+		if not _preview:
+			return
 	_preview = false
 	process_mode = Node.PROCESS_MODE_INHERIT
 	set_enabled(false)
@@ -237,6 +266,30 @@ func set_menu_preview(on: bool) -> void:
 			b.visible = true
 	if _drop_button != null:
 		_drop_button.visible = false
+
+
+## Open the full layout editor from the Controls screen's touch preview or
+## from the in-flight quick-options drawer.
+func open_layout_editor(close_preview_after: bool = false) -> void:
+	_layout_close_preview_after = close_preview_after
+	if not enabled and not _preview:
+		# Explicit menu access works with mouse input too, so players can arrange
+		# their phone layout before launching a sortie.
+		_preview = true
+		process_mode = Node.PROCESS_MODE_ALWAYS
+		enabled = true
+		visible = true
+		set_process_input(true)
+		touch_mode = true
+		_layout()
+		_reset_sticks()
+		for button in [_pause_button, _flight_button, _setup_button, _drop_button,
+				_reset_button, _video_button, _mode_button, _more_button]:
+			if button != null:
+				button.visible = false
+		if _more_panel != null:
+			_more_panel.visible = false
+	_on_layout_edit_pressed()
 
 
 func _should_enable() -> bool:
@@ -344,6 +397,11 @@ func set_enabled(value: bool) -> void:
 		_update_mode_button()
 		_refresh_more_panel_labels()
 	else:
+		_layout_editing = false
+		_layout_drag_id = ""
+		_layout_drag_pointer = NO_TOUCH
+		if _layout_editor_root != null:
+			_layout_editor_root.visible = false
 		_bar_open = false
 		if _more_panel != null:
 			_more_panel.visible = false
@@ -379,6 +437,14 @@ func refresh_touch_settings() -> void:
 		_touch_left_spring = bool(ms.get("touch_left_spring", false))
 		_touch_sensitivity = clampf(float(ms.get("touch_sensitivity", 1.0)), 0.4, 1.6)
 		_touch_expo = clampf(float(ms.get("touch_expo", 0.2)), 0.0, 0.7)
+		_touch_ui_scale = clampf(float(ms.get("touch_layout_scale", 1.0)), 0.7, 1.4)
+		var saved_positions: Variant = ms.get("touch_layout_positions", {})
+		_touch_layout_positions.clear()
+		if saved_positions is Dictionary:
+			for key in (saved_positions as Dictionary).keys():
+				var saved_position: Variant = (saved_positions as Dictionary)[key]
+				if saved_position is Vector2:
+					_touch_layout_positions[str(key)] = saved_position
 	_refresh_more_panel_labels()
 
 
@@ -459,6 +525,12 @@ func _build_more_panel() -> void:
 	_panel_menu_button.name = "TouchPanelMenuButton"
 	vb.add_child(_panel_menu_button)
 
+	_layout_button = _make_quick_btn(
+			_tx("НАЛАШТУВАТИ ЕКРАН", "CUSTOMIZE TOUCH LAYOUT"),
+			open_layout_editor)
+	_layout_button.name = "TouchLayoutButton"
+	vb.add_child(_layout_button)
+
 
 func _refresh_more_panel_labels() -> void:
 	if _float_button != null:
@@ -474,7 +546,8 @@ func _refresh_more_panel_labels() -> void:
 
 func _style_more_panel_buttons() -> void:
 	for b in [_float_button, _spring_button, _tilt_down_button, _tilt_up_button,
-			_flight_button, _mode_button, _video_button, _reset_button, _panel_menu_button]:
+			_flight_button, _mode_button, _video_button, _reset_button,
+			_panel_menu_button, _layout_button]:
 		if b == null:
 			continue
 		var active := false
@@ -484,6 +557,8 @@ func _style_more_panel_buttons() -> void:
 			active = _touch_left_spring
 		elif b == _mode_button:
 			active = touch_mode
+		elif b == _layout_button:
+			active = _layout_editing
 		var n := StyleBoxFlat.new()
 		n.bg_color = Color(0.11, 0.24, 0.16, 0.94) if active else Color(0.05, 0.09, 0.08, 0.90)
 		n.border_color = Color(0.55, 0.90, 0.65, 0.85) if active else Color(0.45, 0.65, 0.52, 0.50)
@@ -494,6 +569,160 @@ func _style_more_panel_buttons() -> void:
 		b.add_theme_stylebox_override("normal", n)
 		b.add_theme_stylebox_override("hover", n)
 		b.add_theme_stylebox_override("pressed", p)
+
+
+func _build_layout_editor() -> void:
+	_layout_editor_root = Control.new()
+	_layout_editor_root.name = "TouchLayoutEditor"
+	_layout_editor_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_layout_editor_root.process_mode = Node.PROCESS_MODE_ALWAYS
+	_layout_editor_root.visible = false
+	_root.add_child(_layout_editor_root)
+
+	_layout_toolbar = PanelContainer.new()
+	_layout_toolbar.name = "TouchLayoutToolbar"
+	_layout_toolbar.mouse_filter = Control.MOUSE_FILTER_STOP
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.025, 0.055, 0.043, 0.97)
+	panel_style.border_color = Color(0.48, 0.72, 0.55, 0.88)
+	panel_style.set_border_width_all(1)
+	panel_style.set_corner_radius_all(12)
+	panel_style.content_margin_left = 14
+	panel_style.content_margin_right = 14
+	panel_style.content_margin_top = 10
+	panel_style.content_margin_bottom = 10
+	_layout_toolbar.add_theme_stylebox_override("panel", panel_style)
+	_layout_editor_root.add_child(_layout_toolbar)
+
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 5)
+	_layout_toolbar.add_child(vb)
+	_layout_editor_title = Label.new()
+	_layout_editor_title.text = _tx("РОЗТАШУВАННЯ СЕНСОРНОГО HUD",
+			"TOUCH HUD LAYOUT")
+	_layout_editor_title.add_theme_font_size_override("font_size", 16)
+	_layout_editor_title.add_theme_color_override("font_color", Color(0.84, 0.95, 0.87))
+	vb.add_child(_layout_editor_title)
+	_layout_editor_hint = Label.new()
+	_layout_editor_hint.text = _tx("Перетягніть стіки й кнопки · масштаб змінює весь HUD",
+			"Drag sticks/buttons · scale adjusts the whole HUD")
+	_layout_editor_hint.add_theme_font_size_override("font_size", 11)
+	_layout_editor_hint.add_theme_color_override("font_color", Color(0.68, 0.80, 0.72))
+	vb.add_child(_layout_editor_hint)
+
+	var scale_row := HBoxContainer.new()
+	scale_row.add_theme_constant_override("separation", 10)
+	vb.add_child(scale_row)
+	_layout_scale_label = Label.new()
+	_layout_scale_label.custom_minimum_size.x = 78.0
+	_layout_scale_label.add_theme_font_size_override("font_size", 13)
+	_layout_scale_label.add_theme_color_override("font_color", Color(0.90, 0.94, 0.90))
+	scale_row.add_child(_layout_scale_label)
+	_layout_scale_slider = HSlider.new()
+	_layout_scale_slider.min_value = 0.7
+	_layout_scale_slider.max_value = 1.4
+	_layout_scale_slider.step = 0.05
+	_layout_scale_slider.value = _touch_ui_scale
+	_layout_scale_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_layout_scale_slider.custom_minimum_size = Vector2(160.0, 28.0)
+	_layout_scale_slider.value_changed.connect(_on_layout_scale_changed)
+	_layout_scale_slider.drag_ended.connect(_on_layout_scale_drag_ended)
+	scale_row.add_child(_layout_scale_slider)
+
+	var action_row := HBoxContainer.new()
+	action_row.add_theme_constant_override("separation", 8)
+	vb.add_child(action_row)
+	_layout_reset_button = Button.new()
+	_layout_reset_button.name = "TouchLayoutReset"
+	_layout_reset_button.text = _tx("СКИНУТИ", "RESET")
+	_layout_reset_button.custom_minimum_size = Vector2(110.0, 40.0)
+	_layout_reset_button.pressed.connect(_on_layout_reset_pressed)
+	action_row.add_child(_layout_reset_button)
+	_layout_done_button = Button.new()
+	_layout_done_button.name = "TouchLayoutDone"
+	_layout_done_button.text = _tx("ГОТОВО", "DONE")
+	_layout_done_button.custom_minimum_size = Vector2(110.0, 40.0)
+	_layout_done_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_layout_done_button.pressed.connect(_on_layout_done_pressed)
+	action_row.add_child(_layout_done_button)
+	_update_layout_scale_label()
+
+
+func _on_layout_edit_pressed() -> void:
+	if _layout_editing:
+		return
+	Haptics.trigger_ui_tap()
+	_bar_open = false
+	_layout_editing = true
+	_layout_drag_id = ""
+	if _preview and _arm_button != null:
+		_arm_button.visible = true
+	_apply_top_bar_visibility()
+	if _layout_editor_root != null:
+		_layout_editor_root.visible = true
+	if _layout_scale_slider != null:
+		_layout_scale_slider.set_value_no_signal(_touch_ui_scale)
+	_update_layout_scale_label()
+	_layout()
+	if _drawer != null:
+		_drawer.queue_redraw()
+	_show_toast(_tx("ПЕРЕТЯГНІТЬ СТІКИ Й КНОПКИ", "DRAG STICKS AND BUTTONS"))
+
+
+func _on_layout_done_pressed() -> void:
+	if not _layout_editing:
+		return
+	var close_preview := _layout_close_preview_after
+	_layout_close_preview_after = false
+	_layout_editing = false
+	_layout_drag_id = ""
+	_layout_drag_pointer = NO_TOUCH
+	if _layout_editor_root != null:
+		_layout_editor_root.visible = false
+	if _preview and _arm_button != null:
+		_arm_button.visible = false
+	_save_touch_layout()
+	_reset_sticks()
+	_apply_top_bar_visibility()
+	_layout()
+	if _drawer != null:
+		_drawer.queue_redraw()
+	_show_toast(_tx("РОЗКЛАДКУ ЗБЕРЕЖЕНО", "LAYOUT SAVED"))
+	if close_preview and _preview:
+		set_menu_preview(false)
+
+
+func _on_layout_reset_pressed() -> void:
+	_touch_layout_positions.clear()
+	_touch_ui_scale = 1.0
+	if _layout_scale_slider != null:
+		_layout_scale_slider.set_value_no_signal(_touch_ui_scale)
+	_update_layout_scale_label()
+	_layout()
+	_save_touch_layout()
+	if _drawer != null:
+		_drawer.queue_redraw()
+	_show_toast(_tx("СТАНДАРТНУ РОЗКЛАДКУ ВІДНОВЛЕНО",
+				"DEFAULT LAYOUT RESTORED"))
+
+
+func _on_layout_scale_changed(value: float) -> void:
+	_touch_ui_scale = clampf(value, 0.7, 1.4)
+	_update_layout_scale_label()
+	_layout()
+	if _drawer != null:
+		_drawer.queue_redraw()
+
+
+func _on_layout_scale_drag_ended(value_changed: bool) -> void:
+	if value_changed:
+		_save_touch_layout()
+
+
+func _update_layout_scale_label() -> void:
+	if _layout_scale_label != null:
+		_layout_scale_label.text = _tx("РОЗМІР %d%%", "SIZE %d%%") \
+				% int(roundf(_touch_ui_scale * 100.0))
 
 
 func _on_toggle_floating_sticks() -> void:
@@ -585,7 +814,7 @@ func _on_more_pressed() -> void:
 
 
 func _apply_top_bar_visibility() -> void:
-	var live := enabled and not _preview
+	var live := enabled and (not _preview or _layout_editing)
 	if _pause_button != null:
 		_pause_button.visible = live
 	if _more_button != null:
@@ -616,25 +845,34 @@ func _layout() -> void:
 		maxf(float(safe_dict.get("right", 0.0)), MenuUI.mobile_notch_insets(vs).z),
 		maxf(float(safe_dict.get("bottom", 0.0)), MenuUI.mobile_notch_insets(vs).w)
 	)
+	var scale := _touch_ui_scale
 	if _preview:
 		# Menu calibration: compact sticks in the bottom corners keep the
 		# instruction card and action buttons clear in the middle.  The UI
 		# canvas is 1080 units high on a phone (canvas_items stretch), hence
 		# the larger radius than the raw physical window might suggest.
-		_radius = clampf(minf(vs.x, vs.y) * 0.115, 96.0, 120.0)
+		_radius = clampf(minf(vs.x, vs.y) * 0.115 * scale, 64.0, 156.0)
 		var preview_bottom := vs.y - 16.0 - notch.w
-		_left_anchor = Vector2(_radius + 34.0 + notch.x, preview_bottom - _radius)
-		_right_anchor = Vector2(vs.x - _radius - 34.0 - notch.z, preview_bottom - _radius)
+		var left_default := Vector2(_radius + 34.0 + notch.x, preview_bottom - _radius)
+		var right_default := Vector2(vs.x - _radius - 34.0 - notch.z, preview_bottom - _radius)
+		_left_anchor = _clamp_stick_center(true,
+				_saved_layout_center("left", left_default, vs), vs, notch)
+		_right_anchor = _clamp_stick_center(false,
+				_saved_layout_center("right", right_default, vs), vs, notch)
 	else:
 		# Larger sticks pulled in from the edges and lifted clear of the
 		# home-indicator strip.  The pilot's thumbs naturally rest at
 		# 28 % / 72 % of the width.
-		_radius = clampf(minf(vs.x, vs.y) * 0.16, 86.0, 176.0)
+		_radius = clampf(minf(vs.x, vs.y) * 0.16 * scale, 64.0, 220.0)
 		var bottom := vs.y - maxf(64.0, notch.w + 16.0)
-		_left_anchor = Vector2(maxf(vs.x * 0.28, _radius + notch.x + 12.0),
+		var left_default := Vector2(maxf(vs.x * 0.28, _radius + notch.x + 12.0),
 				bottom - _radius)
-		_right_anchor = Vector2(minf(vs.x * 0.72,
+		var right_default := Vector2(minf(vs.x * 0.72,
 				vs.x - _radius - notch.z - 12.0), bottom - _radius)
+		_left_anchor = _clamp_stick_center(true,
+				_saved_layout_center("left", left_default, vs), vs, notch)
+		_right_anchor = _clamp_stick_center(false,
+				_saved_layout_center("right", right_default, vs), vs, notch)
 	if _left_index == NO_TOUCH:
 		_left_center = _left_anchor
 	if _right_index == NO_TOUCH:
@@ -643,32 +881,52 @@ func _layout() -> void:
 	# telemetry & 3-line mission badge HUD rows (bottom ~158) while leaving
 	# the left thumb stick clear.
 	var side_x := 18.0 + notch.x
-	var menu_w := 132.0
-	var menu_h := 54.0
-	var more_h := 48.0
-	var min_side_y := notch.y + 178.0
+	var menu_w := 132.0 * scale
+	var menu_h := 54.0 * scale
+	var more_h := 48.0 * scale
+	var min_side_y := notch.y + 178.0 * scale
 	var max_side_y := maxf(min_side_y, _left_anchor.y - _radius - menu_h - more_h - 14.0)
 	var side_y := clampf(min_side_y, min_side_y, max_side_y)
 	if _pause_button != null and _more_button != null:
-		_pause_button.position = Vector2(side_x, side_y)
 		_pause_button.size = Vector2(menu_w, menu_h)
-		_more_button.position = Vector2(side_x, side_y + menu_h + 8.0)
 		_more_button.size = Vector2(menu_w, more_h)
+		var menu_center_default := Vector2(side_x + menu_w * 0.5, side_y + menu_h * 0.5)
+		var more_center_default := Vector2(side_x + menu_w * 0.5,
+				side_y + menu_h + 8.0 * scale + more_h * 0.5)
+		var menu_center := _clamp_layout_button_center(
+				_saved_layout_center("menu", menu_center_default, vs), _pause_button.size, vs, notch)
+		var more_center := _clamp_layout_button_center(
+				_saved_layout_center("options", more_center_default, vs), _more_button.size, vs, notch)
+		_pause_button.position = menu_center - _pause_button.size * 0.5
+		_more_button.position = more_center - _more_button.size * 0.5
+		_pause_button.add_theme_font_size_override("font_size", int(roundf(22.0 * scale)))
+		_more_button.add_theme_font_size_override("font_size", int(roundf(22.0 * scale)))
 	if _more_panel != null:
-		var panel_w := clampf(344.0, 240.0, maxf(240.0, vs.x - side_x - menu_w - notch.z - 22.0))
-		var panel_h := minf(276.0, maxf(190.0, vs.y - side_y - notch.w - 16.0))
-		_more_panel.position = Vector2(side_x + menu_w + 10.0, side_y)
+		var panel_w := clampf(344.0 * scale, 240.0, maxf(240.0, vs.x - notch.x - notch.z - 24.0))
+		var panel_h := minf(360.0, maxf(220.0, vs.y - notch.y - notch.w - 24.0))
+		var panel_x := _more_button.position.x + _more_button.size.x + 10.0
+		panel_x = clampf(panel_x, notch.x + 8.0, maxf(notch.x + 8.0, vs.x - notch.z - panel_w - 8.0))
+		var panel_y := clampf(_more_button.position.y, notch.y + 8.0,
+				maxf(notch.y + 8.0, vs.y - notch.w - panel_h - 8.0))
+		_more_panel.position = Vector2(panel_x, panel_y)
 		_more_panel.size = Vector2(panel_w, panel_h)
 	_apply_top_bar_visibility()
-	var arm_w := 220.0
-	var arm_x := clampf(vs.x * 0.5 - arm_w * 0.5, notch.x + 12.0, vs.x - notch.z - arm_w - 12.0)
-	var arm_y := clampf(vs.y - 170.0 - notch.w, notch.y + 80.0, vs.y - notch.w - 92.0)
-	_arm_button.position = Vector2(arm_x, arm_y)
-	_arm_button.size = Vector2(arm_w, 78.0)
-	var drop_size := clampf(_radius * 0.60, 78.0, 106.0)
-	_drop_button.position = Vector2(_left_anchor.x + _radius + 24.0,
-			_left_anchor.y - drop_size * 0.5)
-	_drop_button.size = Vector2(drop_size, drop_size)
+	var arm_size := Vector2(220.0, 78.0) * scale
+	var arm_default := Vector2(vs.x * 0.5,
+			vs.y - 131.0 * scale - notch.w)
+	var arm_center := _clamp_layout_button_center(
+			_saved_layout_center("arm", arm_default, vs), arm_size, vs, notch)
+	_arm_button.position = arm_center - arm_size * 0.5
+	_arm_button.size = arm_size
+	_arm_button.add_theme_font_size_override("font_size", int(roundf(28.0 * scale)))
+	var drop_size := clampf(_radius * 0.60, 64.0, 126.0)
+	var drop_control_size := Vector2.ONE * drop_size
+	var drop_default := Vector2(_left_anchor.x + _radius + 24.0 * scale + drop_size * 0.5,
+			_left_anchor.y)
+	var drop_center := _clamp_layout_button_center(
+			_saved_layout_center("drop", drop_default, vs), drop_control_size, vs, notch)
+	_drop_button.position = drop_center - drop_control_size * 0.5
+	_drop_button.size = drop_control_size
 	_drop_button.add_theme_font_size_override("font_size", int(clampf(drop_size * 0.24, 16.0, 24.0)))
 	var drop_style := StyleBoxFlat.new()
 	drop_style.bg_color = Color(0.20, 0.075, 0.04, 0.86)
@@ -680,7 +938,8 @@ func _layout() -> void:
 	_drop_button.add_theme_stylebox_override("normal", drop_style)
 	_drop_button.add_theme_stylebox_override("hover", drop_style)
 	_drop_button.add_theme_stylebox_override("pressed", drop_pressed)
-	_drop_button.visible = enabled and touch_mode and not _preview
+	_drop_button.visible = enabled and (touch_mode or _layout_editing) \
+			and (not _preview or _layout_editing)
 	if _toast != null:
 		_toast.position = Vector2(vs.x * 0.5 - 330.0, 238.0 + notch.y)
 		_toast.size = Vector2(660.0, 52.0)
@@ -692,8 +951,61 @@ func _layout() -> void:
 		var ph := minf(vs.y - 80.0, 440.0)
 		_setup_panel.size = Vector2(pw, ph)
 		_setup_panel.position = (vs - Vector2(pw, ph)) * 0.5
+	if _layout_editor_root != null:
+		_layout_editor_root.position = Vector2.ZERO
+		_layout_editor_root.size = vs
+	if _layout_toolbar != null:
+		var toolbar_w := minf(540.0, vs.x - notch.x - notch.z - 24.0)
+		_layout_toolbar.size = Vector2(toolbar_w, 172.0)
+		_layout_toolbar.position = Vector2((vs.x - toolbar_w) * 0.5, notch.y + 14.0)
 	_apply_button_style()
 	_drawer.queue_redraw()
+
+
+func _saved_layout_center(element: String, default_center: Vector2, viewport_size: Vector2) -> Vector2:
+	var saved: Variant = _touch_layout_positions.get(element, null)
+	if saved is Vector2:
+		var normalized := saved as Vector2
+		if is_finite(normalized.x) and is_finite(normalized.y):
+			return Vector2(normalized.x * viewport_size.x, normalized.y * viewport_size.y)
+	return default_center
+
+
+func _clamp_stick_center(left: bool, center: Vector2, viewport_size: Vector2,
+		notch: Vector4) -> Vector2:
+	var min_x := _radius + notch.x + 8.0
+	var max_x := viewport_size.x - _radius - notch.z - 8.0
+	if left:
+		max_x = minf(max_x, viewport_size.x * 0.48)
+	else:
+		min_x = maxf(min_x, viewport_size.x * 0.52)
+	var min_y := notch.y + _radius + 8.0
+	var max_y := viewport_size.y - notch.w - _radius - 8.0
+	if max_x < min_x:
+		var mid_x := viewport_size.x * (0.25 if left else 0.75)
+		min_x = mid_x
+		max_x = mid_x
+	if max_y < min_y:
+		var fallback_y := viewport_size.y * 0.72
+		min_y = fallback_y
+		max_y = fallback_y
+	return Vector2(clampf(center.x, min_x, max_x), clampf(center.y, min_y, max_y))
+
+
+func _clamp_layout_button_center(center: Vector2, control_size: Vector2,
+		viewport_size: Vector2, notch: Vector4) -> Vector2:
+	var half := control_size * 0.5
+	var min_x := notch.x + half.x + 8.0
+	var max_x := viewport_size.x - notch.z - half.x - 8.0
+	var min_y := notch.y + half.y + 8.0
+	var max_y := viewport_size.y - notch.w - half.y - 8.0
+	if max_x < min_x:
+		min_x = viewport_size.x * 0.5
+		max_x = min_x
+	if max_y < min_y:
+		min_y = viewport_size.y * 0.5
+		max_y = min_y
+	return Vector2(clampf(center.x, min_x, max_x), clampf(center.y, min_y, max_y))
 
 
 func _apply_button_style() -> void:
@@ -730,7 +1042,8 @@ func _update_mode_button() -> void:
 				else _tx("ВВІД: ПУЛЬТ", "INPUT: RC")
 		_style_more_panel_buttons()
 	if _drop_button != null:
-		_drop_button.visible = enabled and touch_mode and not _preview
+		_drop_button.visible = enabled and (touch_mode or _layout_editing) \
+				and (not _preview or _layout_editing)
 		var action := _touch_payload_action()
 		_drop_button.text = _tx("БЧ", "WARHEAD") if action == "activate_payload" \
 				else _tx("СКИД", "DROP")
@@ -1150,6 +1463,10 @@ func _update_setup_channels() -> void:
 func _input(event: InputEvent) -> void:
 	if not enabled or (get_tree().paused and not _preview) or (not _preview and _any_modal_menu_open()):
 		return
+	if _layout_editing:
+		if _handle_layout_input(event):
+			get_viewport().set_input_as_handled()
+		return
 	if event is InputEventScreenTouch and not touch_mode:
 		var t_ev := event as InputEventScreenTouch
 		if _preview:
@@ -1196,6 +1513,157 @@ func _input(event: InputEvent) -> void:
 		var mm := event as InputEventMouseMotion
 		if _drag_touch(MOUSE_TOUCH, mm.position):
 			get_viewport().set_input_as_handled()
+
+
+func _handle_layout_input(event: InputEvent) -> bool:
+	if event is InputEventKey:
+		var key := event as InputEventKey
+		if key.pressed and not key.echo and key.keycode == KEY_ESCAPE:
+			_on_layout_done_pressed()
+			return true
+		return false
+	if event is InputEventScreenTouch:
+		var touch := event as InputEventScreenTouch
+		if touch.pressed:
+			if _layout_drag_id.is_empty() and _layout_toolbar != null \
+					and _layout_toolbar.get_global_rect().has_point(touch.position):
+				return false
+			return _begin_layout_drag(touch.index, touch.position)
+		if touch.index == _layout_drag_pointer:
+			_end_layout_drag()
+			return true
+		return false
+	if event is InputEventScreenDrag:
+		var drag := event as InputEventScreenDrag
+		if drag.index == _layout_drag_pointer and not _layout_drag_id.is_empty():
+			_move_layout_drag(drag.position)
+			return true
+		return false
+	if event is InputEventMouseButton:
+		var mouse_button := event as InputEventMouseButton
+		if mouse_button.button_index != MOUSE_BUTTON_LEFT:
+			return false
+		if mouse_button.pressed:
+			if _layout_drag_id.is_empty() and _layout_toolbar != null \
+					and _layout_toolbar.get_global_rect().has_point(mouse_button.position):
+				return false
+			return _begin_layout_drag(MOUSE_TOUCH, mouse_button.position)
+		if _layout_drag_pointer == MOUSE_TOUCH:
+			_end_layout_drag()
+			return true
+		return false
+	if event is InputEventMouseMotion and _layout_drag_pointer == MOUSE_TOUCH \
+			and not _layout_drag_id.is_empty():
+		_move_layout_drag((event as InputEventMouseMotion).position)
+		return true
+	return false
+
+
+func _begin_layout_drag(pointer: int, pointer_position: Vector2) -> bool:
+	if not _layout_drag_id.is_empty():
+		return false
+	var item := _layout_hit_test(pointer_position)
+	if item.is_empty():
+		return false
+	_layout_drag_id = item
+	_layout_drag_pointer = pointer
+	_layout_drag_offset = _layout_item_center(item) - pointer_position
+	_move_layout_drag(pointer_position)
+	return true
+
+
+func _layout_hit_test(pos: Vector2) -> String:
+	# Buttons are tested first so the ARM / DROP hit areas remain easy to grab.
+	for entry in [
+		["menu", _pause_button], ["options", _more_button],
+		["arm", _arm_button], ["drop", _drop_button],
+	]:
+		var control := entry[1] as Control
+		if control != null and control.visible and control.get_global_rect().has_point(pos):
+			return str(entry[0])
+	if pos.distance_to(_left_center) <= _radius * 1.35:
+		return "left"
+	if pos.distance_to(_right_center) <= _radius * 1.35:
+		return "right"
+	return ""
+
+
+func _layout_item_center(item: String) -> Vector2:
+	match item:
+		"left": return _left_center
+		"right": return _right_center
+		"menu": return _pause_button.position + _pause_button.size * 0.5
+		"options": return _more_button.position + _more_button.size * 0.5
+		"arm": return _arm_button.position + _arm_button.size * 0.5
+		"drop": return _drop_button.position + _drop_button.size * 0.5
+	return Vector2.ZERO
+
+
+func _layout_item_control(item: String) -> Control:
+	match item:
+		"menu": return _pause_button
+		"options": return _more_button
+		"arm": return _arm_button
+		"drop": return _drop_button
+	return null
+
+
+func _move_layout_drag(pointer_position: Vector2) -> void:
+	if _layout_drag_id.is_empty():
+		return
+	var vs := get_viewport().get_visible_rect().size
+	var safe := MenuUI.get_safe_margins(vs)
+	var notch := MenuUI.mobile_notch_insets(vs)
+	var safe_area := Vector4(
+			maxf(float(safe.get("left", 0.0)), notch.x),
+			maxf(float(safe.get("top", 0.0)), notch.y),
+			maxf(float(safe.get("right", 0.0)), notch.z),
+			maxf(float(safe.get("bottom", 0.0)), notch.w))
+	var center := pointer_position + _layout_drag_offset
+	if _layout_drag_id == "left" or _layout_drag_id == "right":
+		var left := _layout_drag_id == "left"
+		center = _clamp_stick_center(left, center, vs, safe_area)
+		if left:
+			_left_anchor = center
+			_left_center = center
+		else:
+			_right_anchor = center
+			_right_center = center
+	else:
+		var control := _layout_item_control(_layout_drag_id)
+		if control == null:
+			return
+		center = _clamp_layout_button_center(center, control.size, vs, safe_area)
+		control.position = center - control.size * 0.5
+	_touch_layout_positions[_layout_drag_id] = Vector2(
+			center.x / maxf(vs.x, 1.0), center.y / maxf(vs.y, 1.0))
+	if _layout_drag_id == "left" and not _touch_layout_positions.has("drop"):
+		var drop_size := _drop_button.size.x
+		_drop_button.position = Vector2(_left_anchor.x + _radius + 24.0 * _touch_ui_scale,
+				_left_anchor.y) - Vector2.ONE * drop_size * 0.5
+	if _drawer != null:
+		_drawer.queue_redraw()
+
+
+func _end_layout_drag() -> void:
+	_layout_drag_id = ""
+	_layout_drag_pointer = NO_TOUCH
+	_layout_drag_offset = Vector2.ZERO
+	_layout()
+	_save_touch_layout()
+	if _drawer != null:
+		_drawer.queue_redraw()
+
+
+func _save_touch_layout() -> void:
+	var g := get_node_or_null("/root/Global")
+	if g == null or not (g.get("menu_settings") is Dictionary):
+		return
+	var positions := _touch_layout_positions.duplicate(true)
+	g.menu_settings["touch_layout_positions"] = positions
+	g.menu_settings["touch_layout_scale"] = _touch_ui_scale
+	if g.has_method("save_menu_settings"):
+		g.save_menu_settings()
 
 
 func _point_hits_ui(pos: Vector2) -> bool:
@@ -1388,10 +1856,30 @@ func _reset_sticks() -> void:
 func _on_drawer_draw() -> void:
 	# In radio mode the existing HUD stick visualiser is shown instead; the
 	# touch overlay only keeps its MODE button visible.
-	if not enabled or _drawer == null or not touch_mode:
+	if not enabled or _drawer == null or (not touch_mode and not _layout_editing):
 		return
 	_draw_stick(_drawer, _left_center, _left_knob, 1.0)
 	_draw_stick(_drawer, _right_center, _right_knob, 1.0)
+	if _layout_editing:
+		var font := ThemeDB.fallback_font
+		var label_color := Color(0.91, 1.0, 0.90, 1.0)
+		var label_shadow := Color(0.02, 0.05, 0.04, 0.85)
+		var left_pos := _left_center + Vector2(0.0, -_radius - 12.0)
+		var right_pos := _right_center + Vector2(0.0, -_radius - 12.0)
+		var left_text := _tx("ЛІВИЙ СТІК", "LEFT STICK")
+		var right_text := _tx("ПРАВИЙ СТІК", "RIGHT STICK")
+		_drawer.draw_string_outline(font, left_pos, left_text,
+				HORIZONTAL_ALIGNMENT_CENTER, -1.0, 14, 4, label_shadow)
+		_drawer.draw_string(font, left_pos, left_text,
+				HORIZONTAL_ALIGNMENT_CENTER, -1.0, 14, label_color)
+		_drawer.draw_string_outline(font, right_pos, right_text,
+				HORIZONTAL_ALIGNMENT_CENTER, -1.0, 14, 4, label_shadow)
+		_drawer.draw_string(font, right_pos, right_text,
+				HORIZONTAL_ALIGNMENT_CENTER, -1.0, 14, label_color)
+		for control in [_pause_button, _more_button, _arm_button, _drop_button]:
+			if control != null and control.visible:
+				_drawer.draw_rect(control.get_global_rect(),
+						Color(0.76, 0.96, 0.65, 0.88), false, 2.0, true)
 
 
 func _draw_stick(c: Control, center: Vector2, knob: Vector2, alpha: float) -> void:

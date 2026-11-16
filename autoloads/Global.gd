@@ -85,6 +85,7 @@ var menu_settings := {"haptics_enabled": true, "drone_preset": 0,
 		"touch_floating_sticks": false, "touch_left_spring": false,
 		"touch_input_mode": "auto",
 		"touch_sensitivity": 1.0, "touch_expo": 0.2,
+		"touch_layout_positions": {}, "touch_layout_scale": 1.0,
 		"career_xp": 0, "career_kills_armor": 0, "career_kills_aa": 0,
 		"career_kills_infantry": 0, "career_kills_air": 0,
 		"career_sorties": 0, "career_hits": 0, "career_drops": 0}
@@ -251,6 +252,12 @@ func load_menu_settings() -> void:
 	menu_settings["touch_input_mode"] = raw_tim if raw_tim in ["auto", "controller", "touch"] else "auto"
 	menu_settings["touch_sensitivity"] = clampf(float(menu_settings.get("touch_sensitivity", 1.0)), 0.4, 1.6)
 	menu_settings["touch_expo"] = clampf(float(menu_settings.get("touch_expo", 0.2)), 0.0, 0.7)
+	var touch_positions: Variant = menu_settings.get("touch_layout_positions", {})
+	if not (touch_positions is Dictionary):
+		touch_positions = {}
+	menu_settings["touch_layout_positions"] = touch_positions
+	menu_settings["touch_layout_scale"] = clampf(
+			float(menu_settings.get("touch_layout_scale", 1.0)), 0.7, 1.4)
 	menu_settings["career_xp"] = maxi(0, int(menu_settings.get("career_xp", 0)))
 	menu_settings["career_kills_armor"] = maxi(0, int(menu_settings.get("career_kills_armor", 0)))
 	menu_settings["career_kills_aa"] = maxi(0, int(menu_settings.get("career_kills_aa", 0)))

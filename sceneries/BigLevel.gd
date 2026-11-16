@@ -68,6 +68,8 @@ var _scene_uptime := 0.0
 var _rings_passed := 0
 var _rings_total := 0
 var _training_rings: Array[Area3D] = []
+var _training_ring_positions: Array[Vector3] = []
+var _training_ring_spawn_queued := false
 var _ring_pulse := 0.0
 var _nav_marker: Label = null
 var _vehicles: Array[Vehicle] = []
@@ -1246,8 +1248,10 @@ func _build_valley_props() -> void:
 			ValleySceneBuilderScript.build_construction_crane(self, Vector3(56.0, _ground_y, -24.0), deg_to_rad(35.0))
 			ValleySceneBuilderScript.build_concrete_pipe_park(self, Vector3(-58.0, _ground_y, 16.0), deg_to_rad(15.0))
 			ValleySceneBuilderScript.build_container_freestyle_park(self, Vector3(22.0, _ground_y, 42.0), deg_to_rad(-10.0))
-			_spawn_training_rings()
 			_spawn_vegetation(410, 45.0, 175.0, 0.32)
+			# Let vegetation and prop colliders enter the physics broadphase before
+			# the ring course searches for clear airspace.
+			_queue_training_ring_spawn()
 		_:
 			if OS.has_environment("DRONE_COMBAT_MISSION"):
 				Global.combat_mission = clampi(int(OS.get_environment("DRONE_COMBAT_MISSION")), 1, 4)
@@ -1287,7 +1291,7 @@ func _build_frontline_props() -> void:
 		if frontline_map == "" and not OS.has_environment("QA_NO_DESTRUCTIBLES"):
 			_spawn_destructible_buildings(4, 95.0, 148.0)
 	if Global.play_mode == Global.PlayMode.TRAINING:
-		_spawn_training_rings()
+		_queue_training_ring_spawn()
 	if Global.play_mode == Global.PlayMode.TUTORIAL:
 		_flight_school = FlightSchool.new()
 		add_child(_flight_school)
@@ -3014,7 +3018,7 @@ func _make_ring(position: Vector3, radius: float, color: Color,
 	material.albedo_color = color
 	material.emission_enabled = true
 	material.emission = color
-	material.emission_energy_multiplier = 2.5
+	material.emission_energy_multiplier = 1.0
 	mesh.material_override = material
 	# The next gate pulses while the rest dim; the ring material is kept on the
 	# Area3D so the training HUD can drive it without another lookup path.
@@ -3026,21 +3030,232 @@ func _make_ring(position: Vector3, radius: float, color: Color,
 	return area
 
 
+func _queue_training_ring_spawn() -> void:
+	if _training_ring_spawn_queued:
+		return
+	_training_ring_spawn_queued = true
+	call_deferred("_spawn_training_rings_after_world_sync")
+
+
+func _spawn_training_rings_after_world_sync() -> void:
+	# StaticBody3D colliders added during map construction are not queryable until
+	# the next physics frame.  Waiting here makes placement consistent on every map.
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_training_ring_spawn_queued = false
+	if Global.play_mode == Global.PlayMode.TRAINING and not _mission_finished:
+		_spawn_training_rings()
+
+
 func _training_ring_position(i: int) -> Vector3:
-	var t := float(i % 24) / 24.0
-	var angle := t * TAU
-	# Keep every ring inside the compact arena (52..148 m radius <= MAP_GROUND_SAFE).
-	var radius := 52.0 + fmod(float(i % 24) * 23.0, 96.0)
-	var x := cos(angle) * radius
-	var z := sin(angle) * radius
-	var ground := _find_ground_y(x, z)
-	var y := ground + 14.0 + fmod(float(i % 24) * 8.0, 38.0)
-	return Vector3(x, y, z)
+	if _training_ring_positions.size() == 24:
+		return _training_ring_positions[posmod(i, _training_ring_positions.size())]
+	var xz := _training_ring_candidate_xz(i, 0)
+	return Vector3(xz.x, _find_ground_y(xz.x, xz.y) + 25.0, xz.y)
+
+
+func _training_ring_candidate_xz(i: int, attempt: int) -> Vector2:
+	var angle := TAU * float(i % 24) / 24.0
+	var course_radius := 98.0 if frontline_map.is_empty() else 124.0
+	var radius := course_radius + 9.0 * sin(angle * 2.0 + 0.35)
+	var radial := Vector2(cos(angle), sin(angle))
+	var tangent := Vector2(-radial.y, radial.x)
+	var z_scale := 0.90 if frontline_map.is_empty() else 0.88
+	var base := Vector2(radial.x * radius, radial.y * radius * z_scale)
+	var offset := Vector2.ZERO
+	match attempt:
+		1: offset = radial * 15.0
+		2: offset = -radial * 15.0
+		3: offset = tangent * 15.0
+		4: offset = -tangent * 15.0
+		5: offset = (radial + tangent).normalized() * 23.0
+		6: offset = (radial - tangent).normalized() * 23.0
+		7: offset = -tangent * 28.0
+		8: offset = radial * 30.0
+		9: offset = -radial * 30.0
+		10: offset = tangent * 30.0
+		11: offset = (radial + tangent).normalized() * 36.0
+		12: offset = (radial - tangent).normalized() * 36.0
+		13: offset = tangent * 48.0
+		14: offset = -tangent * 48.0
+		15: offset = (radial + tangent).normalized() * 52.0
+		16: offset = (radial - tangent).normalized() * 52.0
+	return base + offset
+
+
+func _training_ring_map_clearance(x: float, z: float) -> bool:
+	if absf(x) > MAP_GROUND_SAFE - 9.5 or absf(z) > MAP_GROUND_SAFE - 9.5:
+		return false
+	if frontline_map.is_empty():
+		return true
+	if not _is_ground_spot_clear(x, z):
+		return false
+	var p := Vector2(x, z)
+	var site: Dictionary = FrontlineTerrainScript.HALL_SITES.get(frontline_map, {})
+	if not site.is_empty():
+		var center: Vector2 = site["center"]
+		var half: Vector2 = site["half"]
+		if absf(x - center.x) < half.x + 9.5 and absf(z - center.y) < half.y + 9.5:
+			return false
+	for structure in FrontlineTerrainScript.STRUCT_AO_CIRCLES.get(frontline_map, []):
+		var item: Vector3 = structure
+		if p.distance_to(Vector2(item.x, item.y)) < item.z + 9.5:
+			return false
+	# The reservation list also covers handcrafted GLBs and procedural yards
+	# whose collision meshes do not have a corresponding AO-circle entry.
+	for reserved in FrontlineTerrainScript.get_reserved_areas():
+		var center: Vector2 = reserved.get("pos", Vector2.ZERO)
+		var radius := float(reserved.get("radius", 0.0))
+		if p.distance_to(center) < radius + 9.5:
+			return false
+	# Moving industrial cranes sweep a large volume.  Avoid their complete
+	# operating envelopes, not only the frame's position on the spawn frame.
+	if frontline_map == "industrial":
+		for hall_site in [
+			{"center": Vector2(-120.0, -40.0), "half": Vector2(38.0, 24.0)},
+			{"center": Vector2(-30.0, -120.0), "half": Vector2(31.0, 21.0)},
+		]:
+			var center: Vector2 = hall_site["center"]
+			var half: Vector2 = hall_site["half"]
+			if absf(x - center.x) < half.x and absf(z - center.y) < half.y:
+				return false
+		if p.distance_to(Vector2(85.0, -95.0)) < 76.0:
+			return false
+		if p.distance_to(Vector2(45.0, -40.0)) < 50.0:
+			return false
+	return true
+
+
+func _training_ring_ground_height(x: float, z: float) -> float:
+	var highest := _find_ground_y(x, z)
+	for offset_x in [-8.0, 0.0, 8.0]:
+		for offset_z in [-8.0, 0.0, 8.0]:
+			var sx := x + float(offset_x)
+			var sz := z + float(offset_z)
+			if frontline_map.is_empty():
+				highest = maxf(highest, _find_ground_y(sx, sz))
+			else:
+				highest = maxf(highest,
+						FrontlineTerrainScript.height_at(frontline_map, sx, sz))
+				highest = maxf(highest,
+						FrontlineTerrainScript.mesh_surface_height(frontline_map, sx, sz))
+	return highest
+
+
+func _training_ring_overlaps_world(pos: Vector3, clearance: BoxShape3D) -> bool:
+	var world := get_world_3d()
+	if world == null:
+		return true
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = clearance
+	query.transform = Transform3D(Basis.IDENTITY, pos)
+	query.collision_mask = 1
+	query.collide_with_bodies = true
+	query.collide_with_areas = false
+	var excludes: Array[RID] = []
+	var drone := get_node_or_null("Drone")
+	if drone is CollisionObject3D:
+		excludes.append((drone as CollisionObject3D).get_rid())
+	query.exclude = excludes
+	return not world.direct_space_state.intersect_shape(query, 12).is_empty()
+
+
+func _training_ring_spacing_ok(pos: Vector3) -> bool:
+	for previous in _training_ring_positions:
+		var horizontal := Vector2(pos.x - previous.x, pos.z - previous.z)
+		if horizontal.length() < 17.0:
+			return false
+	return true
+
+
+func _find_training_ring_fallback(i: int, clearance: BoxShape3D) -> Vector3:
+	var base := _training_ring_candidate_xz(i, 0)
+	# Search an expanding local spiral first so a relocated checkpoint still
+	# follows the course smoothly around a hall, landmark or tree line.
+	for shell in range(1, 8):
+		var offset_radius := float(shell) * 12.0
+		for sample in range(16):
+			var angle := TAU * float(sample) / 16.0 + float(i) * 0.11
+			var xz := base + Vector2(cos(angle), sin(angle)) * offset_radius
+			if not _training_ring_map_clearance(xz.x, xz.y):
+				continue
+			var ground := _training_ring_ground_height(xz.x, xz.y)
+			for altitude in [40.0, 48.0, 56.0]:
+				var candidate := Vector3(xz.x, ground + float(altitude), xz.y)
+				if _training_ring_spacing_ok(candidate) \
+						and not _training_ring_overlaps_world(candidate, clearance):
+					return candidate
+	# A deterministic arena-wide grid is the last resort; it is still clear of
+	# map landmarks and prior gates, and avoids silently stacking at the origin.
+	for row in range(-6, 7):
+		for column in range(-6, 7):
+			var xz := Vector2(float(column) * 21.0, float(row) * 21.0)
+			if not _training_ring_map_clearance(xz.x, xz.y):
+				continue
+			var ground := _training_ring_ground_height(xz.x, xz.y)
+			var candidate := Vector3(xz.x, ground + 56.0, xz.y)
+			if _training_ring_spacing_ok(candidate) \
+					and not _training_ring_overlaps_world(candidate, clearance):
+				return candidate
+	var last_resort := Vector3(base.x, _training_ring_ground_height(base.x, base.y) + 56.0, base.y)
+	for _lift in range(5):
+		if not _training_ring_overlaps_world(last_resort, clearance):
+			return last_resort
+		last_resort.y += 8.0
+	return last_resort
+
+
+func _build_training_ring_positions() -> void:
+	_training_ring_positions.clear()
+	var clearance := BoxShape3D.new()
+	# The gate's outer radius is 7.4 m.  This slightly larger envelope gives
+	# props, roofs and tree trunks a visible margin rather than merely avoiding
+	# the torus centreline.
+	clearance.size = Vector3(18.0, 18.0, 18.0)
+	var relocated := 0
+	var raised := 0
+	for i in range(24):
+		var placed := false
+		var chosen := Vector3.ZERO
+		for height_bonus in [0.0, 8.0, 16.0]:
+			for attempt in range(17):
+				var xz := _training_ring_candidate_xz(i, attempt)
+				if not _training_ring_map_clearance(xz.x, xz.y):
+					continue
+				var ground := _training_ring_ground_height(xz.x, xz.y)
+				var altitude := 24.0 + float(i % 6) * 1.4 + float(height_bonus)
+				var candidate := Vector3(xz.x, ground + altitude, xz.y)
+				if not _training_ring_spacing_ok(candidate) \
+						or _training_ring_overlaps_world(candidate, clearance):
+					continue
+				chosen = candidate
+				placed = true
+				if attempt > 0:
+					relocated += 1
+				if altitude > 36.0:
+					raised += 1
+				break
+			if placed:
+				break
+		if not placed:
+			# Go around the obstruction before raising a gate over it.
+			chosen = _find_training_ring_fallback(i, clearance)
+			placed = true
+			if _training_ring_overlaps_world(chosen, clearance):
+				push_warning("[TRAINING] no clear gate cell for ring %d; lifting fallback" % (i + 1))
+			raised += 1
+		_training_ring_positions.append(chosen)
+	print("[TRAINING] safe gate course: 24 rings, relocated=", relocated,
+			" raised=", raised, " map=", frontline_map if not frontline_map.is_empty() else "valley")
 
 
 func _spawn_training_rings() -> void:
 	_rings_total = 0
+	for old_ring in _training_rings:
+		if is_instance_valid(old_ring):
+			old_ring.queue_free()
 	_training_rings.clear()
+	_build_training_ring_positions()
 	for i in range(24):
 		var pos := _training_ring_position(i)
 		var next := _training_ring_position((i + 1) % 24)
@@ -3050,7 +3265,8 @@ func _spawn_training_rings() -> void:
 			tangent = Vector3.FORWARD
 		tangent = tangent.normalized()
 		var yaw := atan2(tangent.x, tangent.z)
-		var ring := _make_ring(pos, 6.5, Color(0.15, 0.9, 0.75), yaw)
+		var ring := _make_ring(pos, 6.2, Color(0.20, 0.86, 0.78), yaw)
+		ring.set_meta("training_ring_index", i)
 		ring.body_entered.connect(_on_ring_entered.bind(ring))
 		_training_rings.append(ring)
 		_rings_total += 1
@@ -3058,6 +3274,11 @@ func _spawn_training_rings() -> void:
 
 func _on_ring_entered(body: Node3D, ring: Area3D) -> void:
 	if not (body is Drone) or not ring.visible:
+		return
+	# The highlighted gate is the active checkpoint.  Touching a later marker
+	# cannot skip the course or inflate the training score.
+	if _rings_passed >= _training_rings.size() \
+			or _training_rings[_rings_passed] != ring:
 		return
 	_rings_passed += 1
 	_score += 50
@@ -3084,9 +3305,11 @@ func _update_training_ring_highlight(delta: float) -> void:
 		if mat == null:
 			continue
 		if course_live and i == next_idx and ring.visible:
-			mat.emission_energy_multiplier = 3.6 + sin(_ring_pulse) * 1.8
+			# Keep the active gate clearly brighter than the course, but below
+			# the tonemap roll-off so it reads as teal instead of a white blob.
+			mat.emission_energy_multiplier = 1.15 + sin(_ring_pulse) * 0.20
 		else:
-			mat.emission_energy_multiplier = 0.85
+			mat.emission_energy_multiplier = 0.45
 
 
 func _checkpoint_visual(cp: Area3D) -> MeshInstance3D:
@@ -6549,8 +6772,8 @@ func _close_chain_briefing() -> void:
 		_set_flash(_txt("АРМ — УВІМКНУТИ ДВИГУНИ · ПІСЛЯ АРМУ ПОЧНЕТЬСЯ МІСІЯ",
 				"TAP ARM TO START MOTORS · THE MISSION BEGINS WHEN ARMED"))
 	else:
-		_set_flash(_txt("SPACE — УВІМКНУТИ ДВИГУНИ · ПІСЛЯ АРМУ ПОЧНЕТЬСЯ МІСІЯ",
-				"PRESS SPACE TO ARM MOTORS · THE MISSION BEGINS WHEN ARMED"))
+		_set_flash(_txt("ARM — УВІМКНУТИ ДВИГУНИ · ПІСЛЯ АРМУ ПОЧНЕТЬСЯ МІСІЯ",
+				"PRESS ARM TO START MOTORS · THE MISSION BEGINS WHEN ARMED"))
 
 
 func _set_flash(text: String) -> void:
@@ -6590,11 +6813,8 @@ func _format_countdown(seconds_left: float) -> String:
 
 
 func _idle_start_hint() -> String:
-	if _is_mobile_runtime():
-		return _txt("« ГОТОВИЙ ДО СТАРТУ — НАТИСНІТЬ АРМ »",
-				"« READY FOR LAUNCH — TAP ARM »")
-	return _txt("« ГОТОВИЙ ДО СТАРТУ — SPACE ДЛЯ ЗАПУСКУ »",
-			"« READY FOR LAUNCH — PRESS SPACE »")
+	return _txt("« ГОТОВИЙ ДО СТАРТУ — НАТИСНІТЬ ARM »",
+			"« READY FOR LAUNCH — PRESS ARM »")
 
 
 func _update_nav_marker() -> void:
@@ -6636,8 +6856,10 @@ func _update_nav_marker() -> void:
 					var m := _checkpoint_visual(r)
 					if m != null and m.material_override is StandardMaterial3D:
 						var mat := m.material_override as StandardMaterial3D
-						mat.emission_energy_multiplier = 3.5 + sin(Time.get_ticks_msec() * 0.008) * 1.8
-						mat.emission = Color(0.2, 1.0, 0.4)
+						# Match the ring pulse above; the old 3.5 bloomed the gate
+						# to pure white and hid its opening against the sky.
+						mat.emission_energy_multiplier = 1.15 + sin(Time.get_ticks_msec() * 0.008) * 0.20
+						mat.emission = Color(0.12, 0.92, 0.80)
 					break
 		_:
 			var special_info := get_special_objective_info()

@@ -97,9 +97,9 @@ func _run() -> void:
 	truck._damage_speed_mult = 1.0
 	truck.meander_amplitude = 0.0
 	truck._drone = drone
-	truck._waypoints = PackedVector3Array([Vector3(0, 0, -200)])
-	truck.global_position = Vector3(0, 0, 0)
-	drone.global_position = Vector3(0, 0, 50)
+	truck._waypoints = PackedVector3Array([Vector3(120, 0, -200)])
+	truck.global_position = Vector3(120, 0, 0)
+	drone.global_position = Vector3(120, 0, 50)
 	truck.call("_move_along_route", 0.5)
 	var truck_speed := float(truck.get("_step")) / 0.5
 	_check(truck_speed >= 14.5, "truck flees faster on mobile (%.1f m/s)" % truck_speed)

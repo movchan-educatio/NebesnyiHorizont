@@ -637,7 +637,7 @@ const EN_TEXT: Dictionary = {
 	"G — скид    F — активація БЧ    F6 — FPV-ефекти    R — респавн    M — режим": "G — DROP    F — DETONATE WARHEAD    F6 — FPV EFFECTS    R — RESPAWN    M — MODE",
 	"НЕ БОЙОВИЙ ДРОН — БОЙОВИЙ СКИД ВІДСУТНІЙ": "NON-COMBAT AIRCRAFT — NO PAYLOAD DROP",
 	"КАМІКАДЗЕ — СКИД ВІДСУТНІЙ (ДЕТОНАЦІЯ ПРИ УДАРІ)": "KAMIKAZE AIRCRAFT — NO DROP (WARHEAD DETONATES ON IMPACT)",
-	"СПОЧАТКУ УВІМКНІТЬ ДВИГУНИ (ПРОБІЛ)": "ARM THE MOTORS FIRST (SPACE)",
+	"СПОЧАТКУ УВІМКНІТЬ ДВИГУНИ (ARM)": "ARM THE MOTORS FIRST",
 	"НЕМАЄ БОЄПРИПАСІВ — R ДЛЯ ПЕРЕЗАРЯДКИ": "NO PAYLOAD LEFT — PRESS R TO REARM",
 	"УДАР КАМІКАДЗЕ!": "KAMIKAZE IMPACT!",
 	"ДРОН ВТРАЧЕНО — РЕСПАВН": "DRONE LOST — RESPAWNING",
@@ -795,8 +795,8 @@ const MIL_GREEN := Color("618b72")
 const MIL_GREEN_LIGHT := Color("a9c6b2")
 const WARN_AMBER := Color("e2c276")
 const DANGER := Color("c96f67")
-const BUTTON_BG := Color("eef0eb")
-const BUTTON_HOVER := Color("ffffff")
+const BUTTON_BG := Color("d6e0d8")
+const BUTTON_HOVER := Color("e7eee8")
 const BUTTON_ACTIVE := Color("5f9078")
 const BUTTON_TEXT := Color("172019")
 const BUTTON_ACTIVE_TEXT := Color("ffffff")
@@ -894,10 +894,31 @@ class _TacticalBackdrop extends Control:
 
 		var is_feel := (base_color == FPV_BG or (base_color.r < 0.05 and base_color.b > 0.07))
 		if is_feel or not show_c2_chrome:
-			# Pure, clean, elegant studio vignette - zero grid clutter!
-			var center := Vector2(sz.x * 0.65, sz.y * 0.46)
-			for r_step in [0.75, 0.55, 0.35]:
-				draw_circle(center, sz.y * r_step, Color(0.02, 0.45, 0.85, 0.015))
+			# Quiet studio vignette: layered sage light and a few topographic arcs
+			# give every screen depth without adding texture cost or grid clutter.
+			var center := Vector2(sz.x * 0.68, sz.y * 0.44)
+			var side := minf(sz.x, sz.y)
+			for i in range(9, 0, -1):
+				var ring_ratio := 0.10 + float(i) * 0.09
+				var alpha := 0.004 + float(10 - i) * 0.0014
+				draw_circle(center, side * ring_ratio,
+						Color(0.24, 0.42, 0.31, alpha))
+			var warm_center := Vector2(sz.x * 0.16, sz.y * 0.88)
+			for i in range(5, 0, -1):
+				draw_circle(warm_center, side * (0.07 + float(i) * 0.055),
+						Color(0.54, 0.35, 0.16, 0.0035))
+			var contour_color := Color(0.46, 0.68, 0.52, 0.045)
+			for ratio in [0.32, 0.47, 0.63, 0.80]:
+				draw_arc(center, side * ratio, deg_to_rad(205.0),
+						deg_to_rad(345.0), 48, contour_color, 1.0, true)
+			# Small corner ticks read as a crafted frame, not a second HUD.
+			var tick := Color(0.48, 0.68, 0.53, 0.22)
+			var pad := clampf(side * 0.035, 14.0, 30.0)
+			var len := clampf(side * 0.018, 7.0, 14.0)
+			draw_line(Vector2(pad, pad), Vector2(pad + len, pad), tick, 1.0)
+			draw_line(Vector2(pad, pad), Vector2(pad, pad + len), tick, 1.0)
+			draw_line(Vector2(sz.x - pad, sz.y - pad), Vector2(sz.x - pad - len, sz.y - pad), tick, 1.0)
+			draw_line(Vector2(sz.x - pad, sz.y - pad), Vector2(sz.x - pad, sz.y - pad - len), tick, 1.0)
 			return
 
 		var is_ufds := (base_color == UFDS_BG or (base_color.r < 0.08 and base_color.b > 0.07))
@@ -1085,11 +1106,11 @@ static func theme() -> Theme:
 	t.default_font_size = 19
 
 	# Paper-white buttons, sage selection, and a narrow state stripe.
-	t.set_stylebox("normal", "Button", _style(BUTTON_BG, BORDER, 1, 1, 16, 10, 4))
-	t.set_stylebox("hover", "Button", _style(BUTTON_HOVER, ACCENT, 2, 1, 16, 10, 5))
-	t.set_stylebox("pressed", "Button", _style(BUTTON_ACTIVE, ACCENT, 2, 1, 16, 10, 5))
-	t.set_stylebox("focus", "Button", _style(BUTTON_HOVER, ACCENT, 2, 1, 16, 10, 5))
-	t.set_stylebox("disabled", "Button", _style(PANEL, BORDER, 1, 1, 16, 10, 2))
+	t.set_stylebox("normal", "Button", _style(BUTTON_BG, BORDER, 1, 8, 16, 10, 4))
+	t.set_stylebox("hover", "Button", _style(BUTTON_HOVER, ACCENT, 2, 8, 16, 10, 5))
+	t.set_stylebox("pressed", "Button", _style(BUTTON_ACTIVE, ACCENT, 2, 8, 16, 10, 5))
+	t.set_stylebox("focus", "Button", _style(BUTTON_HOVER, ACCENT, 2, 8, 16, 10, 5))
+	t.set_stylebox("disabled", "Button", _style(PANEL, BORDER, 1, 8, 16, 10, 2))
 	t.set_color("font_color", "Button", BUTTON_TEXT)
 	t.set_color("font_hover_color", "Button", BUTTON_TEXT)
 	t.set_color("font_pressed_color", "Button", BUTTON_ACTIVE_TEXT)
@@ -1097,13 +1118,13 @@ static func theme() -> Theme:
 	t.set_color("font_disabled_color", "Button", MUTED)
 	t.set_font_size("font_size", "Button", 19)
 
-	t.set_stylebox("panel", "PanelContainer", _style(PANEL, BORDER, 2, 3, 20, 18, 4))
-	t.set_stylebox("panel", "Panel", _style(PANEL, BORDER, 2, 3, 20, 18, 4))
+	t.set_stylebox("panel", "PanelContainer", _style(PANEL, BORDER, 2, 12, 20, 18, 4))
+	t.set_stylebox("panel", "Panel", _style(PANEL, BORDER, 2, 12, 20, 18, 4))
 
-	t.set_stylebox("normal", "OptionButton", _style(BUTTON_BG, BORDER, 1, 1, 14, 8, 4))
-	t.set_stylebox("hover", "OptionButton", _style(BUTTON_HOVER, ACCENT, 1, 1, 14, 8, 4))
-	t.set_stylebox("pressed", "OptionButton", _style(BUTTON_ACTIVE, ACCENT, 1, 1, 14, 8, 4))
-	t.set_stylebox("focus", "OptionButton", _style(BUTTON_HOVER, ACCENT, 1, 1, 14, 8, 4))
+	t.set_stylebox("normal", "OptionButton", _style(BUTTON_BG, BORDER, 1, 8, 14, 8, 4))
+	t.set_stylebox("hover", "OptionButton", _style(BUTTON_HOVER, ACCENT, 1, 8, 14, 8, 4))
+	t.set_stylebox("pressed", "OptionButton", _style(BUTTON_ACTIVE, ACCENT, 1, 8, 14, 8, 4))
+	t.set_stylebox("focus", "OptionButton", _style(BUTTON_HOVER, ACCENT, 1, 8, 14, 8, 4))
 	t.set_color("font_color", "OptionButton", BUTTON_TEXT)
 	t.set_color("font_hover_color", "OptionButton", BUTTON_TEXT)
 	t.set_font_size("font_size", "OptionButton", 17)
@@ -1478,7 +1499,9 @@ static func feel_style(bg: Color = FPV_BG_CARD, border: Color = FPV_BORDER,
 	s.bg_color = bg
 	s.border_color = border
 	s.set_border_width_all(border_w)
-	s.set_corner_radius_all(radius)
+	# Radius 1 was the old squared-off desktop default.  A restrained 6 px
+	# corner softens shared menus while preserving explicit larger phone cards.
+	s.set_corner_radius_all(6 if radius <= 1 else radius)
 	s.content_margin_left = pad_h
 	s.content_margin_right = pad_h
 	s.content_margin_top = pad_v
@@ -1509,10 +1532,10 @@ static func feel_button(text: String, min_height: float = 38.0, primary: bool = 
 		return b
 	var bg := BUTTON_ACTIVE if primary else BUTTON_BG
 	var border := ACCENT if primary else FPV_BORDER
-	b.add_theme_stylebox_override("normal", feel_style(bg, border, 2 if primary else 1, 1, 12, 6))
-	b.add_theme_stylebox_override("hover", feel_style(BUTTON_HOVER if not primary else bg.lightened(0.08), ACCENT, 2, 1, 12, 6))
-	b.add_theme_stylebox_override("pressed", feel_style(BUTTON_ACTIVE, ACCENT, 2, 1, 12, 6))
-	b.add_theme_stylebox_override("focus", feel_style(BUTTON_HOVER if not primary else bg.lightened(0.08), ACCENT, 2, 1, 12, 6))
+	b.add_theme_stylebox_override("normal", feel_style(bg, border, 2 if primary else 1, 7, 12, 6))
+	b.add_theme_stylebox_override("hover", feel_style(BUTTON_HOVER if not primary else bg.lightened(0.08), ACCENT, 2, 7, 12, 6))
+	b.add_theme_stylebox_override("pressed", feel_style(BUTTON_ACTIVE, ACCENT, 2, 7, 12, 6))
+	b.add_theme_stylebox_override("focus", feel_style(BUTTON_HOVER if not primary else bg.lightened(0.08), ACCENT, 2, 7, 12, 6))
 	b.add_theme_color_override("font_color", BUTTON_ACTIVE_TEXT if primary else BUTTON_TEXT)
 	b.add_theme_color_override("font_hover_color", BUTTON_TEXT if not primary else BUTTON_ACTIVE_TEXT)
 	if not b.mouse_entered.is_connected(b.grab_focus):

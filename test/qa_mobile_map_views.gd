@@ -142,8 +142,36 @@ func _run() -> void:
 		push_error("[MOBILE_MAP_VIEWS] Drone/FPVCamera missing")
 		get_tree().quit(1)
 		return
+	_audit_training_ring_clearance(level, drone, map_name)
 	DirAccess.make_dir_recursive_absolute(output)
 	await _capture(output.path_join(map_name + "_spawn.png"), fpv)
+	var ring_list: Variant = level.get("_training_rings")
+	if ring_list is Array and not (ring_list as Array).is_empty():
+		var first_ring := (ring_list as Array)[0] as Area3D
+		var ring_camera := Camera3D.new()
+		ring_camera.name = "TrainingRingQACamera"
+		ring_camera.fov = 66.0
+		ring_camera.far = 1800.0
+		level.add_child(ring_camera)
+		var ring_normal := first_ring.global_transform.basis.z.normalized()
+		ring_camera.global_position = first_ring.global_position + ring_normal * 27.0 + Vector3.UP * 2.0
+		ring_camera.look_at(first_ring.global_position, Vector3.UP)
+		await get_tree().process_frame
+		await _capture(output.path_join(map_name + "_training_ring.png"), ring_camera)
+		ring_camera.queue_free()
+		fpv.current = true
+	if OS.has_environment("TOUCH_LAYOUT_SHOT") and map_name == "village":
+		var touch_controls := get_node_or_null("/root/TouchControls")
+		if touch_controls != null and bool(touch_controls.get("enabled")):
+			touch_controls.call("_on_more_pressed")
+			await get_tree().process_frame
+			touch_controls.call("_on_layout_edit_pressed")
+			await get_tree().process_frame
+			var toolbar := touch_controls.get("_layout_toolbar") as Control
+			print("[MOBILE_MAP_VIEWS] touch toolbar rect=",
+					toolbar.get_global_rect() if toolbar != null else Rect2())
+			await _capture(output.path_join("touch_layout_editor.png"), fpv)
+			touch_controls.call("_on_layout_done_pressed")
 
 	var hall: Dictionary = TERRAIN.HALL_SITES[map_name]
 	var center: Vector2 = hall["center"]
@@ -258,6 +286,63 @@ func _route_audit(output: String, map_name: String, fpv: Camera3D,
 			await get_tree().process_frame
 			await get_tree().process_frame
 			await _capture(output.path_join(map_name + "_route%d.png" % i), fpv)
+
+
+func _audit_training_ring_clearance(level: Node3D, drone: RigidBody3D,
+		map_name: String) -> void:
+	var ring_value: Variant = level.get("_training_rings")
+	if not (ring_value is Array):
+		_failures += 1
+		push_error("[MOBILE_MAP_VIEWS] training ring list missing on " + map_name)
+		return
+	var rings: Array = ring_value
+	if rings.size() != 24:
+		_failures += 1
+		push_error("[MOBILE_MAP_VIEWS] %s has %d training rings, expected 24"
+				% [map_name, rings.size()])
+		return
+	var clearance := BoxShape3D.new()
+	clearance.size = Vector3(18.0, 18.0, 18.0)
+	var space := level.get_world_3d().direct_space_state
+	var overlap_count := 0
+	var closest := INF
+	var min_agl := INF
+	var max_agl := -INF
+	for i in range(rings.size()):
+		var ring := rings[i] as Area3D
+		if ring == null or not is_instance_valid(ring):
+			overlap_count += 1
+			continue
+		var query := PhysicsShapeQueryParameters3D.new()
+		query.shape = clearance
+		query.transform = Transform3D(Basis.IDENTITY, ring.global_position)
+		query.collision_mask = 1
+		query.collide_with_bodies = true
+		query.collide_with_areas = false
+		query.exclude = [drone.get_rid()]
+		var hits := space.intersect_shape(query, 8)
+		if not hits.is_empty():
+			overlap_count += 1
+			var collider = hits[0].get("collider")
+			push_warning("[MOBILE_MAP_VIEWS] %s ring %d at %s clearance hits %s"
+					% [map_name, i + 1, str(ring.global_position),
+					str(collider.name) if collider != null else "unknown"])
+		if i > 0:
+			var prev := rings[i - 1] as Area3D
+			if prev != null:
+				closest = minf(closest, ring.global_position.distance_to(prev.global_position))
+		var agl := ring.global_position.y - TERRAIN.height_at(map_name,
+				ring.global_position.x, ring.global_position.z)
+		min_agl = minf(min_agl, agl)
+		max_agl = maxf(max_agl, agl)
+	if overlap_count > 0:
+		_failures += overlap_count
+		push_error("[MOBILE_MAP_VIEWS] %s training gates intersect %d colliders"
+				% [map_name, overlap_count])
+	else:
+		print("[MOBILE_MAP_VIEWS] ", map_name,
+				" safe gates=24 closest_sequential=", snappedf(closest, 0.1),
+				" m AGL=", snappedf(min_agl, 0.1), "..", snappedf(max_agl, 0.1), " m")
 
 
 func _capture(path: String, fpv: Camera3D) -> void:

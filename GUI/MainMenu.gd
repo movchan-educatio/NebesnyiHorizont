@@ -2151,12 +2151,20 @@ func _build_view_btn(text: String, en_text: String, action: Callable) -> Button:
 
 
 func _setup_3d_scene() -> void:
-	# World Environment
+	# A calm studio sky replaces the flat viewport fill.  The warm horizon and
+	# deep sage zenith separate dark carbon frames from the stage without adding
+	# a costly background texture or another render pass.
 	var env := Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	# Lift the showcase backdrop: black carbon airframes were disappearing in
-	# the large menu viewport against the old near-black navy.
-	env.background_color = Color("26363f")
+	var studio_sky_material := ProceduralSkyMaterial.new()
+	studio_sky_material.sky_top_color = Color("15272b")
+	studio_sky_material.sky_horizon_color = Color("34443d")
+	studio_sky_material.ground_horizon_color = Color("34443d")
+	studio_sky_material.ground_bottom_color = Color("101817")
+	studio_sky_material.sun_angle_max = 0.0
+	var studio_sky := Sky.new()
+	studio_sky.sky_material = studio_sky_material
+	env.background_mode = Environment.BG_SKY
+	env.sky = studio_sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.74, 0.82, 0.76)
 	env.ambient_light_energy = 0.85

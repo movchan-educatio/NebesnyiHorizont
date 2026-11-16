@@ -45,8 +45,8 @@ const HOVER_MAX := 4.2
 const STEP_DATA := {
 	Step.ARMING: {
 		"title": "УВІМКНЕННЯ / ВИМКНЕННЯ ДВИГУНІВ",
-		"inst": "Натисніть ПРОБІЛ — двигуни увімкнено. Не злітаючи, натисніть ПРОБІЛ ще раз, щоб вимкнути. Потім увімкніть двигуни знову.",
-		"tip": "ПРОБІЛ — це головний вимикач. Спочатку завжди перевіряйте, що дрон на землі.",
+		"inst": "Натисніть ARM — двигуни увімкнуться. Не злітаючи, натисніть ARM ще раз, щоб вимкнути. Потім увімкніть двигуни знову.",
+		"tip": "ARM — головний вимикач. Спочатку завжди перевіряйте, що дрон стоїть на землі.",
 		"focus": "none"
 	},
 	Step.HOVER: {
@@ -99,7 +99,7 @@ const STEP_DATA := {
 	},
 	Step.LANDING: {
 		"title": "М'ЯКА ПОСАДКА ТА ВИМКНЕННЯ ДВИГУНІВ",
-		"inst": "Опустіться на майданчик зі швидкістю < 2 м/с, торкніться землі та вимкніть двигуни (ПРОБІЛ) на висоті < 0.7 м.",
+		"inst": "Опустіться на майданчик зі швидкістю < 2 м/с, торкніться землі та натисніть ARM для вимкнення двигунів на висоті < 0.7 м.",
 		"tip": "Перед вимкненням двигунів переконайтеся, що дрон стоїть. Це фінальний модуль курсу.",
 		"focus": "left"
 	},
@@ -114,8 +114,8 @@ const STEP_DATA := {
 const STEP_DATA_EN := {
 	Step.ARMING: {
 		"title": "ARM / DISARM MOTORS",
-		"inst": "Press SPACE to arm. Without taking off, press SPACE again to disarm, then arm once more.",
-		"tip": "SPACE is the master switch. Always confirm the drone is on the ground before disarming.",
+		"inst": "Press ARM to start the motors. Without taking off, press ARM again to disarm, then arm once more.",
+		"tip": "ARM is the master switch. Confirm the drone is on the ground before disarming.",
 		"focus": "none"
 	},
 	Step.HOVER: {
@@ -168,7 +168,7 @@ const STEP_DATA_EN := {
 	},
 	Step.LANDING: {
 		"title": "SOFT LANDING & DISARM",
-		"inst": "Touch down on the pad below 2 m/s, then disarm below 0.7 m altitude.",
+		"inst": "Touch down on the pad below 2 m/s, then press ARM to disarm below 0.7 m altitude.",
 		"tip": "Make sure the drone has settled before disarming. This is the final lesson.",
 		"focus": "left"
 	},
@@ -764,20 +764,28 @@ func setup_hud(hud_root: Node) -> void:
 			vp_size = r
 	var safe := MenuUI.get_safe_margins(vp_size)
 	var safe_top := float(safe.get("top", 0.0))
+	var safe_left := float(safe.get("left", 0.0))
+	var safe_right := float(safe.get("right", 0.0))
+	var card_width := minf(640.0, vp_size.x - safe_left - safe_right - 28.0)
+	card_width = maxf(280.0, card_width)
 
 	var card_anchor := PanelContainer.new()
 	card_anchor.name = "InstructorCard"
 	card_anchor.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card_anchor.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	card_anchor.offset_left = -320.0
-	card_anchor.offset_right = 320.0
-	card_anchor.offset_top = safe_top + 78.0
-	card_anchor.offset_bottom = safe_top + 172.0
+	card_anchor.offset_left = -card_width * 0.5
+	card_anchor.offset_right = card_width * 0.5
+	card_anchor.offset_top = safe_top + maxf(64.0, vp_size.y * 0.085)
+	card_anchor.offset_bottom = card_anchor.offset_top + 98.0
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.035, 0.055, 0.040, 0.90)
-	sb.border_color = MenuUI.WARN_AMBER
+	sb.bg_color = Color(0.025, 0.045, 0.034, 0.91)
+	sb.border_color = Color(0.38, 0.55, 0.43, 0.90)
 	sb.set_border_width_all(1)
-	sb.set_corner_radius_all(4)
+	sb.border_width_left = 4
+	sb.set_corner_radius_all(10)
+	sb.shadow_color = Color(0.0, 0.0, 0.0, 0.34)
+	sb.shadow_size = 12
+	sb.shadow_offset = Vector2(0.0, 4.0)
 	sb.content_margin_left = 14
 	sb.content_margin_right = 14
 	sb.content_margin_top = 6
@@ -852,19 +860,20 @@ func setup_hud(hud_root: Node) -> void:
 	var toast_center := CenterContainer.new()
 	toast_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	toast_center.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	toast_center.offset_left = -310.0
-	toast_center.offset_right = 310.0
-	toast_center.offset_top = safe_top + 178.0
-	toast_center.offset_bottom = safe_top + 206.0
+	var toast_width := minf(620.0, vp_size.x - safe_left - safe_right - 36.0)
+	toast_center.offset_left = -toast_width * 0.5
+	toast_center.offset_right = toast_width * 0.5
+	toast_center.offset_top = card_anchor.offset_bottom + 6.0
+	toast_center.offset_bottom = toast_center.offset_top + 32.0
 	hud_container.add_child(toast_center)
 	_toast_panel = PanelContainer.new()
 	_toast_panel.visible = false
 	_toast_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var tsb := StyleBoxFlat.new()
-	tsb.bg_color = Color(0.05, 0.14, 0.07, 0.94)
+	tsb.bg_color = Color(0.035, 0.095, 0.060, 0.96)
 	tsb.border_color = MenuUI.ACCENT
 	tsb.set_border_width_all(1)
-	tsb.set_corner_radius_all(3)
+	tsb.set_corner_radius_all(8)
 	tsb.content_margin_left = 12
 	tsb.content_margin_right = 12
 	tsb.content_margin_top = 3
@@ -983,12 +992,12 @@ func _build_help_overlay(hud_root: Node) -> void:
 				+ "KEY TIP: Use smooth inputs and centre the sticks after each move. Control altitude with throttle, not tilt.")
 	else:
 		controls.text = _tx("КЛАВІАТУРА:  W / S — газ   ·   A / D — рискання   ·   ↑ / ↓ — тангаж   ·   ← / → — крен\n" \
-				+ "ПРОБІЛ — увімкнути / вимкнути двигуни   ·   C/V — нахил FPV-камери   ·   T — повторити модуль   ·   F2 — ця довідка   ·   ESC — пауза\n" \
+				+ "ARM (ПРОБІЛ) — увімкнути / вимкнути двигуни   ·   C/V — нахил FPV-камери   ·   T — повторити модуль   ·   F2 — ця довідка   ·   ESC — пауза\n" \
 				+ "ПУЛЬТ:  лівий стік — газ/рискання   ·   правий стік — тангаж/крен   ·   RS — двигуни   ·   LB — респавн\n" \
 				+ "X — скид   ·   Y — активація БЧ   ·   B — повторити модуль   ·   Start — довідка\n" \
 				+ "ГОЛОВНЕ: рухи плавні, після кожного руху повертайте стік у центр. Висоту тримайте газом, а не нахилом.",
 				"KEYBOARD: W / S — throttle · A / D — yaw · ↑ / ↓ — pitch · ← / → — roll\n" \
-				+ "SPACE — arm/disarm · C/V — FPV camera tilt · T — repeat module · F2 — help · ESC — pause\n" \
+				+ "ARM (SPACE) — arm/disarm · C/V — FPV camera tilt · T — repeat module · F2 — help · ESC — pause\n" \
 				+ "RADIO: left stick — throttle/yaw · right stick — pitch/roll · RS — motors · LB — respawn\n" \
 				+ "X — payload drop · Y — activate warhead · B — repeat module · Start — help\n" \
 				+ "KEY TIP: Use smooth inputs and centre the sticks after each move. Control altitude with throttle, not tilt.")
@@ -1286,28 +1295,34 @@ func _process_arming() -> void:
 	var armed: bool = fc.state_armed
 	match _arm_phase:
 		0:
-			metric_lbl.text = _tx("ДВИГУНИ ВИМКНЕНО · натисніть ПРОБІЛ, щоб увімкнути",
-					"MOTORS DISARMED · PRESS SPACE TO ARM")
+			metric_lbl.text = _tx("ДВИГУНИ ВИМКНЕНО · натисніть ARM, щоб увімкнути",
+					"MOTORS DISARMED · PRESS ARM")
 			metric_lbl.add_theme_color_override("font_color", MenuUI.WARN_AMBER)
 			if armed:
 				_arm_phase = 1
-				show_toast("✓ Двигуни увімкнено. Тепер вимкніть їх (ПРОБІЛ), не злітаючи.")
+				show_toast(_tx(
+						"✓ Двигуни увімкнено. Тепер натисніть ARM, щоб вимкнути їх на землі.",
+						"✓ Motors armed. Press ARM again to disarm on the ground."))
 		1:
-			metric_lbl.text = _tx("ДВИГУНИ УВІМКНЕНО · тепер ПРОБІЛ — вимкнути на землі",
-					"MOTORS ARMED · PRESS SPACE TO DISARM ON THE GROUND")
+			metric_lbl.text = _tx("ДВИГУНИ УВІМКНЕНО · натисніть ARM, щоб вимкнути на землі",
+					"MOTORS ARMED · PRESS ARM TO DISARM ON THE GROUND")
 			metric_lbl.add_theme_color_override("font_color", MenuUI.ACCENT)
 			if not armed:
 				if _step_alt > 3.0:
 					show_toast("⚠ Спочатку приземліться, потім вимикайте двигуни.", true)
 				else:
 					_arm_phase = 2
-					show_toast("✓ Двигуни вимкнено. Тепер увімкніть їх знову — і до зльоту.")
+					show_toast(_tx(
+							"✓ Двигуни вимкнено. Тепер увімкніть їх знову — і до зльоту.",
+							"✓ Motors disarmed. Arm once more before takeoff."))
 		2:
-			metric_lbl.text = _tx("ФІНАЛЬНЕ УВІМКНЕННЯ · натисніть ПРОБІЛ",
-					"FINAL ARM · PRESS SPACE")
+			metric_lbl.text = _tx("ФІНАЛЬНИЙ ARM · натисніть кнопку ARM",
+					"FINAL ARM · PRESS THE ARM BUTTON")
 			metric_lbl.add_theme_color_override("font_color", MenuUI.WARN_AMBER)
 			if armed:
-				show_toast("✓ УВІМКНЕННЯ ЗАСВОЄНО. Плавно додайте газ — дрон має піднятися.")
+				show_toast(_tx(
+						"✓ УВІМКНЕННЯ ЗАСВОЄНО. Плавно додайте газ — дрон має піднятися.",
+						"✓ ARMING COMPLETE. Raise the throttle gently to lift off."))
 				advance_to_step(Step.HOVER)
 
 
@@ -1464,8 +1479,8 @@ func _process_landing() -> void:
 				"TOO HIGH TO DISARM · ALTITUDE %.1f m · LAND LOWER") % pad_alt
 		metric_lbl.add_theme_color_override("font_color", MenuUI.DANGER)
 		return
-	metric_lbl.text = _tx("МАЙДАНЧИК %.0f м · висота %.2f м · спуск %.1f м/с · ПРОБІЛ — вимкнути двигуни",
-			"LANDING PAD %.0f m · ALTITUDE %.2f m · DESCENT %.1f m/s · SPACE — DISARM") % [
+	metric_lbl.text = _tx("МАЙДАНЧИК %.0f м · висота %.2f м · спуск %.1f м/с · ARM — вимкнути двигуни",
+			"LANDING PAD %.0f m · ALTITUDE %.2f m · DESCENT %.1f m/s · ARM — DISARM") % [
 			d, _step_alt, vy]
 	metric_lbl.add_theme_color_override("font_color",
 			MenuUI.ACCENT if vy < 2.0 else MenuUI.WARN_AMBER)
