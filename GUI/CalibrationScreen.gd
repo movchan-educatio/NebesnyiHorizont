@@ -593,7 +593,7 @@ func _build_radio_preview(compact: bool = false) -> Control:
 	if compact:
 		col.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 
-	col.add_child(MenuUI.section("3D-МОНІТОР ПУЛЬТА RADIOMASTER TX12", "TX12"))
+	col.add_child(MenuUI.section("3D-МОНІТОР RC-ПУЛЬТА", "RC"))
 
 	var frame := PanelContainer.new()
 	var sb := StyleBoxFlat.new()

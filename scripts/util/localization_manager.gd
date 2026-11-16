@@ -48,8 +48,8 @@ const DICT: Dictionary = {
 	"DAILY_PLAY": {Language.UA: "ПРИЙНЯТИ ВИКЛИК", Language.EN: "ACCEPT CHALLENGE"},
 	"RANK_LABEL": {Language.UA: "РАНГ", Language.EN: "RANK"},
 	"BEST_TIME": {Language.UA: "КРАЩИЙ ЧАС", Language.EN: "BEST TIME"},
-	"GC_HDR": {Language.UA: "ТАБЛИЦЯ ЛІДЕРІВ / GAME CENTER", Language.EN: "LEADERBOARDS / GAME CENTER"},
-	"GC_BTN": {Language.UA: "ВІДКРИТИ ЛІДЕРБОРД", Language.EN: "OPEN LEADERBOARD"},
+	"GC_HDR": {Language.UA: "ТАБЛИЦЯ РЕКОРДІВ / СТАТИСТИКА", Language.EN: "PILOT RECORDS & STATS"},
+	"GC_BTN": {Language.UA: "ВІДКРИТИ РЕКОРДИ", Language.EN: "VIEW RECORDS"},
 
 	# Telemetry & HUD
 	"HUD_ARMED": {Language.UA: "ДВИГУНИ УВІМКНЕНО", Language.EN: "ARMED / MOTORS ON"},

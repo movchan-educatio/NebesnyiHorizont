@@ -32,8 +32,8 @@ RS — двигуни · X — скид · Y — БЧ
 LB — респавн · Back — пауза · Start — довідка
 A — цикл режимів · LS — утримання висоти
 D-pad: ↑ горизонт · → кут · ↓ швидкість · ← позиція
-Підтримка RadioMaster TX12/Pocket/Zorro (Mode 2), BetaFPV,
-Xbox і PlayStation з автокалібруванням осей.
+Підтримка RC-пультів (Mode 2, ExpressLRS Wi-Fi / USB)
+та стандартних геймпадів з автокалібруванням осей.
 У меню «Керування» рядок «Активація БЧ / миттєва детонація»
 призначається кнопкою «Авто» на будь-який тумблер пульта."""
 
@@ -42,26 +42,26 @@ const TOUCH_TEXT := """[b]СЕНСОРНИЙ ЕКРАН[/b]
 АРМ — увімкнути / вимкнути двигуни
 РЕЖИМ — поточний режим (ANGLE, ACRO, SPEED…)
 СКИД — кругла кнопка праворуч від лівого стіка
-ВІДЕО — цикл FPV-фільтра: аналог / O3 / тепловізор
+ВІДЕО — цикл FPV-фільтра: аналог / цифровий / тепловізор
 МЕНЮ — пауза; РЕСЕТ — респавн
 ВВІД: СЕНСОР / ПУЛЬТ — перемикання джерела
 Екран повертається за пристроєм; інтерфейс враховує виріз камери.
 
 [b]ПУЛЬТИ[/b]
-RadioMaster TX12 / Pocket / Zorro, BetaFPV, Xbox, PlayStation."""
+RC-передавачі Mode 2 (ELRS Wi-Fi / USB) та стандартні геймпади."""
 
 const TOUCH_TEXT_EN := """[b]TOUCH SCREEN[/b]
 Left stick — throttle / yaw; right stick — pitch / roll
 ARM — arm / disarm the motors
 MODE — current flight mode (ANGLE, ACRO, SPEED…)
 DROP — round button to the right of the left stick
-VIDEO — cycles the FPV filter: analog / O3 / thermal
+VIDEO — cycles the FPV filter: analog / digital / thermal
 MENU — pause; RESET — respawn
 INPUT: TOUCH / RADIO — switch control source
 The screen rotates with the device and respects the camera notch.
 
 [b]CONTROLLERS[/b]
-RadioMaster TX12 / Pocket / Zorro, BetaFPV, Xbox, PlayStation."""
+RC transmitters Mode 2 (ELRS Wi-Fi / USB) and standard gamepads."""
 
 const MODES_TEXT := """[b]БОЙОВІ МІСІЇ (КАМПАНІЯ 1–4)[/b]
 • TAC-01: Піхота (виявлення та ліквідація живої сили)
@@ -139,8 +139,8 @@ RS — engines · X — release · Y — warhead
 LB — respawn · Back — pause · Start — help
 A — cycle flight modes · LS — altitude hold
 D-pad: ↑ horizon · → angle · ↓ speed · ← position
-RadioMaster TX12/Pocket/Zorro (Mode 2), BetaFPV, Xbox and
-PlayStation controllers are supported with axis calibration.
+RC transmitters (Mode 2, ExpressLRS Wi-Fi / USB) and standard
+gamepads are supported with axis calibration.
 In Controls, the row “Activate warhead / instant detonation”
 can be bound to any transmitter switch with the “Auto” button."""
 

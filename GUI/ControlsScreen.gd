@@ -297,8 +297,8 @@ func _build() -> void:
 
 	box.add_child(MenuUI.title("КЕРУВАННЯ", 40))
 	box.add_child(MenuUI.subtitle(
-			_ui_text("Пульт TX12 повторює рухи стіків — сітка осей показує живий вхід",
-				"The TX12 preview mirrors your stick inputs; the axis grid shows live signals.")))
+			_ui_text("3D-пульт повторює рухи стіків — сітка осей показує живий вхід",
+				"The 3D controller preview mirrors your stick inputs; the axis grid shows live signals.")))
 
 	var stacked_layout := viewport_size.x < 1100.0 \
 			or (MenuUI.is_mobile_ui() and viewport_size.y < 700.0)
@@ -368,7 +368,7 @@ func _build_radio_column(compact: bool = false) -> Control:
 	column.size_flags_stretch_ratio = 1.15
 	column.add_theme_constant_override("separation", 8)
 
-	column.add_child(MenuUI.section("ПУЛЬТ  RADIOMASTER  TX12"))
+	column.add_child(MenuUI.section("RC-ПУЛЬТ  (MODE 2)"))
 
 	var panel := _card()
 	panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN if compact \
@@ -595,7 +595,7 @@ func _build_device_bindings_column() -> Control:
 	prof_row.add_child(btn_radio)
 
 	var btn_pad := MenuUI.button("Геймпад", 28)
-	btn_pad.tooltip_text = _ui_text("Стандартний геймпад Xbox / PlayStation", "Standard Xbox / PlayStation gamepad")
+	btn_pad.tooltip_text = _ui_text("Стандартний геймпад", "Standard gamepad")
 	btn_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_pad.add_theme_font_size_override("font_size", 11)
 	btn_pad.pressed.connect(_apply_gamepad_preset)

@@ -832,18 +832,17 @@ func _build_root() -> void:
 	chips.add_theme_constant_override("separation", _gap(6))
 	top.add_child(chips)
 
-	_gc_top_btn = _button("GC" if MenuUI.is_english() else "РЕКОРДИ", 32, false)
+	var gc_top_label := ("GC" if Global.is_game_center_available() else "RECORDS") \
+			if MenuUI.is_english() else "РЕКОРДИ"
+	_gc_top_btn = _button(gc_top_label, 32, false)
 	var gc_top_btn := _gc_top_btn
+	gc_top_btn.name = "GcTopButton"
 	gc_top_btn.icon = MenuIcons.icon_trophy(MenuUI.FPV_AMBER, 20)
 	gc_top_btn.expand_icon = false
 	gc_top_btn.add_theme_constant_override("h_separation", _gap(6))
-	gc_top_btn.custom_minimum_size = Vector2(_ui_sz(82 if MenuUI.is_english() else 124), _ui_sz(32))
+	gc_top_btn.custom_minimum_size = Vector2(_ui_sz(112 if MenuUI.is_english() else 124), _ui_sz(32))
 	gc_top_btn.tooltip_text = Global.get_leaderboard_summary(MenuUI.is_english())
-	gc_top_btn.pressed.connect(func():
-		Global.open_game_center_leaderboard()
-		if _play_daily_lbl != null:
-			_play_daily_lbl.text = Global.get_leaderboard_summary(MenuUI.is_english())
-	)
+	gc_top_btn.pressed.connect(_open_mobile_records)
 	chips.add_child(gc_top_btn)
 
 	_lang_top_btn = _button("EN" if MenuUI.is_english() else "UA", 32, false)
@@ -925,8 +924,10 @@ func _apply_masthead_layout() -> void:
 	if _top_brand != null:
 		_top_brand.visible = not compact and _current != "main"
 	if _gc_top_btn != null:
-		_gc_top_btn.text = "" if compact else ("GC" if MenuUI.is_english() else "РЕКОРДИ")
-		_gc_top_btn.custom_minimum_size = Vector2(_ui_sz(44 if compact else (82 if MenuUI.is_english() else 124)),
+		var gc_label := ("GC" if Global.is_game_center_available() else "RECORDS") \
+				if MenuUI.is_english() else "РЕКОРДИ"
+		_gc_top_btn.text = "" if compact else gc_label
+		_gc_top_btn.custom_minimum_size = Vector2(_ui_sz(44 if compact else (112 if MenuUI.is_english() else 124)),
 				_ui_sz(32))
 	if _elrs_chip != null:
 		_elrs_chip.visible = not compact
@@ -1525,7 +1526,7 @@ func _build_controls() -> void:
 	left_v.add_theme_constant_override("separation", _gap(6))
 	left_card.add_child(left_v)
 
-	left_v.add_child(_label("ПУЛЬТ RADIOMASTER TX12 (MODE 2)", 15, MenuUI.FPV_AMBER))
+	left_v.add_child(_label("RC-ПУЛЬТ (MODE 2)", 15, MenuUI.FPV_AMBER))
 
 	# RadioMaster TX12 3D Realtime Animated Transmitter (Prominent & Centered)
 	var radio_panel := _panel(Color(0.02, 0.05, 0.04, 0.85), Color(0.38, 0.54, 0.42, 0.55), 1, 10)
@@ -2146,15 +2147,14 @@ func _build_play() -> void:
 	_play_daily_lbl = _label(("★ %s (+%d)%s%s" % [dc_title, int(dc.get("bonus_score", 500)), dc_done, rec_suffix]), 13, MenuUI.FPV_CYAN)
 	_play_daily_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	daily_row.add_child(_play_daily_lbl)
-	var gc_play_btn := _button("Game Center" if is_en else "РЕКОРДИ", 34, false)
+	var gc_play_label := ("Game Center" if Global.is_game_center_available() else "RECORDS") \
+			if is_en else "РЕКОРДИ"
+	var gc_play_btn := _button(gc_play_label, 34, false)
 	gc_play_btn.icon = MenuIcons.icon_trophy(MenuUI.FPV_AMBER, 20)
 	gc_play_btn.expand_icon = false
 	gc_play_btn.add_theme_constant_override("h_separation", _gap(6))
 	gc_play_btn.custom_minimum_size = Vector2(_ui_sz(160), _ui_sz(34))
-	gc_play_btn.pressed.connect(func():
-		Global.open_game_center_leaderboard()
-		_play_daily_lbl.text = Global.get_leaderboard_summary(MenuUI.is_english())
-	)
+	gc_play_btn.pressed.connect(_open_mobile_records)
 	daily_row.add_child(gc_play_btn)
 
 	_build_mobile_mission_strip(v, is_en)
@@ -2241,7 +2241,7 @@ func _build_play() -> void:
 	start_mission_btn.pressed.connect(_launch)
 	bottom_center.add_child(start_mission_btn)
 
-	_build_mobile_briefing_modal(screen, is_en)
+	_build_mobile_briefing_modal(self, is_en)
 
 
 func _select_map(card_id: String, row: HBoxContainer = null) -> void:
@@ -2402,19 +2402,24 @@ func _mobile_airframe_budget() -> int:
 			return 3
 
 
-func _build_mobile_briefing_modal(screen: Control, is_en: bool) -> void:
+func _build_mobile_briefing_modal(host: Control, is_en: bool) -> void:
+	if _briefing_modal != null and is_instance_valid(_briefing_modal):
+		_briefing_modal.free()
+		_briefing_modal = null
 	_briefing_modal = PanelContainer.new()
 	_briefing_modal.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_briefing_modal.z_index = 40
 	_briefing_modal.visible = false
 	_briefing_modal.add_theme_stylebox_override("panel", _panel_style(
 			Color(0.015, 0.035, 0.028, 0.94), MenuUI.ACCENT, 2, 16))
-	screen.add_child(_briefing_modal)
+	host.add_child(_briefing_modal)
 
+	var safe_m: Dictionary = MenuUI.get_safe_margins(_vsize())
 	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", _gap(22))
-	margin.add_theme_constant_override("margin_right", _gap(22))
-	margin.add_theme_constant_override("margin_top", _gap(18))
-	margin.add_theme_constant_override("margin_bottom", _gap(18))
+	margin.add_theme_constant_override("margin_left", maxi(24, int(safe_m.get("left", 0))) + _gap(12))
+	margin.add_theme_constant_override("margin_right", maxi(24, int(safe_m.get("right", 0))) + _gap(12))
+	margin.add_theme_constant_override("margin_top", maxi(18, int(safe_m.get("top", 0))) + _gap(8))
+	margin.add_theme_constant_override("margin_bottom", maxi(18, int(safe_m.get("bottom", 0))) + _gap(8))
 	_briefing_modal.add_child(margin)
 
 	var bv := VBoxContainer.new()
@@ -2440,6 +2445,20 @@ func _build_mobile_briefing_modal(screen: Control, is_en: bool) -> void:
 	_briefing_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_briefing_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(_briefing_body)
+
+
+func _open_mobile_records() -> void:
+	var is_en := MenuUI.is_english()
+	Global.open_game_center_leaderboard()
+	if _play_daily_lbl != null and is_instance_valid(_play_daily_lbl):
+		_play_daily_lbl.text = Global.get_leaderboard_summary(is_en)
+	if Global.is_game_center_available():
+		return
+	if _briefing_modal == null or _briefing_title == null or _briefing_body == null:
+		return
+	_briefing_title.text = "PILOT RECORDS & STATS" if is_en else "РЕКОРДИ ТА СТАТИСТИКА ПІЛОТА"
+	_briefing_body.text = Global.get_records_report(is_en)
+	_briefing_modal.visible = true
 
 
 func _open_mobile_briefing() -> void:
@@ -3461,7 +3480,7 @@ func _build_settings_tab_gfx() -> void:
 	fpv_opt.custom_minimum_size = Vector2(_fs(100 if compact else 190), _fs(40))
 	_style_option_button(fpv_opt)
 	var fpv_modes := ["ANALOG", "DIGITAL", "FLIR W", "FLIR B"] if compact \
-			else ["Аналог 5.8 GHz", "Digital O3 / Avatar", "FLIR White-Hot", "FLIR Black-Hot"]
+			else ["Аналог 5.8 GHz", "Digital HD" if is_en else "Цифровий HD", "FLIR White-Hot", "FLIR Black-Hot"]
 	for item in fpv_modes:
 		fpv_opt.add_item(item)
 	fpv_opt.selected = clampi(int(Graphics.graphics_settings.get("fpv_video_mode", 0)), 0, 3)
@@ -3770,12 +3789,13 @@ func _build_settings_tab_sys() -> void:
 	lang_box.add_child(lang_btn)
 	sv.add_child(lang_box)
 
-	# 6. Game Center leaderboard hook
+	# 6. Pilot records / optional Game Center leaderboard hook
 	var gc_box := HBoxContainer.new()
 	var gc_info := VBoxContainer.new()
 	gc_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	gc_info.add_child(_label(("Records" if is_en else "Рекорди") if compact \
-			else ("Game Center & Records" if is_en else "Game Center та таблиця рекордів"),
+	var gc_sys_title := ("Game Center & Records" if Global.is_game_center_available() else "Pilot Records & Stats") \
+			if is_en else ("Game Center та рекорди" if Global.is_game_center_available() else "Рекорди та статистика пілота")
+	gc_info.add_child(_label(("Records" if is_en else "Рекорди") if compact else gc_sys_title,
 			16 if compact else 20, MenuUI.TEXT))
 	gc_info.add_child(_label(("Leaderboard" if is_en else "Таблиця лідерів") if compact \
 			else Global.get_leaderboard_summary(is_en), 12 if compact else 14, MenuUI.MUTED))
@@ -3785,9 +3805,7 @@ func _build_settings_tab_sys() -> void:
 	gc_btn.expand_icon = false
 	gc_btn.add_theme_constant_override("h_separation", _gap(8))
 	gc_btn.custom_minimum_size = Vector2(_ui_sz(88 if compact else 150), _ui_sz(40))
-	gc_btn.pressed.connect(func():
-		Global.open_game_center_leaderboard()
-	)
+	gc_btn.pressed.connect(_open_mobile_records)
 	gc_box.add_child(gc_btn)
 	sv.add_child(gc_box)
 

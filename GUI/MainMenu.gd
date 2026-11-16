@@ -2405,12 +2405,23 @@ func _build_top_telemetry_bar() -> Control:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hbox.add_child(spacer)
 
-	_gc_btn = MenuUI.feel_button(_ui_text("🏆 Рейтинг", "🏆 GC"), 34, false)
-	_gc_btn.custom_minimum_size.x = 104
+	_gc_btn = MenuUI.feel_button(
+		_ui_text("🏆 Рекорди", "🏆 GC" if Global.is_game_center_available() else "🏆 Records"), 34, false)
+	_gc_btn.custom_minimum_size.x = 112
 	_gc_btn.pressed.connect(func():
-		Global.open_game_center_leaderboard()
+		var is_en := MenuUI.is_english()
+		if Global.is_game_center_available():
+			Global.open_game_center_leaderboard()
+		else:
+			var dlg := AcceptDialog.new()
+			dlg.title = "PILOT RECORDS" if is_en else "РЕКОРДИ ПІЛОТА"
+			dlg.dialog_text = Global.get_records_report(is_en)
+			dlg.confirmed.connect(dlg.queue_free)
+			dlg.canceled.connect(dlg.queue_free)
+			add_child(dlg)
+			dlg.popup_centered(Vector2i(520, 420))
 		if _daily_lbl != null:
-			_daily_lbl.text = Global.get_leaderboard_summary(MenuUI.is_english())
+			_daily_lbl.text = Global.get_leaderboard_summary(is_en)
 	)
 	hbox.add_child(_gc_btn)
 

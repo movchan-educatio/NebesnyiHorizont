@@ -486,7 +486,7 @@ func fpv_video_mode_name(mode: int = -1) -> String:
 	var m := fpv_video_mode if mode < 0 else mode
 	match m:
 		FpvVideoMode.DIGITAL_O3:
-			return "DIGITAL O3 / AVATAR"
+			return "DIGITAL HD"
 		FpvVideoMode.THERMAL_WHITE_HOT:
 			return "FLIR WHITE-HOT"
 		FpvVideoMode.THERMAL_BLACK_HOT:

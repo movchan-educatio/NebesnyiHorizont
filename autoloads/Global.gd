@@ -606,8 +606,7 @@ func load_ghost_track(key: String) -> Array:
 
 
 func is_game_center_available() -> bool:
-	return Engine.has_singleton("GameCenter") \
-			or OS.get_name() == "iOS" or OS.has_feature("ios")
+	return Engine.has_singleton("GameCenter")
 
 
 func get_leaderboard_summary(is_en: bool = false) -> String:
@@ -620,14 +619,62 @@ func get_leaderboard_summary(is_en: bool = false) -> String:
 		best_score = maxi(best_score, int(get_training_record(map_id).get("best_score", 0)))
 	var daily_streak := int(campaign_records.get("daily_challenge", {}).get("streak", 0))
 	if is_en:
-		var gc_tag := "GC READY" if is_game_center_available() else "LOCAL"
+		var gc_tag := "GAME CENTER" if is_game_center_available() else "LOCAL RECORDS"
 		return "%s · %d★ · %d/4 OPS · TOP %d · STREAK %d" % [
 			gc_tag, stars, completed, best_score, daily_streak
 		]
-	var gc_tag_ua := "GAME CENTER" if is_game_center_available() else "ЛОКАЛЬНО"
+	var gc_tag_ua := "GAME CENTER" if is_game_center_available() else "ЛОКАЛЬНІ РЕКОРДИ"
 	return "%s · %d★ · %d/4 ЕТАПІВ · РЕКОРД %d · СЕРІЯ %d" % [
 		gc_tag_ua, stars, completed, best_score, daily_streak
 	]
+
+
+func get_records_report(is_en: bool = false) -> String:
+	var lines: PackedStringArray = []
+	var rank_info := get_pilot_rank_info()
+	var xp := int(menu_settings.get("career_xp", 0))
+	var dc: Dictionary = campaign_records.get("daily_challenge", {})
+	lines.append("%s: %s (%d XP)" % [
+		"PILOT RANK" if is_en else "РАНГ ПІЛОТА",
+		str(rank_info.get("en" if is_en else "ua", "")),
+		xp])
+	lines.append("%s: %d  (%s)" % [
+		"DAILY STREAK" if is_en else "ЩОДЕННА СЕРІЯ",
+		int(dc.get("streak", 0)),
+		("DONE TODAY ✓" if is_en else "ВИКОНАНО СЬОГОДНІ ✓") if bool(dc.get("completed", false))
+		else ("IN PROGRESS" if is_en else "АКТИВНИЙ")])
+	lines.append("")
+	lines.append("CAMPAIGN (TAC-01..04):" if is_en else "КАМПАНІЯ (TAC-01..04):")
+	for m_id in range(1, 5):
+		var rec := get_mission_record(m_id)
+		if bool(rec.get("completed", false)):
+			lines.append("  • TAC-0%d: %s · %d pts · %.1fs" % [
+				m_id, "★".repeat(maxi(1, int(rec.get("stars", 1)))),
+				int(rec.get("best_score", 0)), float(rec.get("best_time", 0.0))])
+		else:
+			lines.append("  • TAC-0%d: —" % m_id)
+	lines.append("")
+	lines.append("SPECIAL OPS (1..9):" if is_en else "СПЕЦОПЕРАЦІЇ (1..9):")
+	var any_spec := false
+	for sp_id in range(1, 10):
+		var srec := get_special_mission_record(sp_id)
+		if bool(srec.get("completed", false)):
+			any_spec = true
+			lines.append("  • %s-0%d (%s): %s · %d" % [
+				"OP" if is_en else "СО", sp_id, get_special_mission_name(sp_id),
+				"★".repeat(maxi(1, int(srec.get("stars", 1)))), int(srec.get("best_score", 0))])
+	if not any_spec:
+		lines.append("  • —")
+	lines.append("")
+	lines.append("TRAINING & TIME TRIAL:" if is_en else "ТРЕНУВАННЯ ТА ПОЛІТ НА ЧАС:")
+	for map_id in ["course", "steppe", "village", "industrial", "wetlands"]:
+		var trec := get_training_record(map_id)
+		if bool(trec.get("completed", false)):
+			lines.append("  • %s: %.1fs · %s [%s] · %d" % [
+				map_id.to_upper(), float(trec.get("best_time", 0.0)),
+				"★".repeat(maxi(1, int(trec.get("stars", 1)))),
+				str(trec.get("best_rank", "B")), int(trec.get("best_score", 0))])
+	return "\n".join(lines)
 
 
 func open_game_center_leaderboard() -> void:
