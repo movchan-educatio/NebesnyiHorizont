@@ -365,8 +365,7 @@ func _is_mobile_platform() -> bool:
 
 
 func _is_en() -> bool:
-	var loc := get_node_or_null("/root/Loc")
-	return loc != null and int(loc.get("current_language")) == 1
+	return MenuUI.is_english()
 
 
 func get_drone_name(index: int) -> String:

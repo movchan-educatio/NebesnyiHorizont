@@ -2324,6 +2324,10 @@ func _on_respawned() -> void:
 	_pending_kamikaze_respawn = false
 	_airframe_consumed_this_life = false
 	_place_drone_over_ground()
+	if Global.play_mode == Global.PlayMode.TUTORIAL and _flight_school != null \
+			and is_instance_valid(_flight_school) \
+			and _flight_school.current_step < FlightSchool.Step.COMPLETED:
+		_flight_school.reset_step()
 	_payload_ammo_left = int(DroneCatalog.preset(Global.drone_preset).get(
 			"payload", 0))
 	_reset_fpv_payload()
@@ -3258,6 +3262,8 @@ func _build_training_ring_positions() -> void:
 
 
 var _next_ring_preview: MeshInstance3D = null
+var _next_turn_arrow: Node3D = null
+var _ring_clean_streak: int = 0
 
 
 func _spawn_training_rings() -> void:
@@ -3269,6 +3275,10 @@ func _spawn_training_rings() -> void:
 	if _next_ring_preview != null and is_instance_valid(_next_ring_preview):
 		_next_ring_preview.queue_free()
 	_next_ring_preview = null
+	if _next_turn_arrow != null and is_instance_valid(_next_turn_arrow):
+		_next_turn_arrow.queue_free()
+	_next_turn_arrow = null
+	_ring_clean_streak = 0
 	_build_training_ring_positions()
 	for i in range(24):
 		var pos := _training_ring_position(i)
@@ -3315,6 +3325,31 @@ func _ensure_next_ring_preview() -> void:
 	preview.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_triggers.add_child(preview)
 	_next_ring_preview = preview
+	if _next_turn_arrow == null or not is_instance_valid(_next_turn_arrow):
+		var arrow_root := Node3D.new()
+		arrow_root.name = "NextTurnChevron"
+		var arrow_mat := StandardMaterial3D.new()
+		arrow_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		arrow_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		arrow_mat.albedo_color = Color(1.0, 0.86, 0.25, 0.72)
+		arrow_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		# 4 glowing trajectory guide dashes leading from the active gate toward the next gate
+		for di in range(4):
+			var dash := Node3D.new()
+			dash.name = "GuideDash_%d" % di
+			for side_s in [-1.0, 1.0]:
+				var wing := MeshInstance3D.new()
+				var w_box := BoxMesh.new()
+				w_box.size = Vector3(0.16, 0.16, 1.15)
+				wing.mesh = w_box
+				wing.position = Vector3(float(side_s) * 0.36, -1.8, 0.0)
+				wing.rotation.y = float(side_s) * deg_to_rad(36.0)
+				wing.material_override = arrow_mat
+				wing.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				dash.add_child(wing)
+			arrow_root.add_child(dash)
+		_triggers.add_child(arrow_root)
+		_next_turn_arrow = arrow_root
 
 
 func _sync_active_training_ring(animate_pop: bool = false) -> void:
@@ -3338,14 +3373,31 @@ func _sync_active_training_ring(animate_pop: bool = false) -> void:
 		var next_idx := _rings_passed + 1
 		if next_idx < _training_rings.size() and _rings_passed < _rings_total:
 			var nr := _training_rings[next_idx]
+			var cur_r := _training_rings[_rings_passed] if _rings_passed < _training_rings.size() else null
 			if nr != null and is_instance_valid(nr):
 				_next_ring_preview.visible = true
 				_next_ring_preview.global_position = nr.global_position
 				_next_ring_preview.global_rotation = Vector3(PI * 0.5, nr.global_rotation.y, 0.0)
+				if _next_turn_arrow != null and is_instance_valid(_next_turn_arrow) \
+						and cur_r != null and is_instance_valid(cur_r):
+					_next_turn_arrow.visible = true
+					_next_turn_arrow.global_position = cur_r.global_position
+					for di in range(_next_turn_arrow.get_child_count()):
+						var d_node := _next_turn_arrow.get_child(di) as Node3D
+						if d_node == null:
+							continue
+						var frac := float(di + 1) / 5.0
+						d_node.global_position = cur_r.global_position.lerp(nr.global_position, frac)
+						if d_node.global_position.distance_squared_to(nr.global_position) > 0.5:
+							d_node.look_at(nr.global_position, Vector3.UP)
 			else:
 				_next_ring_preview.visible = false
+				if _next_turn_arrow != null and is_instance_valid(_next_turn_arrow):
+					_next_turn_arrow.visible = false
 		else:
 			_next_ring_preview.visible = false
+			if _next_turn_arrow != null and is_instance_valid(_next_turn_arrow):
+				_next_turn_arrow.visible = false
 
 
 func _spawn_ring_pass_effect(ring_xf: Transform3D) -> void:
@@ -3386,12 +3438,15 @@ func _on_ring_entered(body: Node3D, ring: Area3D) -> void:
 		return
 	var passed_xf := ring.global_transform
 	_rings_passed += 1
-	_score += 50
+	_ring_clean_streak += 1
+	_score += 50 + mini(_ring_clean_streak, 10) * 10
 	_spawn_ring_pass_effect(passed_xf)
 	if Audio != null and Audio.has_method("play_radio_confirm_beep"):
 		Audio.call("play_radio_confirm_beep", -9.0)
+	Haptics.trigger_ui_tap()
 	_sync_active_training_ring(true)
-	_set_flash("%s %d/%d" % [_txt("Ворота", "Gate"), _rings_passed, _rings_total])
+	_set_flash("%s %d/%d · %.1fs · ×%d" % [
+		_txt("Ворота", "Gate"), _rings_passed, _rings_total, _mission_time, _ring_clean_streak])
 	if _rings_passed >= _rings_total:
 		_save_training_ghost()
 		_finish_mission(_txt("ТРЕНУВАННЯ ЗАВЕРШЕНО", "TRAINING COMPLETE"))
@@ -3666,6 +3721,9 @@ func _on_vehicle_destroyed(points: int, kind: int, vehicle: Vehicle = null) -> v
 					"HQ! Direct hit on the engine deck! Secondary ammo cook-off confirmed!"),
 				true, "03")
 		elif is_primary_target:
+			var is_crit := bool(vehicle.get_meta("critical_weak_spot_kill", false)) if vehicle != null else false
+			if is_crit:
+				_set_flash(_txt("★ ДЕТОНАЦІЯ БК! УРАЗЛИВА ЗОНА +200 XP", "★ AMMO COOK-OFF! WEAK SPOT +200 XP"))
 			_play_radio_callout("%s — %s" % [_txt("ЦІЛЬ УРАЖЕНО", "TARGET HIT"), _kind_name(kind)])
 		CombatSfxScript.play_hitmarker(self, true)
 		_advance_phase_after_kill(is_primary_target, kc_active and _mission_targets_destroyed >= _mission_targets_total)
@@ -4412,13 +4470,20 @@ func _spawn_special_oreshnik(deep_strike: bool) -> void:
 
 
 func _setup_special_escort() -> void:
-	var raw_route: Array = [
-		_special_ground_point(-115.0, 115.0),
-		_special_ground_point(-72.0, 58.0),
-		_special_ground_point(16.0, 42.0),
-		_special_ground_point(84.0, -24.0),
-		_special_ground_point(135.0, -100.0),
-	]
+	var raw_pts: Array = []
+	match frontline_map:
+		"village":
+			raw_pts = [Vector2(-115.0, -22.0), Vector2(-65.0, -17.0), Vector2(-20.0, -10.0), Vector2(45.0, -16.0), Vector2(115.0, -18.0)]
+		"industrial":
+			raw_pts = [Vector2(-115.0, -24.0), Vector2(-65.0, -29.0), Vector2(-16.0, -34.0), Vector2(52.0, -29.0), Vector2(115.0, -26.0)]
+		"wetlands":
+			raw_pts = [Vector2(-128.0, 70.0), Vector2(-108.0, 12.0), Vector2(-42.0, -18.0), Vector2(54.0, -8.0), Vector2(124.0, 20.0)]
+		_:
+			raw_pts = [Vector2(-95.0, 122.0), Vector2(-40.0, 96.0), Vector2(22.0, 42.0), Vector2(56.0, -28.0), Vector2(64.0, -110.0)]
+	var raw_route: Array = []
+	for p2 in raw_pts:
+		var v2: Vector2 = p2
+		raw_route.append(_special_ground_point(v2.x, v2.y))
 	if not frontline_map.is_empty():
 		raw_route = _sanitize_ground_waypoints(raw_route, false)
 	var route: Array[Vector3] = []
@@ -4431,8 +4496,8 @@ func _setup_special_escort() -> void:
 	vehicle.track_drone = false
 	vehicle.move_speed = 8.0
 	add_child(vehicle)
-	vehicle.max_health = 320.0
-	vehicle.health = 320.0
+	vehicle.max_health = 480.0
+	vehicle.health = 480.0
 	vehicle.global_position = route[0] + Vector3.UP * 0.2
 	vehicle.set_waypoints(route)
 	vehicle.remove_from_group("combat_target")
@@ -4442,11 +4507,11 @@ func _setup_special_escort() -> void:
 	_special_convoy_start = route[0]
 	_special_convoy_dest = route[route.size() - 1]
 	_spawn_special_guards([
-		Vector3(-42.0, 0.0, 62.0), Vector3(24.0, 0.0, 12.0),
-		Vector3(96.0, 0.0, -48.0),
+		Vector3(-35.0, 0.0, 18.0), Vector3(24.0, 0.0, 16.0),
+		Vector3(82.0, 0.0, -42.0),
 	])
 	var ambush_route := _sanitize_ground_waypoints([
-		Vector3(18.0, 0.0, 24.0), Vector3(58.0, 0.0, 2.0),
+		Vector3(24.0, 0.0, -48.0), Vector3(68.0, 0.0, -42.0),
 	])
 	_add_vehicle(Vehicle.Kind.APC, ambush_route, 5.5, true, false, 0.0, false, "btr8")
 

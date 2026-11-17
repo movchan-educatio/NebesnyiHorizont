@@ -549,6 +549,32 @@ func _create_window_wall(at: Vector2) -> Dictionary:
 	lbl.position = Vector3(0.0, wall_h + 1.2, 0.0)
 	root.add_child(lbl)
 
+	# 3D holographic approach glide-path frames leading into the window opening
+	var glide_mat := _emissive(Color(0.28, 0.96, 0.68), 0.55, 2.2)
+	for gi in range(1, 5):
+		var gz := float(gi) * 4.2
+		var scale_f := 1.0 + float(gi) * 0.08
+		var gw := hole_w * scale_f
+		var gh := hole_h * scale_f
+		var g_frame := Node3D.new()
+		g_frame.name = "WindowGlideFrame_%d" % gi
+		g_frame.position = Vector3(0.0, hole_cy, gz)
+		for bar_spec in [
+			[Vector3(-gw * 0.5, 0.0, 0.0), Vector3(0.08, gh, 0.08)],
+			[Vector3(gw * 0.5, 0.0, 0.0), Vector3(0.08, gh, 0.08)],
+			[Vector3(0.0, gh * 0.5, 0.0), Vector3(gw, 0.08, 0.08)],
+			[Vector3(0.0, -gh * 0.5, 0.0), Vector3(gw, 0.08, 0.08)],
+		]:
+			var bm := MeshInstance3D.new()
+			var bb := BoxMesh.new()
+			bb.size = bar_spec[1]
+			bm.mesh = bb
+			bm.position = bar_spec[0]
+			bm.material_override = glide_mat
+			bm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			g_frame.add_child(bm)
+		root.add_child(g_frame)
+
 	return {
 		"node": root,
 		"pos": Vector3(at.x, gy + hole_cy, at.y),
@@ -685,6 +711,22 @@ func _create_landing_pad(pos: Vector3) -> Node3D:
 	lbl.modulate = Color(0.55, 1.0, 0.60)
 	lbl.position = Vector3(0.0, 2.2, 0.0)
 	root.add_child(lbl)
+
+	# 3D descending glide-slope rings guiding the pilot smoothly onto the [H] deck
+	var slope_mat := _emissive(Color(0.35, 1.0, 0.55), 0.50, 2.0)
+	for li in range(1, 4):
+		var lz := float(li) * 4.5
+		var ly := 0.55 * float(li)
+		var g_ring := MeshInstance3D.new()
+		var g_torus := TorusMesh.new()
+		g_torus.inner_radius = 1.4 + float(li) * 0.25
+		g_torus.outer_radius = g_torus.inner_radius + 0.12
+		g_ring.mesh = g_torus
+		g_ring.rotation_degrees.x = 72.0
+		g_ring.position = Vector3(0.0, ly, lz)
+		g_ring.material_override = slope_mat
+		g_ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(g_ring)
 	return root
 
 

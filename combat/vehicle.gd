@@ -246,6 +246,22 @@ func _ready() -> void:
 	sync_to_physics = false
 	_build_body()
 	_setup_weak_spots()
+	if not hostile:
+		var beacon := MeshInstance3D.new()
+		beacon.name = "FriendlyConvoyBeacon"
+		var b_cyl := CylinderMesh.new()
+		b_cyl.top_radius = 0.08
+		b_cyl.bottom_radius = 0.45
+		b_cyl.height = 3.2
+		beacon.mesh = b_cyl
+		beacon.position = Vector3(0.0, 3.2, 0.0)
+		var b_mat := StandardMaterial3D.new()
+		b_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		b_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		b_mat.albedo_color = Color(0.22, 0.98, 0.52, 0.55)
+		beacon.material_override = b_mat
+		beacon.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(beacon)
 	# Scale the complete mobile target hierarchy (visuals, procedural details,
 	# and CollisionShape3D) as one unit.  The PC model and collider stay at 1:1.
 	if _is_mobile_target_platform():
@@ -2359,6 +2375,9 @@ func take_damage(amount: float, hit_position: Vector3 = Vector3.ZERO) -> void:
 				clampf(applied / 70.0, 0.28, 1.0))
 		CombatSfxScript.play_hitmarker(get_parent(), false, -6.0)
 	if health <= 0.0:
+		if multiplier >= 1.22:
+			set_meta("critical_weak_spot_kill", true)
+			points += 200
 		_destroy()
 
 

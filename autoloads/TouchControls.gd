@@ -33,6 +33,9 @@ var _pause_button: Button = null
 var _flight_button: Button = null
 var _setup_button: Button = null
 var _drop_button: Button = null
+var _drop_button_right: Button = null
+var _hover_detent_active := false
+var _hover_detent_last_ms := 0
 var _toast: Label = null
 var _toast_time := 0.0
 var _mode_refresh := 0.0
@@ -156,6 +159,19 @@ func _ready() -> void:
 	_drop_button.visible = false
 	_root.add_child(_drop_button)
 
+	_drop_button_right = Button.new()
+	_drop_button_right.name = "TouchDropButtonRight"
+	_drop_button_right.text = _tx("СКИД", "DROP")
+	_drop_button_right.focus_mode = Control.FOCUS_NONE
+	_drop_button_right.mouse_filter = Control.MOUSE_FILTER_STOP
+	_drop_button_right.add_theme_font_size_override("font_size", 24)
+	_drop_button_right.add_theme_color_override("font_color", Color(1.0, 0.95, 0.86))
+	_drop_button_right.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_drop_button_right.add_theme_constant_override("outline_size", 4)
+	_drop_button_right.button_down.connect(_on_action_pressed.bind("deploy_payload"))
+	_drop_button_right.visible = false
+	_root.add_child(_drop_button_right)
+
 	_toast = Label.new()
 	_toast.name = "TouchToast"
 	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -186,6 +202,8 @@ func _refresh_language_labels() -> void:
 		_more_button.text = _tx("ОПЦ", "OPTIONS")
 	if _drop_button != null:
 		_drop_button.text = _tx("СКИД", "DROP")
+	if _drop_button_right != null:
+		_drop_button_right.text = _tx("СКИД", "DROP")
 	if _layout_button != null:
 		_layout_button.text = _tx("НАЛАШТУВАТИ ЕКРАН", "CUSTOMIZE TOUCH LAYOUT")
 	if _layout_editor_title != null:
@@ -245,7 +263,7 @@ func set_menu_preview(on: bool) -> void:
 		touch_mode = true
 		_layout()
 		_reset_sticks()
-		for b in [_pause_button, _flight_button, _setup_button, _drop_button,
+		for b in [_pause_button, _flight_button, _setup_button, _drop_button, _drop_button_right,
 				_reset_button, _video_button, _mode_button, _arm_button, _more_button]:
 			if b != null:
 				b.visible = false
@@ -266,6 +284,8 @@ func set_menu_preview(on: bool) -> void:
 			b.visible = true
 	if _drop_button != null:
 		_drop_button.visible = false
+	if _drop_button_right != null:
+		_drop_button_right.visible = false
 
 
 ## Open the full layout editor from the Controls screen's touch preview or
@@ -283,7 +303,7 @@ func open_layout_editor(close_preview_after: bool = false) -> void:
 		touch_mode = true
 		_layout()
 		_reset_sticks()
-		for button in [_pause_button, _flight_button, _setup_button, _drop_button,
+		for button in [_pause_button, _flight_button, _setup_button, _drop_button, _drop_button_right,
 				_reset_button, _video_button, _mode_button, _more_button]:
 			if button != null:
 				button.visible = false
@@ -940,6 +960,18 @@ func _layout() -> void:
 	_drop_button.add_theme_stylebox_override("pressed", drop_pressed)
 	_drop_button.visible = enabled and (touch_mode or _layout_editing) \
 			and (not _preview or _layout_editing)
+	if _drop_button_right != null:
+		var drop_r_default := Vector2(_right_anchor.x - _radius - 24.0 * scale - drop_size * 0.5,
+				_right_anchor.y - drop_size * 0.65)
+		var drop_r_center := _clamp_layout_button_center(
+				_saved_layout_center("drop_right", drop_r_default, vs), drop_control_size, vs, notch)
+		_drop_button_right.position = drop_r_center - drop_control_size * 0.5
+		_drop_button_right.size = drop_control_size
+		_drop_button_right.add_theme_font_size_override("font_size", int(clampf(drop_size * 0.24, 16.0, 24.0)))
+		_drop_button_right.add_theme_stylebox_override("normal", drop_style)
+		_drop_button_right.add_theme_stylebox_override("hover", drop_style)
+		_drop_button_right.add_theme_stylebox_override("pressed", drop_pressed)
+		_drop_button_right.visible = _drop_button.visible
 	if _toast != null:
 		_toast.position = Vector2(vs.x * 0.5 - 330.0, 238.0 + notch.y)
 		_toast.size = Vector2(660.0, 52.0)
@@ -1045,8 +1077,12 @@ func _update_mode_button() -> void:
 		_drop_button.visible = enabled and (touch_mode or _layout_editing) \
 				and (not _preview or _layout_editing)
 		var action := _touch_payload_action()
-		_drop_button.text = _tx("БЧ", "WARHEAD") if action == "activate_payload" \
+		var lbl_txt := _tx("БЧ", "WARHEAD") if action == "activate_payload" \
 				else _tx("СКИД", "DROP")
+		_drop_button.text = lbl_txt
+		if _drop_button_right != null:
+			_drop_button_right.visible = _drop_button.visible
+			_drop_button_right.text = lbl_txt
 
 
 func _on_mode_pressed() -> void:
@@ -1669,7 +1705,7 @@ func _save_touch_layout() -> void:
 func _point_hits_ui(pos: Vector2) -> bool:
 	if _setup_root != null and _setup_root.visible:
 		return true
-	for c in [_pause_button, _more_button, _arm_button, _drop_button, _more_panel]:
+	for c in [_pause_button, _more_button, _arm_button, _drop_button, _drop_button_right, _more_panel]:
 		if c != null and c.visible and c.get_global_rect().has_point(pos):
 			return true
 	var scene := get_tree().current_scene if get_tree() != null else null
@@ -1788,8 +1824,17 @@ func _update_stick(left: bool, pos: Vector2) -> void:
 			var span := up_span if dy >= 0.0 else down_span
 			var next_thr := clampf(_throttle_grab_value + dy / span, 0.0, 1.0)
 			# Soft detent right at 0.45 hover when near mid-stick to make mobile altitude holding steady.
-			if absf(next_thr - 0.45) < 0.025 and absf(offset.x / maxf(_radius, 1.0)) > 0.12:
-				next_thr = 0.45
+			var in_hover_band := absf(next_thr - 0.45) < 0.032
+			if in_hover_band:
+				next_thr = lerpf(next_thr, 0.45, 0.65)
+				if not _hover_detent_active:
+					_hover_detent_active = true
+					var now_ms := Time.get_ticks_msec()
+					if now_ms - _hover_detent_last_ms > 280:
+						_hover_detent_last_ms = now_ms
+						Haptics.trigger_ui_tap()
+			else:
+				_hover_detent_active = false
 			throttle = next_thr
 		_left_knob = Vector2(offset.x, (0.5 - throttle) * 2.0 * _radius)
 		var x := offset.x / _radius
@@ -1893,6 +1938,15 @@ func _draw_stick(c: Control, center: Vector2, knob: Vector2, alpha: float) -> vo
 			center + Vector2(_radius * 0.78, 0.0), cross, 1.0, true)
 	c.draw_line(center - Vector2(0.0, _radius * 0.78),
 			center + Vector2(0.0, _radius * 0.78), cross, 1.0, true)
+	if center.distance_squared_to(_left_center) < 1.0:
+		# Hover detent tick marks at 45% throttle
+		var hover_y := center.y + (0.5 - 0.45) * 2.0 * _radius
+		var tick_col := Color(0.38, 0.96, 0.62, 0.78 * alpha) if absf(throttle - 0.45) < 0.038 \
+				else Color(0.95, 0.78, 0.36, 0.42 * alpha)
+		c.draw_line(Vector2(center.x - _radius * 0.92, hover_y),
+				Vector2(center.x - _radius * 0.64, hover_y), tick_col, 2.5, true)
+		c.draw_line(Vector2(center.x + _radius * 0.64, hover_y),
+				Vector2(center.x + _radius * 0.92, hover_y), tick_col, 2.5, true)
 	var knob_pos := center + knob
 	var knob_r := _radius * 0.29
 	c.draw_circle(knob_pos, knob_r, knob_col)

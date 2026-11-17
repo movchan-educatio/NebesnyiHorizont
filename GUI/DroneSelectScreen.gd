@@ -249,6 +249,7 @@ func _setup_preview_world() -> void:
 	ring.material_override = ring_mat
 	_preview.add_child(ring)
 	_preview_ring = ring
+	_add_tactical_podium_details(_preview, -0.328, 0.36)
 
 	var cam := Camera3D.new()
 	cam.fov = 42.0
@@ -260,6 +261,62 @@ func _setup_preview_world() -> void:
 
 	_holder = Node3D.new()
 	_preview.add_child(_holder)
+
+
+func _add_tactical_podium_details(vp: Node, top_y: float, radius: float) -> void:
+	var crate := MeshInstance3D.new()
+	var crate_box := BoxMesh.new()
+	crate_box.size = Vector3(radius * 1.48, 0.14, radius * 1.48)
+	crate.mesh = crate_box
+	crate.position = Vector3(0.0, top_y - 0.09, 0.0)
+	crate.rotation.y = deg_to_rad(18.0)
+	var crate_mat := StandardMaterial3D.new()
+	crate_mat.albedo_color = Color(0.15, 0.19, 0.14)
+	crate_mat.roughness = 0.82
+	crate_mat.metallic = 0.22
+	crate.material_override = crate_mat
+	vp.add_child(crate)
+
+	var inner_ring := MeshInstance3D.new()
+	var inner_torus := TorusMesh.new()
+	inner_torus.inner_radius = radius * 0.52
+	inner_torus.outer_radius = radius * 0.55
+	inner_torus.rings = 36
+	inner_torus.ring_segments = 16
+	inner_ring.mesh = inner_torus
+	inner_ring.scale = Vector3(1.0, 0.03, 1.0)
+	inner_ring.position = Vector3(0.0, top_y + 0.001, 0.0)
+	var ir_mat := StandardMaterial3D.new()
+	ir_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ir_mat.albedo_color = Color(0.95, 0.76, 0.30, 0.85)
+	inner_ring.material_override = ir_mat
+	vp.add_child(inner_ring)
+
+	var lug_mat := StandardMaterial3D.new()
+	lug_mat.albedo_color = Color(0.20, 0.25, 0.21)
+	lug_mat.roughness = 0.65
+	lug_mat.metallic = 0.45
+	for i in range(8):
+		var a := float(i) * PI * 0.25
+		var tick := MeshInstance3D.new()
+		var t_box := BoxMesh.new()
+		t_box.size = Vector3(0.014, 0.003, radius * 0.18)
+		tick.mesh = t_box
+		var r_mid := radius * 0.74
+		tick.position = Vector3(sin(a) * r_mid, top_y + 0.0015, cos(a) * r_mid)
+		tick.rotation.y = a
+		tick.material_override = ir_mat if (i % 2 == 0) else lug_mat
+		vp.add_child(tick)
+		if i % 2 == 1:
+			var lug := MeshInstance3D.new()
+			var l_box := BoxMesh.new()
+			l_box.size = Vector3(0.055, 0.018, 0.04)
+			lug.mesh = l_box
+			var r_lug := radius * 0.99
+			lug.position = Vector3(sin(a) * r_lug, top_y - 0.004, cos(a) * r_lug)
+			lug.rotation.y = a
+			lug.material_override = lug_mat
+			vp.add_child(lug)
 
 
 func _make_row(index: int) -> Control:

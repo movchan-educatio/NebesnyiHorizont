@@ -1285,6 +1285,7 @@ func _setup_hero_3d_world() -> void:
 	ring_mat.albedo_color = MenuUI.ACCENT
 	ring.material_override = ring_mat
 	_hero_viewport.add_child(ring)
+	_add_tactical_podium_details(_hero_viewport, -0.2045, 0.50)
 
 	_hero_camera = Camera3D.new()
 	_hero_camera.fov = 30.0
@@ -2802,6 +2803,7 @@ func _setup_hangar_3d_world() -> void:
 	h_ring_mat.albedo_color = MenuUI.ACCENT
 	h_ring.material_override = h_ring_mat
 	_hangar_viewport.add_child(h_ring)
+	_add_tactical_podium_details(_hangar_viewport, -0.1770, 0.50)
 
 	_hangar_camera = Camera3D.new()
 	_hangar_camera.fov = 30.0
@@ -2810,6 +2812,65 @@ func _setup_hangar_3d_world() -> void:
 
 	_hangar_holder = Node3D.new()
 	_hangar_viewport.add_child(_hangar_holder)
+
+
+func _add_tactical_podium_details(vp: Node, top_y: float, radius: float) -> void:
+	# Stepped armored base & field crate plinth underneath the turntable
+	var crate := MeshInstance3D.new()
+	var crate_box := BoxMesh.new()
+	crate_box.size = Vector3(radius * 1.48, 0.16, radius * 1.48)
+	crate.mesh = crate_box
+	crate.position = Vector3(0.0, top_y - 0.095, 0.0)
+	crate.rotation.y = deg_to_rad(18.0)
+	var crate_mat := StandardMaterial3D.new()
+	crate_mat.albedo_color = Color(0.15, 0.19, 0.14)
+	crate_mat.roughness = 0.82
+	crate_mat.metallic = 0.22
+	crate.material_override = crate_mat
+	vp.add_child(crate)
+
+	# Inner concentric calibration ring flush on the deck
+	var inner_ring := MeshInstance3D.new()
+	var inner_torus := TorusMesh.new()
+	inner_torus.inner_radius = radius * 0.52
+	inner_torus.outer_radius = radius * 0.55
+	inner_torus.rings = 36
+	inner_torus.ring_segments = 16
+	inner_ring.mesh = inner_torus
+	inner_ring.scale = Vector3(1.0, 0.03, 1.0)
+	inner_ring.position = Vector3(0.0, top_y + 0.001, 0.0)
+	var ir_mat := StandardMaterial3D.new()
+	ir_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ir_mat.albedo_color = Color(0.95, 0.76, 0.30, 0.85)
+	inner_ring.material_override = ir_mat
+	vp.add_child(inner_ring)
+
+	# 8 radial compass ticks + 4 outer corner lugs with amber LED pips
+	var lug_mat := StandardMaterial3D.new()
+	lug_mat.albedo_color = Color(0.20, 0.25, 0.21)
+	lug_mat.roughness = 0.65
+	lug_mat.metallic = 0.45
+	for i in range(8):
+		var a := float(i) * PI * 0.25
+		var tick := MeshInstance3D.new()
+		var t_box := BoxMesh.new()
+		t_box.size = Vector3(0.016, 0.003, radius * 0.18)
+		tick.mesh = t_box
+		var r_mid := radius * 0.74
+		tick.position = Vector3(sin(a) * r_mid, top_y + 0.0015, cos(a) * r_mid)
+		tick.rotation.y = a
+		tick.material_override = ir_mat if (i % 2 == 0) else lug_mat
+		vp.add_child(tick)
+		if i % 2 == 1:
+			var lug := MeshInstance3D.new()
+			var l_box := BoxMesh.new()
+			l_box.size = Vector3(0.065, 0.022, 0.045)
+			lug.mesh = l_box
+			var r_lug := radius * 0.99
+			lug.position = Vector3(sin(a) * r_lug, top_y - 0.004, cos(a) * r_lug)
+			lug.rotation.y = a
+			lug.material_override = lug_mat
+			vp.add_child(lug)
 
 
 func _load_hangar_model(preset_idx: int) -> void:
