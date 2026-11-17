@@ -884,7 +884,7 @@ func _layout() -> void:
 	var menu_w := 132.0 * scale
 	var menu_h := 54.0 * scale
 	var more_h := 48.0 * scale
-	var min_side_y := notch.y + 178.0 * scale
+	var min_side_y := notch.y + 192.0 * scale
 	var max_side_y := maxf(min_side_y, _left_anchor.y - _radius - menu_h - more_h - 14.0)
 	var side_y := clampf(min_side_y, min_side_y, max_side_y)
 	if _pause_button != null and _more_button != null:

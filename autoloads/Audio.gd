@@ -34,6 +34,32 @@ const RADIO_LINE_FILES := {
 	"hq_rtb": "radio_04_hq_rtb.wav",
 	"radio_04_hq_rtb": "radio_04_hq_rtb.wav",
 }
+const RADIO_LINE_FILES_EN := {
+	"01": "radio_01_en_bort_target_spotted.wav",
+	"1": "radio_01_en_bort_target_spotted.wav",
+	"target_spotted": "radio_01_en_bort_target_spotted.wav",
+	"bort_target_spotted": "radio_01_en_bort_target_spotted.wav",
+	"radio_01_bort_target_spotted": "radio_01_en_bort_target_spotted.wav",
+	"radio_01_en_bort_target_spotted": "radio_01_en_bort_target_spotted.wav",
+	"02": "radio_02_en_hq_cleared_hot.wav",
+	"2": "radio_02_en_hq_cleared_hot.wav",
+	"cleared_hot": "radio_02_en_hq_cleared_hot.wav",
+	"hq_cleared_hot": "radio_02_en_hq_cleared_hot.wav",
+	"radio_02_hq_cleared_hot": "radio_02_en_hq_cleared_hot.wav",
+	"radio_02_en_hq_cleared_hot": "radio_02_en_hq_cleared_hot.wav",
+	"03": "radio_03_en_bort_direct_hit.wav",
+	"3": "radio_03_en_bort_direct_hit.wav",
+	"direct_hit": "radio_03_en_bort_direct_hit.wav",
+	"bort_direct_hit": "radio_03_en_bort_direct_hit.wav",
+	"radio_03_bort_direct_hit": "radio_03_en_bort_direct_hit.wav",
+	"radio_03_en_bort_direct_hit": "radio_03_en_bort_direct_hit.wav",
+	"04": "radio_04_en_hq_rtb.wav",
+	"4": "radio_04_en_hq_rtb.wav",
+	"rtb": "radio_04_en_hq_rtb.wav",
+	"hq_rtb": "radio_04_en_hq_rtb.wav",
+	"radio_04_hq_rtb": "radio_04_en_hq_rtb.wav",
+	"radio_04_en_hq_rtb": "radio_04_en_hq_rtb.wav",
+}
 
 ## Five cockpit/combat sub-buses under Master exposed to Settings sliders.
 const SUB_BUSES := ["Engine", "Wind", "Combat", "Radio", "Warning"]
@@ -271,7 +297,9 @@ func _get_radio_stream(line_key: String) -> AudioStream:
 	var key := line_key.strip_edges().to_lower()
 	if key.ends_with(".wav"):
 		key = key.substr(0, key.length() - 4)
-	var fname := String(RADIO_LINE_FILES.get(key, ""))
+	var is_en := MenuUI.is_english()
+	var table: Dictionary = RADIO_LINE_FILES_EN if is_en else RADIO_LINE_FILES
+	var fname := String(table.get(key, RADIO_LINE_FILES.get(key, "")))
 	if fname.is_empty():
 		return null
 	if _radio_cache.has(fname):

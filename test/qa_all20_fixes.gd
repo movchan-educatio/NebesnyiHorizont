@@ -373,13 +373,14 @@ func _run() -> void:
 			"prim=%d total=%s" % [prim_nodes.size(), str(lvl.get("_mission_targets_total"))])
 	var lvl_drone := lvl.get_node_or_null("Drone") as Drone
 	if lvl_drone != null and lvl_drone.flight_controller != null:
+		GameSettings.hud_config["angle_mode"] = true
 		lvl_drone.flight_controller.select_flight_mode(FlightController.FlightMode.LEVEL)
 		lvl_drone.flight_controller.change_flight_mode(FlightController.FlightMode.AUTO)
 		lvl.call("_on_drone_armed", FlightController.FlightMode.AUTO)
 		_check(lvl_drone.flight_controller.flight_mode == FlightController.FlightMode.LEVEL,
 				"#11 BigLevel._on_drone_armed preserves ANGLE (LEVEL)")
 
-	# Simulate radio beats triggered, test pre-mission reset AND mid-mission respawn replay
+	# Simulate radio beats triggered, test pre-mission reset AND mid-mission respawn silence
 	lvl.set("_mission_started", false)
 	lvl.set("_radio_beat_01_sent", true)
 	lvl.set("_radio_beat_02_sent", true)
@@ -392,11 +393,11 @@ func _run() -> void:
 	lvl.set("_mission_phase", 1)
 	lvl.call("_on_respawned")
 	await get_tree().process_frame
-	var replayed_mid := bool(lvl.get("_radio_beat_02_sent")) \
-			and not bool(lvl.get("_radio_beat_01_sent")) \
-			and is_equal_approx(float(Audio._radio_player.pitch_scale), 1.0)
-	_check(clean_reset and replayed_mid,
-			"#7/#9 Respawn resets radio mission beats cleanly & replays active phase at 1.0x pitch")
+	var sub_after_respawn := lvl.get("_radio_subtitle_panel") as Control
+	var silent_mid := not bool(Audio._radio_player.playing) \
+			and (sub_after_respawn == null or not sub_after_respawn.visible)
+	_check(clean_reset and silent_mid,
+			"#7/#9 Respawn resets pre-mission radio beats & keeps mid-mission respawn silent")
 
 	var sub_panel := lvl.get("_radio_subtitle_panel") as Control
 	var obj_markers := lvl.find_child("ObjectiveMarkers", true, false)

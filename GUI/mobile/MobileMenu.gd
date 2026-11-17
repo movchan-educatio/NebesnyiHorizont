@@ -529,8 +529,8 @@ func _find_skeleton(node: Node) -> Skeleton3D:
 
 func _load_radio_model() -> Node3D:
 	for glb_path in [
-		"res://Assets/Drones/ua_norm/radiomaster_tx12_rig.glb",
-		"res://Assets/Drones/ua_norm/radiomaster_tx12.glb"
+		"res://Assets/Drones/ua_norm/rc_transmitter_rig.glb",
+		"res://Assets/Drones/ua_norm/rc_transmitter.glb"
 	]:
 		if ResourceLoader.exists(glb_path):
 			var packed = load(glb_path)
@@ -1525,6 +1525,10 @@ func _build_controls() -> void:
 	_calib_btn = _button("КАЛІБРУВАТИ СТІКИ", 42, true)
 	_calib_btn.pressed.connect(_on_calibrate_pressed)
 	left_v.add_child(_calib_btn)
+
+	var elrs_help_btn := _button("ДОВІДКА: ПІДКЛЮЧЕННЯ ELRS Wi-Fi", 38, false)
+	elrs_help_btn.pressed.connect(_open_elrs_guide_modal)
+	left_v.add_child(elrs_help_btn)
 
 	var tuning_v := VBoxContainer.new()
 	tuning_v.add_theme_constant_override("separation", _gap(2))
@@ -3776,6 +3780,141 @@ func _build_settings_tab_sys() -> void:
 	gc_btn.pressed.connect(_open_mobile_records)
 	gc_box.add_child(gc_btn)
 	sv.add_child(gc_box)
+
+	# 7. Radio chatter mode selector (Minimal: Start/End only vs Full vs Off)
+	var rad_box := HBoxContainer.new()
+	var rad_info := VBoxContainer.new()
+	rad_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rad_info.add_child(_label(("Radio Chatter" if is_en else "Радіоефір у місіях") if compact \
+			else ("Mission Radio Chatter Mode" if is_en else "Режим голосового радіоефіру в місіях"),
+			16 if compact else 20, MenuUI.TEXT))
+	rad_info.add_child(_label(("Start & end only / Full / Off" if is_en else "Лише старт і фініш / Повний / Вимк.") if compact \
+			else ("Play voice callouts only at mission start and completion (no replay on respawn)" if is_en else "Озвучення лише на старті та в кінці місії (без повторів після респавну)"),
+			12 if compact else 14, MenuUI.MUTED))
+	rad_box.add_child(rad_info)
+	var cur_rmode := int(Global.menu_settings.get("radio_chatter_mode", 1))
+	var rmode_names_ua := ["ВИМК.", "СТАРТ / ФІНІШ", "ПОВНИЙ"]
+	var rmode_names_en := ["OFF", "START / END", "FULL"]
+	var rmode_arr := rmode_names_en if is_en else rmode_names_ua
+	var rad_btn := _button(rmode_arr[clampi(cur_rmode, 0, 2)], 40, true)
+	rad_btn.custom_minimum_size = Vector2(_ui_sz(115 if compact else 185), _ui_sz(40))
+	rad_btn.pressed.connect(func():
+		var next_m := (int(Global.menu_settings.get("radio_chatter_mode", 1)) + 1) % 3
+		Global.menu_settings["radio_chatter_mode"] = next_m
+		Global.save_menu_settings()
+		var arr_now := rmode_names_en if MenuUI.is_english() else rmode_names_ua
+		rad_btn.text = arr_now[next_m]
+	)
+	rad_box.add_child(rad_btn)
+	sv.add_child(rad_box)
+
+	# 8. Step-by-step ELRS Wi-Fi Connection Guide
+	var elrs_box := HBoxContainer.new()
+	var elrs_info := VBoxContainer.new()
+	elrs_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	elrs_info.add_child(_label(("ELRS Wi-Fi Guide" if is_en else "Підключення ELRS Wi-Fi") if compact \
+			else ("ELRS Wi-Fi & RC Transmitter Guide" if is_en else "Довідка: Як підключити пульт через ELRS Wi-Fi"),
+			16 if compact else 20, MenuUI.TEXT))
+	elrs_info.add_child(_label(("Step-by-step setup (UDP 14550)" if is_en else "Покрокова інструкція (UDP 14550)") if compact \
+			else ("Step-by-step instructions to connect an ExpressLRS transmitter over Wi-Fi" if is_en else "Покрокова інструкція з підключення апаратури ExpressLRS по Wi-Fi"),
+			12 if compact else 14, MenuUI.MUTED))
+	elrs_box.add_child(elrs_info)
+	var elrs_btn := _button("GUIDE" if is_en else "ІНСТРУКЦІЯ", 40, false)
+	elrs_btn.custom_minimum_size = Vector2(_ui_sz(96 if compact else 155), _ui_sz(40))
+	elrs_btn.pressed.connect(_open_elrs_guide_modal)
+	elrs_box.add_child(elrs_btn)
+	sv.add_child(elrs_box)
+
+
+func _open_elrs_guide_modal() -> void:
+	var existing := get_node_or_null("MobileElrsGuideModal")
+	if existing != null:
+		existing.queue_free()
+	var is_en := MenuUI.is_english()
+	var backdrop := ColorRect.new()
+	backdrop.name = "MobileElrsGuideModal"
+	backdrop.color = Color(0.01, 0.02, 0.02, 0.94)
+	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	backdrop.z_index = 95
+	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(backdrop)
+
+	var sm := MenuUI.get_safe_margins(_vsize())
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", int(sm["left"]) + _gap(28))
+	margin.add_theme_constant_override("margin_right", int(sm["right"]) + _gap(28))
+	margin.add_theme_constant_override("margin_top", int(sm["top"]) + _gap(18))
+	margin.add_theme_constant_override("margin_bottom", int(sm["bottom"]) + _gap(18))
+	backdrop.add_child(margin)
+
+	var card := _panel(Color(0.02, 0.055, 0.045, 0.99), MenuUI.FPV_CYAN, 2, 18)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	margin.add_child(card)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", _gap(10))
+	card.add_child(vbox)
+
+	var hdr := HBoxContainer.new()
+	var title := _label(
+		"HOW TO CONNECT RC TRANSMITTER VIA ELRS Wi-Fi" if is_en else "ЯК ПІДКЛЮЧИТИ ПУЛЬТ ЧЕРЕЗ ELRS Wi-Fi",
+		20, MenuUI.FPV_AMBER)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hdr.add_child(title)
+	var close_btn := _button("CLOSE" if is_en else "ЗАКРИТИ", 38, true)
+	close_btn.custom_minimum_size = Vector2(_ui_sz(125), _ui_sz(38))
+	close_btn.pressed.connect(func(): backdrop.queue_free())
+	hdr.add_child(close_btn)
+	vbox.add_child(hdr)
+
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	vbox.add_child(scroll)
+
+	var guide_txt := (
+		"1. УВІМКНІТЬ Wi-Fi НА ПЕРЕДАВАЧІ (ELRS):\n"
+		+ "   • Відкрийте системне меню скриптів на пульті → ExpressLRS → WiFi Connectivity → Enable WiFi.\n"
+		+ "   • На екрані пульта з'явиться повідомлення WiFi Running (IP: 10.0.0.1).\n\n"
+		+ "2. ПІДКЛЮЧІТЬ ТЕЛЕФОН / ПЛАНШЕТ ДО МЕРЕЖІ ПУЛЬТА:\n"
+		+ "   • Відкрийте Налаштування iOS → Wi-Fi та оберіть мережу «ExpressLRS TX».\n"
+		+ "   • Стандартний пароль мережі: expresslrs\n\n"
+		+ "3. ДОЗВІЛ «ЛОКАЛЬНА МЕРЕЖА» В iOS:\n"
+		+ "   • При першому запуску дозвольте грі пошук пристроїв у локальній мережі (Налаштування → Небесний горизонт → Локальна мережа: УВІМК).\n\n"
+		+ "4. АВТОМАТИЧНИЙ ПРИЙОМ КАНАЛІВ (CRSF / UDP 14550):\n"
+		+ "   • Відкрийте розділ «ПУЛЬТ ТА ELRS» у грі. При русі стіків індикатори ГАЗ / РИСКАННЯ / ТАНГАЖ / КРЕН та 3D-модель пульта реагуватимуть у реальному часі.\n"
+		+ "   • Натисніть «КАЛІБРУВАТИ СТІКИ» для точного центрування осей.\n\n"
+		+ "5. СТАНДАРТНА СХЕМА КАНАЛІВ Mode 2 (AETR):\n"
+		+ "   • CH1: Крен (Roll)  |  CH2: Тангаж (Pitch)  |  CH3: Газ (Throttle)  |  CH4: Рискання (Yaw)\n"
+		+ "   • CH5 (SA): Армування двигунів (ARM)\n"
+		+ "   • CH6 (SB): Перемикання режимів польоту (ANGLE / HORIZON / ACRO)\n"
+		+ "   • CH7 (SC): Скид корисного навантаження (DROP)\n"
+		+ "   • CH8 (SD): Підрив бойової частини (DETONATE)"
+	) if not is_en else (
+		"1. ENABLE Wi-Fi ON YOUR RC TRANSMITTER (ELRS):\n"
+		+ "   • Open the system tools menu on your radio → ExpressLRS → WiFi Connectivity → Enable WiFi.\n"
+		+ "   • The transmitter screen will show WiFi Running (IP: 10.0.0.1).\n\n"
+		+ "2. CONNECT YOUR iPHONE / iPAD TO THE TRANSMITTER Wi-Fi:\n"
+		+ "   • Open iOS Settings → Wi-Fi and join the “ExpressLRS TX” network.\n"
+		+ "   • Default Wi-Fi password: expresslrs\n\n"
+		+ "3. iOS LOCAL NETWORK PERMISSION:\n"
+		+ "   • Allow Local Network access when prompted (or enable it in iOS Settings → NebesnyiHorizont → Local Network).\n\n"
+		+ "4. AUTOMATIC CHANNEL STREAMING (CRSF / UDP 14550):\n"
+		+ "   • Open “RADIO & ELRS” in the game. Moving your physical sticks will immediately animate the 3D transmitter and live channel bars.\n"
+		+ "   • Tap “CALIBRATE STICKS” to center and scale all axes.\n\n"
+		+ "5. STANDARD Mode 2 (AETR) CHANNEL MAPPING:\n"
+		+ "   • CH1: Roll  |  CH2: Pitch  |  CH3: Throttle  |  CH4: Yaw\n"
+		+ "   • CH5 (SA): Arm Motors (ARM)\n"
+		+ "   • CH6 (SB): Cycle Flight Modes (ANGLE / HORIZON / ACRO)\n"
+		+ "   • CH7 (SC): Payload Drop (DROP)\n"
+		+ "   • CH8 (SD): Warhead Detonate (DETONATE)"
+	)
+	var body_lbl := _label(guide_txt, 15, MenuUI.TEXT)
+	body_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(body_lbl)
 
 
 ## Rebuild every menu screen in place after a layout/presentation change.

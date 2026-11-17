@@ -1342,9 +1342,17 @@ func _move_along_route(delta: float) -> void:
 	var target := _waypoints[_wp_index]
 	var flat := target - global_position
 	flat.y = 0.0
-	var wp_reach := 8.0 if (kind == Kind.HELI or kind == Kind.SHAHED) else 5.5
+	var wp_reach := 8.0 if (kind == Kind.HELI or kind == Kind.SHAHED) else 6.5
+	var is_escort := is_in_group("escort_convoy") or not hostile
 	if flat.length() < wp_reach:
-		_wp_index = (_wp_index + 1) % _waypoints.size()
+		if is_escort:
+			if _wp_index < _waypoints.size() - 1:
+				_wp_index += 1
+			else:
+				_step = 0.0
+				return
+		else:
+			_wp_index = (_wp_index + 1) % _waypoints.size()
 		target = _waypoints[_wp_index]
 		flat = target - global_position
 		flat.y = 0.0
@@ -1403,13 +1411,14 @@ func _move_along_route(delta: float) -> void:
 
 	var prev_yaw := rotation.y
 	var yaw_diff := angle_difference(rotation.y, desired_yaw)
-	rotation.y = lerp_angle(rotation.y, desired_yaw, clampf(delta * _turn_rate, 0.0, 1.0))
+	if _reverse_left <= 0.0:
+		rotation.y = lerp_angle(rotation.y, desired_yaw, clampf(delta * _turn_rate, 0.0, 1.0))
 	_yaw_vel = angle_difference(prev_yaw, rotation.y) / maxf(delta, 0.001)
 	_steer_angle = clampf(yaw_diff * 0.65, -0.46, 0.46)
 
 	# Distinct speed modulation by unit type:
 	var effective_speed := move_speed * _damage_speed_mult * effective_speed_boost * sep_speed_mult
-	if kind == Kind.TRUCK and _drone != null and is_instance_valid(_drone):
+	if kind == Kind.TRUCK and hostile and _drone != null and is_instance_valid(_drone):
 		# Reconnaissance/supply Tigr accelerates when an armed drone approaches!
 		var d_dist := global_position.distance_to(_drone.global_position)
 		if d_dist < 85.0:
@@ -1441,21 +1450,48 @@ func _move_along_route(delta: float) -> void:
 
 	var blocked := false
 	if kind != Kind.HELI and kind != Kind.SHAHED and _reverse_left <= 0.0:
-		blocked = _is_path_blocked(forward, _step + 2.2)
+		var look_ahead := _step + (3.4 if is_escort else 2.2)
+		blocked = _is_path_blocked(forward, look_ahead)
 		if blocked:
-			_step = 0.0
-			_stuck_time += delta
-			# If halted by a wall or building, turn away or advance waypoint
-			if _stuck_time > 1.2:
-				_wp_index = (_wp_index + 1) % max(_waypoints.size(), 1)
-				_stuck_time = 0.0
-				if _last_obstacle_normal != Vector3.ZERO:
-					var avoid_dir := forward.bounce(_last_obstacle_normal).normalized()
-					avoid_dir.y = 0.0
-					if avoid_dir.length_squared() > 0.01:
-						rotation.y = atan2(-avoid_dir.x, -avoid_dir.z)
-				# Back up briefly so tight turns clear walls instead of grinding.
-				_reverse_left = 1.1
+			# Try whisker steering angles around the obstacle before halting.
+			var steered := false
+			for ang_deg in [28.0, -28.0, 54.0, -54.0, 82.0, -82.0]:
+				var test_dir := forward.rotated(Vector3.UP, deg_to_rad(float(ang_deg))).normalized()
+				if not _is_path_blocked(test_dir, look_ahead * 0.92) \
+						and not _is_water_hazard(global_position.x + test_dir.x * 4.0, global_position.z + test_dir.z * 4.0):
+					var steer_yaw := atan2(-test_dir.x, -test_dir.z)
+					rotation.y = lerp_angle(rotation.y, steer_yaw, clampf(delta * (_turn_rate * 2.6 + 1.8), 0.0, 1.0))
+					forward = test_dir
+					_step = effective_speed * 0.72 * delta
+					blocked = false
+					steered = true
+					_stuck_time = maxf(0.0, _stuck_time - delta * 0.4)
+					break
+			if not steered:
+				_step = 0.0
+				_stuck_time += delta
+				if _stuck_time > 1.1:
+					_stuck_time = 0.0
+					if is_escort:
+						# Never wrap an escort convoy back to index 0; sidestep around the blocker toward the goal.
+						var to_goal: Vector3 = (_waypoints[_wp_index] - global_position)
+						to_goal.y = 0.0
+						var perp: Vector3 = Vector3(-to_goal.z, 0.0, to_goal.x).normalized() if to_goal.length_squared() > 0.01 else Vector3.RIGHT
+						for side_s in [1.0, -1.0]:
+							var bypass: Vector3 = global_position + perp * (float(side_s) * 6.5) + to_goal.normalized() * 3.5
+							if not _is_water_hazard(bypass.x, bypass.z):
+								global_position.x = bypass.x
+								global_position.z = bypass.z
+								rotation.y = atan2(-to_goal.x, -to_goal.z)
+								break
+					else:
+						_wp_index = (_wp_index + 1) % max(_waypoints.size(), 1)
+						if _last_obstacle_normal != Vector3.ZERO:
+							var avoid_dir := forward.bounce(_last_obstacle_normal).normalized()
+							avoid_dir.y = 0.0
+							if avoid_dir.length_squared() > 0.01:
+								rotation.y = atan2(-avoid_dir.x, -avoid_dir.z)
+						_reverse_left = 1.0
 		else:
 			_stuck_time = maxf(0.0, _stuck_time - delta * 0.5)
 
@@ -2209,7 +2245,7 @@ func _is_water_hazard(x: float, z: float) -> bool:
 	var wl := FrontlineTerrainScript.water_level(fmap)
 	if wl < -100.0:
 		return false
-	var depth_pad := 0.14 if fmap == "wetlands" else 0.38
+	var depth_pad := 0.38
 	return h < wl + depth_pad
 
 

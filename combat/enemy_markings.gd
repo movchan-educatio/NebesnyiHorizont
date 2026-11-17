@@ -1,10 +1,6 @@
-## Russian battlefield markings for enemy vehicles and infantry: a small
-## white-blue-red flag and a chalk "Z" drawn with rough white strokes.
-## Vehicles get one rear flag + one Z; infantry gets only a small shoulder
-## flag (no Z), matching the final art direction.
-##
-## Textures are generated once and shared; every marking is a double-sided quad
-## so it reads from the chase/FPV angles without extra geometry.
+## Neutral tactical OPFOR markings for enemy vehicles and infantry.
+## Replaces state flags and real-world invasion symbols with a dark olive-slate
+## tactical identification plate so App Store review and visual identity stay clean.
 class_name EnemyMarkings
 extends RefCounted
 
@@ -21,43 +17,22 @@ static func is_russian_vehicle(vehicle: Node) -> bool:
 	return bool(vehicle.get("hostile"))
 
 
-static func mark_vehicle(vehicle: Node3D, box: Vector3) -> void:
-	if vehicle == null or box.length_squared() < 0.01:
-		return
-	var flag := flag_texture()
-	var z := z_texture()
-	var half_z := box.z * 0.5
-	var y := box.y * 0.55
-	# One flag and one chalk Z per vehicle, on the rear plate.  The old
-	# side/rear duplication made the hull look cluttered.
-	var flag_mi := _add_quad(vehicle, flag, Vector3(0.95, 0.55, 1.0),
-			Vector3(0.0, y, half_z + 0.012), Vector3.ZERO)
-	flag_mi.name = "RussianFlag"
-	var z_mi := _add_quad(vehicle, z, Vector3(0.85, 0.85, 1.0),
-			Vector3(0.0, y + 0.62, half_z + 0.014), Vector3.ZERO)
-	z_mi.name = "ChalkZ"
+static func mark_vehicle(_vehicle: Node3D, _box: Vector3) -> void:
+	# State flags and chalk Z markings are intentionally disabled; enemy vehicles
+	# use their cohesive dark olive-slate tactical camouflage instead.
+	return
 
 
-static func mark_infantry(rig: Node3D) -> void:
-	if rig == null:
-		return
-	# Russian flag patch on the chest armor vest (pressed flat against the vest plate)
-	var flag_mi := _add_quad(rig, flag_texture(), Vector3(0.080, 0.048, 1.0),
-			Vector3(0.02, 1.34, -0.088), Vector3(-6.0, 180.0, 0.0))
-	flag_mi.name = "RussianFlag"
+static func mark_infantry(_rig: Node3D) -> void:
+	# State flag patches on infantry vests are intentionally disabled.
+	return
 
 
 static func flag_texture() -> ImageTexture:
 	if _flag_tex != null:
 		return _flag_tex
-	var img := Image.create(256, 160, false, Image.FORMAT_RGBA8)
-	img.fill(Color(1, 1, 1, 1))
-	img.fill_rect(Rect2i(0, 0, 256, 54), Color(0.93, 0.95, 0.95, 1.0))
-	img.fill_rect(Rect2i(0, 54, 256, 53), Color(0.08, 0.22, 0.55, 1.0))
-	img.fill_rect(Rect2i(0, 107, 256, 53), Color(0.62, 0.06, 0.08, 1.0))
-	# A thin dark frame reads as fabric edging on the hull.
-	img.fill_rect(Rect2i(0, 0, 256, 3), Color(0.08, 0.08, 0.08, 0.8))
-	img.fill_rect(Rect2i(0, 157, 256, 3), Color(0.08, 0.08, 0.08, 0.8))
+	var img := Image.create(64, 40, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0.16, 0.20, 0.14, 1.0))
 	_flag_tex = ImageTexture.create_from_image(img)
 	return _flag_tex
 
@@ -65,21 +40,11 @@ static func flag_texture() -> ImageTexture:
 static func z_texture() -> ImageTexture:
 	if _z_tex != null:
 		return _z_tex
-	var img := Image.create(256, 256, false, Image.FORMAT_RGBA8)
+	var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 20261106
-	# Three rough chalk strokes.  Each is drawn as many short translucent
-	# segments, which gives the broken, hand-written edge of chalk on armour.
-	_chalk_line(img, Vector2(42, 52), Vector2(214, 52), 16.0, rng)
-	_chalk_line(img, Vector2(214, 52), Vector2(42, 204), 16.0, rng)
-	_chalk_line(img, Vector2(42, 204), Vector2(214, 204), 16.0, rng)
-	# A few stray chalk specks.
-	for _i in range(90):
-		var p := Vector2i(rng.randi_range(20, 236), rng.randi_range(20, 236))
-		img.set_pixel(p.x, p.y, Color(0.92, 0.92, 0.86, rng.randf_range(0.08, 0.30)))
 	_z_tex = ImageTexture.create_from_image(img)
 	return _z_tex
+
 
 
 static func _chalk_line(img: Image, a: Vector2, b: Vector2, width: float,

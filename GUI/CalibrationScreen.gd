@@ -664,7 +664,7 @@ func _build_presets_and_curves_panel(parent: VBoxContainer, compact: bool) -> vo
 		{"id": "xbox", "label": _ui_text("Xbox / Геймпад", "Xbox / Gamepad")},
 		{"id": "playstation", "label": "PlayStation"},
 		{"id": "mfi", "label": "Apple MFi"},
-		{"id": "edgetx", "label": "USB-C EdgeTX / ELRS"},
+		{"id": "edgetx", "label": "USB-C RC / ELRS"},
 	]
 	for item in presets:
 		var btn := MenuUI.button(str(item["label"]), 34 if compact else 36)
@@ -873,8 +873,8 @@ func _show_no_controller() -> void:
 	_update_virtual_preview(true)
 	_update_source_button()
 	_instruction.text = _ui_text(
-		"Пульт або геймпад не виявлено.\nПідключіть передавач (USB-HID / EdgeTX) або увімкни ELRS WiFi / сенсорне керування й натисни «ПЕРЕВІРИТИ».",
-		"No controller or gamepad detected.\nConnect a transmitter (USB HID / EdgeTX), or enable ELRS WiFi / touch input and press TEST.")
+		"Пульт або геймпад не виявлено.\nПідключіть передавач (USB-HID / RC) або увімкніть ELRS Wi-Fi / сенсорне керування й натисніть «ПЕРЕВІРИТИ».",
+		"No controller or gamepad detected.\nConnect a transmitter (USB HID / RC), or enable ELRS Wi-Fi / touch input and press TEST.")
 	_status.text = _ui_text("ПІДКЛЮЧЕНИХ ПЕРЕДАВАЧІВ: 0", "CONNECTED CONTROLLERS: 0")
 	_device_label.text = _ui_text("СТАТУС USB-HID: ОЧІКУВАННЯ ПІДКЛЮЧЕННЯ", "USB HID STATUS: WAITING FOR CONNECTION")
 	if _axes_label != null:

@@ -136,6 +136,18 @@ func _ready() -> void:
 			tracer_damage = 3.2
 			detect_range = 145.0
 			burst_shots = 5
+	# Mission 1 (TAC-01) is the introductory campaign sortie: soften accuracy,
+	# fire rate, detection range and health so new pilots can complete it cleanly.
+	if Global.play_mode == Global.PlayMode.COMBAT and Global.special_mission == 0 \
+			and Global.combat_mission == 1:
+		max_health = 34.0
+		health = max_health
+		tracer_damage *= 0.48
+		detect_range *= 0.72
+		burst_shots = maxi(2, burst_shots - 1)
+		burst_pause_min = 2.1
+		burst_pause_max = 3.1
+		shot_interval = 0.19
 
 
 func _build() -> void:

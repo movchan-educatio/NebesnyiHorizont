@@ -22,26 +22,26 @@ func setup(level: Node) -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for i in range(MAX_MARKERS):
 		var label := Label.new()
-		label.add_theme_font_size_override("font_size", 17)
+		label.add_theme_font_size_override("font_size", 21)
 		label.add_theme_color_override("font_color", Color(1.0, 0.72, 0.30))
-		label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.03, 0.95))
-		label.add_theme_constant_override("outline_size", 5)
+		label.add_theme_color_override("font_outline_color", Color(0.01, 0.02, 0.02, 0.98))
+		label.add_theme_constant_override("outline_size", 6)
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		label.custom_minimum_size = Vector2(180, 26)
-		label.size = Vector2(180, 26)
+		label.custom_minimum_size = Vector2(240, 32)
+		label.size = Vector2(240, 32)
 		label.visible = false
 		add_child(label)
 		_labels.append(label)
 	_objective_label = Label.new()
-	_objective_label.add_theme_font_size_override("font_size", 21)
+	_objective_label.add_theme_font_size_override("font_size", 25)
 	_objective_label.add_theme_color_override("font_color", Color(0.35, 0.95, 0.75))
 	_objective_label.add_theme_color_override("font_outline_color", Color(0.01, 0.02, 0.02, 0.98))
-	_objective_label.add_theme_constant_override("outline_size", 6)
+	_objective_label.add_theme_constant_override("outline_size", 7)
 	_objective_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_objective_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_objective_label.custom_minimum_size = Vector2(470, 32)
-	_objective_label.size = Vector2(470, 32)
+	_objective_label.custom_minimum_size = Vector2(520, 36)
+	_objective_label.size = Vector2(520, 36)
 	_objective_label.visible = false
 	add_child(_objective_label)
 
@@ -62,6 +62,16 @@ func _process(delta: float) -> void:
 		_hide_all()
 		return
 
+	var special_info: Dictionary = {}
+	if _level.has_method("get_special_objective_info"):
+		var sraw = _level.call("get_special_objective_info")
+		if sraw is Dictionary:
+			special_info = sraw
+	if not special_info.is_empty() and special_info.has("pos"):
+		_show_primary(cam, drone, special_info)
+		_show_strike_markers(cam, drone)
+		return
+
 	var phase_info: Dictionary = {}
 	if _level.has_method("get_mission_phase_info"):
 		var raw = _level.call("get_mission_phase_info")
@@ -70,8 +80,13 @@ func _process(delta: float) -> void:
 	if not phase_info.is_empty() and phase_info.has("pos") \
 			and int(phase_info.get("phase", 1)) != 1:
 		_show_primary(cam, drone, phase_info)
-		for label in _labels:
-			label.visible = false
+		if int(phase_info.get("phase", 1)) == 0:
+			# Also show enemy target markers during Recon so the pilot immediately
+			# sees what needs to be destroyed.
+			_show_strike_markers(cam, drone)
+		else:
+			for label in _labels:
+				label.visible = false
 		return
 	_objective_label.visible = false
 	if int(phase_info.get("phase", 1)) == 1:
@@ -123,6 +138,61 @@ func _collect_valid_targets(group_name: String, max_dist_m: float = -1.0,
 	return out
 
 
+func _target_type_name(n3: Node3D, is_en: bool) -> String:
+	if n3 == null:
+		return "TGT" if is_en else "ЦІЛЬ"
+	if n3.is_in_group("enemy_infantry") or n3 is EnemyRifleman:
+		var v := String(n3.get("variant")) if n3.get("variant") != null else ""
+		if v == "spetsnaz":
+			return "SPETSNAZ" if is_en else "СПЕЦНАЗ"
+		return "INFANTRY" if is_en else "ПІХОТА"
+	if n3 is AAGun:
+		return "AA GUN" if is_en else "ЗЕНІТКА"
+	if n3.get("kind") != null:
+		var k := int(n3.get("kind"))
+		var v := String(n3.get("variant")) if n3.get("variant") != null else ""
+		if v == "oreshnik":
+			return "ORESHNIK" if is_en else "ОРЄШНІК"
+		elif v == "ural":
+			return "URAL TRUCK" if is_en else "ВАНТАЖІВКА УРАЛ"
+		elif v == "mtsm":
+			return "MT-SM" if is_en else "ТЯГАЧ МТ-СМ"
+		elif v == "btr8":
+			return "BTR-80" if is_en else "БТР-80"
+		match k:
+			0: return "T-72 TANK" if is_en else "ТАНК Т-72"
+			1: return "BMP-2M" if is_en else "БМП-2М"
+			2: return "BTR-90" if is_en else "БТР-90"
+			3: return "TIGR" if is_en else "БРОНЕАВТО ТИГР"
+			4: return "SAM AA" if is_en else "ЗРК ППО"
+			5: return "HELICOPTER" if is_en else "ГЕЛІКОПТЕР"
+			6: return "SHAHED" if is_en else "ШАХЕД-136"
+	return "TARGET" if is_en else "ЦІЛЬ"
+
+
+func _project_with_edge_hint(cam: Camera3D, drone: Node3D, world: Vector3,
+		min_x: float, max_x: float, min_y: float, max_y: float, screen: Vector2) -> Dictionary:
+	var behind := cam.is_position_behind(world)
+	var pos := Vector2.ZERO
+	var arrow := ""
+	if behind:
+		var local_tgt := drone.global_transform.affine_inverse() * world
+		pos = Vector2(max_x if local_tgt.x >= 0.0 else min_x, (min_y + max_y) * 0.5)
+		arrow = " →" if local_tgt.x >= 0.0 else " ←"
+	else:
+		pos = cam.unproject_position(world)
+		if pos.x < min_x:
+			arrow = " ←"
+		elif pos.x > max_x:
+			arrow = " →"
+		elif pos.y < min_y:
+			arrow = " ↑"
+		elif pos.y > max_y:
+			arrow = " ↓"
+	var clamped := Vector2(clampf(pos.x, min_x, max_x), clampf(pos.y, min_y, max_y))
+	return {"pos": clamped, "arrow": arrow}
+
+
 func _show_strike_markers(cam: Camera3D, drone: Node3D) -> void:
 	var d_pos := drone.global_position
 	var primaries := _collect_valid_targets("primary_combat_target", -1.0, d_pos)
@@ -131,28 +201,42 @@ func _show_strike_markers(cam: Camera3D, drone: Node3D) -> void:
 		primaries = _collect_valid_targets("combat_target", -1.0, d_pos)
 	var screen := get_viewport().get_visible_rect().size
 	var safe := _safe_margins()
-	var min_x := 110.0 + safe.x
-	var max_x := maxf(screen.x - 110.0 - safe.z, min_x + 20.0)
-	var min_y := 108.0 + safe.y
+	var min_x := 125.0 + safe.x
+	var max_x := maxf(screen.x - 125.0 - safe.z, min_x + 20.0)
+	var min_y := 112.0 + safe.y
 	var max_y := maxf(screen.y - 245.0 - safe.w, min_y + 20.0)
 	var is_en := MenuUI.is_english()
+	var placed_positions: Array[Vector2] = []
 	var slot := 0
 	for entry in primaries:
 		if slot >= _labels.size():
 			break
 		var n3: Node3D = entry["node"]
 		var world := n3.global_position + Vector3.UP * 2.1
-		if cam.is_position_behind(world):
-			continue
-		var pos := cam.unproject_position(world)
-		var clamped := Vector2(clampf(pos.x, min_x, max_x), clampf(pos.y, min_y, max_y))
+		var proj := _project_with_edge_hint(cam, drone, world, min_x, max_x, min_y, max_y, screen)
+		var clamped: Vector2 = proj["pos"]
+		var arrow: String = proj["arrow"]
 		var dist_m := int(round(float(entry["dist"])))
+		var tname := _target_type_name(n3, is_en)
 		var lbl := _labels[slot]
-		lbl.text = ("◆ TGT  %d m" if is_en else "◆ ЦІЛЬ  %d м") % dist_m
-		lbl.add_theme_color_override("font_color", Color(1.0, 0.36, 0.22, 0.96))
-		lbl.position = Vector2(
-				clampf(clamped.x - 90.0, safe.x + 8.0, screen.x - safe.z - 188.0),
-				clamped.y - 13.0)
+		lbl.text = ("◆ %s%s · %d m" if is_en else "◆ %s%s · %d м") % [tname, arrow, dist_m]
+		lbl.add_theme_color_override("font_color", Color(1.0, 0.34, 0.20, 0.98))
+		var lbl_pos := Vector2(
+				clampf(clamped.x - 120.0, safe.x + 8.0, screen.x - safe.z - 248.0),
+				clamped.y - 16.0)
+		for _step in range(8):
+			var collides := false
+			for prev in placed_positions:
+				if absf(lbl_pos.x - prev.x) < 185.0 and absf(lbl_pos.y - prev.y) < 30.0:
+					collides = true
+					break
+			if not collides:
+				break
+			lbl_pos.y += 32.0
+			if lbl_pos.y > max_y - 12.0:
+				lbl_pos.y = min_y - 12.0 + float(_step) * 32.0
+		placed_positions.append(lbl_pos)
+		lbl.position = lbl_pos
 		lbl.visible = true
 		slot += 1
 	for entry in bonuses:
@@ -165,12 +249,26 @@ func _show_strike_markers(cam: Camera3D, drone: Node3D) -> void:
 		var pos := cam.unproject_position(world)
 		var clamped := Vector2(clampf(pos.x, min_x, max_x), clampf(pos.y, min_y, max_y))
 		var dist_m := int(round(float(entry["dist"])))
+		var tname := _target_type_name(n3, is_en)
 		var lbl := _labels[slot]
-		lbl.text = ("◇ BONUS  %d m" if is_en else "◇ БОНУС  %d м") % dist_m
-		lbl.add_theme_color_override("font_color", Color(0.90, 0.85, 0.65, 0.45))
-		lbl.position = Vector2(
-				clampf(clamped.x - 90.0, safe.x + 8.0, screen.x - safe.z - 188.0),
-				clamped.y - 13.0)
+		lbl.text = ("◇ %s · %d m" if is_en else "◇ %s · %d м") % [tname, dist_m]
+		lbl.add_theme_color_override("font_color", Color(0.95, 0.86, 0.55, 0.72))
+		var lbl_pos := Vector2(
+				clampf(clamped.x - 120.0, safe.x + 8.0, screen.x - safe.z - 248.0),
+				clamped.y - 16.0)
+		for _step in range(8):
+			var collides := false
+			for prev in placed_positions:
+				if absf(lbl_pos.x - prev.x) < 185.0 and absf(lbl_pos.y - prev.y) < 30.0:
+					collides = true
+					break
+			if not collides:
+				break
+			lbl_pos.y += 32.0
+			if lbl_pos.y > max_y - 12.0:
+				lbl_pos.y = min_y - 12.0 + float(_step) * 32.0
+		placed_positions.append(lbl_pos)
+		lbl.position = lbl_pos
 		lbl.visible = true
 		slot += 1
 	while slot < _labels.size():
@@ -226,7 +324,7 @@ func _show_primary(cam: Camera3D, drone: Node3D, info: Dictionary) -> void:
 			"УДАР":
 				label_text = "STRIKE"
 	var progress := int(clampf(float(info.get("progress", 0.0)), 0.0, 1.0) * 100.0)
-	_objective_label.text = "◆ %s %s  %d м · %d%%" % [label_text, arrow, dist_m, progress]
+	_objective_label.text = ("◆ %s %s  %d m · %d%%" if MenuUI.is_english() else "◆ %s %s  %d м · %d%%") % [label_text, arrow, dist_m, progress]
 	var col: Color = info.get("color", Color(0.35, 0.95, 0.75))
 	_objective_label.add_theme_color_override("font_color", col)
 	var obj_x := clampf(clamped.x - 235.0, safe.x + 12.0,

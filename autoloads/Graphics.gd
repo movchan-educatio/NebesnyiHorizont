@@ -452,10 +452,10 @@ func apply_quality_preset(level: int) -> void:
 			graphics_settings["fps_limit"] = 120
 		QualityPreset.HIGH:
 			graphics_settings["msaa"] = GameMSAA.OFF if _is_mobile_platform() else GameMSAA.X2
-			graphics_settings["af"] = GameAF.X8
-			graphics_settings["shadows"] = Shadows.HIGH
+			graphics_settings["af"] = GameAF.X4 if _is_mobile_platform() else GameAF.X8
+			graphics_settings["shadows"] = Shadows.MEDIUM if _is_mobile_platform() else Shadows.HIGH
 			graphics_settings["vsync"] = false
-			graphics_settings["fps_limit"] = 120
+			graphics_settings["fps_limit"] = 60 if _is_mobile_platform() else 120
 	update_msaa()
 	update_af()
 	update_shadows()

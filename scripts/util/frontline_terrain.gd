@@ -424,9 +424,8 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 	if _is_tutorial_mode():
 		# Keep the entire FlightSchool corridor (spawn -> window -> brake -> landing)
 		# free of POIs, hero structures, freestyle props and vegetation.
-		reserve_area(Vector2(-48.0, 120.0), 26.0)
-		reserve_area(Vector2(-48.0, 40.0), 26.0)
-		reserve_area(Vector2(-48.0, -38.0), 26.0)
+		for rz in [120.0, 80.0, 40.0, 0.0, -15.0, -38.0]:
+			reserve_area(Vector2(-48.0, float(rz)), 28.0)
 
 	var ground_mat := _ground_material(map_name)
 	var outer_cells := maxi(16, OUTER_CELLS / 2)
@@ -1298,7 +1297,7 @@ static func _build_freight_train(root: Node3D, map_name: String) -> void:
 	if map_name != "industrial" and map_name != "village":
 		return
 	var z := -15.0
-	var start_x := -50.0
+	var start_x := -14.0
 	var car_len := 13.0
 	var gap := 2.0
 	var palette := {

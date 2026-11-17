@@ -64,6 +64,7 @@ const PRESETS := {
 	Level.HIGH: {
 		"scale_3d": 1.0, "min_scale": 1.0, "max_scale": 1.0,
 		"adaptive": false, "target_fps": 60.0,
+		"physics_hz": 60,
 		"fsr_sharpness": 0.7, "msaa": 0, "fxaa": true,
 		"ssao": true, "ssao_quality": RenderingServer.ENV_SSAO_QUALITY_LOW,
 		"ssao_intensity": 1.10,
@@ -71,7 +72,7 @@ const PRESETS := {
 		"volumetric_fog": false, "volumetric_density": 0.0011, "glow": false,
 		"shadows": true, "shadow_splits": 2, "shadow_distance": 180.0,
 		"shadow_atlas": 2048, "soft_shadow": RenderingServer.SHADOW_QUALITY_SOFT_LOW,
-		"grass_count": 4200, "grass_range": 28.0,
+		"grass_count": 3200, "grass_range": 28.0,
 		"veg_range": 920.0, "veg_density": 0.65, "mesh_lod": 0.8,
 		"world_detail_factor": 0.35, "grass_tuft_mult": 0.55,
 		"ground_detail_level": 1, "far_grass_mult": 0.50,
@@ -143,22 +144,23 @@ static func params() -> Dictionary:
 					"ssao": false, "ssil": false, "volumetric_fog": false,
 					"glow": false, "fxaa": false}, true)
 			Level.MEDIUM:
-				p.merge({"scale_3d": 0.72, "min_scale": 0.52, "max_scale": 0.90,
-					"adaptive": true, "target_fps": mobile_target,
-					"grass_count": 2400, "grass_range": 24.0,
-					"veg_range": 850.0, "veg_density": 0.72, "mesh_lod": 1.25,
-					"shadow_distance": 110.0, "shadow_atlas": 1536,
-					"ssao": false, "ssil": false, "volumetric_fog": false,
-					"glow": false, "fxaa": true}, true)
-			Level.HIGH:
-				p.merge({"scale_3d": 0.84, "min_scale": 0.62, "max_scale": 0.90,
-					"adaptive": true, "target_fps": mobile_target,
-					"grass_count": 4200, "grass_range": 28.0,
-					"veg_range": 1250.0, "veg_density": 0.86, "mesh_lod": 1.05,
-					"shadow_distance": 145.0, "shadow_atlas": 1536,
+				p.merge({"scale_3d": 0.72, "min_scale": 0.50, "max_scale": 0.84,
+					"adaptive": true, "target_fps": minf(mobile_target, 60.0),
+					"grass_count": 1900, "grass_range": 24.0,
+					"veg_range": 740.0, "veg_density": 0.68, "mesh_lod": 1.35,
+					"shadow_distance": 100.0, "shadow_atlas": 1024,
 					"msaa": Viewport.MSAA_DISABLED,
 					"ssao": false, "ssil": false, "volumetric_fog": false,
-					"glow": false, "fxaa": true}, true)
+					"glow": false, "fxaa": false}, true)
+			Level.HIGH:
+				p.merge({"scale_3d": 0.78, "min_scale": 0.56, "max_scale": 0.84,
+					"adaptive": true, "target_fps": 58.0,
+					"grass_count": 2600, "grass_range": 26.0,
+					"veg_range": 900.0, "veg_density": 0.76, "mesh_lod": 1.15,
+					"shadow_distance": 115.0, "shadow_atlas": 1024,
+					"msaa": Viewport.MSAA_DISABLED,
+					"ssao": false, "ssil": false, "volumetric_fog": false,
+					"glow": false, "fxaa": false}, true)
 	# QA switches used by the FPS benchmark to isolate expensive passes.
 	if OS.has_environment("QA_NO_FOG"):
 		p = p.duplicate(true)
@@ -401,6 +403,8 @@ static func apply_sun(sun: DirectionalLight3D) -> void:
 			sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 	# FPV cascade profile: 0-28 m near flight/obstacles/trees, mid range trenches
 	# and structures, outer falloff covered by contact shadows and height fog.
+	var is_mobile_sun := OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")
 	if cur_lvl == Level.HIGH:
 		if int(p["shadow_splits"]) >= 4:
 			sun.directional_shadow_split_1 = clampf(16.0 / maxf(d, 1.0), 0.08, 0.25)
@@ -408,11 +412,11 @@ static func apply_sun(sun: DirectionalLight3D) -> void:
 			sun.directional_shadow_split_3 = clampf(140.0 / maxf(d, 1.0), 0.58, 0.88)
 		else:
 			sun.directional_shadow_split_1 = two_split_1
-		sun.directional_shadow_blend_splits = true
+		sun.directional_shadow_blend_splits = not is_mobile_sun
 		sun.shadow_blur = 0.85
 		sun.directional_shadow_fade_start = 0.85
 	else:
-		sun.directional_shadow_blend_splits = (cur_lvl == Level.MEDIUM)
+		sun.directional_shadow_blend_splits = (cur_lvl == Level.MEDIUM and not is_mobile_sun)
 		sun.directional_shadow_fade_start = 0.8
 		sun.shadow_blur = 1.0
 
@@ -463,7 +467,7 @@ static func apply_to_scene(scene_root: Node, _override_lvl: int = -1) -> void:
 		grass_far.visibility_range_end = float(p["grass_range"])
 		grass_far.visibility_range_end_margin = clampf(float(p["grass_range"]) * 0.26, 3.0, 8.0)
 	for child in scene_root.get_children():
-		if child is MultiMeshInstance3D and child.name != "DenseGrassFoliage":
+		if child is MultiMeshInstance3D and not String(child.name).contains("Grass"):
 			(child as MultiMeshInstance3D).visibility_range_end = float(p["veg_range"])
 	# Re-arm the adaptive resolution when the player switches presets mid-flight.
 	var governor := scene_root.get_node_or_null("PerformanceGovernor")

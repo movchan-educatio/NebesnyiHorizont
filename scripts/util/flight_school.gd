@@ -498,10 +498,10 @@ func _create_window_wall(at: Vector2) -> Dictionary:
 	root.name = "TrainingWindowWall"
 	root.position = Vector3(at.x, gy, at.y)
 
-	var wall_w := 12.0
-	var wall_h := 7.0
-	var hole_w := 3.6
-	var hole_h := 3.2
+	var wall_w := 12.6
+	var wall_h := 7.2
+	var hole_w := 4.2
+	var hole_h := 3.6
 	var hole_cy := 2.8
 	var hole_bottom := hole_cy - hole_h * 0.5
 	var hole_top := hole_cy + hole_h * 0.5

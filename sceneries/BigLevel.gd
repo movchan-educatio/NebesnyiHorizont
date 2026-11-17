@@ -414,29 +414,21 @@ func _ready() -> void:
 				var half: Vector2 = site["half"]
 				g_center = Vector3(c.x + half.x + 32.0, _ground_y, c.y)
 				g_rad = minf(g_rad, 42.0)
-		FoliageSystemScript.spawn_dense_grass(self, g_center, g_rad, g_cnt,
+		FoliageSystemScript.spawn_dense_grass(self, g_center, g_rad, maxi(320, int(float(g_cnt) * 0.35)),
 				g_base, g_tip, frontline_map,
 				Vector3(d.global_position.x, 0.0, d.global_position.z), 9.0)
-		if _is_mobile_runtime() and not frontline_map.is_empty():
-			# The mobile camera-follow carpet avoids the low-resolution close
-			# grass gap.  Desktop keeps its original static vegetation layout.
-			var fg_script = load("res://scripts/util/follow_grass.gd")
-			if fg_script != null:
-				var fg = fg_script.new()
-				fg.name = "FollowGrass"
-				add_child(fg)
-				fg.setup(frontline_map, QualityManagerScript.get_active_level())
-				fg.set_spawn_clear(Vector3(d.global_position.x, 0.0,
-						d.global_position.z), 9.0)
-				var grass_center := Vector3(d.global_position.x, 0.0,
-						d.global_position.z)
-				if _is_mobile_runtime():
-					# Keep the loading card up until the first MultiMesh buffer is
-					# uploaded; later camera-follow rebuilds remain asynchronous.
-					await fg.prime(grass_center, true)
-				else:
-					# Preserve the existing desktop loading and rendering behavior.
-					fg.prime(grass_center)
+		var fg_script = load("res://scripts/util/follow_grass.gd")
+		if fg_script != null:
+			var fg = fg_script.new()
+			fg.name = "FollowGrass"
+			add_child(fg)
+			var grass_map := frontline_map if not frontline_map.is_empty() else "valley"
+			fg.setup(grass_map, QualityManagerScript.get_active_level())
+			fg.set_spawn_clear(Vector3(d.global_position.x, _ground_y,
+					d.global_position.z), 9.0)
+			var grass_center := Vector3(d.global_position.x, _ground_y,
+					d.global_position.z)
+			fg.prime(grass_center)
 	_hide_drone_visuals(d)
 	var preset_drone := get_node_or_null("Drone")
 	if preset_drone != null:
@@ -520,6 +512,11 @@ func _ready() -> void:
 			elif cnode is CanvasItem:
 				(cnode as CanvasItem).visible = false
 	_setup_audio()
+	if _is_mobile_runtime():
+		DisplayServer.screen_set_orientation(DisplayServer.SCREEN_SENSOR_LANDSCAPE)
+	var vp_main := get_viewport()
+	if vp_main != null and not vp_main.size_changed.is_connected(_on_viewport_size_changed):
+		vp_main.size_changed.connect(_on_viewport_size_changed)
 	call_deferred("_auto_hide_help")
 
 	if OS.has_environment("DRONE_HYDRO_RAM_TEST"):
@@ -1792,6 +1789,32 @@ func _sanitize_ground_waypoints(wps: Array, closed_loop: bool = true) -> Array:
 						best_c = cv
 				if best_score < 1.0e8:
 					out.append(Vector3(best_c.x, 0.0, best_c.y))
+		# Also route segments around secondary structures and reserved obstacle circles.
+		var cur_a: Vector3 = out[out.size() - 1]
+		var struct_circles: Array = FrontlineTerrainScript.STRUCT_AO_CIRCLES.get(frontline_map, []).duplicate()
+		for r_entry in FrontlineTerrainScript.get_reserved_areas():
+			var rc: Vector2 = r_entry.get("pos", Vector2.ZERO)
+			var rr := float(r_entry.get("radius", 0.0))
+			if rr > 4.0:
+				struct_circles.append(Vector3(rc.x, rc.y, rr))
+		for sc_item in struct_circles:
+			var sc_v: Vector3 = sc_item
+			var c_xz := Vector2(sc_v.x, sc_v.y)
+			var rad := sc_v.z + 5.5
+			var seg_ab := Vector2(b.x - cur_a.x, b.z - cur_a.z)
+			var seg_l2 := seg_ab.length_squared()
+			if seg_l2 < 1.0:
+				continue
+			var proj_t := clampf((c_xz - Vector2(cur_a.x, cur_a.z)).dot(seg_ab) / seg_l2, 0.05, 0.95)
+			var closest := Vector2(cur_a.x, cur_a.z) + seg_ab * proj_t
+			if closest.distance_to(c_xz) < rad:
+				var perp := Vector2(-seg_ab.y, seg_ab.x).normalized()
+				var side1 := c_xz + perp * (rad + 4.0)
+				var side2 := c_xz - perp * (rad + 4.0)
+				var detour := side1 if _is_ground_spot_clear(side1.x, side1.y) and side1.distance_to(closest) <= side2.distance_to(closest) else side2
+				if _is_ground_spot_clear(detour.x, detour.y):
+					out.append(Vector3(detour.x, 0.0, detour.y))
+					cur_a = out[out.size() - 1]
 	var dedup: Array = []
 	for p in out:
 		var pv: Vector3 = p as Vector3
@@ -2306,19 +2329,18 @@ func _on_respawned() -> void:
 	_reset_fpv_payload()
 	_mah = 0.0
 	_rings_passed = 0
-	for r in _training_rings:
-		if is_instance_valid(r):
-			r.visible = true
+	_sync_active_training_ring(false)
 	_ghost_record_samples.clear()
 	_ghost_record_timer = 0.0
 	if _ghost_node != null and is_instance_valid(_ghost_node) and _ghost_node.has_method("reset_replay"):
 		_ghost_node.reset_replay()
 		if not _ghost_node.replay.is_empty():
 			_ghost_node.start_replay()
-	_radio_beat_01_sent = false
-	_radio_beat_02_sent = false
-	_radio_beat_03_sent = false
-	_radio_beat_04_sent = false
+	if not _mission_started:
+		_radio_beat_01_sent = false
+		_radio_beat_02_sent = false
+		_radio_beat_03_sent = false
+		_radio_beat_04_sent = false
 	_radio_beat_02_fallback_timer = -1.0
 	_radio_cooldown = 0.0
 	_radio_subtitle_timer = 0.0
@@ -2327,32 +2349,8 @@ func _on_respawned() -> void:
 		_radio_subtitle_panel.visible = false
 	if Audio != null and Audio.has_method("stop_radio"):
 		Audio.call("stop_radio")
-	if _mission_started and not _mission_finished and Global.play_mode == Global.PlayMode.COMBAT:
-		if _mission_phase == 2:
-			_radio_beat_04_sent = true
-			_play_radio_callout(
-				_txt("Борт-01, ураження цілі зафіксовано камерою розвідника. Відмінна робота, повертайтесь на базу.",
-					"Valkyrie-01, target destruction verified by recon feed. Good effect on target, RTB."),
-				true, "04")
-		elif _mission_phase == 1:
-			_radio_beat_02_sent = true
-			_play_radio_callout(
-				_txt("Борт-01, я Штаб. Координати підтверджено, поправка на вітер східний. Роботу дозволяю. Кінець зв'язку.",
-					"Valkyrie-01, HQ copies. Coordinates confirmed, adjust for east crosswind. Cleared hot. Out."),
-				true, "02")
-		else:
-			_radio_beat_01_sent = true
-			if Global.special_mission > 0:
-				_radio_beat_02_fallback_timer = 5.0
-				_play_radio_callout(
-					_txt("Штаб, я Борт-01. Операція «%s» — заходжу на курс. Прийом." % Global.get_special_mission_name(Global.special_mission),
-						"HQ, this is Valkyrie-01. Operation %s underway, commencing run. Over." % Global.get_special_mission_name(Global.special_mission)),
-					true, "01")
-			else:
-				_play_radio_callout(
-					_txt("Штаб, я Борт-01. Ціль у квадраті спостерігаю, заходжу на бойовий курс. Прийом.",
-						"HQ, this is Valkyrie-01. Target spotted in sector, commencing attack run. Over."),
-					true, "01")
+	# Do not replay radio callouts on mid-mission respawn: radio chatter plays
+	# only at initial mission start and at mission completion.
 
 
 ## R / respawn in this arcade level also re-arms, matching the on-screen
@@ -2386,11 +2384,11 @@ func _airframes_limited() -> bool:
 func _init_airframe_reserve() -> void:
 	match Global.difficulty:
 		Global.Difficulty.RECRUIT:
-			_sortie_airframes_total = 5
+			_sortie_airframes_total = 6 if (Global.special_mission == 0 and Global.combat_mission == 1) else 5
 		Global.Difficulty.OPERATOR:
-			_sortie_airframes_total = 3
+			_sortie_airframes_total = 4 if (Global.special_mission == 0 and Global.combat_mission == 1) else 3
 		_:
-			_sortie_airframes_total = 2
+			_sortie_airframes_total = 3 if (Global.special_mission == 0 and Global.combat_mission == 1) else 2
 	_sortie_airframes_left = _sortie_airframes_total
 	_airframe_consumed_this_life = false
 
@@ -2563,16 +2561,26 @@ func get_mission_phase_info() -> Dictionary:
 ## Radio callout hook: prefers synthesized VHF WAV lines on the dedicated Radio
 ## bus (`Audio.play_radio_line`) and falls back to CombatSfx radio tone bursts.
 func _play_radio_callout(text: String, force := false, line_key: String = "") -> void:
+	var r_mode := int(Global.menu_settings.get("radio_chatter_mode", 1)) if Global != null else 1
+	if r_mode == 0:
+		return
+	var is_start_or_end := (line_key == "01" or line_key == "04" or _mission_finished \
+			or text.contains("ВИКОНАНО") or text.contains("COMPLETE") \
+			or text.contains("ПРОВАЛЕНО") or text.contains("FAILED"))
+	# In mode 1 (Start & End only, default), mid-mission phase/kill callouts show
+	# only as non-intrusive HUD text without repeating voice chatter.
+	var play_voice := (r_mode >= 2) or is_start_or_end
 	if not force and _radio_cooldown > 0.0:
 		return
 	_radio_cooldown = 2.6
 	var dur := 2.6
-	if not line_key.is_empty() and Audio != null and Audio.has_method("play_radio_line"):
-		dur = maxf(float(Audio.call("play_radio_line", line_key)), 2.2)
-	else:
-		CombatSfxScript.play_radio(self, MenuUI.translate_text(text))
-		_route_last_sfx_bus(&"Radio")
-	_audio_duck_timer = maxf(dur, 2.6)
+	if play_voice:
+		if not line_key.is_empty() and Audio != null and Audio.has_method("play_radio_line"):
+			dur = maxf(float(Audio.call("play_radio_line", line_key)), 2.2)
+		else:
+			CombatSfxScript.play_radio(self, MenuUI.translate_text(text))
+			_route_last_sfx_bus(&"Radio")
+		_audio_duck_timer = maxf(dur, 2.6)
 	var sub_node: Control = _radio_subtitle_panel if _radio_subtitle_panel != null else _radio_subtitle
 	if _radio_subtitle != null:
 		_radio_subtitle.text = "%s · %s" % [
@@ -3249,12 +3257,18 @@ func _build_training_ring_positions() -> void:
 			" raised=", raised, " map=", frontline_map if not frontline_map.is_empty() else "valley")
 
 
+var _next_ring_preview: MeshInstance3D = null
+
+
 func _spawn_training_rings() -> void:
 	_rings_total = 0
 	for old_ring in _training_rings:
 		if is_instance_valid(old_ring):
 			old_ring.queue_free()
 	_training_rings.clear()
+	if _next_ring_preview != null and is_instance_valid(_next_ring_preview):
+		_next_ring_preview.queue_free()
+	_next_ring_preview = null
 	_build_training_ring_positions()
 	for i in range(24):
 		var pos := _training_ring_position(i)
@@ -3267,9 +3281,99 @@ func _spawn_training_rings() -> void:
 		var yaw := atan2(tangent.x, tangent.z)
 		var ring := _make_ring(pos, 6.2, Color(0.20, 0.86, 0.78), yaw)
 		ring.set_meta("training_ring_index", i)
+		ring.visible = (i == 0)
+		ring.monitoring = (i == 0)
 		ring.body_entered.connect(_on_ring_entered.bind(ring))
 		_training_rings.append(ring)
 		_rings_total += 1
+	_ensure_next_ring_preview()
+	_sync_active_training_ring(false)
+
+
+func _ensure_next_ring_preview() -> void:
+	if _triggers == null:
+		return
+	if _next_ring_preview != null and is_instance_valid(_next_ring_preview):
+		return
+	var preview := MeshInstance3D.new()
+	preview.name = "NextTrainingRingPreview"
+	var torus := TorusMesh.new()
+	torus.inner_radius = 5.4
+	torus.outer_radius = 5.85
+	torus.rings = 24
+	torus.ring_segments = 8
+	preview.mesh = torus
+	preview.rotation.x = PI * 0.5
+	var mat := StandardMaterial3D.new()
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(0.20, 0.86, 0.78, 0.24)
+	mat.emission_enabled = true
+	mat.emission = Color(0.20, 0.86, 0.78)
+	mat.emission_energy_multiplier = 0.35
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	preview.material_override = mat
+	preview.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_triggers.add_child(preview)
+	_next_ring_preview = preview
+
+
+func _sync_active_training_ring(animate_pop: bool = false) -> void:
+	for i in range(_training_rings.size()):
+		var r := _training_rings[i]
+		if r == null or not is_instance_valid(r):
+			continue
+		var is_active := (i == _rings_passed and _rings_passed < _rings_total)
+		r.visible = is_active
+		r.set_deferred("monitoring", is_active)
+		if is_active:
+			if animate_pop and is_inside_tree():
+				r.scale = Vector3.ONE * 0.42
+				var tw := create_tween()
+				tw.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+				tw.tween_property(r, "scale", Vector3.ONE, 0.22)
+			else:
+				r.scale = Vector3.ONE
+	_ensure_next_ring_preview()
+	if _next_ring_preview != null and is_instance_valid(_next_ring_preview):
+		var next_idx := _rings_passed + 1
+		if next_idx < _training_rings.size() and _rings_passed < _rings_total:
+			var nr := _training_rings[next_idx]
+			if nr != null and is_instance_valid(nr):
+				_next_ring_preview.visible = true
+				_next_ring_preview.global_position = nr.global_position
+				_next_ring_preview.global_rotation = Vector3(PI * 0.5, nr.global_rotation.y, 0.0)
+			else:
+				_next_ring_preview.visible = false
+		else:
+			_next_ring_preview.visible = false
+
+
+func _spawn_ring_pass_effect(ring_xf: Transform3D) -> void:
+	if _triggers == null or not is_inside_tree():
+		return
+	var fx := MeshInstance3D.new()
+	fx.name = "RingPassBurst"
+	var torus := TorusMesh.new()
+	torus.inner_radius = 6.2
+	torus.outer_radius = 7.2
+	torus.rings = 24
+	torus.ring_segments = 8
+	fx.mesh = torus
+	var mat := StandardMaterial3D.new()
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(0.45, 1.0, 0.88, 0.88)
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	fx.material_override = mat
+	fx.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_triggers.add_child(fx)
+	fx.global_position = ring_xf.origin
+	fx.global_rotation = Vector3(PI * 0.5, ring_xf.basis.get_euler().y, 0.0)
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(fx, "scale", Vector3.ONE * 1.48, 0.28).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_property(mat, "albedo_color:a", 0.0, 0.28)
+	tw.chain().tween_callback(fx.queue_free)
 
 
 func _on_ring_entered(body: Node3D, ring: Area3D) -> void:
@@ -3280,9 +3384,13 @@ func _on_ring_entered(body: Node3D, ring: Area3D) -> void:
 	if _rings_passed >= _training_rings.size() \
 			or _training_rings[_rings_passed] != ring:
 		return
+	var passed_xf := ring.global_transform
 	_rings_passed += 1
 	_score += 50
-	ring.visible = false
+	_spawn_ring_pass_effect(passed_xf)
+	if Audio != null and Audio.has_method("play_radio_confirm_beep"):
+		Audio.call("play_radio_confirm_beep", -9.0)
+	_sync_active_training_ring(true)
 	_set_flash("%s %d/%d" % [_txt("Ворота", "Gate"), _rings_passed, _rings_total])
 	if _rings_passed >= _rings_total:
 		_save_training_ghost()
@@ -3442,6 +3550,8 @@ func _add_vehicle(kind: int, waypoints: Array, speed: float, hostile: bool,
 				var safe_xz := _ensure_enemy_xz_clearance(
 						Vector2(first_wp.x, first_wp.z), min_dist, bound, is_air)
 				shifted[0] = Vector3(safe_xz.x, first_wp.y, safe_xz.y)
+			if not is_air and not frontline_map.is_empty():
+				shifted = _sanitize_ground_waypoints(shifted, true)
 		waypoints = shifted
 	var vehicle := VEHICLE.new()
 	vehicle.kind = kind
@@ -4304,8 +4414,9 @@ func _spawn_special_oreshnik(deep_strike: bool) -> void:
 func _setup_special_escort() -> void:
 	var raw_route: Array = [
 		_special_ground_point(-115.0, 115.0),
-		_special_ground_point(-20.0, 40.0),
-		_special_ground_point(80.0, -30.0),
+		_special_ground_point(-72.0, 58.0),
+		_special_ground_point(16.0, 42.0),
+		_special_ground_point(84.0, -24.0),
 		_special_ground_point(135.0, -100.0),
 	]
 	if not frontline_map.is_empty():
@@ -4583,13 +4694,13 @@ func _spawn_combat_mission(mission_id: int) -> void:
 				base_center.z = safe_bc.y
 
 			for i in range(6):
-				var angle := (float(i) / 6.0) * TAU + randf_range(-0.35, 0.35)
-				var dist := randf_range(14.0, 38.0)
+				var angle := (float(i) / 6.0) * TAU + randf_range(-0.22, 0.22)
+				var dist := randf_range(9.0, 21.0)
 				var pos := base_center + Vector3(cos(angle) * dist, 0.0, sin(angle) * dist)
 				var patrol_angle := randf() * TAU
 				var axis := Vector3(cos(patrol_angle), 0.0, sin(patrol_angle))
-				var p_dist := randf_range(12.0, 18.0)
-				var p_spd := randf_range(1.5, 1.85)
+				var p_dist := randf_range(8.0, 13.0)
+				var p_spd := randf_range(1.05, 1.35)
 				_add_mission_infantry(pos, axis, p_dist, p_spd, true)
 
 		2:
@@ -5147,10 +5258,10 @@ func _setup_hud() -> void:
 	wing_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	hud_row.add_child(wing_icon)
 	_hud_label = Label.new()
-	_hud_label.add_theme_font_size_override("font_size", 14)
-	_hud_label.add_theme_color_override("font_color", Color(0.92, 0.96, 0.94, 0.95))
-	_hud_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-	_hud_label.add_theme_constant_override("outline_size", 3)
+	_hud_label.add_theme_font_size_override("font_size", 18)
+	_hud_label.add_theme_color_override("font_color", Color(0.95, 0.99, 0.96, 0.98))
+	_hud_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
+	_hud_label.add_theme_constant_override("outline_size", 5)
 	_hud_label.visible = true
 	hud_row.add_child(_hud_label)
 	# Non-overlapping centered stack for flash banners, arm/nav cue, threat alert, and ELRS status.
@@ -5158,36 +5269,36 @@ func _setup_hud() -> void:
 	_top_banner_stack.name = "TopBannerStack"
 	_top_banner_stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_top_banner_stack.alignment = BoxContainer.ALIGNMENT_BEGIN
-	_top_banner_stack.add_theme_constant_override("separation", 3)
+	_top_banner_stack.add_theme_constant_override("separation", 4)
 	_top_banner_stack.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	_top_banner_stack.offset_left = 180.0 + safe_l
 	_top_banner_stack.offset_right = -(180.0 + safe_r)
 	_top_banner_stack.offset_top = 10.0 + safe_t
-	_top_banner_stack.offset_bottom = 104.0 + safe_t
+	_top_banner_stack.offset_bottom = 114.0 + safe_t
 	_hud.add_child(_top_banner_stack)
 	_hud_message = Label.new()
-	_hud_message.add_theme_font_size_override("font_size", 18)
-	_hud_message.add_theme_color_override("font_color", Color(1, 0.92, 0.5))
-	_hud_message.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-	_hud_message.add_theme_constant_override("outline_size", 4)
+	_hud_message.add_theme_font_size_override("font_size", 22)
+	_hud_message.add_theme_color_override("font_color", Color(1, 0.93, 0.52))
+	_hud_message.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
+	_hud_message.add_theme_constant_override("outline_size", 5)
 	_hud_message.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hud_message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_hud_message.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_hud_message.visible = false
 	_top_banner_stack.add_child(_hud_message)
 	_nav_marker = Label.new()
-	_nav_marker.add_theme_font_size_override("font_size", 15)
-	_nav_marker.add_theme_color_override("font_color", Color(1.0, 0.88, 0.35, 0.95))
-	_nav_marker.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.92))
-	_nav_marker.add_theme_constant_override("outline_size", 3)
+	_nav_marker.add_theme_font_size_override("font_size", 19)
+	_nav_marker.add_theme_color_override("font_color", Color(1.0, 0.90, 0.36, 0.98))
+	_nav_marker.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
+	_nav_marker.add_theme_constant_override("outline_size", 5)
 	_nav_marker.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_nav_marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_top_banner_stack.add_child(_nav_marker)
 	_threat_indicator = Label.new()
-	_threat_indicator.add_theme_font_size_override("font_size", 14)
+	_threat_indicator.add_theme_font_size_override("font_size", 17)
 	_threat_indicator.add_theme_color_override("font_color", Color(1.0, 0.35, 0.25, 0.98))
 	_threat_indicator.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
-	_threat_indicator.add_theme_constant_override("outline_size", 3)
+	_threat_indicator.add_theme_constant_override("outline_size", 4)
 	_threat_indicator.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_threat_indicator.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_threat_indicator.visible = false
@@ -5196,10 +5307,10 @@ func _setup_hud() -> void:
 	# toggle_arm; the button is a fallback for a phone without a radio.
 	if ElrsWifiInput.enabled or touch_enabled:
 		_elrs_status_label = Label.new()
-		_elrs_status_label.add_theme_font_size_override("font_size", 13)
+		_elrs_status_label.add_theme_font_size_override("font_size", 15)
 		_elrs_status_label.add_theme_color_override("font_color", Color(0.55, 1.0, 0.72, 0.95))
 		_elrs_status_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-		_elrs_status_label.add_theme_constant_override("outline_size", 3)
+		_elrs_status_label.add_theme_constant_override("outline_size", 4)
 		_elrs_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		_elrs_status_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_elrs_status_label.text = ElrsWifiInput.status_text
@@ -5211,12 +5322,12 @@ func _setup_hud() -> void:
 	_radio_subtitle_panel.name = "RadioSubtitlePanel"
 	_radio_subtitle_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_radio_subtitle_panel.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	_radio_subtitle_panel.offset_left = -360.0
-	_radio_subtitle_panel.offset_right = 360.0
-	_radio_subtitle_panel.offset_top = safe_t + 106.0
-	_radio_subtitle_panel.offset_bottom = safe_t + 152.0
+	_radio_subtitle_panel.offset_left = -380.0
+	_radio_subtitle_panel.offset_right = 380.0
+	_radio_subtitle_panel.offset_top = safe_t + 114.0
+	_radio_subtitle_panel.offset_bottom = safe_t + 162.0
 	var r_sb := StyleBoxFlat.new()
-	r_sb.bg_color = Color(0.03, 0.07, 0.08, 0.78)
+	r_sb.bg_color = Color(0.03, 0.07, 0.08, 0.82)
 	r_sb.border_color = Color(0.22, 0.91, 1.0, 0.48)
 	r_sb.set_border_width_all(1)
 	r_sb.border_width_left = 4
@@ -5235,7 +5346,7 @@ func _setup_hud() -> void:
 	_radio_subtitle_panel.add_child(radio_hbox)
 	radio_hbox.add_child(_make_hud_icon("icon_signal_link", Vector2(18, 18), Color(0.22, 0.91, 1.0, 0.95)))
 	_radio_subtitle = Label.new()
-	_radio_subtitle.add_theme_font_size_override("font_size", 14)
+	_radio_subtitle.add_theme_font_size_override("font_size", 17)
 	_radio_subtitle.add_theme_color_override("font_color", Color(0.78, 1.0, 0.88, 0.98))
 	_radio_subtitle.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
 	_radio_subtitle.add_theme_constant_override("outline_size", 4)
@@ -5338,10 +5449,10 @@ func _setup_telemetry() -> void:
 	_hud.add_child(left_row)
 	left_row.add_child(_make_hud_icon("icon_drone_topdown", Vector2(18, 18), Color(0.91, 0.96, 0.98, 0.92)))
 	_telem_left = Label.new()
-	_telem_left.add_theme_font_size_override("font_size", 14)
-	_telem_left.add_theme_color_override("font_color", Color(1, 1, 1, 0.94))
-	_telem_left.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-	_telem_left.add_theme_constant_override("outline_size", 3)
+	_telem_left.add_theme_font_size_override("font_size", 16)
+	_telem_left.add_theme_color_override("font_color", Color(1, 1, 1, 0.96))
+	_telem_left.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
+	_telem_left.add_theme_constant_override("outline_size", 4)
 	left_row.add_child(_telem_left)
 	var right_row := HBoxContainer.new()
 	right_row.name = "TelemetryRightRow"
@@ -5349,15 +5460,15 @@ func _setup_telemetry() -> void:
 	right_row.alignment = BoxContainer.ALIGNMENT_END
 	right_row.add_theme_constant_override("separation", 8)
 	right_row.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	right_row.offset_left = -(270.0 + safe_r)
+	right_row.offset_left = -(290.0 + safe_r)
 	right_row.offset_top = 22.0 + safe_t
 	right_row.offset_right = -(22.0 + safe_r)
 	_hud.add_child(right_row)
 	_telem_right = Label.new()
-	_telem_right.add_theme_font_size_override("font_size", 14)
-	_telem_right.add_theme_color_override("font_color", Color(1, 1, 1, 0.94))
-	_telem_right.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-	_telem_right.add_theme_constant_override("outline_size", 3)
+	_telem_right.add_theme_font_size_override("font_size", 16)
+	_telem_right.add_theme_color_override("font_color", Color(1, 1, 1, 0.96))
+	_telem_right.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
+	_telem_right.add_theme_constant_override("outline_size", 4)
 	_telem_right.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_telem_right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	right_row.add_child(_telem_right)
@@ -5378,12 +5489,45 @@ func _setup_telemetry() -> void:
 	_hud.add_child(_wind_row)
 	_wind_row.add_child(_make_hud_icon("icon_wind_sock", Vector2(16, 16), Color(1.0, 0.82, 0.42, 0.95)))
 	_wind_indicator = Label.new()
-	_wind_indicator.add_theme_font_size_override("font_size", 13)
+	_wind_indicator.add_theme_font_size_override("font_size", 15)
 	_wind_indicator.add_theme_color_override("font_color", Color(1.0, 0.82, 0.42, 0.95))
 	_wind_indicator.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 	_wind_indicator.add_theme_constant_override("outline_size", 3)
 	_wind_indicator.visible = true
 	_wind_row.add_child(_wind_indicator)
+
+
+func _on_viewport_size_changed() -> void:
+	if _hud == null or not is_instance_valid(_hud):
+		return
+	var safe := _get_hud_safe_insets()
+	var safe_l := float(safe["left"])
+	var safe_r := float(safe["right"])
+	var safe_t := float(safe["top"])
+	var safe_b := float(safe["bottom"])
+	var left_row := _hud.get_node_or_null("TelemetryLeftRow") as Control
+	if left_row != null:
+		left_row.position = Vector2(22.0 + safe_l, 22.0 + safe_t)
+	var badge_row := _hud.get_node_or_null("MissionBadgeRow") as Control
+	if badge_row != null:
+		badge_row.position = Vector2(22.0 + safe_l, 96.0 + safe_t)
+	var right_row := _hud.get_node_or_null("TelemetryRightRow") as Control
+	if right_row != null:
+		right_row.offset_left = -(290.0 + safe_r)
+		right_row.offset_top = 22.0 + safe_t
+		right_row.offset_right = -(22.0 + safe_r)
+	if _top_banner_stack != null and is_instance_valid(_top_banner_stack):
+		_top_banner_stack.offset_left = 180.0 + safe_l
+		_top_banner_stack.offset_right = -(180.0 + safe_r)
+		_top_banner_stack.offset_top = 10.0 + safe_t
+		_top_banner_stack.offset_bottom = 114.0 + safe_t
+	if _wind_row != null and is_instance_valid(_wind_row):
+		_wind_row.offset_left = 22.0 + safe_l
+		_wind_row.offset_top = -(46.0 + safe_b)
+		_wind_row.offset_right = 380.0 + safe_l
+		_wind_row.offset_bottom = -(18.0 + safe_b)
+	if TouchControls != null and TouchControls.has_method("_layout_controls"):
+		TouchControls.call("_layout_controls")
 
 
 func _update_telemetry(delta: float) -> void:
@@ -6209,7 +6353,8 @@ func _configure_model_for_camera(node: Node, is_fpv: bool,
 				return
 			var is_warhead_part := n2.contains("morkva") or n2.contains("provoloka") \
 					or n2.contains("styazka") or n2.contains("detonator") \
-					or n2.contains("warhead")
+					or n2.contains("warhead") or n2.contains("pg7") \
+					or n2.contains("carbon") or n2.contains("material.003")
 			var is_front_part := n2.contains("propeller_fl") or n2.contains("propeller_fr") \
 					or n2.contains("propeller_0") or n2.contains("propeller_1") \
 					or n2.contains("motor_fl") or n2.contains("motor_fr") \

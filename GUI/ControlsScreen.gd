@@ -142,7 +142,7 @@ func _is_virtual() -> bool:
 func _set_touch_preview(on: bool) -> void:
 	var pad := get_node_or_null("/root/TouchControls")
 	if pad != null and pad.has_method("set_menu_preview"):
-		pad.call("set_menu_preview", on)
+		pad.call("set_menu_preview", on and MenuUI.is_mobile_ui())
 
 
 func _ui_text(uk: String, en: String) -> String:
@@ -587,7 +587,7 @@ func _build_device_bindings_column() -> Control:
 	prof_row.add_theme_constant_override("separation", 6)
 	device_box.add_child(prof_row)
 
-	var btn_radio := MenuUI.button("EdgeTX AETR", 28)
+	var btn_radio := MenuUI.button("RC Mode 2 (AETR)", 28)
 	btn_radio.tooltip_text = _ui_text("Стандартна схема Mode 2 (AETR). Якщо стіки не відповідають — скористайтеся калібруванням.", "Standard Mode 2 AETR. If the sticks do not match, use calibration.")
 	btn_radio.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_radio.add_theme_font_size_override("font_size", 11)
@@ -1027,8 +1027,8 @@ func _start_detect(kind: String, key: String) -> void:
 		if _active_virtual == MobileInput.SOURCE_ELRS:
 			if kind == "stick":
 				_message.text = _ui_text(
-						"Стіки ELRS — CH1–CH4. Зміна призначення — на пульті EdgeTX.",
-						"ELRS sticks are CH1–CH4. Change their mapping on the EdgeTX radio.")
+						"Стіки ELRS — CH1–CH4. Зміна призначення — у мікшері пульта.",
+						"ELRS sticks are CH1–CH4. Change their mapping in your radio mixer.")
 				return
 			_start_virtual_detect(key)
 		else:
@@ -1190,7 +1190,7 @@ func _apply_radiomaster_preset() -> void:
 		Controls.stick_invert[ch] = false
 	Controls.save_bindings()
 	_refresh_binding_labels()
-	_message.text = _ui_text("✓ Застосовано EdgeTX AETR (Mode 2). Перевірте стіки; за потреби — «КАЛІБРУВАННЯ СТІКІВ».", "✓ Applied EdgeTX AETR (Mode 2). Check the sticks; use STICK CALIBRATION if needed.")
+	_message.text = _ui_text("✓ Застосовано RC AETR (Mode 2). Перевірте стіки; за потреби — «КАЛІБРУВАННЯ СТІКІВ».", "✓ Applied RC AETR (Mode 2). Check the sticks; use STICK CALIBRATION if needed.")
 
 
 func _apply_gamepad_preset() -> void:

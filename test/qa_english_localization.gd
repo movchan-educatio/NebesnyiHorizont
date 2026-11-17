@@ -67,6 +67,29 @@ func _run() -> void:
 		for key in ["title", "inst", "tip"]:
 			_scan_text(str(lesson.get(key, "")), "Flight School module %d %s" % [step, key])
 
+	for extra_scn in [
+		"res://GUI/DroneSelectScreen.tscn",
+		"res://GUI/ControlsScreen.tscn",
+		"res://GUI/QuadSettingsMenu.tscn",
+		"res://GUI/HelpScreen.tscn",
+		"res://GUI/PauseMenu.tscn",
+	]:
+		var extra := (load(extra_scn) as PackedScene).instantiate() as Control
+		add_child(extra)
+		await get_tree().process_frame
+		MenuUI.localize_tree(extra)
+		_scan_node(extra, extra_scn.get_file())
+		extra.queue_free()
+		await get_tree().process_frame
+
+	_scan_text(Global.get_records_report(true), "Global.get_records_report(true)")
+	_scan_text(Global.get_leaderboard_summary(true), "Global.get_leaderboard_summary(true)")
+
+	for rkey in ["01", "02", "03", "04"]:
+		var rstream: AudioStream = Audio.call("_get_radio_stream", rkey) if Audio != null else null
+		if rstream == null or rstream.get_length() < 5.0:
+			_failures.append("English radio stream %s missing or too short" % rkey)
+
 	desktop_menu.queue_free()
 	school.queue_free()
 	await get_tree().process_frame

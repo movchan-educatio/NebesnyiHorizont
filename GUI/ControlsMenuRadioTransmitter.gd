@@ -39,7 +39,7 @@ func _ensure_skeleton() -> void:
 			return
 		existing.name = "RadioTransmitter_old"
 		existing.queue_free()
-	var path := "res://Assets/Drones/ua_norm/radiomaster_tx12_rig.glb"
+	var path := "res://Assets/Drones/ua_norm/rc_transmitter_rig.glb"
 	if ResourceLoader.exists(path):
 		var res = load(path)
 		if res is PackedScene:

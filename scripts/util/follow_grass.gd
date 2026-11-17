@@ -1,69 +1,57 @@
 class_name FollowGrass
 extends MultiMeshInstance3D
 
-## Dense grass carpet that follows the active camera across the whole map.
-##
-## The static spawn carpet gave beautiful blades only around the starting hall;
-## flying 100 m away dropped back to a painted ground texture.  This node keeps
-## a dense ring of clumps around whatever camera is active (FPV or spectator)
-## and rebuilds only when the camera moves, so every map part gets the same
-## near-field grass at one draw call.
+## Static whole-map chunked MultiMesh grass with distance-based LOD and density
+## falloff. Built once during level setup so grass is visible across the entire
+## playable arena from the very first frame without runtime rebuild stalls or
+## mid-flight pop-in.
 
 const VEGETATION := preload("res://scripts/util/vegetation_assets.gd")
 const GRASS_SHADER := preload("res://Assets/grass_wind.gdshader")
 const FT := preload("res://scripts/util/frontline_terrain.gd")
 
+const GRID_SIDE := 4
+const ARENA_HALF := 160.0
+const CHUNK_SIZE := (ARENA_HALF * 2.0) / float(GRID_SIDE)
+
 var map_name := ""
-var radius := 32.0
-var count := 16000
+var radius := 160.0
+var count := 0
 var base_color := Color(0.08, 0.10, 0.035)
 var tip_color := Color(0.24, 0.24, 0.09)
-var _last_center := Vector3(1e20, 0.0, 0.0)
 var _built := false
 var _building := false
 var _clear_center := Vector3.ZERO
 var _clear_radius := 0.0
+var _quality := 0
 var _rng := RandomNumberGenerator.new()
-## Fixed local blade pattern.  Regenerating random angles/radii on every
-## rebuild made the carpet visibly "swim" and spent most of the rebuild budget
-## on RNG + sin/cos.  The offsets and bases are generated once in setup(); a
-## rebuild now only samples terrain height and uploads the buffer.
-var _local_xz := PackedVector2Array()
-var _local_basis: Array[Basis] = []
+var _mat: ShaderMaterial = null
+var _mesh_near: ArrayMesh = null
+var _mesh_mid: ArrayMesh = null
+var _mesh_far: ArrayMesh = null
+var _chunks_populated := false
 
 
-func set_spawn_clear(center: Vector3, radius: float) -> void:
+func set_spawn_clear(center: Vector3, p_radius: float) -> void:
 	_clear_center = center
-	_clear_radius = radius
+	_clear_radius = p_radius
 
 
-## Build the first carpet while the loading card is still up, so the first
-## visible frame does not pay the rebuild cost.
-func prime(center: Vector3, wait_for_initial_build: bool = false) -> void:
+## Build all map chunks up front during level load so frame 1 has complete
+## arena coverage and zero runtime rebuilds occur in flight.
+func prime(_center: Vector3, _wait_for_initial_build: bool = false) -> void:
 	if not _built:
 		return
-	var ground_center := Vector3(center.x, 0.0, center.z)
-	if wait_for_initial_build:
-		await _rebuild(ground_center)
-	else:
-		_rebuild(ground_center)
+	if not _chunks_populated:
+		_populate_all_chunks()
 
 
 func setup(p_map: String, quality: int) -> void:
-	# The carpet is rebuilt from _process while the renderer runs; 3D physics
-	# interpolation would otherwise try to interpolate the fresh MultiMesh
-	# transforms and can leave the whole batch invisible.
 	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	map_name = p_map
+	_quality = quality
 	_rng.seed = hash(map_name) + 90210
-	radius = 34.0
-	count = 6000
-	if quality == QualityManager.Level.MEDIUM:
-		radius = 26.0
-		count = 2800
-	elif quality == QualityManager.Level.LOW:
-		radius = 20.0
-		count = 1350
+	radius = ARENA_HALF
 	if map_name == "steppe":
 		base_color = Color(0.052, 0.078, 0.024)
 		tip_color = Color(0.19, 0.24, 0.062)
@@ -76,67 +64,188 @@ func setup(p_map: String, quality: int) -> void:
 	else:
 		base_color = Color(0.055, 0.075, 0.026)
 		tip_color = Color(0.19, 0.22, 0.065)
-	var mesh: ArrayMesh = _make_lush_mesh()
-	if mesh == null:
-		mesh = FoliageSystem.create_grass_mesh(10, 1.2)
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.mesh = mesh
-	multimesh = mm
-	var mat := ShaderMaterial.new()
-	mat.shader = GRASS_SHADER
-	mat.set_shader_parameter("grass_base_color",
+
+	_mesh_near = _make_clump_mesh(2, 3, 1.0)
+	_mesh_mid = _make_clump_mesh(2, 2, 1.25)
+	_mesh_far = _make_clump_mesh(1, 3, 1.45)
+
+	_mat = ShaderMaterial.new()
+	_mat.shader = GRASS_SHADER
+	_mat.set_shader_parameter("grass_base_color",
 			Vector3(base_color.r, base_color.g, base_color.b))
-	mat.set_shader_parameter("grass_tip_color",
+	_mat.set_shader_parameter("grass_tip_color",
 			Vector3(tip_color.r, tip_color.g, tip_color.b))
-	mat.set_shader_parameter("wind_strength", 0.12)
-	material_override = mat
+	_mat.set_shader_parameter("wind_strength", 0.12)
+	material_override = _mat
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	visibility_range_end = radius + 35.0
-	visibility_range_end_margin = 10.0
-	visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
-	# Explicit local bounds: the MultiMesh AABB is only refreshed by the
-	# renderer after a frame, so a zero-size batch could be frustum-culled on
-	# its very first draw.
-	custom_aabb = AABB(Vector3(-radius, -120.0, -radius),
-			Vector3(radius * 2.0, 240.0, radius * 2.0))
-	_build_pattern()
 	_built = true
+	_building = false
 
 
-func _build_pattern() -> void:
-	_local_xz.resize(count)
-	_local_basis.resize(count)
-	for i in range(count):
-		var a := _rng.randf_range(0.0, TAU)
-		var r := pow(_rng.randf(), 0.70) * radius
-		_local_xz[i] = Vector2(cos(a) * r, sin(a) * r)
-		var s := _rng.randf_range(1.0, 1.7)
-		_local_basis[i] = Basis(Vector3.UP, _rng.randf_range(0.0, TAU)).scaled(
-				Vector3(s, _rng.randf_range(0.9, 1.5), s))
+func _populate_all_chunks() -> void:
+	_building = true
+	for c in get_children():
+		c.queue_free()
+
+	var is_frontline := not map_name.is_empty() and map_name != "valley"
+	var step := 8.0
+	var cells := int(ceil((ARENA_HALF + 8.0) / step))
+	var side := cells * 2 + 1
+	var grid := PackedFloat32Array()
+	var water := -999.0
+	var flat_y := _clear_center.y
+	if is_frontline:
+		water = FT.water_level(map_name)
+		grid.resize(side * side)
+		for gz in range(-cells, cells + 1):
+			for gx in range(-cells, cells + 1):
+				grid[(gz + cells) * side + (gx + cells)] = FT.height_at(map_name,
+						float(gx) * step, float(gz) * step)
+
+	var base_chunk_count := 250
+	var max_vis_near := 145.0
+	var max_vis_mid := 180.0
+	var max_vis_far := 215.0
+	if _quality == QualityManager.Level.LOW:
+		base_chunk_count = 115
+		max_vis_near = 110.0
+		max_vis_mid = 135.0
+		max_vis_far = 160.0
+	elif _quality == QualityManager.Level.MEDIUM:
+		base_chunk_count = 185
+		max_vis_near = 130.0
+		max_vis_mid = 160.0
+		max_vis_far = 190.0
+
+	var focus_xz := Vector2(_clear_center.x, _clear_center.z)
+	var half_chunk := CHUNK_SIZE * 0.5
+	var root_assigned := false
+	var total_instances := 0
+
+	for rz in range(GRID_SIDE):
+		for rx in range(GRID_SIDE):
+			var cx := -ARENA_HALF + (float(rx) + 0.5) * CHUNK_SIZE
+			var cz := -ARENA_HALF + (float(rz) + 0.5) * CHUNK_SIZE
+			var dist_focus := Vector2(cx, cz).distance_to(focus_xz)
+			var tier := 0
+			var density_mult := 1.0
+			if dist_focus < 75.0:
+				tier = 0
+				density_mult = 1.0
+			elif dist_focus < 135.0:
+				tier = 1
+				density_mult = 0.62 if _quality != QualityManager.Level.LOW else 0.48
+			else:
+				tier = 2
+				density_mult = 0.36 if _quality != QualityManager.Level.LOW else 0.24
+
+			var target_n := maxi(24, int(round(float(base_chunk_count) * density_mult)))
+			var buf := PackedFloat32Array()
+			buf.resize(target_n * 12)
+			var n := 0
+			for i in range(target_n):
+				var lx := _rng.randf_range(-half_chunk, half_chunk)
+				var lz := _rng.randf_range(-half_chunk, half_chunk)
+				var wx := cx + lx
+				var wz := cz + lz
+				if _clear_radius > 0.01 and Vector2(wx, wz).distance_to(focus_xz) < _clear_radius:
+					continue
+				if is_frontline and FT._hall_clear_zone(map_name, wx, wz):
+					continue
+				var wy := flat_y
+				if is_frontline:
+					wy = _sample_arena_grid(grid, side, cells, step, wx, wz)
+					if wy < water + 0.12:
+						continue
+				var s := _rng.randf_range(0.95, 1.65)
+				var b := Basis(Vector3.UP, _rng.randf_range(0.0, TAU)).scaled(
+						Vector3(s, _rng.randf_range(0.88, 1.45), s))
+				var j := n * 12
+				buf[j + 0] = b.x.x
+				buf[j + 1] = b.y.x
+				buf[j + 2] = b.z.x
+				buf[j + 3] = lx
+				buf[j + 4] = b.x.y
+				buf[j + 5] = b.y.y
+				buf[j + 6] = b.z.y
+				buf[j + 7] = wy + 0.015
+				buf[j + 8] = b.x.z
+				buf[j + 9] = b.y.z
+				buf[j + 10] = b.z.z
+				buf[j + 11] = lz
+				n += 1
+			if n == 0:
+				continue
+			buf.resize(n * 12)
+			total_instances += n
+
+			var chunk_mesh := _mesh_near if tier == 0 else (_mesh_mid if tier == 1 else _mesh_far)
+			var vis_end := max_vis_near if tier == 0 else (max_vis_mid if tier == 1 else max_vis_far)
+			var mm := MultiMesh.new()
+			mm.transform_format = MultiMesh.TRANSFORM_3D
+			mm.mesh = chunk_mesh
+			mm.instance_count = n
+			mm.set_buffer(buf)
+
+			var target_node: MultiMeshInstance3D = null
+			if not root_assigned and tier == 0:
+				target_node = self
+				root_assigned = true
+			else:
+				target_node = MultiMeshInstance3D.new()
+				target_node.name = "GrassChunk_%d_%d" % [rx, rz]
+				target_node.material_override = _mat
+				target_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				target_node.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+				add_child(target_node)
+
+			target_node.multimesh = mm
+			target_node.visibility_range_end = vis_end
+			target_node.visibility_range_end_margin = 16.0
+			target_node.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+			target_node.custom_aabb = AABB(
+					Vector3(-half_chunk - 4.0, -90.0, -half_chunk - 4.0),
+					Vector3(CHUNK_SIZE + 8.0, 180.0, CHUNK_SIZE + 8.0))
+			if target_node == self:
+				global_position = Vector3(cx, 0.0, cz)
+			else:
+				target_node.global_position = Vector3(cx, 0.0, cz)
+
+	count = total_instances
+	_chunks_populated = true
+	_building = false
 
 
-## Multi-blade crossed grass clumps built for the near camera. Grouping blades
-## into 5 three-blade tufts inside one clump boosts apparent ground coverage ~3x
-## per MultiMesh instance while keeping low-altitude silhouettes thick and crisp.
-func _make_lush_mesh() -> ArrayMesh:
+func _sample_arena_grid(grid: PackedFloat32Array, side: int, cells: int, step: float,
+		wx: float, wz: float) -> float:
+	var gx := (wx + float(cells) * step) / step
+	var gz := (wz + float(cells) * step) / step
+	var x0 := clampi(int(floor(gx)), 0, side - 2)
+	var z0 := clampi(int(floor(gz)), 0, side - 2)
+	var fx := clampf(gx - float(x0), 0.0, 1.0)
+	var fz := clampf(gz - float(z0), 0.0, 1.0)
+	var i := z0 * side + x0
+	return lerpf(lerpf(grid[i], grid[i + 1], fx),
+			lerpf(grid[i + side], grid[i + side + 1], fx), fz)
+
+
+func _make_clump_mesh(clusters: int, blades_per_cluster: int, width_mult: float) -> ArrayMesh:
 	var rng := RandomNumberGenerator.new()
-	rng.seed = 7719
+	rng.seed = 7719 + clusters * 31 + blades_per_cluster * 7
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var uvs := PackedVector2Array()
 	var colors := PackedColorArray()
 	var indices := PackedInt32Array()
-	var clusters := 5
 	for c in range(clusters):
 		var c_angle := rng.randf() * TAU
 		var c_dist := rng.randf_range(0.0, 0.28) if c > 0 else 0.0
 		var cx := cos(c_angle) * c_dist
 		var cz := sin(c_angle) * c_dist
 		var base_yaw := rng.randf() * TAU
-		for b in range(3):
-			var yaw := base_yaw + float(b) * (TAU / 3.0) + rng.randf_range(-0.22, 0.22)
-			var half_w := rng.randf_range(0.026, 0.044)
+		for b in range(blades_per_cluster):
+			var yaw := base_yaw + float(b) * (TAU / float(blades_per_cluster)) + rng.randf_range(-0.22, 0.22)
+			var half_w := rng.randf_range(0.028, 0.048) * width_mult
 			var h := rng.randf_range(0.32, 0.68)
 			var lean := rng.randf_range(0.07, 0.24)
 			var right := Vector3(cos(yaw), 0.0, sin(yaw)) * half_w
@@ -177,105 +286,3 @@ func _make_lush_mesh() -> ArrayMesh:
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh
-
-
-func _process(_delta: float) -> void:
-	if not _built or map_name.is_empty():
-		return
-	var cam := get_viewport().get_camera_3d()
-	if cam == null:
-		return
-	var p := cam.global_position
-	if FT._hall_clear_zone(map_name, p.x, p.z):
-		visible = false
-		return
-	visible = true
-	# A rebuild is spread over several frames so a 6000-12000 blade carpet
-	# never stalls one frame.  The old carpet stays visible until the new
-	# buffer is uploaded.
-	if _building:
-		return
-	# Rebuild only on meaningful horizontal travel.  Including camera altitude
-	# here made a climbing drone rebuild every 12 m of climb (a 70-100 ms spike
-	# several times per second); grass is a ground carpet, so vertical motion
-	# must not trigger it.
-	var dx := p.x - _last_center.x
-	var dz := p.z - _last_center.z
-	var threshold := maxf(12.0, radius * 0.8)
-	if dx * dx + dz * dz < threshold * threshold and multimesh.instance_count > 0:
-		return
-	_rebuild(p)
-
-
-func _rebuild(center: Vector3) -> void:
-	_building = true
-	# Height lookups are expensive (noise + craters + trenches).  Sampling
-	# 2200-20000 blades individually cost 70-100 ms per rebuild on the UHD.
-	# Build one coarse local height grid and bilinearly sample it instead.
-	var step := 3.0 if radius < 30.0 else 4.0
-	var cells := int(ceil((radius + 2.0) / step))
-	var side := cells * 2 + 1
-	var grid := PackedFloat32Array()
-	grid.resize(side * side)
-	for gz in range(-cells, cells + 1):
-		for gx in range(-cells, cells + 1):
-			grid[(gz + cells) * side + (gx + cells)] = FT.height_at(map_name,
-					center.x + float(gx) * step, center.z + float(gz) * step)
-	var water := FT.water_level(map_name)
-	var buf := PackedFloat32Array()
-	buf.resize(_local_xz.size() * 12)
-	var n := 0
-	for i in range(_local_xz.size()):
-		var lx := _local_xz[i].x
-		var lz := _local_xz[i].y
-		if _clear_radius > 0.01 and Vector2(center.x + lx, center.z + lz).distance_to(
-				Vector2(_clear_center.x, _clear_center.z)) < _clear_radius:
-			continue
-		var y := _grid_height(grid, side, cells, step, lx, lz)
-		if y < water + 0.12:
-			continue
-		# Write the 3x4 instance matrix directly: one buffer upload, no
-		# intermediate Array[Transform3D], no per-instance engine calls.
-		var b: Basis = _local_basis[i]
-		var j := n * 12
-		buf[j + 0] = b.x.x
-		buf[j + 1] = b.y.x
-		buf[j + 2] = b.z.x
-		buf[j + 3] = lx
-		buf[j + 4] = b.x.y
-		buf[j + 5] = b.y.y
-		buf[j + 6] = b.z.y
-		buf[j + 7] = y + 0.015
-		buf[j + 8] = b.x.z
-		buf[j + 9] = b.y.z
-		buf[j + 10] = b.z.z
-		buf[j + 11] = lz
-		n += 1
-		# Yield every 700 blades: ~2-3 ms per frame instead of a 15-30 ms
-		# stall, while the previous carpet remains fully visible.
-		if (i & 0x2FF) == 0x2FF:
-			if not is_inside_tree():
-				return
-			await get_tree().process_frame
-	buf.resize(n * 12)
-	global_position = Vector3(center.x, 0.0, center.z)
-	multimesh.instance_count = n
-	multimesh.set_buffer(buf)
-	_last_center = center
-	_building = false
-	print("[GRASS] spread rebuild map=", map_name, " count=", n,
-			" radius=", radius)
-
-
-## Bilinear sample of the local rebuild grid.  lx/lz are offsets from center.
-func _grid_height(grid: PackedFloat32Array, side: int, cells: int, step: float,
-		lx: float, lz: float) -> float:
-	var gx := (lx + float(cells) * step) / step
-	var gz := (lz + float(cells) * step) / step
-	var x0 := clampi(int(floor(gx)), 0, side - 2)
-	var z0 := clampi(int(floor(gz)), 0, side - 2)
-	var fx := clampf(gx - float(x0), 0.0, 1.0)
-	var fz := clampf(gz - float(z0), 0.0, 1.0)
-	var i := z0 * side + x0
-	return lerpf(lerpf(grid[i], grid[i + 1], fx),
-			lerpf(grid[i + side], grid[i + side + 1], fx), fz)

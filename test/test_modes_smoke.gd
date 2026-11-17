@@ -34,8 +34,12 @@ func _ready() -> void:
 				ok = targets >= 2 and inf.size() >= 1
 			Global.PlayMode.TRAINING:
 				var rings: Array = level.get("_training_rings")
-				detail = "rings=%d" % rings.size()
-				ok = rings.size() >= 0
+				var vis_count := 0
+				for r in rings:
+					if is_instance_valid(r) and (r as Node3D).visible:
+						vis_count += 1
+				detail = "rings=%d active_visible=%d" % [rings.size(), vis_count]
+				ok = rings.size() == 24 and vis_count == 1
 			Global.PlayMode.TUTORIAL:
 				var school = level.get("_flight_school")
 				detail = "flight_school=%s" % str(school != null)
