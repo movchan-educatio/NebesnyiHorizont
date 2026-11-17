@@ -768,25 +768,25 @@ func _update_panic() -> void:
 	var dist := global_position.distance_to(_drone.global_position)
 	# A drone parked on the ground does not spook the squad; it has to be up
 	# and buzzing before soldiers dive for cover.
-	if _drone.global_position.y < global_position.y + 6.0:
+	if _drone.global_position.y < global_position.y + 0.6:
 		_panic_checked = false
 		return
 	if dist > detect_range + 20.0:
 		_panic_checked = false
 		return
-	if _panic_checked or dist > panic_range or not _los_clear:
+	if _panic_checked or dist > maxf(panic_range, 48.0) or not _los_clear:
 		return
 	_panic_checked = true
-	if randf() >= panic_chance:
+	if randf() >= maxf(panic_chance, 0.65):
 		return
 	var away := global_position - _drone.global_position
 	away.y = 0.0
 	if away.length_squared() < 0.01:
 		away = Vector3.FORWARD
-	away = away.normalized().rotated(Vector3.UP, randf_range(-0.7, 0.7))
+	away = away.normalized().rotated(Vector3.UP, randf_range(-1.05, 1.05))
 	_panic_dir = away
 	_panic_state = 1
-	_panic_timer = randf_range(1.1, 2.2)
+	_panic_timer = randf_range(1.4, 2.5)
 
 
 func _panic_step(delta: float) -> void:

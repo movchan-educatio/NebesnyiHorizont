@@ -208,6 +208,15 @@ var _payload_drops := 0
 var _payload_hits := 0
 var _results_career_label: Label = null
 var _results_career_bar: ProgressBar = null
+var _fiber_spool_used_m := 0.0
+var _analog_bar_a: ColorRect = null
+var _analog_bar_b: ColorRect = null
+var _dvr_samples: Array = []
+var _dvr_sample_timer := 0.0
+var _last_strike_pos := Vector3.ZERO
+var _results_dvr_btn: Button = null
+var _dvr_replaying := false
+var _dvr_banner_label: Label = null
 
 
 func _is_en() -> bool:
@@ -2013,6 +2022,9 @@ func _place_drone_over_ground() -> void:
 			var half: Vector2 = site["half"]
 			var spawn: Vector2 = site.get("spawn", Vector2(c.x, c.y + half.y + 26.0))
 			var syaw: float = float(site.get("spawn_yaw", PI))
+			if Global != null and bool(Global.menu_settings.get("flank_spawn", false)):
+				spawn = _find_dry_spot(clampf(spawn.x - 52.0, -142.0, 142.0), clampf(spawn.y - 12.0, -142.0, 142.0))
+				syaw = atan2(spawn.x, spawn.y)
 			_spawn_inside_hall = false
 			respawn.global_position = Vector3(spawn.x, respawn.global_position.y, spawn.y)
 			respawn.rotation = Vector3(0.0, syaw, 0.0)
@@ -2034,6 +2046,9 @@ func _place_drone_over_ground() -> void:
 			var half: Vector2 = site["half"]
 			var spawn: Vector2 = site.get("spawn", Vector2(c.x, c.y + half.y + 26.0))
 			var syaw: float = float(site.get("spawn_yaw", PI))
+			if Global != null and bool(Global.menu_settings.get("flank_spawn", false)):
+				spawn = _find_dry_spot(clampf(spawn.x - 52.0, -142.0, 142.0), clampf(spawn.y - 12.0, -142.0, 142.0))
+				syaw = atan2(spawn.x, spawn.y)
 			_spawn_inside_hall = false
 			respawn.global_position = Vector3(spawn.x, respawn.global_position.y, spawn.y)
 			respawn.rotation = Vector3(0.0, syaw, 0.0)
@@ -3710,6 +3725,7 @@ func _on_vehicle_destroyed(points: int, kind: int, vehicle: Vehicle = null) -> v
 		var drone := get_node_or_null("Drone") as Node3D
 		var impact_pos := vehicle.global_position if (vehicle != null and is_instance_valid(vehicle)) \
 				else (drone.global_position if drone != null else Vector3.ZERO)
+		_last_strike_pos = impact_pos
 		var is_key: bool = is_primary_target \
 				or kind in [Vehicle.Kind.TANK, Vehicle.Kind.BMP, Vehicle.Kind.APC, Vehicle.Kind.HELI, Vehicle.Kind.SHAHED, Vehicle.Kind.SAM]
 		var kc_started := _maybe_trigger_kill_cam(impact_pos, is_key)
@@ -4376,6 +4392,13 @@ func _on_aa_gun_destroyed(points: int) -> void:
 				_txt("ЗЕНІТНУ УСТАНОВКУ ЗНИЩЕНО", "AA EMPLACEMENT DESTROYED"))
 	CombatSfxScript.play_hitmarker(self, true)
 	_set_flash("%s +%d" % [_txt("Зенітка", "AA Gun"), points])
+
+
+func _on_vehicle_mobility_kill(_vehicle: Node3D) -> void:
+	Haptics.trigger_ui_tap()
+	CombatSfxScript.play_hitmarker(self, false)
+	_set_flash(_txt("⚡ ХІД ЗБИТО (MOBILITY KILL)! ЦІЛЬ ЗНЕРУХОМЛЕНО — ДОБИВАЙТЕ!",
+			"⚡ MOBILITY KILL! TARGET IMMOBILIZED — FINISH IT!"))
 
 
 func _spawn_special_strike(ew_breach: bool) -> void:
@@ -5656,11 +5679,23 @@ func _update_telemetry(delta: float) -> void:
 	var low_voltage := cell_v < 3.5
 	if low_voltage:
 		batt_tag = _txt("  НИЗЬКА НАПРУГА!", "  LOW VOLTAGE!")
-	var jamming: bool = _reb != null and _reb.limits_enabled \
+	var fiber_mode: bool = Global != null and bool(Global.menu_settings.get("fiber_optic_mode", false))
+	if fiber_mode and _reb != null:
+		_reb.in_ew = 0.0
+		_reb.link_quality = 1.0
+		_reb.failsafe = false
+	var jamming: bool = (not fiber_mode) and _reb != null and _reb.limits_enabled \
 			and _reb.reb_zones_enabled and _reb.in_ew > 0.08
 	var warn_phase := int(Time.get_ticks_msec() / 280) % 2 == 0
 	var lq_line := ""
-	if _reb != null:
+	if fiber_mode:
+		lq_line = "\n%s %d / 10000 %s [%s]" % [
+			_txt("ОПТО", "FIBER"),
+			int(round(_fiber_spool_used_m)),
+			_txt("м", "m"),
+			_txt("БЕЗ РЕБ", "EW IMMUNE")
+		]
+	elif _reb != null:
 		var jam_tag := ""
 		if jamming:
 			jam_tag = _txt("  ПРИДУШЕННЯ", "  JAMMED") if warn_phase else ""
@@ -5935,6 +5970,55 @@ func _update_fpv_camera_fx(delta: float) -> void:
 		return
 	var speed := drone.linear_velocity.length()
 	var armed: bool = drone.flight_controller != null and drone.flight_controller.state_armed
+	var fiber_mode: bool = Global != null and bool(Global.menu_settings.get("fiber_optic_mode", false))
+	if armed and fiber_mode:
+		_fiber_spool_used_m = clampf(_fiber_spool_used_m + speed * delta, 0.0, 10000.0)
+	if armed and not _dvr_replaying and not _mission_finished:
+		_dvr_sample_timer += delta
+		if _dvr_sample_timer >= 0.05:
+			_dvr_sample_timer = 0.0
+			_dvr_samples.append({
+				"pos": drone.global_position,
+				"rot": drone.global_rotation,
+			})
+			if _dvr_samples.size() > 75:
+				_dvr_samples.pop_front()
+	# Low-altitude radio horizon multipath scanlines (when flying standard radio below 2.6 m)
+	if _hud != null and _analog_bar_a == null:
+		_analog_bar_a = ColorRect.new()
+		_analog_bar_a.name = "AnalogMultipathBarA"
+		_analog_bar_a.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_analog_bar_a.color = Color(0.85, 0.92, 0.88, 0.0)
+		_analog_bar_a.visible = false
+		_hud.add_child(_analog_bar_a)
+		_analog_bar_b = ColorRect.new()
+		_analog_bar_b.name = "AnalogMultipathBarB"
+		_analog_bar_b.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_analog_bar_b.color = Color(0.12, 0.16, 0.14, 0.0)
+		_analog_bar_b.visible = false
+		_hud.add_child(_analog_bar_b)
+	if _analog_bar_a != null and _analog_bar_b != null:
+		var alt := drone.global_position.y - _ground_y
+		var show_multipath := armed and (not fiber_mode) \
+				and Global.play_mode == Global.PlayMode.COMBAT \
+				and alt < 2.6 and speed > 3.2 and not _dvr_replaying
+		if show_multipath:
+			var vs := get_viewport().get_visible_rect().size
+			var intensity := clampf((2.6 - alt) / 2.6, 0.0, 1.0)
+			var t_sec := float(Time.get_ticks_msec()) * 0.001
+			var y1 := fposmod(t_sec * 340.0, maxf(vs.y, 100.0))
+			var y2 := fposmod(t_sec * 520.0 + vs.y * 0.42, maxf(vs.y, 100.0))
+			_analog_bar_a.position = Vector2(0.0, y1)
+			_analog_bar_a.size = Vector2(vs.x, 10.0 + intensity * 16.0)
+			_analog_bar_a.color.a = 0.16 * intensity
+			_analog_bar_a.visible = true
+			_analog_bar_b.position = Vector2(0.0, y2)
+			_analog_bar_b.size = Vector2(vs.x, 6.0 + intensity * 12.0)
+			_analog_bar_b.color.a = 0.22 * intensity
+			_analog_bar_b.visible = true
+		else:
+			_analog_bar_a.visible = false
+			_analog_bar_b.visible = false
 	if not cam.current:
 		return
 	var target_fov := _base_fpv_fov
@@ -6811,6 +6895,14 @@ func _build_results() -> void:
 	_results_lb_btn.visible = get_node_or_null("/root/GameCenter") != null
 	_results_lb_btn.pressed.connect(_on_leaderboard_pressed)
 	buttons.add_child(_results_lb_btn)
+	_results_dvr_btn = Button.new()
+	_results_dvr_btn.name = "ButtonStrikeDVR"
+	_results_dvr_btn.text = _txt("ПОВТОР УДАРУ (DVR)", "STRIKE REPLAY (DVR)")
+	_results_dvr_btn.custom_minimum_size = Vector2(0, 52)
+	_results_dvr_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_results_dvr_btn.visible = (Global.play_mode == Global.PlayMode.COMBAT)
+	_results_dvr_btn.pressed.connect(_on_dvr_replay_pressed)
+	buttons.add_child(_results_dvr_btn)
 	var retry := Button.new()
 	retry.text = _txt("ПРОЙТИ ЩЕ РАЗ", "RETRY")
 	retry.custom_minimum_size = Vector2(0, 52)
@@ -6842,6 +6934,58 @@ func _on_leaderboard_pressed() -> void:
 			gc.call("show_leaderboards")
 			return
 	_set_flash(_txt("ТАБЛИЦЯ ЛІДЕРІВ НЕДОСТУПНА ОФЛАЙН", "LEADERBOARD UNAVAILABLE OFFLINE"))
+
+
+func _on_dvr_replay_pressed() -> void:
+	if _dvr_replaying or _results == null:
+		return
+	_dvr_replaying = true
+	var was_paused := get_tree().paused
+	get_tree().paused = false
+	_results.visible = false
+	if _results_canvas_layer != null:
+		_results_canvas_layer.visible = false
+	if _dvr_banner_label == null and _hud != null:
+		_dvr_banner_label = Label.new()
+		_dvr_banner_label.name = "DvrReplayStamp"
+		_dvr_banner_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+		_dvr_banner_label.offset_left = -360.0
+		_dvr_banner_label.offset_right = 360.0
+		_dvr_banner_label.offset_top = 42.0
+		_dvr_banner_label.offset_bottom = 86.0
+		_dvr_banner_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_dvr_banner_label.add_theme_font_size_override("font_size", 20)
+		_dvr_banner_label.add_theme_color_override("font_color", Color(1.0, 0.32, 0.24, 0.98))
+		_dvr_banner_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
+		_dvr_banner_label.add_theme_constant_override("outline_size", 5)
+		_hud.add_child(_dvr_banner_label)
+	if _dvr_banner_label != null:
+		var b_name := DroneCatalog.get_drone_name(Global.drone_preset)
+		_dvr_banner_label.text = ("● REC // DVR STRIKE REPLAY · %s · HEAVENLY HORIZON" if _is_en() \
+				else "● REC // БОРТОВИЙ ЗАПИС УДАРУ (DVR) · %s · НЕБЕСНИЙ ГОРИЗОНТ") % b_name
+		_dvr_banner_label.visible = true
+	var drone := get_node_or_null("Drone") as Drone
+	if drone != null and not _dvr_samples.is_empty():
+		drone.visible = true
+		drone.freeze = true
+		for sample in _dvr_samples:
+			if not is_inside_tree():
+				break
+			var s_dict: Dictionary = sample
+			drone.global_position = s_dict["pos"]
+			drone.global_rotation = s_dict["rot"]
+			await get_tree().create_timer(0.04).timeout
+	if _last_strike_pos != Vector3.ZERO:
+		ExplosionScript.spawn(self, _last_strike_pos, 1.35)
+		await get_tree().create_timer(1.1).timeout
+	if _dvr_banner_label != null:
+		_dvr_banner_label.visible = false
+	if _results_canvas_layer != null and _is_mobile_runtime():
+		_results_canvas_layer.visible = true
+	if _results != null:
+		_results.visible = true
+	get_tree().paused = was_paused
+	_dvr_replaying = false
 
 
 func _build_chain_briefing() -> void:
@@ -7176,6 +7320,11 @@ func _process(delta: float) -> void:
 	_hud_tick -= delta
 	if _hud_tick <= 0.0:
 		_hud_tick = 0.083
+		var kc_live := _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active()
+		if _telem_left != null:
+			_telem_left.visible = not kc_live
+		if _telem_right != null:
+			_telem_right.visible = not kc_live
 		_update_hud()
 		if _elrs_status_label != null:
 			var next_elrs := ElrsWifiInput.status_text

@@ -2359,14 +2359,22 @@ func take_damage(amount: float, hit_position: Vector3 = Vector3.ZERO) -> void:
 	var applied := amount * multiplier * armor_scale
 	health -= applied
 	var hp_ratio := health / maxf(max_health, 1.0)
-	if hp_ratio < 0.60 and hp_ratio > 0.0 and not _smoke_started:
+	if hp_ratio < 0.68 and hp_ratio > 0.0 and not _smoke_started:
 		_smoke_started = true
-		_damage_speed_mult = 0.72
+		if hostile and kind in [Kind.TANK, Kind.BMP, Kind.APC, Kind.SAM]:
+			_damage_speed_mult = 0.0
+			set_meta("mobility_killed", true)
+			var lvl := _find_level_scene()
+			if lvl != null and lvl.has_method("_on_vehicle_mobility_kill"):
+				lvl.call("_on_vehicle_mobility_kill", self)
+		else:
+			_damage_speed_mult = 0.72
 		if get_parent() != null:
 			ExplosionScript.smoke_column(get_parent(), global_position + Vector3.UP * 1.4, 14.0)
 	if hp_ratio < 0.30 and hp_ratio > 0.0 and not _fire_started:
 		_fire_started = true
-		_damage_speed_mult = 0.45
+		if not bool(get_meta("mobility_killed", false)):
+			_damage_speed_mult = 0.45
 		if get_parent() != null:
 			ExplosionScript.fire_column(get_parent(), global_position + Vector3.UP * 1.1, 8.0)
 	if hit_position != Vector3.ZERO and health > 0.0:
@@ -2549,9 +2557,44 @@ func _detach_wreck_parts() -> void:
 			t_parent.remove_child(_turret)
 		parent.add_child(_turret)
 		_turret.global_transform = t_xform
+		if kind in [Kind.TANK, Kind.BMP, Kind.APC]:
+			var dome_mat := StandardMaterial3D.new()
+			dome_mat.albedo_color = Color(0.12, 0.11, 0.10)
+			dome_mat.roughness = 0.94
+			dome_mat.metallic = 0.18
+			var dome := MeshInstance3D.new()
+			var d_cyl := CylinderMesh.new()
+			var r_scale := 1.25 if kind == Kind.TANK else 0.88
+			d_cyl.top_radius = 0.95 * r_scale
+			d_cyl.bottom_radius = 1.22 * r_scale
+			d_cyl.height = 0.62 * r_scale
+			dome.mesh = d_cyl
+			dome.material_override = dome_mat
+			_turret.add_child(dome)
+			var basket := MeshInstance3D.new()
+			var b_cyl := CylinderMesh.new()
+			b_cyl.top_radius = 0.72 * r_scale
+			b_cyl.bottom_radius = 0.68 * r_scale
+			b_cyl.height = 0.75 * r_scale
+			basket.mesh = b_cyl
+			basket.position = Vector3(0.0, -0.58 * r_scale, 0.0)
+			basket.material_override = dome_mat
+			_turret.add_child(basket)
+			var glow := MeshInstance3D.new()
+			var g_sph := SphereMesh.new()
+			g_sph.radius = 0.65 * r_scale
+			g_sph.height = 1.3 * r_scale
+			glow.mesh = g_sph
+			glow.position = Vector3(0.0, -0.35 * r_scale, 0.0)
+			var g_mat := StandardMaterial3D.new()
+			g_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			g_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			g_mat.albedo_color = Color(1.0, 0.52, 0.12, 0.85)
+			glow.material_override = g_mat
+			_turret.add_child(glow)
 		_fx_nodes.append(_turret)
-		var vel := Vector3(randf_range(-4.5, 4.5), randf_range(9.5, 14.5), randf_range(-4.5, 4.5))
-		var spin := Vector3(randf_range(-3.6, 3.6), randf_range(-5.0, 5.0), randf_range(-3.6, 3.6))
+		var vel := Vector3(randf_range(-3.8, 3.8), randf_range(14.5, 19.5), randf_range(-3.8, 3.8))
+		var spin := Vector3(randf_range(-4.8, 4.8), randf_range(-6.0, 6.0), randf_range(-4.8, 4.8))
 		_attach_ballistic_driver(_turret, vel, spin, 0.45)
 		_turret = null
 

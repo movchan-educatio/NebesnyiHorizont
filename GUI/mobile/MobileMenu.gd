@@ -104,6 +104,10 @@ var _briefing_btn: Button = null
 var _briefing_modal: Control = null
 var _briefing_title: Label = null
 var _briefing_body: Label = null
+var _kropyva_panel: Control = null
+var _kropyva_canvas: Control = null
+var _briefing_fiber_btn: Button = null
+var _briefing_flank_btn: Button = null
 var _play_caption: Label
 var _play_daily_lbl: Label = null
 var _loading_layer: CanvasLayer = null
@@ -2411,13 +2415,144 @@ func _build_mobile_briefing_modal(host: Control, is_en: bool) -> void:
 			_briefing_modal.visible = false)
 	hdr.add_child(close_btn)
 
+	var split := HBoxContainer.new()
+	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	split.add_theme_constant_override("separation", _gap(14))
+	bv.add_child(split)
+
+	var left_col := VBoxContainer.new()
+	left_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	left_col.add_theme_constant_override("separation", _gap(8))
+	split.add_child(left_col)
+
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	bv.add_child(scroll)
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left_col.add_child(scroll)
 	_briefing_body = _label("", 15, MenuUI.TEXT)
 	_briefing_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_briefing_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(_briefing_body)
+
+	var tac_opts := HBoxContainer.new()
+	tac_opts.add_theme_constant_override("separation", _gap(8))
+	left_col.add_child(tac_opts)
+	_briefing_fiber_btn = _button("", 42, false)
+	_briefing_fiber_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_briefing_fiber_btn.pressed.connect(func():
+		var cur_f := bool(Global.menu_settings.get("fiber_optic_mode", false))
+		Global.menu_settings["fiber_optic_mode"] = not cur_f
+		Global.save_menu_settings()
+		_refresh_briefing_tactical_buttons()
+		if _kropyva_canvas != null:
+			_kropyva_canvas.queue_redraw())
+	tac_opts.add_child(_briefing_fiber_btn)
+
+	_briefing_flank_btn = _button("", 42, false)
+	_briefing_flank_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_briefing_flank_btn.pressed.connect(func():
+		var cur_fl := bool(Global.menu_settings.get("flank_spawn", false))
+		Global.menu_settings["flank_spawn"] = not cur_fl
+		Global.save_menu_settings()
+		_refresh_briefing_tactical_buttons()
+		if _kropyva_canvas != null:
+			_kropyva_canvas.queue_redraw())
+	tac_opts.add_child(_briefing_flank_btn)
+
+	_kropyva_panel = PanelContainer.new()
+	_kropyva_panel.custom_minimum_size = Vector2(_ui_sz(340), _ui_sz(280))
+	_kropyva_panel.add_theme_stylebox_override("panel", _panel_style(
+			Color(0.015, 0.038, 0.026, 0.98), Color(0.32, 0.68, 0.45, 0.85), 1, 10))
+	split.add_child(_kropyva_panel)
+	_kropyva_canvas = Control.new()
+	_kropyva_canvas.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_kropyva_canvas.draw.connect(_draw_kropyva_map)
+	_kropyva_panel.add_child(_kropyva_canvas)
+	_refresh_briefing_tactical_buttons()
+
+
+func _refresh_briefing_tactical_buttons() -> void:
+	var is_en := MenuUI.is_english()
+	var fiber := bool(Global.menu_settings.get("fiber_optic_mode", false)) if Global != null else false
+	var flank := bool(Global.menu_settings.get("flank_spawn", false)) if Global != null else false
+	if _briefing_fiber_btn != null:
+		if is_en:
+			_briefing_fiber_btn.text = "LINK: FIBER-OPTIC 10 KM ✓" if fiber else "LINK: RADIO (STANDARD)"
+		else:
+			_briefing_fiber_btn.text = "ЗВ'ЯЗОК: ОПТОВОЛОКНО 10 КМ ✓" if fiber else "ЗВ'ЯЗОК: РАДІОКАНАЛ"
+	if _briefing_flank_btn != null:
+		if is_en:
+			_briefing_flank_btn.text = "APPROACH: FLANK BYPASS ✓" if flank else "APPROACH: MAIN VECTOR"
+		else:
+			_briefing_flank_btn.text = "ЗАХІД: ОБХІД З ФЛАНГУ ✓" if flank else "ЗАХІД: ОСНОВНА ПОЗИЦІЯ"
+
+
+func _draw_kropyva_map() -> void:
+	if _kropyva_canvas == null:
+		return
+	var sz := _kropyva_canvas.size
+	if sz.x < 40.0 or sz.y < 40.0:
+		return
+	var is_en := MenuUI.is_english()
+	var font := ThemeDB.fallback_font
+	var pad := 14.0
+	var rect := Rect2(Vector2(pad, pad + 22.0), Vector2(sz.x - pad * 2.0, sz.y - pad * 2.0 - 26.0))
+	_kropyva_canvas.draw_rect(rect, Color(0.02, 0.055, 0.038, 1.0), true)
+	# Topographic grid lines
+	var grid_col := Color(0.22, 0.48, 0.32, 0.28)
+	for i in range(1, 6):
+		var gx := rect.position.x + rect.size.x * (float(i) / 6.0)
+		var gy := rect.position.y + rect.size.y * (float(i) / 6.0)
+		_kropyva_canvas.draw_line(Vector2(gx, rect.position.y), Vector2(gx, rect.end.y), grid_col, 1.0)
+		_kropyva_canvas.draw_line(Vector2(rect.position.x, gy), Vector2(rect.end.x, gy), grid_col, 1.0)
+	_kropyva_canvas.draw_rect(rect, Color(0.38, 0.78, 0.52, 0.65), false, 1.5)
+
+	# Header bar ("KROPYVA // SECTOR 36U")
+	var hdr_txt := "KROPYVA // SECTOR 36U-XA" if is_en else "КРОПИВА // СЕКТОР 36U-XA"
+	_kropyva_canvas.draw_string(font, Vector2(pad, pad + 15.0), hdr_txt,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.55, 0.96, 0.68))
+
+	var center := rect.get_center()
+	# EW / SAM threat zone ring
+	var ew_pos := center + Vector2(14.0, -18.0)
+	_kropyva_canvas.draw_arc(ew_pos, minf(rect.size.x, rect.size.y) * 0.28, 0.0, TAU, 36,
+			Color(1.0, 0.28, 0.22, 0.42), 1.5)
+	_kropyva_canvas.draw_circle(ew_pos, minf(rect.size.x, rect.size.y) * 0.28,
+			Color(0.95, 0.18, 0.14, 0.09))
+
+	# Friendly launch position (Main vs Flank)
+	var flank := bool(Global.menu_settings.get("flank_spawn", false)) if Global != null else false
+	var fiber := bool(Global.menu_settings.get("fiber_optic_mode", false)) if Global != null else false
+	var start_pt := Vector2(center.x - rect.size.x * 0.28, rect.end.y - 26.0) if flank \
+			else Vector2(center.x + 12.0, rect.end.y - 24.0)
+	var recon_pt := center + Vector2(-8.0, 18.0)
+	var line_col := Color(0.35, 0.95, 1.0, 0.88) if fiber else Color(0.42, 0.96, 0.58, 0.85)
+	_kropyva_canvas.draw_line(start_pt, recon_pt, line_col, 2.2)
+	_kropyva_canvas.draw_line(recon_pt, ew_pos, Color(1.0, 0.76, 0.28, 0.82), 2.0)
+
+	# Hostile target diamonds (NATO style)
+	var tgt_offsets := [Vector2(-24, -12), Vector2(18, -28), Vector2(36, 4), Vector2(-6, -38)]
+	for off in tgt_offsets:
+		var tp: Vector2 = center + off
+		var d_pts := PackedVector2Array([
+			tp + Vector2(0, -7), tp + Vector2(7, 0),
+			tp + Vector2(0, 7), tp + Vector2(-7, 0)
+		])
+		_kropyva_canvas.draw_colored_polygon(d_pts, Color(0.98, 0.24, 0.18, 0.92))
+		_kropyva_canvas.draw_polyline(d_pts, Color(1.0, 0.82, 0.75, 0.95), 1.2)
+
+	# Friendly Launch Triangle
+	var s_pts := PackedVector2Array([
+		start_pt + Vector2(0, -9), start_pt + Vector2(8, 7), start_pt + Vector2(-8, 7)
+	])
+	_kropyva_canvas.draw_colored_polygon(s_pts, Color(0.25, 0.88, 1.0, 0.95))
+	var st_lbl := "FLANK" if (is_en and flank) else ("START" if is_en else ("ФЛАНГ" if flank else "СТАРТ"))
+	_kropyva_canvas.draw_string(font, start_pt + Vector2(-22.0, 20.0), st_lbl,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.55, 0.95, 1.0))
+	var tgt_lbl := "TARGETS / EW" if is_en else "ЦІЛІ / РЕБ"
+	_kropyva_canvas.draw_string(font, ew_pos + Vector2(-32.0, -minf(rect.size.x, rect.size.y) * 0.28 - 6.0),
+			tgt_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(1.0, 0.48, 0.42))
 
 
 func _open_mobile_records() -> void:
@@ -2431,6 +2566,12 @@ func _open_mobile_records() -> void:
 		return
 	_briefing_title.text = "PILOT RECORDS & STATS" if is_en else "РЕКОРДИ ТА СТАТИСТИКА ПІЛОТА"
 	_briefing_body.text = Global.get_records_report(is_en)
+	if _kropyva_panel != null:
+		_kropyva_panel.visible = false
+	if _briefing_fiber_btn != null:
+		_briefing_fiber_btn.visible = false
+	if _briefing_flank_btn != null:
+		_briefing_flank_btn.visible = false
 	_briefing_modal.visible = true
 
 
@@ -2484,6 +2625,15 @@ func _open_mobile_briefing() -> void:
 			"AIRFRAMES" if is_en else "БОРТІВ НА ВИЛІТ", craft_cap])
 		lines.append("%s: %s" % ["RECOMMENDED" if is_en else "РЕКОМЕНДОВАНО", str(content.get("drone", b.get("drone", "")))])
 	_briefing_body.text = "\n".join(lines)
+	if _kropyva_panel != null:
+		_kropyva_panel.visible = true
+	if _briefing_fiber_btn != null:
+		_briefing_fiber_btn.visible = true
+	if _briefing_flank_btn != null:
+		_briefing_flank_btn.visible = true
+	_refresh_briefing_tactical_buttons()
+	if _kropyva_canvas != null:
+		_kropyva_canvas.queue_redraw()
 	_briefing_modal.visible = true
 
 
