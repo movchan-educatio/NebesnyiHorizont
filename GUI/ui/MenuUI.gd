@@ -119,6 +119,14 @@ const EN_TEXT: Dictionary = {
 	"СТАТУТ": "PROTOCOL",
 	"БРИФІНГ": "BRIEFING",
 	"СЕКТОР": "SECTOR",
+	"СЕКТОР 01": "SECTOR 01",
+	"СЕКТОР 02": "SECTOR 02",
+	"СЕКТОР 03": "SECTOR 03",
+	"СЕКТОР 04": "SECTOR 04",
+	"ШВИДКІСТЬ": "SPEED",
+	"ТЯГА": "THRUST",
+	"МАНЕВР": "AGILITY",
+	"СТІК": "STICK",
 	"Ураження танка Т-72Б та БТР-82А": "Engage a T-72B tank and BTR-82A APC",
 	"Легка": "Easy",
 	"Середня": "Medium",
@@ -970,18 +978,37 @@ class _TacticalBackdrop extends Control:
 			for i in range(5, 0, -1):
 				draw_circle(warm_center, side * (0.07 + float(i) * 0.055),
 						Color(0.54, 0.35, 0.16, 0.0035))
-			var contour_color := Color(0.46, 0.68, 0.52, 0.045)
+			var contour_color := Color(0.46, 0.68, 0.52, 0.085)
 			for ratio in [0.32, 0.47, 0.63, 0.80]:
 				draw_arc(center, side * ratio, deg_to_rad(205.0),
-						deg_to_rad(345.0), 48, contour_color, 1.0, true)
-			# Small corner ticks read as a crafted frame, not a second HUD.
-			var tick := Color(0.48, 0.68, 0.53, 0.22)
-			var pad := clampf(side * 0.035, 14.0, 30.0)
-			var len := clampf(side * 0.018, 7.0, 14.0)
-			draw_line(Vector2(pad, pad), Vector2(pad + len, pad), tick, 1.0)
-			draw_line(Vector2(pad, pad), Vector2(pad, pad + len), tick, 1.0)
-			draw_line(Vector2(sz.x - pad, sz.y - pad), Vector2(sz.x - pad - len, sz.y - pad), tick, 1.0)
-			draw_line(Vector2(sz.x - pad, sz.y - pad), Vector2(sz.x - pad, sz.y - pad - len), tick, 1.0)
+						deg_to_rad(345.0), 48, contour_color, 1.2, true)
+			# Precision avionics corner brackets & compass ticks across all four corners.
+			var tick := Color(0.54, 0.84, 0.62, 0.48)
+			var pip_col := Color(0.95, 0.78, 0.35, 0.78)
+			var pad := clampf(side * 0.024, 12.0, 22.0)
+			var len := clampf(side * 0.028, 16.0, 28.0)
+			# Top-Left
+			draw_line(Vector2(pad, pad), Vector2(pad + len, pad), tick, 2.0)
+			draw_line(Vector2(pad, pad), Vector2(pad, pad + len), tick, 2.0)
+			draw_rect(Rect2(Vector2(pad - 1.5, pad - 1.5), Vector2(4.0, 4.0)), pip_col, true)
+			# Top-Right
+			draw_line(Vector2(sz.x - pad, pad), Vector2(sz.x - pad - len, pad), tick, 2.0)
+			draw_line(Vector2(sz.x - pad, pad), Vector2(sz.x - pad, pad + len), tick, 2.0)
+			draw_rect(Rect2(Vector2(sz.x - pad - 2.5, pad - 1.5), Vector2(4.0, 4.0)), pip_col, true)
+			# Bottom-Left
+			draw_line(Vector2(pad, sz.y - pad), Vector2(pad + len, sz.y - pad), tick, 2.0)
+			draw_line(Vector2(pad, sz.y - pad), Vector2(pad, sz.y - pad - len), tick, 2.0)
+			draw_rect(Rect2(Vector2(pad - 1.5, sz.y - pad - 2.5), Vector2(4.0, 4.0)), pip_col, true)
+			# Bottom-Right
+			draw_line(Vector2(sz.x - pad, sz.y - pad), Vector2(sz.x - pad - len, sz.y - pad), tick, 2.0)
+			draw_line(Vector2(sz.x - pad, sz.y - pad), Vector2(sz.x - pad, sz.y - pad - len), tick, 2.0)
+			draw_rect(Rect2(Vector2(sz.x - pad - 2.5, sz.y - pad - 2.5), Vector2(4.0, 4.0)), pip_col, true)
+			# Top compass ticks
+			var mid_x := sz.x * 0.5
+			for t_i in range(-10, 11):
+				var tx := mid_x + float(t_i) * 22.0
+				var th := 6.0 if (t_i % 5 == 0) else 3.0
+				draw_line(Vector2(tx, pad), Vector2(tx, pad + th), Color(0.54, 0.84, 0.62, 0.30), 1.0)
 			return
 
 		var is_ufds := (base_color == UFDS_BG or (base_color.r < 0.08 and base_color.b > 0.07))
@@ -1068,6 +1095,10 @@ static func _style(bg: Color, border: Color, border_w: int, radius: int,
 	sb.set_border_width_all(border_w)
 	if left_accent >= 0:
 		sb.border_width_left = left_accent
+	if border_w > 0:
+		sb.shadow_color = Color(0.0, 0.0, 0.0, 0.38)
+		sb.shadow_size = 6 if radius <= 10 else 10
+		sb.shadow_offset = Vector2(0, 3)
 	sb.set_corner_radius_all(radius)
 	sb.content_margin_left = pad_x
 	sb.content_margin_right = pad_x
@@ -1230,11 +1261,11 @@ static func _apply_mobile_theme(t: Theme) -> void:
 
 	t.default_font_size = 22
 
-	t.set_stylebox("normal", "Button", _style(button_bg, border, 1, 12, 18, 12))
-	t.set_stylebox("hover", "Button", _style(button_hover, FPV_GREEN, 1, 12, 18, 12))
-	t.set_stylebox("pressed", "Button", _style(active_bg, Color(0.75, 0.85, 0.65, 0.95), 1, 12, 18, 12))
-	t.set_stylebox("focus", "Button", _style(button_hover, FPV_GREEN, 1, 12, 18, 12))
-	t.set_stylebox("disabled", "Button", _style(Color(0.03, 0.05, 0.04, 0.62), Color(0.22, 0.30, 0.25, 0.5), 1, 12, 18, 12))
+	t.set_stylebox("normal", "Button", _style(button_bg, border, 1, 12, 18, 12, 4))
+	t.set_stylebox("hover", "Button", _style(button_hover, FPV_GREEN, 1, 12, 18, 12, 5))
+	t.set_stylebox("pressed", "Button", _style(active_bg, Color(0.75, 0.85, 0.65, 0.95), 1, 12, 18, 12, 5))
+	t.set_stylebox("focus", "Button", _style(button_hover, FPV_GREEN, 1, 12, 18, 12, 5))
+	t.set_stylebox("disabled", "Button", _style(Color(0.03, 0.05, 0.04, 0.62), Color(0.22, 0.30, 0.25, 0.5), 1, 12, 18, 12, 2))
 	t.set_color("font_color", "Button", FPV_TEXT)
 	t.set_color("font_hover_color", "Button", FPV_TEXT)
 	t.set_color("font_pressed_color", "Button", active_text)
@@ -1242,8 +1273,8 @@ static func _apply_mobile_theme(t: Theme) -> void:
 	t.set_color("font_disabled_color", "Button", FPV_MUTED)
 	t.set_font_size("font_size", "Button", 22)
 
-	t.set_stylebox("panel", "PanelContainer", _style(panel_bg, border, 1, 16, 22, 18))
-	t.set_stylebox("panel", "Panel", _style(panel_bg, border, 1, 16, 22, 18))
+	t.set_stylebox("panel", "PanelContainer", _style(panel_bg, border, 1, 16, 22, 18, 4))
+	t.set_stylebox("panel", "Panel", _style(panel_bg, border, 1, 16, 22, 18, 4))
 
 	t.set_stylebox("normal", "OptionButton", _style(button_bg, border, 1, 12, 16, 10))
 	t.set_stylebox("hover", "OptionButton", _style(button_hover, FPV_GREEN, 1, 12, 16, 10))

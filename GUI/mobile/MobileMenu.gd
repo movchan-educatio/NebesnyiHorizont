@@ -60,6 +60,7 @@ signal closed
 var is_pause_mode := false
 var _bg_blur: TextureRect
 var _screen_scrim: ColorRect
+var _hud_frame_overlay: Control = null
 var _root: VBoxContainer
 var _content: Control
 var _masthead: HBoxContainer = null
@@ -86,6 +87,7 @@ var _hero_camera: Camera3D
 var _hero_drone_name: Label
 var _hero_drone_tag: Label
 var _hero_drone_specs: Label
+var _hero_perf_bars: Dictionary = {}
 var _is_dragging_hero := false
 
 # --- Sortie Setup (Play) ---
@@ -150,6 +152,7 @@ var _hangar_camera: Camera3D = null
 var _hangar_drone_name: Label = null
 var _hangar_drone_tag: Label = null
 var _hangar_specs_lbl: Label = null
+var _hangar_perf_bars: Dictionary = {}
 var _hangar_select_btn: Button = null
 var _hangar_preview_idx: int = 0
 var _hangar_list_container: VBoxContainer = null
@@ -302,6 +305,10 @@ class RateCurve extends Control:
 		var right := w - 18.0
 		var top := 14.0
 		var bottom := h - 24.0
+		var plot_rect := Rect2(Vector2(left, top), Vector2(right - left, bottom - top))
+		draw_rect(plot_rect, Color(0.015, 0.042, 0.030, 0.82), true)
+		draw_rect(plot_rect, Color(0.36, 0.56, 0.44, 0.45), false, 1.2)
+		draw_line(Vector2(left, bottom), Vector2(right, top), Color(0.45, 0.65, 0.52, 0.16), 1.0)
 		var grid := Color(0.30, 0.44, 0.35, 0.22)
 		for i in range(5):
 			var x := left + (right - left) * i / 4.0
@@ -311,7 +318,8 @@ class RateCurve extends Control:
 		var font := ThemeDB.fallback_font
 		draw_string(font, Vector2(2, top + 5), "100%", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.65, 0.75, 0.68, 0.8))
 		draw_string(font, Vector2(8, bottom + 12), "0", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.65, 0.75, 0.68, 0.8))
-		draw_string(font, Vector2(right - 34, bottom + 12), "СТІК", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.65, 0.75, 0.68, 0.8))
+		var stick_axis_lbl := "STICK" if MenuUI.is_english() else "СТІК"
+		draw_string(font, Vector2(right - 38, bottom + 12), stick_axis_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.65, 0.75, 0.68, 0.8))
 		var legend := [
 			{"key": "roll", "name": "ROLL", "col": Color("c96f67")},
 			{"key": "pitch", "name": "PITCH", "col": Color("79a58a")},
@@ -598,6 +606,11 @@ func _panel_style(bg: Color = Color(0.035, 0.075, 0.06, 0.88),
 	sb.bg_color = bg
 	sb.border_color = border
 	sb.set_border_width_all(border_width)
+	if border_width > 0:
+		sb.border_width_left = maxi(border_width, 4)
+		sb.shadow_color = Color(0.0, 0.0, 0.0, 0.45)
+		sb.shadow_size = 10
+		sb.shadow_offset = Vector2(0, 4)
 	sb.set_corner_radius_all(radius)
 	sb.content_margin_left = _gap(16)
 	sb.content_margin_right = _gap(16)
@@ -617,9 +630,10 @@ func _panel(bg: Color = Color(0.035, 0.075, 0.06, 0.88),
 func _chip_panel(border: Color) -> PanelContainer:
 	var p := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.025, 0.055, 0.045, 0.90)
+	sb.bg_color = Color(0.025, 0.055, 0.045, 0.92)
 	sb.border_color = border
 	sb.set_border_width_all(1)
+	sb.border_width_left = 3
 	sb.set_corner_radius_all(_gap(6))
 	sb.content_margin_left = _gap(8)
 	sb.content_margin_right = _gap(8)
@@ -634,6 +648,11 @@ func _button_style(bg: Color, border: Color, border_width: int = 1, radius: int 
 	sb.bg_color = bg
 	sb.border_color = border
 	sb.set_border_width_all(border_width)
+	if border_width > 0:
+		sb.border_width_left = maxi(border_width, 4)
+		sb.shadow_color = Color(0.0, 0.0, 0.0, 0.38)
+		sb.shadow_size = 6
+		sb.shadow_offset = Vector2(0, 3)
 	sb.set_corner_radius_all(radius)
 	sb.content_margin_left = _gap(16)
 	sb.content_margin_right = _gap(16)
@@ -762,6 +781,125 @@ func _build_background() -> void:
 	_screen_scrim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_screen_scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_screen_scrim)
+
+	_hud_frame_overlay = Control.new()
+	_hud_frame_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_hud_frame_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud_frame_overlay.draw.connect(_on_draw_hud_frame)
+	add_child(_hud_frame_overlay)
+
+
+func _on_draw_hud_frame() -> void:
+	if _hud_frame_overlay == null:
+		return
+	var sz := _hud_frame_overlay.size
+	if sz.x <= 40.0 or sz.y <= 40.0:
+		return
+	var safe_m: Dictionary = MenuUI.get_safe_margins(sz)
+	var lp := maxf(10.0, float(safe_m.get("left", 0)) * 0.5 + 8.0)
+	var rp := maxf(10.0, float(safe_m.get("right", 0)) * 0.5 + 8.0)
+	var tp := maxf(8.0, float(safe_m.get("top", 0)) * 0.5 + 6.0)
+	var bp := maxf(8.0, float(safe_m.get("bottom", 0)) * 0.5 + 6.0)
+	var tl := Vector2(lp, tp)
+	var tr := Vector2(sz.x - rp, tp)
+	var bl := Vector2(lp, sz.y - bp)
+	var br := Vector2(sz.x - rp, sz.y - bp)
+	var br_len := 26.0
+	var line_col := Color(0.52, 0.86, 0.64, 0.50)
+	var pip_col := Color(0.95, 0.78, 0.34, 0.85)
+	# Outer subtle perimeter hairline
+	_hud_frame_overlay.draw_rect(Rect2(tl, br - tl), Color(0.32, 0.54, 0.40, 0.18), false, 1.0)
+	# 4 Avionics Corner L-Brackets + Amber Pips
+	_hud_frame_overlay.draw_line(tl, tl + Vector2(br_len, 0), line_col, 2.2)
+	_hud_frame_overlay.draw_line(tl, tl + Vector2(0, br_len), line_col, 2.2)
+	_hud_frame_overlay.draw_rect(Rect2(tl - Vector2(1.5, 1.5), Vector2(4.5, 4.5)), pip_col, true)
+	_hud_frame_overlay.draw_line(tr, tr + Vector2(-br_len, 0), line_col, 2.2)
+	_hud_frame_overlay.draw_line(tr, tr + Vector2(0, br_len), line_col, 2.2)
+	_hud_frame_overlay.draw_rect(Rect2(tr - Vector2(3.0, 1.5), Vector2(4.5, 4.5)), pip_col, true)
+	_hud_frame_overlay.draw_line(bl, bl + Vector2(br_len, 0), line_col, 2.2)
+	_hud_frame_overlay.draw_line(bl, bl + Vector2(0, -br_len), line_col, 2.2)
+	_hud_frame_overlay.draw_rect(Rect2(bl - Vector2(1.5, 3.0), Vector2(4.5, 4.5)), pip_col, true)
+	_hud_frame_overlay.draw_line(br, br + Vector2(-br_len, 0), line_col, 2.2)
+	_hud_frame_overlay.draw_line(br, br + Vector2(0, -br_len), line_col, 2.2)
+	_hud_frame_overlay.draw_rect(Rect2(br - Vector2(3.0, 3.0), Vector2(4.5, 4.5)), pip_col, true)
+	# Top & bottom telemetry azimuth ticks
+	var mid_x := sz.x * 0.5
+	var tick_col := Color(0.55, 0.85, 0.65, 0.34)
+	for i in range(-10, 11):
+		var tx := mid_x + float(i) * 24.0
+		var th := 6.0 if (i % 5 == 0) else 3.0
+		_hud_frame_overlay.draw_line(Vector2(tx, tp), Vector2(tx, tp + th), tick_col, 1.2)
+		_hud_frame_overlay.draw_line(Vector2(tx, sz.y - bp), Vector2(tx, sz.y - bp - th), tick_col, 1.2)
+
+
+func _build_perf_bars_row(store: Dictionary) -> HBoxContainer:
+	store.clear()
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation", _gap(10))
+	var defs := [
+		{"key": "speed", "ua": "ШВИДКІСТЬ", "en": "SPEED", "col": Color(0.38, 0.90, 0.96, 0.95)},
+		{"key": "thrust", "ua": "ТЯГА", "en": "THRUST", "col": Color(0.46, 0.92, 0.60, 0.95)},
+		{"key": "agility", "ua": "МАНЕВР", "en": "AGILITY", "col": Color(0.96, 0.78, 0.34, 0.95)},
+		{"key": "payload", "ua": "БЧ", "en": "PAYLOAD", "col": Color(0.94, 0.48, 0.40, 0.95)},
+	]
+	for d in defs:
+		var col_box := VBoxContainer.new()
+		col_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col_box.add_theme_constant_override("separation", _gap(2))
+		var lbl := _label(str(d["en" if MenuUI.is_english() else "ua"]), 10, Color(0.82, 0.90, 0.85))
+		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col_box.add_child(lbl)
+		var bar := ProgressBar.new()
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bar.min_value = 0.0
+		bar.max_value = 100.0
+		bar.value = 70.0
+		bar.show_percentage = false
+		bar.custom_minimum_size = Vector2(_ui_sz(68), _gap(7))
+		var bg_sb := StyleBoxFlat.new()
+		bg_sb.bg_color = Color(0.03, 0.07, 0.05, 0.92)
+		bg_sb.border_color = Color(0.28, 0.44, 0.34, 0.65)
+		bg_sb.set_border_width_all(1)
+		bg_sb.set_corner_radius_all(3)
+		bar.add_theme_stylebox_override("background", bg_sb)
+		var fill_sb := StyleBoxFlat.new()
+		fill_sb.bg_color = d["col"] as Color
+		fill_sb.set_corner_radius_all(3)
+		bar.add_theme_stylebox_override("fill", fill_sb)
+		col_box.add_child(bar)
+		row.add_child(col_box)
+		store[str(d["key"])] = {"label": lbl, "bar": bar, "ua": str(d["ua"]), "en": str(d["en"])}
+	return row
+
+
+func _update_perf_bars(store: Dictionary, p: Dictionary) -> void:
+	if store.is_empty():
+		return
+	var is_en := MenuUI.is_english()
+	var kv := float(p.get("kv", 1800.0))
+	var twr := float(p.get("twr", 4.5))
+	var dry := float(p.get("dry", 0.45))
+	var batt := float(p.get("batt", 0.25))
+	var vals := {
+		"speed": clampf((kv / 2600.0) * 52.0 + (twr / 9.0) * 48.0, 32.0, 98.0),
+		"thrust": clampf((twr / 9.2) * 100.0, 34.0, 99.0),
+		"agility": clampf((1.85 - clampf(dry, 0.15, 1.65)) / 1.70 * 100.0, 28.0, 98.0),
+		"payload": clampf(((dry + batt) / 2.1) * 100.0, 26.0, 98.0),
+	}
+	for k in vals.keys():
+		if not store.has(k):
+			continue
+		var item: Dictionary = store[k]
+		var v_pct := int(round(float(vals[k])))
+		var bar: ProgressBar = item.get("bar") as ProgressBar
+		if bar != null:
+			bar.value = float(v_pct)
+		var lbl: Label = item.get("label") as Label
+		if lbl != null:
+			var t_str := str(item.get("en" if is_en else "ua", ""))
+			lbl.text = "%s %d%%" % [t_str, v_pct]
 
 
 func _build_root() -> void:
@@ -911,6 +1049,8 @@ func _show(name: String) -> void:
 
 func _on_mobile_viewport_resized() -> void:
 	_apply_masthead_layout()
+	if _hud_frame_overlay != null:
+		_hud_frame_overlay.queue_redraw()
 	if _root != null:
 		_root.queue_sort()
 
@@ -1182,6 +1322,7 @@ func _build_3d_hero() -> Control:
 	_hero_drone_specs = _label("МАСА: 1400 г  •  TWR: 3.5:1  •  1350 KV", 12, MenuUI.MUTED)
 	_hero_drone_specs.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	info_box.add_child(_hero_drone_specs)
+	info_box.add_child(_build_perf_bars_row(_hero_perf_bars))
 
 	v.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
 
@@ -1408,6 +1549,7 @@ func _update_hero_drone_info(preset_idx: int) -> void:
 			_hero_drone_specs.text = "MASS: %d g  •  TWR: %.1f:1  •  MOTORS: %d KV" % [mass, twr, kv]
 		else:
 			_hero_drone_specs.text = "МАСА: %d г  •  TWR: %.1f:1  •  МОТОРИ: %d KV" % [mass, twr, kv]
+	_update_perf_bars(_hero_perf_bars, p)
 
 
 func _select_next_drone() -> void:
@@ -2125,7 +2267,9 @@ func _build_play() -> void:
 	_maps_row.add_theme_constant_override("separation", _gap(10))
 	v.add_child(_maps_row)
 
+	var map_idx := 0
 	for mp in MAP_META:
+		map_idx += 1
 		var card := _panel(Color(0.025, 0.065, 0.05, 0.92), Color(0.38, 0.54, 0.42, 0.55), 1, 14)
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		card.set_meta("map_id", str(mp["id"]))
@@ -2139,20 +2283,40 @@ func _build_play() -> void:
 
 		var card_v := VBoxContainer.new()
 		card_v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		card_v.add_theme_constant_override("separation", _gap(6))
+		card_v.add_theme_constant_override("separation", _gap(5))
 		card.add_child(card_v)
+
+		var sec_lbl := _label(("SECTOR 0%d" if is_en else "СЕКТОР 0%d") % map_idx, 11, MenuUI.FPV_CYAN)
+		sec_lbl.set_meta("map_text_ua", "СЕКТОР 0%d" % map_idx)
+		sec_lbl.set_meta("map_text_en", "SECTOR 0%d" % map_idx)
+		sec_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card_v.add_child(sec_lbl)
 
 		var map_img_path: String = "res://Assets/Branding/mobile_map_%s.png" % str(mp["id"])
 		var map_tex: Texture2D = _safe_texture(map_img_path)
 		if map_tex != null:
+			var img_frame := PanelContainer.new()
+			img_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			img_frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
+			var f_sb := StyleBoxFlat.new()
+			f_sb.bg_color = Color(0.015, 0.04, 0.03, 0.9)
+			f_sb.border_color = Color(0.36, 0.58, 0.44, 0.65)
+			f_sb.set_border_width_all(1)
+			f_sb.set_corner_radius_all(8)
+			f_sb.content_margin_left = 2
+			f_sb.content_margin_right = 2
+			f_sb.content_margin_top = 2
+			f_sb.content_margin_bottom = 2
+			img_frame.add_theme_stylebox_override("panel", f_sb)
 			var img_rect := TextureRect.new()
 			img_rect.texture = map_tex
 			img_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 			img_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-			img_rect.custom_minimum_size.y = _fs(128)
+			img_rect.custom_minimum_size.y = _fs(118)
 			img_rect.size_flags_vertical = Control.SIZE_EXPAND_FILL
 			img_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			card_v.add_child(img_rect)
+			img_frame.add_child(img_rect)
+			card_v.add_child(img_frame)
 
 		var name_lbl := _label(str(mp.get("name_en" if is_en else "name", mp["name"])), 24, MenuUI.TEXT)
 		name_lbl.set_meta("map_text_ua", str(mp["name"]))
@@ -2164,9 +2328,11 @@ func _build_play() -> void:
 		tag_lbl.set_meta("map_text_en", str(mp.get("tag_en", mp["tag"])))
 		tag_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card_v.add_child(tag_lbl)
+		var diff_raw := str(mp.get("diff", "СЕРЕДНЯ"))
+		var diff_col := MenuUI.FPV_GREEN if diff_raw == "ЛЕГКА" else (MenuUI.FPV_AMBER if diff_raw == "СЕРЕДНЯ" else Color("e07b72"))
 		var diff_lbl := _label(("DIFFICULTY: " if is_en else "СКЛАДНІСТЬ: ")
 				+ str(mp.get("diff_en" if is_en else "diff",
-				"MEDIUM" if is_en else "СЕРЕДНЯ")), 12, MenuUI.MUTED)
+				"MEDIUM" if is_en else "СЕРЕДНЯ")), 12, diff_col)
 		diff_lbl.set_meta("map_text_ua", "СКЛАДНІСТЬ: " + str(mp.get("diff", "СЕРЕДНЯ")))
 		diff_lbl.set_meta("map_text_en", "DIFFICULTY: " + str(mp.get("diff_en", "MEDIUM")))
 		diff_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -2227,9 +2393,16 @@ func _apply_button_primary_style(btn: Button, primary: bool) -> void:
 	var text_col: Color
 	if primary:
 		s_norm.bg_color = MenuUI.ACCENT
-		s_norm.border_color = MenuUI.ACCENT
+		s_norm.border_color = Color(0.92, 0.84, 0.56, 0.95)
+		s_norm.set_border_width_all(1)
+		s_norm.border_width_left = 4
+		s_norm.shadow_color = Color(0.0, 0.0, 0.0, 0.42)
+		s_norm.shadow_size = 6
+		s_norm.shadow_offset = Vector2(0, 3)
 		s_hov.bg_color = Color(0.82, 0.90, 0.72, 1.0)
-		s_hov.border_color = Color(0.82, 0.90, 0.72, 1.0)
+		s_hov.border_color = Color(0.95, 0.88, 0.62, 1.0)
+		s_hov.set_border_width_all(1)
+		s_hov.border_width_left = 4
 		s_press.bg_color = Color(0.58, 0.70, 0.50, 1.0)
 		s_press.border_color = Color(0.58, 0.70, 0.50, 1.0)
 		text_col = Color(0.06, 0.09, 0.07)
@@ -2237,12 +2410,18 @@ func _apply_button_primary_style(btn: Button, primary: bool) -> void:
 		s_norm.bg_color = Color(0.04, 0.08, 0.065, 0.88)
 		s_norm.border_color = Color(0.32, 0.48, 0.38, 0.6)
 		s_norm.set_border_width_all(1)
+		s_norm.border_width_left = 3
+		s_norm.shadow_color = Color(0.0, 0.0, 0.0, 0.35)
+		s_norm.shadow_size = 5
+		s_norm.shadow_offset = Vector2(0, 2)
 		s_hov.bg_color = Color(0.08, 0.15, 0.11, 0.96)
 		s_hov.border_color = Color(0.45, 0.65, 0.52, 0.8)
 		s_hov.set_border_width_all(1)
+		s_hov.border_width_left = 4
 		s_press.bg_color = Color(0.10, 0.22, 0.15, 1.0)
 		s_press.border_color = Color(0.50, 0.75, 0.60, 0.9)
 		s_press.set_border_width_all(1)
+		s_press.border_width_left = 4
 		text_col = MenuUI.TEXT
 	btn.add_theme_color_override("font_color", text_col)
 	btn.add_theme_color_override("font_hover_color", text_col)
@@ -2882,6 +3061,7 @@ func _build_drone() -> void:
 	info_v.add_child(_hangar_drone_tag)
 	_hangar_specs_lbl = _label("МАСА: 1400 г • TWR: 3.5:1 • МОТОРИ: 1350 KV", 12, MenuUI.MUTED)
 	info_v.add_child(_hangar_specs_lbl)
+	info_v.add_child(_build_perf_bars_row(_hangar_perf_bars))
 
 	ov_box.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
 
@@ -3089,6 +3269,7 @@ func _update_hangar_info(preset_idx: int) -> void:
 			_hangar_specs_lbl.text = "MASS: %d g • TWR: %.1f:1 • MOTORS: %d KV • CAM TILT: %d°" % [mass, twr, kv, tilt]
 		else:
 			_hangar_specs_lbl.text = "МАСА: %d г • TWR: %.1f:1 • МОТОРИ: %d KV • КУТ КАМЕРИ: %d°" % [mass, twr, kv, tilt]
+	_update_perf_bars(_hangar_perf_bars, p)
 	if _hangar_select_btn != null:
 		if preset_idx == Global.drone_preset:
 			_hangar_select_btn.text = "SELECTED FOR SORTIES" if is_en else "ОБРАНО ДЛЯ ВИЛЬОТІВ"
