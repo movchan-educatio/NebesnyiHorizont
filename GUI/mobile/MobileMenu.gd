@@ -1221,7 +1221,7 @@ func _build_main() -> void:
 	var chg_hdr := HBoxContainer.new()
 	chg_hdr.add_child(_label("ОНОВЛЕННЯ // СПИСОК ЗМІН", 13, MenuUI.FPV_AMBER))
 	chg_hdr.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
-	chg_hdr.add_child(_label("v1.18.0", 12, MenuUI.FPV_GREEN))
+	chg_hdr.add_child(_label("v1.19.0", 12, MenuUI.FPV_GREEN))
 	chg_v.add_child(chg_hdr)
 
 	var dc := Global.get_daily_challenge()

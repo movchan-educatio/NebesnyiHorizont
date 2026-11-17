@@ -203,6 +203,34 @@ jobs:
                   plistlib.dump({"CFBundleDisplayName": "NebesnyiHorizont"}, f)
               print("Patched InfoPlist.strings:", s)
 
+          privacy_manifest = {
+              "NSPrivacyTracking": False,
+              "NSPrivacyTrackingDomains": [],
+              "NSPrivacyCollectedDataTypes": [],
+              "NSPrivacyAccessedAPITypes": [
+                  {
+                      "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryFileTimestamp",
+                      "NSPrivacyAccessedAPITypeReasons": ["C617.1"],
+                  },
+                  {
+                      "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategorySystemBootTime",
+                      "NSPrivacyAccessedAPITypeReasons": ["35F9.1"],
+                  },
+                  {
+                      "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryDiskSpace",
+                      "NSPrivacyAccessedAPITypeReasons": ["E174.1", "85F4.1"],
+                  },
+                  {
+                      "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+                      "NSPrivacyAccessedAPITypeReasons": ["CA92.1"],
+                  },
+              ],
+          }
+          for pm in glob.glob("build/ios/**/PrivacyInfo.xcprivacy", recursive=True):
+              with open(pm, "wb") as f:
+                  plistlib.dump(privacy_manifest, f)
+              print("Patched PrivacyInfo.xcprivacy (ITMS-91053 compliance):", pm)
+
           for pb in glob.glob("build/ios/**/*.pbxproj", recursive=True):
               txt = open(pb, "r", encoding="utf-8").read()
               new_txt = re.sub(

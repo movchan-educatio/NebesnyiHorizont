@@ -100,6 +100,7 @@ const EN_TEXT: Dictionary = {
 	"10 модулів": "10 modules",
 	"КП трек": "Checkpoint course",
 	"FPV СИМУЛЯТОР · UKRAINE · v1.18.0": "FPV SIMULATOR · UKRAINE · v1.18.0",
+	"FPV СИМУЛЯТОР · UKRAINE · v1.19.0": "FPV SIMULATOR · UKRAINE · v1.19.0",
 	"Піхаота": "Infantry",
 	"Окопна лінія": "Trench line",
 	"Водомет": "Waterjet",
