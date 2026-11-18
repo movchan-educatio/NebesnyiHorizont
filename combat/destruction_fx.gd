@@ -199,21 +199,23 @@ static func flame_atlas() -> ImageTexture:
 	if _flame_atlas != null:
 		return _flame_atlas
 	var frames := 8
-	var size := 48
+	var size := 64
 	var img := Image.create(size * frames, size, false, Image.FORMAT_RGBA8)
 	var rng := RandomNumberGenerator.new()
 	for f in range(frames):
-		rng.seed = 1000 + f * 37
-		var blobs: Array = []
-		for i in range(12):
-			var tt := float(i) / 11.0
-			# tt = 0 is the hot base (v=0, image bottom), tt = 1 the smoky tip.
-			var y := 0.10 + tt * 0.82
-			var x := 0.5 + sin(tt * 4.2 + float(f) * 0.85) * 0.17 * tt \
-					+ rng.randf_range(-0.05, 0.05)
-			var r := 0.34 * (1.0 - tt * 0.65) * rng.randf_range(0.78, 1.28)
-			blobs.append([x, y, r, tt])
+		rng.seed = 700 + f * 131
+		# Six separate tongues, each with its own height, width and sway.
+		# Overlapping smooth blobs used to merge into one clipped teardrop.
+		var tongues: Array = []
+		for i in range(6):
+			var tx := 0.16 + float(i) * 0.136 + rng.randf_range(-0.03, 0.03)
+			var th := rng.randf_range(0.50, 0.98)
+			var tw := rng.randf_range(0.045, 0.085)
+			var sway := rng.randf_range(-0.17, 0.17)
+			var phase := rng.randf_range(0.0, TAU)
+			tongues.append([tx, th, tw, sway, phase])
 		for py in range(size):
+			# v = 0 at image bottom = hot base. The shader flips UV.y.
 			var v := 1.0 - float(py) / float(size - 1)
 			for px in range(size):
 				var u := float(px) / float(size - 1)
@@ -221,37 +223,36 @@ static func flame_atlas() -> ImageTexture:
 				var ag := 0.0
 				var ab := 0.0
 				var aa := 0.0
-				for b in blobs:
-					var dx := (u - float(b[0])) / maxf(float(b[2]), 0.001)
-					var dy := (v - float(b[1])) / maxf(float(b[2]) * 1.35, 0.001)
-					var d2 := dx * dx + dy * dy
-					if d2 > 3.0:
+				for t in tongues:
+					var tx: float = t[0]
+					var th: float = t[1]
+					var tw: float = t[2]
+					var sway: float = t[3]
+					var phase: float = t[4]
+					var hv := clampf(v / maxf(th, 0.01), 0.0, 1.0)
+					if hv >= 1.0:
 						continue
-					var c := exp(-d2 * 1.35)
-					var tt := float(b[3])
-					var cr := 1.0
-					var cg := 0.42
-					var cb := 0.05
-					if tt < 0.30:
-						var k := tt / 0.30
-						cg = lerpf(0.93, 0.52, k)
-						cb = lerpf(0.70, 0.06, k)
-					elif tt < 0.68:
-						var k := (tt - 0.30) / 0.38
-						cg = lerpf(0.52, 0.20, k)
-						cb = lerpf(0.06, 0.01, k)
-					else:
-						var k := (tt - 0.68) / 0.32
-						cr = lerpf(1.0, 0.55, k)
-						cg = lerpf(0.20, 0.04, k)
-						cb = 0.01
+					var centre := tx + sway * hv * hv + sin(hv * 7.0 + phase) * 0.032 * hv
+					var wide := tw * (1.0 - hv * 0.52) \
+							* (1.0 + 0.30 * sin(hv * 9.0 + phase * 1.7))
+					var dx := (u - centre) / maxf(wide, 0.004)
+					var d2 := dx * dx
+					if d2 > 7.0:
+						continue
+					var c := exp(-d2 * 1.15) * (1.0 - smoothstep(0.70, 1.0, hv))
+					var cg := lerpf(0.94, 0.16, hv)
+					var cb := lerpf(0.62, 0.01, clampf(hv * 1.5, 0.0, 1.0))
+					var cr := 1.0 if hv < 0.60 else lerpf(1.0, 0.72, (hv - 0.60) / 0.40)
 					ar += cr * c
 					ag += cg * c
 					ab += cb * c
 					aa += c
 				if aa > 0.0001:
+					# Feather all four edges: no quad rectangle can ever show.
+					var edge := smoothstep(0.0, 0.09, u) * (1.0 - smoothstep(0.91, 1.0, u))
+					edge *= smoothstep(0.0, 0.03, v) * (1.0 - smoothstep(0.88, 1.0, v))
 					img.set_pixel(f * size + px, py, Color(ar / aa, ag / aa,
-							ab / aa, clampf(aa * 0.55, 0.0, 1.0)))
+							ab / aa, clampf(aa * 0.92, 0.0, 1.0) * edge))
 				else:
 					img.set_pixel(f * size + px, py, Color(0.0, 0.0, 0.0, 0.0))
 	_flame_atlas = ImageTexture.create_from_image(img)
@@ -281,10 +282,15 @@ void vertex() {
 
 void fragment() {
 	float idx = floor(mod(TIME * fps + seed_offset * frames, frames));
-	vec2 uv = vec2((clamp(UV.x, 0.01, 0.99) + idx) / frames, UV.y);
+	// The atlas is authored so UV.y=0 is the hot base; keep this orientation.
+	vec2 uv = vec2((clamp(UV.x, 0.02, 0.98) + idx) / frames, UV.y);
 	vec4 fire = texture(flame_atlas, uv);
+	// Extra feather as a safety net - guarantees no square silhouette even if
+	// a future atlas is generated with harder edges.
+	float edge = smoothstep(0.0, 0.06, UV.x) * (1.0 - smoothstep(0.94, 1.0, UV.x))
+			* smoothstep(0.0, 0.04, UV.y) * (1.0 - smoothstep(0.96, 1.0, UV.y));
 	ALBEDO = fire.rgb;
-	ALPHA = fire.a;
+	ALPHA = fire.a * edge;
 }
 """
 	_flame_shader = s
@@ -333,7 +339,7 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 		ring_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		ring_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		ring_mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
-		ring_mat.albedo_color = Color(0.72, 0.62, 0.48, 0.52)
+		ring_mat.albedo_color = Color(0.55, 0.47, 0.36, 0.34)
 		ring_mat.albedo_texture = create_dust_ring_texture()
 		ring_mesh.material_override = ring_mat
 		ring_mesh.position = Vector3(0.0, clampf(gy - pos.y + 0.14, -12.0, 0.35), 0.0)
@@ -356,6 +362,28 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 	dome_mat.set_shader_parameter("rim_color", Color(1.0, 0.82, 0.52, 1.0))
 	dome_mesh.material_override = dome_mat
 	fx_root.add_child(dome_mesh)
+
+	# 2b. Additive ground flash ring. This is the bright leading edge the eye
+	# actually reads as a shockwave, so the translucent dome can stay faint.
+	# One short-lived quad, reuses the cached dust-ring texture.
+	var flash_mesh := MeshInstance3D.new()
+	flash_mesh.name = "ShockFlashRing"
+	var flash_plane := PlaneMesh.new()
+	flash_plane.size = Vector2(2.0, 2.0)
+	flash_mesh.mesh = flash_plane
+	flash_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var flash_mat := StandardMaterial3D.new()
+	flash_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	flash_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	flash_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	flash_mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	flash_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	flash_mat.albedo_texture = puff_tex
+	flash_mat.albedo_color = Color(1.0, 0.76, 0.48, 0.20)
+	flash_mesh.material_override = flash_mat
+	flash_mesh.rotation.x = -PI * 0.5
+	flash_mesh.position.y = 0.16
+	fx_root.add_child(flash_mesh)
 
 	# 3. FireballCore (hot white-orange expanding core -> dark-grey mushroom smoke)
 	var core_mesh := MeshInstance3D.new()
@@ -557,6 +585,8 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 	driver.ring_mat = ring_mat
 	driver.dome_mesh = dome_mesh
 	driver.dome_mat = dome_mat
+	driver.flash_mesh = flash_mesh
+	driver.flash_mat = flash_mat
 	driver.core_mesh = core_mesh
 	driver.core_mat = core_mat
 	driver.hot_mesh = hot_mesh
@@ -580,6 +610,8 @@ class _MultiphaseDriver extends Node:
 	var ring_mat: StandardMaterial3D = null
 	var dome_mesh: MeshInstance3D = null
 	var dome_mat: ShaderMaterial = null
+	var flash_mesh: MeshInstance3D = null
+	var flash_mat: StandardMaterial3D = null
 	var core_mesh: MeshInstance3D = null
 	var core_mat: StandardMaterial3D = null
 	var hot_mesh: MeshInstance3D = null
@@ -612,7 +644,7 @@ class _MultiphaseDriver extends Node:
 			else:
 				var radius := lerpf(1.4, 21.0 * scale_factor, 1.0 - pow(1.0 - rt, 2.2))
 				ring_mesh.scale = Vector3(radius, 1.0, radius)
-				ring_mat.albedo_color.a = 0.56 * pow(1.0 - rt, 1.6)
+				ring_mat.albedo_color.a = 0.30 * pow(1.0 - rt, 1.8)
 
 		# 2. Shockwave: a flat, fast pressure lens rather than a giant bubble.
 		# Squashing Y keeps the volume cue but removes the translucent-ball look.
@@ -621,9 +653,19 @@ class _MultiphaseDriver extends Node:
 			if dt >= 1.0:
 				dome_mesh.visible = false
 			else:
-				var dr := lerpf(1.4, 8.0 * scale_factor, 1.0 - pow(1.0 - dt, 2.0))
-				dome_mesh.scale = Vector3(dr, dr * 0.26, dr)
-				dome_mat.set_shader_parameter("intensity", 0.60 * pow(1.0 - dt, 2.0))
+				var dr := lerpf(1.4, 7.0 * scale_factor, 1.0 - pow(1.0 - dt, 2.0))
+				dome_mesh.scale = Vector3(dr, dr * 0.09, dr)
+				dome_mat.set_shader_parameter("intensity", 0.20 * pow(1.0 - dt, 2.2))
+
+		# 2b. Bright additive leading edge, gone in a fifth of a second.
+		if flash_mesh != null and flash_mat != null:
+			var ft2 := clampf(_t / 0.22, 0.0, 1.0)
+			if ft2 >= 1.0:
+				flash_mesh.visible = false
+			else:
+				var fr := lerpf(1.6, 9.0 * scale_factor, 1.0 - pow(1.0 - ft2, 2.4))
+				flash_mesh.scale = Vector3(fr, fr, 1.0)
+				flash_mat.albedo_color.a = 0.20 * pow(1.0 - ft2, 1.8)
 
 		# 3. FireballCore: hot white-orange (0..0.4 s) -> billowing smoke mushroom (0.4..1.5 s)
 		if core_mesh != null and core_mat != null:
@@ -633,8 +675,10 @@ class _MultiphaseDriver extends Node:
 			else:
 				var phase_fire := clampf(_t / 0.40, 0.0, 1.0)
 				var cr := lerpf(0.9, 4.0 * scale_factor, 1.0 - pow(1.0 - ft, 2.1))
-				core_mesh.scale = Vector3(cr, cr * (1.0 + ft * 0.38), cr)
-				core_mesh.position.y = lerpf(0.2, 3.8 * scale_factor, ft)
+				# Keep the detonation a fireball, not a vertical torch: the
+				# rising column is made by the smoke plume and flame billboards.
+				core_mesh.scale = Vector3(cr, cr * (1.0 + ft * 0.10), cr)
+				core_mesh.position.y = lerpf(0.2, 2.6 * scale_factor, ft)
 				if phase_fire < 1.0:
 					var c1 := Color(1.0, 0.96, 0.78).lerp(Color(1.0, 0.46, 0.09), phase_fire)
 					c1.a = lerpf(0.95, 0.78, phase_fire)
@@ -903,6 +947,20 @@ static func _jolt(unit: Node3D, power: float) -> void:
 
 ## ----------------------------- destruction ---------------------------------
 ## kind: tank/bmp/apc/truck/sam/heli/shahed/infantry/vehicle
+## Largest visual AABB dimension of a unit. Pure read, no allocation per frame.
+static func _unit_extent(unit: Node3D) -> float:
+	if not is_instance_valid(unit):
+		return 6.0
+	var best := 0.0
+	for n in unit.find_children("*", "VisualInstance3D", true, false):
+		var vi := n as VisualInstance3D
+		if vi == null:
+			continue
+		var b: AABB = vi.global_transform * vi.get_aabb()
+		best = maxf(best, maxf(b.size.x, maxf(b.size.y, b.size.z)))
+	return best
+
+
 static func destroy(parent: Node, unit: Node3D, kind: String = "vehicle",
 		ground_y: float = 0.0, options: Dictionary = {}) -> void:
 	if parent == null or not is_instance_valid(parent) or unit == null:
@@ -911,9 +969,14 @@ static func destroy(parent: Node, unit: Node3D, kind: String = "vehicle",
 	var do_move: bool = bool(options.get("move_unit", true))
 	var do_burn: bool = bool(options.get("burn", true))
 	var do_debris: bool = bool(options.get("debris", true))
+	# Real silhouette extent drives every effect size: a Shahed must not burn
+	# like an Apache, and a soldier must not burn like a tank.
+	var extent := _unit_extent(unit)
 	var pos := unit.global_position
 	if kind == "infantry":
-		pos += Vector3.UP * 1.0
+		# The fallen figure is only ~0.3 m tall; a 1 m offset floated the
+		# fireball and every child effect above the body.
+		pos += Vector3.UP * 0.10
 	elif kind == "heli" or kind == "shahed":
 		pos += Vector3.UP * 0.8
 	else:
@@ -927,7 +990,7 @@ static func destroy(parent: Node, unit: Node3D, kind: String = "vehicle",
 		if do_debris:
 			_spawn_debris(parent, pos, kind)
 	else:
-		var scale_f := 1.25 if kind in ["tank", "heli"] else 0.95
+		var scale_f := clampf(extent / 7.5, 0.45, 2.4)
 		var aerial := (kind == "heli" or kind == "shahed")
 		spawn_multiphase_explosion(parent, pos, scale_f, ground_y, aerial)
 		_flash(parent, pos, 4.5, Color(1.0, 0.62, 0.18))
@@ -963,12 +1026,12 @@ static func destroy(parent: Node, unit: Node3D, kind: String = "vehicle",
 		if do_move:
 			_collapse_infantry(unit)
 		if do_burn:
-			burn(unit, pos, kind, 5.0)
+			burn(unit, pos, kind, 5.0, ground_y)
 	else:
 		if do_move:
 			_collapse(unit)
 		if do_burn:
-			burn(unit, pos, kind, 22.0)
+			burn(unit, pos, kind, 22.0, ground_y)
 
 
 ## Shared flipbook plume quad. One draw call, no particle simulation.
@@ -1018,7 +1081,7 @@ static func impact(parent: Node, unit: Node3D, kind: String,
 	_char(unit)
 	_flash(parent, pos, 5.0, Color(1.0, 0.58, 0.14))
 	spawn_multiphase_explosion(parent, pos, 1.2, ground_y, false)
-	burn(unit, pos, kind, 22.0)
+	burn(unit, pos, kind, 22.0, ground_y)
 
 
 static func _char(unit: Node3D) -> void:
@@ -1050,8 +1113,14 @@ static func _collapse_infantry(unit: Node3D) -> void:
 		return
 	var tw := unit.create_tween()
 	tw.set_parallel(true)
-	tw.tween_property(unit, "rotation:x", deg_to_rad(84.0), 0.45)
-	tw.tween_property(unit, "position:y", unit.position.y - 0.05, 0.45)
+	# The caller places infantry on a ground-level pivot, so a ~90 deg X twist
+	# lays the whole body flat. The Z roll makes the fall read as uncontrolled.
+	tw.tween_property(unit, "rotation:x", deg_to_rad(88.0), 0.42) \
+			.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_property(unit, "rotation:z", deg_to_rad(randf_range(-22.0, 22.0)), 0.42)
+	# The gallery positions infantry on a pivot at its body centre (~0.93 m),
+	# so the body has to come down by roughly half its height to lie on ground.
+	tw.tween_property(unit, "position:y", unit.position.y - 0.80, 0.42)
 
 
 static func _aerial_fall(parent: Node, unit: Node3D, kind: String, ground_y: float,
@@ -1060,8 +1129,13 @@ static func _aerial_fall(parent: Node, unit: Node3D, kind: String, ground_y: flo
 		return
 	var fall := maxf(0.9, minf(3.2, (unit.global_position.y - ground_y) / 9.5))
 	# One continuous flame quad follows the falling wreck - no particle trail.
-	var trail := _plume(unit, "CrashFire", 1.8, 3.0)
-	trail.position = Vector3(0.0, 1.4, 0.0)
+	# Scale the trail to the airframe: an Apache burns far bigger than a Shahed.
+	# The quad is billboarded around its centre, so lifting it by ~half its
+	# height puts the hot base INSIDE the hull instead of hanging below it.
+	var fs := clampf(_unit_extent(unit) / 12.0, 0.42, 1.35)
+	var fh := 4.6 * fs
+	var trail := _plume(unit, "CrashFire", 3.4 * fs, fh)
+	trail.position = Vector3(0.0, fh * 0.55, 0.0)
 	var smoke := _emitter(unit, "CrashSmoke", 18, 1.9, SMOKE_COLOR,
 			_texture("smoke"), 0.5, 1.5, Vector3(0, 1.2, 0), 0.7, 1.6, false)
 	var tw := unit.create_tween()
@@ -1083,14 +1157,15 @@ static func _aerial_fall(parent: Node, unit: Node3D, kind: String, ground_y: flo
 		_shockwave(parent, Vector3(p.x, ground_y + 0.08, p.z), 10.0)
 		_fireball(parent, p, kind)
 		_spawn_debris(parent, p, kind)
-		burn(unit, p, kind, 22.0)
+		burn(unit, p, kind, 22.0, ground_y)
 		print("[DESTRUCTION] ", kind, " impacted at ", p))
 	# The wreck keeps a little forward drift even with the tween.
 	unit.rotation.y += 0.01
 
 
 ## ------------------------------- fire --------------------------------------
-static func burn(unit: Node3D, pos: Vector3, kind: String, duration: float) -> void:
+static func burn(unit: Node3D, pos: Vector3, kind: String, duration: float,
+		ground_y: float = 0.0) -> void:
 	if unit == null or not is_instance_valid(unit):
 		return
 	if _active_burns >= MAX_ACTIVE_BURNS:
@@ -1118,7 +1193,11 @@ static func burn(unit: Node3D, pos: Vector3, kind: String, duration: float) -> v
 				wisp.queue_free())
 		timer.start()
 		return
-	var s := 1.0
+	# Fire scales with the wreck's real silhouette, not with a hard-coded class.
+	var s := clampf(_unit_extent(unit) / 8.0, 0.30, 1.8)
+	var is_inf := kind == "infantry"
+	if is_inf:
+		s = 0.65
 	var anchor := Node3D.new()
 	anchor.name = "BurnAnchor"
 	var host: Node = unit.get_parent() if unit.get_parent() != null else unit
@@ -1129,12 +1208,20 @@ static func burn(unit: Node3D, pos: Vector3, kind: String, duration: float) -> v
 		host.add_child(anchor)
 		anchor.global_position = unit.global_position + Vector3.UP * (
 				2.0 if kind == "heli" else 0.7)
+	elif is_inf:
+		# The infantry pivot is rotated ~90 deg on collapse, so a local-space
+		# anchor would slide sideways out of the body. Pin the flame in world
+		# space just above the fallen figure instead.
+		host.add_child(anchor)
+		# Ground-locked to the body's footprint: the death pivot keeps spinning
+		# for a moment, so a unit-relative anchor would trail off the corpse.
+		anchor.global_position = Vector3(pos.x, ground_y + 0.02, pos.z)
 	else:
 		unit.add_child(anchor)
 		anchor.position = Vector3(0.0, 1.25, 0.0)
 	# One continuous flipbook flame instead of a stack of identical sprites.
-	var fire := _plume(anchor, "WreckFire", 3.2 * s, 3.6 * s)
-	fire.position = Vector3(0.0, 1.6 * s, 0.0)
+	var fire := _plume(anchor, "WreckFire", 2.6 * s, (2.1 if is_inf else 3.0) * s)
+	fire.position = Vector3(0.0, (0.0 if is_inf else 1.6) * s, 0.0)
 	var fire_flick := fire.create_tween().set_loops(int(maxf(1.0, duration / 0.22)))
 	fire_flick.tween_property(fire, "scale:y", 1.10, 0.11)
 	fire_flick.tween_property(fire, "scale:y", 0.92, 0.11)

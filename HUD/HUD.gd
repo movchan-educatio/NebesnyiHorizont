@@ -40,7 +40,7 @@ func _ready() -> void:
 	update_data(hud_delta, hud_position, hud_angles, hud_velocity, hud_left_stick, hud_right_stick, hud_rpm)
 	# Mobile cinematic grade sits behind every HUD widget (moved to child 0),
 	# so corner telemetry stays fully readable.
-	CinematicOverlay.attach(self, 0.26, 0.008, 0.008)
+	CinematicOverlay.attach(self, 0.30, 0.012, 0.003)
 
 
 func _process(_delta: float) -> void:

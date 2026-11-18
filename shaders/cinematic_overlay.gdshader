@@ -1,17 +1,28 @@
 shader_type canvas_item;
 render_mode blend_mix;
 
-// Lightweight cinematic grade for the mobile renderer.  Reads the already
-// rendered frame through hint_screen_texture: one texture fetch per pixel, no
-// extra render target, no second scene pass.  Kept deliberately subtle so HUD
-// text in the corners stays readable.
+// Cinematic finishing grade. One screen fetch, one full-screen quad, no extra
+// render target and no second scene pass. Everything below is pure ALU, so the
+// cost is identical on a phone GPU and on a desktop card.
+//
+// The look: gentle S-curve contrast, warm highlights / cool shadows split tone,
+// faint halation around hot pixels, organic elliptical vignette, warm light
+// leak, fine animated grain and optional anamorphic letterbox. HUD widgets are
+// drawn by the caller on top of this rect, so telemetry stays razor sharp.
 
-uniform sampler2D screen_tex : hint_screen_texture, repeat_disable, filter_nearest;
-uniform float vignette_strength : hint_range(0.0, 1.0) = 0.32;
-uniform float grain_strength : hint_range(0.0, 0.08) = 0.010;
-uniform float scanline_strength : hint_range(0.0, 0.08) = 0.010;
-uniform vec3 highlight_tint : source_color = vec3(1.025, 1.005, 0.965);
-uniform vec3 shadow_tint : source_color = vec3(0.965, 0.995, 1.020);
+uniform sampler2D screen_tex : hint_screen_texture, repeat_disable, filter_linear;
+
+uniform float vignette_strength : hint_range(0.0, 1.0) = 0.34;
+uniform float grain_strength : hint_range(0.0, 0.08) = 0.014;
+uniform float scanline_strength : hint_range(0.0, 0.08) = 0.0;
+uniform float contrast : hint_range(0.5, 2.0) = 1.10;
+uniform float saturation : hint_range(0.0, 2.0) = 1.08;
+uniform float halation : hint_range(0.0, 0.2) = 0.05;
+uniform float light_leak : hint_range(0.0, 1.0) = 0.22;
+uniform float letterbox : hint_range(0.0, 0.2) = 0.0;
+uniform vec2 resolution = vec2(1920.0, 1080.0);
+uniform vec3 highlight_tint : source_color = vec3(1.045, 1.012, 0.945);
+uniform vec3 shadow_tint : source_color = vec3(0.945, 0.982, 1.045);
 
 float hash21(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21));
@@ -20,23 +31,54 @@ float hash21(vec2 p) {
 }
 
 void fragment() {
-	vec3 color = texture(screen_tex, SCREEN_UV).rgb;
+	vec2 uv = SCREEN_UV;
+	vec3 c = texture(screen_tex, uv).rgb;
 
-	// Split tone: warm highlights (golden sun / fire), cool shadows (sky fill).
-	float luma = dot(color, vec3(0.299, 0.587, 0.114));
-	vec3 tone = mix(shadow_tint, highlight_tint, smoothstep(0.18, 0.78, luma));
-	color *= tone;
+	// 1. Filmic S-curve around middle grey. Lifts the shadow shoulder without
+	//    crushing the darks, which is what makes a flat render read as "film".
+	c = clamp((c - 0.5) * contrast + 0.5, 0.0, 1.0);
 
-	// Soft elliptical vignette.
-	vec2 d = (SCREEN_UV - 0.5) * vec2(1.0, 0.88);
-	float v = smoothstep(0.30, 0.78, length(d));
-	color *= 1.0 - v * vignette_strength;
+	// 2. Saturation, then warm highlights / cool shadows.
+	float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+	c = mix(vec3(luma), c, saturation);
+	float tone_mix = smoothstep(0.10, 0.85, luma);
+	c *= mix(shadow_tint, highlight_tint, tone_mix);
 
-	// Very faint analog texture: hides banding in the baked sky gradient.
-	float scan = sin(SCREEN_UV.y * 1100.0) * 0.5 + 0.5;
-	color *= 1.0 - scan * scanline_strength;
-	float grain = hash21(floor(SCREEN_UV * 1024.0) + floor(TIME * 24.0) * 13.7);
-	color += (grain - 0.5) * grain_strength;
+	// 3. Halation: hot pixels bleed a warm glow into their neighbours. No extra
+	//    texture fetch - derived from the same sampled luminance.
+	float hot = smoothstep(0.60, 0.98, luma);
+	c += vec3(1.0, 0.50, 0.22) * hot * halation;
 
-	COLOR = vec4(clamp(color, 0.0, 1.0), 1.0);
+	// 4. Organic elliptical vignette (smoother than a plain radial falloff).
+	vec2 d = (uv - 0.5) * vec2(1.0, 0.92);
+	float v = smoothstep(0.26, 0.82, length(d));
+	v = v * v * (3.0 - 2.0 * v);
+	c *= 1.0 - v * vignette_strength;
+
+	// 5. Warm light leak from the upper-left corner: the "sun in the lens"
+	//    cue that sells a golden-hour frame. Pure radial maths, one add.
+	if (light_leak > 0.001) {
+		vec2 lp = uv - vec2(0.02, 0.94);
+		float g = exp(-dot(lp, lp) * 3.2) * light_leak;
+		c += vec3(1.0, 0.46, 0.18) * g * 0.16;
+	}
+
+	// 6. Very fine animated grain. Slightly stronger in the shadows, where
+	//    banding in a baked sky gradient is most visible.
+	vec2 gp = floor(uv * resolution * 0.42) + floor(TIME * 24.0) * 17.0;
+	float grain = hash21(gp) - 0.5;
+	c += grain * grain_strength * (0.55 + 0.45 * (1.0 - smoothstep(0.10, 0.90, luma)));
+
+	// 7. Optional faint scan texture (off by default - not a retro look).
+	float scan = sin(uv.y * resolution.y * 1.6) * 0.5 + 0.5;
+	c *= 1.0 - scan * scanline_strength;
+
+	// 8. Anamorphic letterbox with a thin warm edge line. Off in gameplay.
+	float bar = clamp(step(uv.y, letterbox) + step(1.0 - letterbox, uv.y), 0.0, 1.0);
+	c = mix(c, vec3(0.0), bar);
+	float edge = (1.0 - smoothstep(0.0, 0.0025, abs(uv.y - letterbox)))
+			+ (1.0 - smoothstep(0.0, 0.0025, abs(uv.y - (1.0 - letterbox))));
+	c += vec3(0.55, 0.42, 0.28) * edge * step(0.0001, letterbox) * 0.30;
+
+	COLOR = vec4(clamp(c, 0.0, 1.0), 1.0);
 }

@@ -771,7 +771,7 @@ func _build_background() -> void:
 	add_child(bg)
 
 	# Grade the real menu artwork once, then draw all panels on top untouched.
-	var cinematic := CinematicOverlay.attach(self, 0.42, 0.012, 0.010)
+	var cinematic := CinematicOverlay.attach(self, 0.38, 0.014, 0.004, 0.0, 0.30)
 	if cinematic != null:
 		move_child(cinematic, 1)
 
