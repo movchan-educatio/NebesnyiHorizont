@@ -46,7 +46,7 @@ func _run() -> void:
 			menu.call("_open_mobile_briefing")
 			_scan_text(briefing_title.text, "Campaign briefing %d title" % mission_id)
 			_scan_text(briefing_body.text, "Campaign briefing %d body" % mission_id)
-		for special_id in range(1, 10):
+		for special_id in range(1, 11):
 			menu.set("_selected_special", special_id)
 			menu.call("_open_mobile_briefing")
 			_scan_text(briefing_title.text, "Special briefing %d title" % special_id)

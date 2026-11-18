@@ -52,6 +52,18 @@ const AIR_MISSION_SHAHED_ALT_1 := Vector2(18.0, 24.0)
 const AIR_MISSION_SHAHED_ALT_2 := Vector2(22.0, 30.0)
 const AIR_MISSION_SHAHED_SPEED := Vector2(16.0, 20.0)
 
+## Special op 10 — cruise missile intercept.  Four waves sweep the full arena
+## west -> east.  Speeds/altitudes stay inside the stock strike quad's zoom
+## envelope so a mobile pilot can actually intercept them.
+const MISSILE_WAVE_COUNTS := [5, 6, 7, 6]
+const MISSILE_FIRST_WAVE_DELAY := 14.0
+const MISSILE_WAVE_INTERVAL := 34.0
+const MISSILE_WARNING_LEAD := 8.0
+const MISSILE_SPEED := Vector2(11.0, 15.5)
+const MISSILE_ALTITUDE := Vector2(20.0, 34.0)
+const MISSILE_MAX_LEAKS := 4
+const MISSILE_LANE_HALF := 88.0
+
 var _map_root: Node3D = null
 var _triggers: Node3D = null
 var _hud: CanvasLayer = null
@@ -181,6 +193,13 @@ var _special_extract_point := Vector3.ZERO
 var _special_extract_hold := 0.0
 var _special_extract_beacon: Node3D = null
 var _special_pickup_prop: Node3D = null
+## Cruise missile intercept (special op 10) runtime state.
+var _intercept_wave := 0
+var _intercept_timer := 0.0
+var _intercept_warned := false
+var _intercept_leaks := 0
+var _intercept_missiles: Array[Dictionary] = []
+var _intercept_warning_label: Label = null
 var _combat_music: AudioStreamPlayer = null
 var _audio_mix_tick := 0.0
 var _rig_visible := true
@@ -2766,6 +2785,8 @@ func _special_mission_hint(mission_id: int) -> String:
 			return _txt("ОРЕШНИК", "ORESHNIK")
 		9:
 			return _txt("ГЛИБОКИЙ ТИЛ", "DEEP STRIKE")
+		10:
+			return _txt("4 ХВИЛІ ППО", "4-WAVE AIR DEFENCE")
 		_:
 			return _txt("СПЕЦОПЕРАЦІЯ", "SPECIAL OP")
 
@@ -3812,6 +3833,12 @@ func _on_vehicle_destroyed(points: int, kind: int, vehicle: Vehicle = null) -> v
 	_payload_hits += 1
 	var is_primary_target := true if (vehicle == null or not is_instance_valid(vehicle)) \
 			else bool(vehicle.get_meta("is_primary_target", true))
+	# The interception missiles reuse the SHAHED vehicle kind, but the kill feed
+	# must name them correctly.
+	var target_label := _kind_name(kind)
+	if vehicle != null and is_instance_valid(vehicle) \
+			and String(vehicle.get("variant")) == "cruise_missile":
+		target_label = _txt("КРИЛАТА РАКЕТА", "CRUISE MISSILE")
 	if Global.play_mode == Global.PlayMode.COMBAT:
 		if is_primary_target:
 			_mission_targets_destroyed += 1
@@ -3819,22 +3846,22 @@ func _on_vehicle_destroyed(points: int, kind: int, vehicle: Vehicle = null) -> v
 		if combat != null and combat.has_method("add_bonus_score"):
 			if is_primary_target:
 				combat.call("add_bonus_score", points, "%s (%s %d/%d)" % [
-					_kind_name(kind), _txt("ОСН.", "MAIN"),
+					target_label, _txt("ОСН.", "MAIN"),
 					_mission_targets_destroyed, _mission_targets_total
 				])
 			else:
 				combat.call("add_bonus_score", points, "%s +%d (%s %d/%d)" % [
-					_kind_name(kind), points, _txt("ОСН.", "MAIN"),
+					target_label, points, _txt("ОСН.", "MAIN"),
 					_mission_targets_destroyed, _mission_targets_total
 				])
 		if is_primary_target:
 			_set_flash("%s (%s %d/%d)" % [
-				_kind_name(kind), _txt("ОСН.", "MAIN"),
+				target_label, _txt("ОСН.", "MAIN"),
 				_mission_targets_destroyed, _mission_targets_total
 			])
 		else:
 			_set_flash("%s +%d (%s %d/%d)" % [
-				_kind_name(kind), points, _txt("ОСН.", "MAIN"),
+				target_label, points, _txt("ОСН.", "MAIN"),
 				_mission_targets_destroyed, _mission_targets_total
 			])
 		var drone := get_node_or_null("Drone") as Node3D
@@ -4678,6 +4705,11 @@ func _spawn_special_mission(mission_id: int) -> void:
 	_special_extract_beacon = null
 	_special_pickup_prop = null
 	_offset_targets = false
+	_intercept_wave = 0
+	_intercept_timer = 0.0
+	_intercept_warned = false
+	_intercept_leaks = 0
+	_intercept_missiles.clear()
 
 	match mission_id:
 		1:
@@ -4716,6 +4748,8 @@ func _spawn_special_mission(mission_id: int) -> void:
 			_spawn_special_oreshnik(false)
 		9:
 			_spawn_special_oreshnik(true)
+		10:
+			_spawn_special_missile_intercept()
 
 	if mission_id >= 5:
 		_special_extract_beacon = _spawn_special_beacon(_special_extract_point,
@@ -4725,6 +4759,155 @@ func _spawn_special_mission(mission_id: int) -> void:
 	print("[BigLevel] spawned Special Operation %d (%s), targets=%d" % [
 		mission_id, Global.get_special_mission_name(mission_id), _mission_targets_total
 	])
+
+
+# ------------------------------------------------ special op 10: missile waves
+## Cruise missiles cross the whole arena in four announced waves.  A missile
+## that reaches the defended (east) edge is a "leak": it resolves as a lost
+## target (no score) and four leaks fail the sortie.  Every shootdown still
+## flows through the usual vehicle.destroyed -> cinematic destruction path.
+func _spawn_special_missile_intercept() -> void:
+	var total := 0
+	for n in MISSILE_WAVE_COUNTS:
+		total += int(n)
+	_mission_targets_total = total
+	_intercept_wave = 0
+	_intercept_timer = MISSILE_FIRST_WAVE_DELAY
+	_intercept_warned = false
+	_intercept_leaks = 0
+	_intercept_missiles.clear()
+	_set_missile_warning("")
+	_play_radio_callout(_txt(
+		"Штаб борт-01: зафіксовано кластер крилатих ракет на західному напрямку. Чотири хвилі. Прикрити об'єкт.",
+		"HQ Valkyrie-01: cruise-missile cluster tracked to the west. Four waves inbound. Protect the asset."),
+		true, "02")
+
+
+func _spawn_missile_wave() -> void:
+	var count: int = MISSILE_WAVE_COUNTS[_intercept_wave]
+	var wave_no := _intercept_wave + 1
+	var lane_step := (MISSILE_LANE_HALF * 2.0) / maxf(float(count) - 1.0, 1.0)
+	for i in range(count):
+		var lane := -MISSILE_LANE_HALF + lane_step * float(i) + randf_range(-7.0, 7.0)
+		var goal_lane := clampf(lane + randf_range(-10.0, 10.0),
+				-MISSILE_LANE_HALF, MISSILE_LANE_HALF)
+		var altitude := randf_range(MISSILE_ALTITUDE.x, MISSILE_ALTITUDE.y)
+		var speed := randf_range(MISSILE_SPEED.x, MISSILE_SPEED.y)
+		var start := Vector3(-148.0, 0.0, lane)
+		var goal := Vector3(148.0, 0.0, goal_lane)
+		var missile := _add_vehicle(Vehicle.Kind.SHAHED, [start, goal], speed,
+				false, false, altitude, true, "cruise_missile")
+		if missile == null:
+			continue
+		# A non-hostile vehicle gets a convoy beacon; missiles must not show it.
+		var beacon := missile.get_node_or_null("FriendlyConvoyBeacon")
+		if beacon != null:
+			beacon.queue_free()
+		missile.set_meta("intercept_target", true)
+		_intercept_missiles.append({
+			"vehicle": missile, "goal": goal, "spawned": _mission_time,
+		})
+	_intercept_wave += 1
+	_set_flash(_txt("ХВИЛЯ %d — РАКЕТИ В ПОВІТРІ!" % wave_no,
+			"WAVE %d — MISSILES AIRBORNE!" % wave_no))
+	_play_alert("incoming")
+	_play_radio_callout(_txt(
+		"Попередження — хвиля %d, %d ракет у повітрі. Відкривайте вогонь!",
+		"Warning — wave %d, %d missiles airborne. Engage!") % [wave_no, count],
+		true, "04")
+
+
+func _update_missile_intercept(delta: float) -> void:
+	if _mission_finished or not _mission_started:
+		return
+	# Prune dead missiles and resolve those that crossed the defended edge.
+	var i := _intercept_missiles.size() - 1
+	while i >= 0:
+		var entry: Dictionary = _intercept_missiles[i]
+		var missile := entry.get("vehicle") as Vehicle
+		if missile == null or not is_instance_valid(missile) or missile.is_destroyed:
+			_intercept_missiles.remove_at(i)
+			i -= 1
+			continue
+		var goal: Vector3 = entry.get("goal", Vector3.ZERO)
+		var passed := missile.global_position.x >= goal.x - 18.0 \
+				and absf(missile.global_position.z - goal.z) < 26.0
+		var timed_out := _mission_time - float(entry.get("spawned", 0.0)) > 75.0
+		if passed or timed_out:
+			_intercept_missiles.remove_at(i)
+			_missile_leak(missile, goal)
+		i -= 1
+
+	# Wave scheduler with an 8-second on-screen warning before each launch.
+	if _intercept_wave >= MISSILE_WAVE_COUNTS.size():
+		if _intercept_missiles.is_empty():
+			_set_missile_warning("")
+		return
+	_intercept_timer -= delta
+	if not _intercept_warned and _intercept_timer <= MISSILE_WARNING_LEAD:
+		_intercept_warned = true
+		_play_alert("sam_lock")
+		var incoming: int = MISSILE_WAVE_COUNTS[_intercept_wave]
+		_play_radio_callout(_txt(
+			"Увага! Хвиля %d — %d крилатих ракет на підході через %d секунд.",
+			"Attention! Wave %d — %d cruise missiles inbound in %d seconds."
+			) % [_intercept_wave + 1, incoming, int(ceilf(MISSILE_WARNING_LEAD))],
+			true, "04")
+	if _intercept_warned and _intercept_timer > 0.0:
+		var count: int = MISSILE_WAVE_COUNTS[_intercept_wave]
+		var secs := int(ceilf(_intercept_timer))
+		_set_missile_warning(_txt(
+			"⚠ ПОВІТРЯНА ТРИВОГА · ХВИЛЯ %d/4 · %d РАКЕТ · СТАРТ ЧЕРЕЗ %ds · ПРОРИВИ %d/%d",
+			"⚠ AIR RAID · WAVE %d/4 · %d MISSILES · LAUNCH IN %ds · LEAKS %d/%d"
+			) % [_intercept_wave + 1, count, secs, _intercept_leaks, MISSILE_MAX_LEAKS])
+	elif not _intercept_warned:
+		_set_missile_warning(_txt(
+			"ППО ГОТОВА · ХВИЛЯ %d/4 · НАСТУПНА ЧЕРЕЗ %ds · ПРОРИВИ %d/%d",
+			"DEFENCE READY · WAVE %d/4 · NEXT IN %ds · LEAKS %d/%d"
+			) % [_intercept_wave + 1, int(ceilf(_intercept_timer)),
+					_intercept_leaks, MISSILE_MAX_LEAKS], false)
+	if _intercept_timer <= 0.0:
+		_set_missile_warning("")
+		_spawn_missile_wave()
+		_intercept_timer = MISSILE_WAVE_INTERVAL
+		_intercept_warned = false
+
+
+## A missile got through: detonate at the defended edge, resolve the target
+## without awarding player score and tighten the fail counter.
+func _missile_leak(missile: Vehicle, goal: Vector3) -> void:
+	if not is_instance_valid(missile):
+		return
+	var impact := Vector3(goal.x - 4.0, maxf(missile.global_position.y, 2.0), goal.z)
+	ExplosionScript.spawn(self, impact, 15.0, 0.0)
+	ExplosionScript.smoke_column(self, impact + Vector3.UP * 1.5, 18.0)
+	CombatSfxScript.play_boom(self, impact, -2.0)
+	missile.queue_free()
+	_intercept_leaks += 1
+	_mission_targets_destroyed += 1
+	_set_flash(_txt("ПРОРИВ! РАКЕТА УРАЗИЛА ОБ'ЄКТ · %d/%d" % [
+			_intercept_leaks, MISSILE_MAX_LEAKS],
+			"BREACH! MISSILE HIT THE ASSET · %d/%d" % [
+			_intercept_leaks, MISSILE_MAX_LEAKS]))
+	_play_alert("lq_critical")
+	if _intercept_leaks >= MISSILE_MAX_LEAKS:
+		_special_fail(_txt("ОБОРОНУ ПРОРВАНО — ЗАВДАННЯ ПРОВАЛЕНО",
+				"DEFENCE BREACHED — MISSION FAILED"))
+	else:
+		_check_combat_mission_complete()
+
+
+## Dedicated, always-on-top wave banner (persists longer than _set_flash).
+func _set_missile_warning(text: String, danger: bool = true) -> void:
+	if _intercept_warning_label == null:
+		return
+	var translated := MenuUI.translate_text(text)
+	if _intercept_warning_label.text == translated:
+		return
+	_intercept_warning_label.text = translated
+	_intercept_warning_label.visible = not translated.is_empty()
+	_intercept_warning_label.add_theme_color_override("font_color",
+			Color(1.0, 0.28, 0.22) if danger else Color(1.0, 0.88, 0.35))
 
 
 func _enter_special_extraction() -> void:
@@ -4744,6 +4927,9 @@ func _enter_special_extraction() -> void:
 
 func _update_special_mission(delta: float) -> void:
 	if Global.special_mission <= 0 or _mission_finished:
+		return
+	if Global.special_mission == 10:
+		_update_missile_intercept(delta)
 		return
 	var drone := get_node_or_null("Drone") as Drone
 	if drone == null:
@@ -5541,6 +5727,17 @@ func _setup_hud() -> void:
 	_hud_message.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_hud_message.visible = false
 	_top_banner_stack.add_child(_hud_message)
+	# Persistent air-raid banner for the cruise-missile intercept wave warnings.
+	_intercept_warning_label = Label.new()
+	_intercept_warning_label.add_theme_font_size_override("font_size", 26)
+	_intercept_warning_label.add_theme_color_override("font_color", Color(1.0, 0.28, 0.22))
+	_intercept_warning_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.98))
+	_intercept_warning_label.add_theme_constant_override("outline_size", 7)
+	_intercept_warning_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_intercept_warning_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_intercept_warning_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_intercept_warning_label.visible = false
+	_top_banner_stack.add_child(_intercept_warning_label)
 	_nav_marker = Label.new()
 	_nav_marker.add_theme_font_size_override("font_size", 19)
 	_nav_marker.add_theme_color_override("font_color", Color(1.0, 0.90, 0.36, 0.98))

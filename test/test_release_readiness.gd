@@ -123,8 +123,9 @@ func _test_campaign_replay() -> void:
 	add_child(mob)
 	await get_tree().process_frame
 	var m_btns: Dictionary = mob.get("_mission_buttons")
-	_check(m_btns.has("tac:1") and m_btns.has("tac:2") and m_btns.has("spec:9"),
-			"MobileMenu exposes campaign TAC-01..04 and Special Ops 1..9")
+	_check(m_btns.has("tac:1") and m_btns.has("tac:2") and m_btns.has("spec:9")
+			and m_btns.has("spec:10"),
+			"MobileMenu exposes campaign TAC-01..04 and Special Ops 1..10")
 	mob.call("_select_mobile_mission", 2, 0)
 	_check(int(mob.get("_selected_mission")) == 2 and int(mob.get("_selected_special")) == 0,
 			"MobileMenu allows selecting TAC-02 during campaign replay")

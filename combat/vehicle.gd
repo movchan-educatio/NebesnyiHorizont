@@ -80,6 +80,14 @@ const VARIANTS := {
 	"oreshnik": {"kind": Kind.SAM, "path": "res://Assets/vehicles/oreshnik_launcher.glb",
 		"size": 11.0, "yaw": 0.0, "box": Vector3(2.7, 2.4, 11.0),
 		"hp": 520.0, "points": 900, "tint": Color(0.95, 0.97, 0.92)},
+	## Cruise missile: reuses the rail-flown SHAHED air behaviour (air_target
+	## group, proximity fuse, cinematic aerial crash) but uses the authored
+	## low-poly missile GLB.  nose points -Z, so yaw stays at 0.
+	"cruise_missile": {"kind": Kind.SHAHED,
+		"path": "res://Assets/combat/cruise_missile.glb",
+		"size": 6.4, "yaw": 0.0, "box": Vector3(3.4, 1.6, 6.4),
+		"hp": 150.0, "points": 420, "tint": Color(0.92, 0.96, 0.88),
+		"keep_authored_colors": true},
 }
 const TracerScript = preload("res://combat/tracer.gd")
 const ExplosionScript = preload("res://combat/explosion.gd")
@@ -616,6 +624,8 @@ func _add_lod_box(box_size: Vector3, at: Vector3, material: Material) -> void:
 
 
 func _lod_proxy_color() -> Color:
+	if variant == "cruise_missile":
+		return Color(0.66, 0.69, 0.70)
 	match kind:
 		Kind.TANK: return Color(0.31, 0.39, 0.23)
 		Kind.BMP: return Color(0.27, 0.34, 0.21)
@@ -659,6 +669,10 @@ func _update_mobile_lod(delta: float) -> void:
 ## requiring UVs (the BMP/BTR have none), which is what made them look like
 ## plastic toys.
 func _apply_vehicle_style(model: Node3D) -> void:
+	# Authored variants with a deliberate high-contrast paint scheme (the
+	# cruise missile must read against green terrain) keep their GLB materials.
+	if _variant_get("keep_authored_colors", false):
+		return
 	var tint := Color(0.80, 0.86, 0.70)
 	match kind:
 		Kind.TANK:

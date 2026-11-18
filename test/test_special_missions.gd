@@ -24,7 +24,7 @@ func _ready() -> void:
 	Global.play_mode = Global.PlayMode.COMBAT
 	Global.chain_briefing_pending = false
 	Global.drone_preset = 2
-	for mission_id in [1, 2, 3, 4, 5, 6, 7, 8, 9]:
+	for mission_id in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]:
 		Global.special_mission = mission_id
 		Global.combat_mission = 1
 		var packed := load("res://sceneries/VillageLevel.tscn") as PackedScene
@@ -136,6 +136,30 @@ func _ready() -> void:
 					ok = false
 				else:
 					print("[SPECIAL] PASS deep strike completes directly with no exit marker")
+			10:
+				# Four announced waves totalling 24 cruise missiles; none have
+				# launched yet while the briefing banner is up.
+				if int(level.get("_mission_targets_total")) != 24 \
+						or int(level.get("_intercept_wave")) != 0:
+					printerr("[SPECIAL] FAIL missile intercept setup: ",
+							level.get("_mission_targets_total"), "/",
+							level.get("_intercept_wave"))
+					ok = false
+				else:
+					print("[SPECIAL] PASS missile intercept 24 targets / 4 waves")
+				level.call("_start_mission")
+				level.set("_mission_targets_destroyed", int(level.get("_mission_targets_total")))
+				level.call("_check_combat_mission_complete")
+				await get_tree().process_frame
+				get_tree().paused = false
+				var beacon10 := level.get("_special_extract_beacon") as Node3D
+				if bool(level.get("_special_extract_active")) \
+						or (beacon10 != null and beacon10.visible) \
+						or not bool(level.get("_mission_finished")):
+					printerr("[SPECIAL] FAIL missile intercept direct completion failed")
+					ok = false
+				else:
+					print("[SPECIAL] PASS missile intercept completes with no exit marker")
 		var title: String = level.call("_mission_title")
 		if not title.contains(label):
 			printerr("[SPECIAL] FAIL title '", title, "' missing '", label, "'")

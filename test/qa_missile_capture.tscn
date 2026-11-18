@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://bqa7missilecap"]
+
+[ext_resource type="Script" path="res://test/qa_missile_capture.gd" id="1_qam"]
+
+[node name="QAMissileCapture" type="Node3D"]
+script = ExtResource("1_qam")

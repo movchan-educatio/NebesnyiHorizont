@@ -381,7 +381,7 @@ func _ready() -> void:
 	if Global.menu_settings.has("selected_mission"):
 		_selected_mission = clampi(int(Global.menu_settings["selected_mission"]), 1, 4)
 	if Global.menu_settings.has("selected_special"):
-		_selected_special = clampi(int(Global.menu_settings["selected_special"]), 0, 9)
+		_selected_special = clampi(int(Global.menu_settings["selected_special"]), 0, 10)
 	if not Global.is_mission_unlocked(_selected_mission):
 		_selected_mission = 1 if Global.campaign_is_complete() else Global.campaign_unlocked_mission()
 	if not embedded:
@@ -2493,7 +2493,7 @@ func _build_mobile_mission_strip(parent: VBoxContainer, is_en: bool) -> void:
 		strip.add_child(b)
 		_mission_buttons["tac:%d" % m_id] = b
 
-	for s_id in range(1, 10):
+	for s_id in range(1, 11):
 		var op_prefix := "OP" if is_en else "СО"
 		var b := _button("%s-0%d · %s" % [op_prefix, s_id, Global.get_special_mission_name(s_id)],
 				34, _selected_special == s_id)
@@ -2518,7 +2518,7 @@ func _build_mobile_mission_strip(parent: VBoxContainer, is_en: bool) -> void:
 func _select_mobile_mission(mission_id: int, special_id: int) -> void:
 	if mission_id >= 1:
 		_selected_mission = clampi(mission_id, 1, 4)
-	_selected_special = clampi(special_id, 0, 9)
+	_selected_special = clampi(special_id, 0, 10)
 	if _selected_special == 0 and not Global.is_mission_unlocked(_selected_mission):
 		_selected_mission = 1 if Global.campaign_is_complete() else Global.campaign_unlocked_mission()
 	Global.menu_settings["selected_mission"] = _selected_mission
@@ -2554,7 +2554,7 @@ func _refresh_mobile_mission_strip() -> void:
 			b.modulate = Color(1, 1, 1, 1 if unlocked else 0.45)
 			_apply_button_primary_style(b, _selected_special == 0 and _selected_mission == m_id)
 	var op_prefix := "OP" if is_en else "СО"
-	for s_id in range(1, 10):
+	for s_id in range(1, 11):
 		var b: Button = _mission_buttons.get("spec:%d" % s_id, null) as Button
 		if b != null:
 			var srec := Global.get_special_mission_record(s_id) if Global.has_method("get_special_mission_record") else {}

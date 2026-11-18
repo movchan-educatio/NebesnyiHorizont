@@ -136,7 +136,7 @@ func _audit_runtime_data() -> void:
 			# the getters above translate it at read time.  Scanning the raw
 			# fields here would report false positives.
 
-	for special_id in range(1, 10):
+	for special_id in range(1, 11):
 		_scan_text(Global.get_special_mission_name(special_id),
 				"Global.get_special_mission_name(%d)" % special_id)
 	var challenge: Dictionary = Global.get_daily_challenge()

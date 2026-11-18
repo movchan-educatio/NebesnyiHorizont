@@ -40,8 +40,8 @@ var combat_training: bool = false
 ## Current combat mission stage (1 = Recon Sector, 2 = Armor Column, 3 = Rotary Target, 4 = Aerial Intercept).
 var combat_mission: int = 1
 ## Special operations are standalone sorties, not campaign records.  0 means a
-## normal campaign mission; 1-6 select recon / escort / evacuation / cargo /
-## night flight / EW breach.
+## normal campaign mission; 1-9 select the original ops; 10 is the cruise
+## missile intercept wave defence mission.
 var special_mission: int = 0
 const SPECIAL_MISSION_NAMES := {
 	1: "РОЗВІДКА",
@@ -53,6 +53,7 @@ const SPECIAL_MISSION_NAMES := {
 	7: "ТИЛОВА КОЛОНА",
 	8: "ОРЕШНИК",
 	9: "ГЛИБОКИЙ ТИЛ",
+	10: "ПЕРЕХОПЛЕННЯ РАКЕТ",
 }
 const SPECIAL_MISSION_NAMES_EN := {
 	1: "RECONNAISSANCE",
@@ -64,6 +65,7 @@ const SPECIAL_MISSION_NAMES_EN := {
 	7: "REAR-AREA CONVOY",
 	8: "ORESHNIK",
 	9: "DEEP-STRIKE OPERATION",
+	10: "CRUISE MISSILE INTERCEPT",
 }
 
 
@@ -686,9 +688,9 @@ func get_records_report(is_en: bool = false) -> String:
 		else:
 			lines.append("  • TAC-0%d: —" % m_id)
 	lines.append("")
-	lines.append("SPECIAL OPS (1..9):" if is_en else "СПЕЦОПЕРАЦІЇ (1..9):")
+	lines.append("SPECIAL OPS (1..10):" if is_en else "СПЕЦОПЕРАЦІЇ (1..10):")
 	var any_spec := false
-	for sp_id in range(1, 10):
+	for sp_id in range(1, 11):
 		var srec := get_special_mission_record(sp_id)
 		if bool(srec.get("completed", false)):
 			any_spec = true
