@@ -10,6 +10,24 @@ const SCENES := {
 }
 var _failures := 0
 
+## Each map gets its own menu-card camera: aim at a unique hero landmark and
+## approach it from a different side/height, instead of the old shared
+## "hangar from 100,140" frame that made all four cards look identical.
+const CARD_HERO := {
+	"steppe": "MobileHero_WindTurbine",
+	"village": "MobileHero2_Church",
+	"industrial": "MobileHero_FlareStack",
+	"wetlands": "MobileHero_Lighthouse",
+}
+## offset = camera XZ offset from the landmark; height = camera AGL;
+## aim = look-at height above the landmark's ground.
+const CARD_SHOT := {
+	"steppe": {"offset": Vector2(-52.0, -38.0), "height": 18.0, "aim": 17.0},
+	"village": {"offset": Vector2(44.0, -30.0), "height": 12.0, "aim": 9.0},
+	"industrial": {"offset": Vector2(-40.0, 46.0), "height": 22.0, "aim": 21.0},
+	"wetlands": {"offset": Vector2(34.0, 40.0), "height": 11.0, "aim": 8.0},
+}
+
 
 func _ready() -> void:
 	call_deferred("_run")
@@ -177,11 +195,32 @@ func _run() -> void:
 	var center: Vector2 = hall["center"]
 	# Static, deterministic viewpoints deliberately use the real drone and FPV
 	# camera at low altitude. They are QA-only; no user save is changed.
+	var card_view: Dictionary = {
+		"at": center + Vector2(100, 140), "height": 28.0,
+		"target": center + Vector2(0, 16),
+	}
+	if CARD_HERO.has(map_name) and CARD_SHOT.has(map_name):
+		var hero_name := String(CARD_HERO[map_name])
+		for h in heroes:
+			if (h as Node3D).name == hero_name:
+				var hp := (h as Node3D).global_position
+				var cfg: Dictionary = CARD_SHOT[map_name]
+				var off: Vector2 = cfg["offset"]
+				card_view = {
+					"at": Vector2(hp.x, hp.z) + off,
+					"height": float(cfg["height"]),
+					"target": Vector2(hp.x, hp.z),
+					"aim": float(cfg["aim"]),
+				}
+				print("[MOBILE_MAP_VIEWS] card camera for ", map_name,
+						" -> ", hero_name, " at ", Vector2(hp.x, hp.z))
+				break
 	var positions := [
 		{"name": "landmark", "at": center + Vector2(0, 75), "height": 10.0, "target": center},
 		{"name": "low_flight", "at": center + Vector2(80, 90), "height": 3.5, "target": center + Vector2(10, 20)},
 		{"name": "overview", "at": center + Vector2(-95, 125), "height": 42.0, "target": center},
-		{"name": "card", "at": center + Vector2(100, 140), "height": 28.0, "target": center + Vector2(0, 16)},
+		{"name": "card", "at": card_view["at"], "height": card_view["height"],
+			"target": card_view["target"], "aim": card_view.get("aim", 16.0)},
 	]
 	# One close-up of the new forge layer so a visual regression (missing
 	# baked texture, wrong scale, floating plinth) is visible in the audit.

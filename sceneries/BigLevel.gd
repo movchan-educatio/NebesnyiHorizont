@@ -1268,6 +1268,24 @@ func _tune_map_environment() -> void:
 	fill.light_energy = fill_energy
 	fill.shadow_enabled = false
 	fill.light_volumetric_fog_energy = 0.0
+	# Mobile cinematic grade.  The baked panorama is now a golden-hour sky;
+	# warm the bounced light and deepen the grade so grass reads olive/gold
+	# instead of lime and the sky keeps its amber horizon.  Pure parameter
+	# changes: no extra render passes, so the low-spec budget is untouched.
+	if OS.get_name() == "iOS" or OS.has_feature("mobile") or OS.has_environment("MOBILE_UI"):
+		env.adjustment_contrast = clampf(contrast + 0.08, 1.08, 1.25)
+		env.adjustment_saturation = clampf(saturation - 0.02, 0.98, 1.18)
+		env.adjustment_brightness = 0.97
+		env.tonemap_exposure = clampf(env.tonemap_exposure - 0.04, 0.92, 1.01)
+		env.ambient_light_energy = clampf(env.ambient_light_energy - 0.05, 0.48, 0.72)
+		env.ambient_light_color = Color(
+			clampf(amb_col.r * 1.05, 0.0, 1.0),
+			clampf(amb_col.g * 0.98, 0.0, 1.0),
+			clampf(amb_col.b * 0.82, 0.0, 1.0))
+		fill.light_color = Color(
+			clampf(fill_col.r * 1.04, 0.0, 1.0),
+			clampf(fill_col.g * 0.98, 0.0, 1.0),
+			clampf(fill_col.b * 0.86, 0.0, 1.0))
 	QualityManager.align_sky_to_sun(env, sun)
 
 

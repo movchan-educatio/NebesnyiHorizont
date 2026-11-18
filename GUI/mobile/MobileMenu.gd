@@ -13,6 +13,7 @@ const ROUNDED_SHADER: Shader = preload("res://GUI/mobile/rounded_rect.gdshader")
 const DronePropellerSystem = preload("res://scripts/util/DronePropellerSystem.gd")
 const GlbMaterialUtilsScript = preload("res://scripts/util/glb_material_utils.gd")
 const MenuIcons = preload("res://GUI/ui/MenuIcons.gd")
+const CinematicOverlay = preload("res://scripts/util/cinematic_overlay.gd")
 ## OptionButton id for the disabled action row.  Godot's -1 means "auto id",
 ## so a dedicated sentinel is required to represent "no channel".
 const ACTION_DISABLED_ID := 99
@@ -768,6 +769,11 @@ func _build_background() -> void:
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
+
+	# Grade the real menu artwork once, then draw all panels on top untouched.
+	var cinematic := CinematicOverlay.attach(self, 0.42, 0.012, 0.010)
+	if cinematic != null:
+		move_child(cinematic, 1)
 
 	_bg_blur = TextureRect.new()
 	if _bg_blur_tex != null:

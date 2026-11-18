@@ -263,8 +263,10 @@ static func apply_viewport(vp: Viewport) -> void:
 ## memory and bandwidth on the target hardware.
 static var _static_sky_materials: Dictionary = {}
 
-const SKY_PANORAMA_HI := "res://Assets/textures/sky_mountains.png"
-const SKY_PANORAMA_COMPACT := "res://Assets/textures/sky_static.png"
+## Golden-hour grade of the same baked panoramas (tools/grade_mobile_sky.py).
+## The original midday textures are kept in the repo as the source of truth.
+const SKY_PANORAMA_HI := "res://Assets/textures/sky_mountains_golden.png"
+const SKY_PANORAMA_COMPACT := "res://Assets/textures/sky_static_golden.png"
 ## Azimuth of the baked sun glow measured from +Z toward +X.  Godot's
 ## equirectangular sky maps u=0 to -Z, u=0.25 to +X and u=0.5 to +Z, so the
 ## 4K panorama's glow at u=0.17 sits at 118.8 degrees.

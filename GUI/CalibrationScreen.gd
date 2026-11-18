@@ -252,7 +252,8 @@ func _update_source_button() -> void:
 		return
 	_source_button.visible = _is_virtual()
 	_source_button.disabled = MobileInput.available_sources().size() < 2
-	_source_button.text = "ДЖЕРЕЛО: %s" % MobileInput.short_source_name(_virtual_source)
+	_source_button.text = _ui_text("ДЖЕРЕЛО: %s", "SOURCE: %s") \
+			% MobileInput.short_source_name(_virtual_source)
 
 
 func _cycle_source() -> void:

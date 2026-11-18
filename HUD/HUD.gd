@@ -1,6 +1,8 @@
 extends Control
 class_name HUD
 
+const CinematicOverlay := preload("res://scripts/util/cinematic_overlay.gd")
+
 
 enum Component {CROSSHAIR, STATUS, HEADING, SPEED, ALTITUDE, LADDER, STICKS, RPM}
 
@@ -36,6 +38,9 @@ func _ready() -> void:
 		stick_right.visible = false
 	reset_data()
 	update_data(hud_delta, hud_position, hud_angles, hud_velocity, hud_left_stick, hud_right_stick, hud_rpm)
+	# Mobile cinematic grade sits behind every HUD widget (moved to child 0),
+	# so corner telemetry stays fully readable.
+	CinematicOverlay.attach(self, 0.26, 0.008, 0.008)
 
 
 func _process(_delta: float) -> void:

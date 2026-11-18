@@ -856,7 +856,29 @@ const EN_TEXT: Dictionary = {
 	"[ БОЙОВА ОПЕРАЦІЯ ЗСУ ]": "[ AFU COMBAT OPERATION ]",
 	"ОПЕРАЦІЯ: ...  •  СЕКТОР: ...": "OPERATION: ...  •  SECTOR: ...",
 	"←  Назад до меню": "←  Back to menu",
-	"▶  ПІДТВЕРДИТИ ТА ПОЧАТИ ВИЛІТ": "▶  CONFIRM & LAUNCH SORTIE"
+	"▶  ПІДТВЕРДИТИ ТА ПОЧАТИ ВИЛІТ": "▶  CONFIRM & LAUNCH SORTIE",
+	# Full-screen localization sweep additions (screens that build their widgets
+	# before localize_tree runs, or whose strings come from part/JSON data).
+	"ПОКРОКОВИЙ МАЙСТЕР КАЛІБРУВАННЯ": "STEP-BY-STEP CALIBRATION WIZARD",
+	"ДІАГНОСТИКА ОСЕЙ ПЕРЕДАВАЧА": "TRANSMITTER AXIS DIAGNOSTICS",
+	"ДЖЕРЕЛО: TOUCH": "SOURCE: TOUCH",
+	"🔄 СТАНДАРТНИЙ 5\"": "🔄 DEFAULT 5\"",
+	"Грім-10 Тактична Рама": "Hrim-10 Tactical Frame",
+	"🖱️ Затисніть ЛКМ/ПКМ для обертання камери навколо дрона · Коліщатко — масштаб": "🖱️ Hold LMB/RMB to orbit the camera around the drone · Scroll wheel — zoom",
+	"ЗЛІТНА МАСА (AUW):": "TAKEOFF WEIGHT (AUW):",
+	"СУМАРНА ТЯГА (4x):": "TOTAL THRUST (4x):",
+	"ТЯГООСНАЩЕНІСТЬ:": "THRUST-TO-WEIGHT:",
+	"ГАЗ ВИСІННЯ:": "HOVER THROTTLE:",
+	"ЧАС ПОЛЬОТУ:": "FLIGHT TIME:",
+	"ПРИЗНАЧЕННЯ:": "PURPOSE:",
+	"💾 ЗБЕРЕГТИ В АНГАР": "💾 SAVE TO HANGAR",
+	"⚡ ТЕСТОВИЙ ВИЛІТ (БОЙОВИЙ ПОЛІГОН)": "⚡ TEST FLIGHT (COMBAT RANGE)",
+	"FPV-канал (відеолінк)": "FPV channel (video link)",
+	"Цифровий HD": "Digital HD",
+	"ДОВІДКА Й КЕРУВАННЯ": "HELP & CONTROLS",
+	"МОБІЛЬНИЙ ІНТЕРФЕЙС": "MOBILE INTERFACE",
+	"Звук, реалізм і елементи польотного інтерфейсу": "Sound, realism and flight interface elements",
+	"  СЕНСОРНІ СТІКИ: УВІМК (НАТИСНИ ЩОБ ВИМК.)": "  TOUCH STICKS: ON (TAP TO TURN OFF)"
 }
 
 # Authentic Military Tactical C2 Palette (Olive-Drab / Field Black / Tactical Amber)
