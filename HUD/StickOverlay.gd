@@ -12,8 +12,11 @@ const MenuUI := preload("res://GUI/ui/MenuUI.gd")
 const WIDGET_SIZE := 128.0
 ## Distance from the bottom of the screen to the centre of the boxes.
 @export var bottom_margin := 34.0
-@export var left_screen_ratio := 0.43
-@export var right_screen_ratio := 0.57
+## Sticks sit at 30% / 70% of the viewport width.  The centre quarter of the
+## frame stays clean for the warhead (БЧ), crosshair and target, so the
+## overlay never covers the point the pilot is aiming at.
+@export var left_screen_ratio := 0.30
+@export var right_screen_ratio := 0.70
 ## The stock widget is 128 px; 0.68 keeps the full 100% travel readable while
 ## taking noticeably less of the FPV image.
 @export var widget_scale := 0.68

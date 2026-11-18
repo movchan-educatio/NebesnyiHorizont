@@ -1196,6 +1196,21 @@ func _build_main() -> void:
 		)
 		left.add_child(quick_btn)
 
+	# Always-visible first-strike lesson, matching the desktop home screen.
+	# It is a separate TRAINING session with one tank and three explicit steps,
+	# and it never writes a campaign record.
+	var ct_done := Global.is_combat_training_completed()
+	var ct_text := ("✓ БОЙОВЕ ТРЕНУВАННЯ · ПОВТОРИТИ" if ct_done \
+			else "БОЙОВЕ ТРЕНУВАННЯ: 3 КРОКИ") if not MenuUI.is_english() \
+			else ("✓ COMBAT TRAINING · REPEAT" if ct_done \
+			else "COMBAT TRAINING: 3 STEPS")
+	left.add_child(_nav_button(MenuIcons.icon_trophy(MenuUI.WARN_AMBER),
+			ct_text, false, func():
+				_selected_mode = Global.PlayMode.TRAINING
+				_selected_map = "village"
+				_launch(true)
+	))
+
 	var sp_primary := Global.is_tutorial_completed()
 	var sp_icon_col := Color(0.06, 0.09, 0.07) if sp_primary else Color(0.84, 0.96, 0.87)
 	left.add_child(_nav_button(MenuIcons.icon_play(sp_icon_col), "ОДИНОЧНА ГРА", sp_primary, func(): _show("play")))
@@ -2882,7 +2897,17 @@ func _update_map_cards(row: HBoxContainer) -> void:
 	_update_play_caption()
 
 
-func _launch() -> void:
+func _launch(combat_training: bool = false) -> void:
+	Global.combat_training = combat_training
+	if combat_training:
+		# Village north field + GRIM-7M (a combat airframe with a real payload
+		# release).  The guide replaces the freestyle ring course in BigLevel.
+		_selected_mode = Global.PlayMode.TRAINING
+		_selected_map = "village"
+		_selected_special = 0
+		Global.special_mission = 0
+		QuadSettings.custom_rates = false
+		DroneCatalog.apply(1)
 	_selected_mode = Global.sanitize_play_mode(_selected_mode)
 	Global.play_mode = _selected_mode
 	if _selected_mode == Global.PlayMode.COMBAT:

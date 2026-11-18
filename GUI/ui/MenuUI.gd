@@ -101,6 +101,14 @@ const EN_TEXT: Dictionary = {
 	"КП трек": "Checkpoint course",
 	"FPV СИМУЛЯТОР · UKRAINE · v1.18.0": "FPV SIMULATOR · UKRAINE · v1.18.0",
 	"FPV СИМУЛЯТОР · UKRAINE · v1.19.0": "FPV SIMULATOR · UKRAINE · v1.19.0",
+
+	# First-flight / first-strike onboarding entries
+	"🎓 ШВИДКИЙ СТАРТ: ПЕРШИЙ ПОЛІТ (ANGLE)": "🎓 QUICK START: FIRST FLIGHT (ANGLE)",
+	"🎓 ШВИДКИЙ СТАРТ: ТУТОРІАЛ": "🎓 QUICK START: TUTORIAL",
+	"🎯 БОЙОВЕ ТРЕНУВАННЯ: 3 КРОКИ": "🎯 COMBAT TRAINING: 3 STEPS",
+	"✓ БОЙОВЕ ТРЕНУВАННЯ ПРОЙДЕНО · ПОВТОРИТИ": "✓ COMBAT TRAINING DONE · REPEAT",
+	"✓ БОЙОВЕ ТРЕНУВАННЯ · ПОВТОРИТИ": "✓ COMBAT TRAINING · REPEAT",
+	"ТУТОРІАЛ  ·  БОЙОВЕ ТРЕНУВАННЯ  ·  БОЙОВИЙ РЕЖИМ": "TUTORIAL  ·  COMBAT TRAINING  ·  TACTICAL MISSIONS",
 	"Піхаота": "Infantry",
 	"Окопна лінія": "Trench line",
 	"Водомет": "Waterjet",

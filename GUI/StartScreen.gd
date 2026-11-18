@@ -18,7 +18,10 @@ const QA_ENV := ["DRONE_AUTOTEST", "DRONE_AUTOTEST_COMBAT", "DRONE_AUTOTEST_INFA
 		"DRONE_CLEAR_RANGE", "DRONE_SCREENSHOT", "DRONE_SHOWCASE",
 		"DRONE_COMBAT_DEMO", "DRONE_AA_DEMO", "DRONE_RESULTS_DEMO",
 		"DRONE_INFANTRY_DEMO", "DRONE_RESTART_TEST", "DRONE_WALK_DEMO",
-		"DRONE_FPS_BENCH", "DRONE_FLYTEST", "DRONE_PREWARM_TEST", "DRONE_SHOT_TEST"]
+		"DRONE_FPS_BENCH", "DRONE_FLYTEST", "DRONE_PREWARM_TEST", "DRONE_SHOT_TEST",
+		# DebugShot captures whatever scene is running, so a screenshot request
+		# must skip the cinematic home screen just like the other QA runners.
+		"SHOT_PATH"]
 
 var _menu_music: AudioStreamPlayer = null
 var _brand_project: Label = null
@@ -37,6 +40,7 @@ var _lang_btn: Button = null
 var _mode_bar_heading: Label = null
 var _home_action_btn: Button = null
 var _quick_tut_btn: Button = null
+var _quick_ct_btn: Button = null
 var _daily_badge_lbl: Label = null
 var _news_heading: Control = null
 var _news_labels: Array[Label] = []
@@ -409,6 +413,22 @@ func _build_home_action() -> void:
 	else:
 		_place(_home_action_btn, Rect2(560, 800, 1320, 84))
 
+	# Always-available first-strike training.  It is deliberately separate from
+	# the campaign mode tabs and never writes campaign mission records.
+	_quick_ct_btn = MenuUI.feel_button("🎯 БОЙОВЕ ТРЕНУВАННЯ: 3 КРОКИ", 58, false)
+	_quick_ct_btn.add_theme_font_size_override("font_size", 19)
+	_quick_ct_btn.add_theme_stylebox_override("normal",
+			MenuUI.feel_style(Color(0.16, 0.11, 0.04, 0.94), MenuUI.WARN_AMBER, 2, 1, 18, 10))
+	_quick_ct_btn.add_theme_stylebox_override("hover",
+			MenuUI.feel_style(Color(0.24, 0.17, 0.06, 0.98), MenuUI.WARN_AMBER, 2, 1, 18, 10))
+	_quick_ct_btn.add_theme_stylebox_override("focus",
+			MenuUI.feel_style(Color(0.24, 0.17, 0.06, 0.98), MenuUI.WARN_AMBER, 2, 1, 18, 10))
+	_quick_ct_btn.add_theme_color_override("font_color", MenuUI.WARN_AMBER)
+	_quick_ct_btn.add_theme_color_override("font_hover_color", Color.WHITE)
+	_quick_ct_btn.pressed.connect(_on_quick_combat_training_pressed)
+	_place(_quick_ct_btn, Rect2(660, 896, 1120, 58))
+	_design_root.add_child(_quick_ct_btn)
+
 
 func _build_news_panel() -> void:
 	var panel := PanelContainer.new()
@@ -551,7 +571,13 @@ func _refresh_home_language() -> void:
 	if _brand_title != null:
 		_brand_title.text = "NEBESNYI HORIZONT" if is_en else "НЕБЕСНИЙ ГОРИЗОНТ"
 	if _brand_subtitle != null:
-		_brand_subtitle.text = "TUTORIAL  ·  TRAINING  ·  TACTICAL MISSIONS" if is_en else "ТУТОРІАЛ  ·  ТРЕНУВАННЯ  ·  БОЙОВИЙ РЕЖИМ"
+		_brand_subtitle.text = "TUTORIAL  ·  COMBAT TRAINING  ·  TACTICAL MISSIONS" if is_en else "ТУТОРІАЛ  ·  БОЙОВЕ ТРЕНУВАННЯ  ·  БОЙОВИЙ РЕЖИМ"
+	if _quick_ct_btn != null:
+		var ct_done := Global.is_combat_training_completed()
+		_quick_ct_btn.text = ("✓ COMBAT TRAINING DONE · REPEAT" if ct_done \
+				else "🎯 COMBAT TRAINING: 3 STEPS") if is_en \
+				else ("✓ БОЙОВЕ ТРЕНУВАННЯ ПРОЙДЕНО · ПОВТОРИТИ" if ct_done \
+				else "🎯 БОЙОВЕ ТРЕНУВАННЯ: 3 КРОКИ")
 	if _lang_btn != null:
 		_lang_btn.text = "🌐 EN → UA" if is_en else "🌐 UA → EN"
 	if _mode_bar_heading != null:
@@ -607,9 +633,26 @@ func _on_toggle_language() -> void:
 
 
 func _on_quick_tutorial_pressed() -> void:
+	Global.combat_training = false
 	_selected_home_mode = Global.PlayMode.TUTORIAL
 	Global.set_play_mode(Global.PlayMode.TUTORIAL)
 	Global.menu_settings["selected_mode"] = Global.PlayMode.TUTORIAL
+	Global.save_menu_settings()
+	Audio.stop_menu_music(0.35)
+	get_tree().change_scene_to_file("res://sceneries/VillageLevel.tscn")
+
+
+func _on_quick_combat_training_pressed() -> void:
+	_selected_home_mode = Global.PlayMode.TRAINING
+	Global.combat_training = true
+	Global.set_play_mode(Global.PlayMode.TRAINING)
+	Global.special_mission = 0
+	Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
+	Global.menu_settings["selected_map"] = "village"
+	QuadSettings.custom_rates = false
+	# GRIM-7M: combat airframe with a physical payload release, ideal for the
+	# first "find, hover, drop" lesson.
+	DroneCatalog.apply(1)
 	Global.save_menu_settings()
 	Audio.stop_menu_music(0.35)
 	get_tree().change_scene_to_file("res://sceneries/VillageLevel.tscn")

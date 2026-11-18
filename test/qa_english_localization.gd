@@ -62,7 +62,7 @@ func _run() -> void:
 
 	var school := FlightSchoolScript.new()
 	add_child(school)
-	for step in range(11):
+	for step in range(int(FlightSchoolScript.TOTAL_MODULES) + 1):
 		var lesson: Dictionary = school.call("_step_data", step)
 		for key in ["title", "inst", "tip"]:
 			_scan_text(str(lesson.get(key, "")), "Flight School module %d %s" % [step, key])

@@ -1,17 +1,14 @@
 ## Flight School & Interactive Pilot Training Course («ШКОЛА ПІЛОТА»).
 ##
-## A ten-module beginner course on a dedicated 190 m training strip:
-##   1. ARM/DISARM  — arm, disarm on the ground, arm again;
-##   2. HOVER       — throttle to 2–4 m and hold altitude;
-##   3. STICK BASICS— pitch/roll excursions and returning the right stick to centre;
-##   4. YAW         — turn ~70° with the left stick and return to the start heading;
-##   5. GATE 1      — fly forward through a wide arch;
-##   6. SLALOM      — two offset gates, roll left/right;
-##   7. ALTITUDE    — a low gate followed by a high gate (throttle + pitch);
-##   8. WINDOW      — pass through a 3.6 × 3.2 m opening in a solid wall;
-##   9. BRAKE       — stop inside the marked zone;
-##  10. LANDING     — soft touchdown and disarm.
+## A six-module beginner course on a dedicated 190 m training strip:
+##   1. START    — arm, lift off and hold 2–4 m for 3 seconds;
+##   2. CONTROL  — pitch/roll excursions, centring, then a 70° yaw turn;
+##   3. GATES    — gate 1 followed by the left/right slalom pair;
+##   4. ACCURACY — low gate, high gate and the 3.6 × 3.2 m window;
+##   5. BRAKE    — stop inside the marked zone;
+##   6. LANDING  — soft touchdown and disarm.
 ##
+## Each module teaches one idea and can be repeated in under two minutes.
 ## The course is built relative to the tutorial spawn on the north field of
 ## the village map.  Trees and props are excluded from the strip by
 ## frontline_terrain.gd, so the runway is always readable.
@@ -24,158 +21,107 @@ signal lesson_advanced(step: int, title: String)
 signal course_completed
 
 enum Step {
-	ARMING = 0,
-	HOVER = 1,
-	STICK_BASICS = 2,
-	YAW_CONTROL = 3,
-	FORWARD_GATE = 4,
-	SLALOM = 5,
-	ALTITUDE_GATES = 6,
-	WINDOW_PASS = 7,
-	BRAKE_STOP = 8,
-	LANDING = 9,
-	COMPLETED = 10
+	START = 0,
+	CONTROL = 1,
+	GATES = 2,
+	ACCURACY = 3,
+	BRAKE = 4,
+	LANDING = 5,
+	COMPLETED = 6
 }
 
-const TOTAL_MODULES := 10
-const HOVER_HOLD := 4.0
+const TOTAL_MODULES := 6
+const HOVER_HOLD := 3.0
 const HOVER_MIN := 2.0
 const HOVER_MAX := 4.2
+const HOVER_RADIUS := 10.0
 
 const STEP_DATA := {
-	Step.ARMING: {
-		"title": "УВІМКНЕННЯ / ВИМКНЕННЯ ДВИГУНІВ",
-		"inst": "Натисніть ARM — двигуни увімкнуться. Не злітаючи, натисніть ARM ще раз, щоб вимкнути. Потім увімкніть двигуни знову.",
-		"tip": "ARM — головний вимикач. Спочатку завжди перевіряйте, що дрон стоїть на землі.",
-		"focus": "none"
-	},
-	Step.HOVER: {
-		"title": "ГАЗ ТА УТРИМАННЯ ВИСОТИ",
-		"inst": "Плавно піднімайте газ (W або лівий стік ↑). Тримайте дрон на висоті 2–4 м у зеленому маяку 4 секунди.",
-		"tip": "Газ у FPV прямий: 0% — двигуни стоять, ~45% — висіння. Не смикайте стік.",
+	Step.START: {
+		"title": "СТАРТ · АРМІНГ І ЗЛІТ",
+		"inst": "Натисніть ARM (ПРОБІЛ) — двигуни увімкнуться. Плавно додайте газ (лівий стік ↑) і підніміться на 2–4 м. Утримайте дрон у зеленому маяку 3 секунди.",
+		"tip": "Спочатку ARM, потім газ. На землі газ має бути в нулі.",
 		"focus": "left"
 	},
-	Step.STICK_BASICS: {
-		"title": "ПРАВИЙ СТІК: ТАНГАЖ І КРЕН",
-		"inst": "Нахиліть дрон носом уперед або назад (↑/↓), поверніть стік у центр. Потім — крен ліворуч/праворуч (←/→) і знову в центр.",
-		"tip": "Правий стік керує нахилом. Після кожного руху повертайте його в центр — дрон вирівняється.",
+	Step.CONTROL: {
+		"title": "КЕРУВАННЯ · ОБИДВА СТІКИ",
+		"inst": "Правий стік: нахил носа ↑/↓, поверніть у центр. Потім крен ←/→ і знову в центр. Лівим стіком ←/→ поверніть на 70° і поверніться на початковий курс.",
+		"tip": "Після кожного руху повертайте стік у центр — дрон сам вирівняється. Висоту тримайте газом.",
+		"focus": "both"
+	},
+	Step.GATES: {
+		"title": "ВОРОТА · ПОЛІТ УПЕРЕД І СЛАЛОМ",
+		"inst": "Нахиліть ніс уперед (правий стік ↑) і пролетіть крізь широкі ворота 1. Далі пройдіть два зміщені ворота: спочатку ліві, потім праві.",
+		"tip": "Дивіться на просвіт, а не на стійки. У віражі додавайте трохи газу.",
 		"focus": "right"
 	},
-	Step.YAW_CONTROL: {
-		"title": "РИСКАННЯ (YAW)",
-		"inst": "Поверніть дрон лівим стіком ←/→ приблизно на 70°. Потім поверніть його назад на початковий курс і втримайте висоту.",
-		"tip": "Рискання — це поворот навколо вертикальної осі. Лівий стік ←/→, не нахиляйте дрон.",
-		"focus": "left"
+	Step.ACCURACY: {
+		"title": "ТОЧНІСТЬ · ВИСОТА І ВІКНО",
+		"inst": "Пролетіть низько крізь перші ворота, підніміться до високих, а потім точно в центр вікна 3.6 × 3.2 м. Обліт стіни не зараховується.",
+		"tip": "Висота — це газ, а не нахил. Вирівняйте крен перед вікном.",
+		"focus": "both"
 	},
-	Step.FORWARD_GATE: {
-		"title": "ПЕРШИЙ ПОЛІТ УПЕРЕД · ВОРОТА 1",
-		"inst": "Нахиліть ніс уперед (правий стік ↑) і пролетіть крізь широкі ворота. Після воріт вирівняйте дрон і пригальмуйте.",
-		"tip": "Ворота широкі навмисно. Дивіться на просвіт, а не на стійки.",
-		"focus": "right"
-	},
-	Step.SLALOM: {
-		"title": "СЛАЛОМ · КРЕН ЛІВОРУЧ / ПРАВОРУЧ",
-		"inst": "Пройдіть два зміщені ворота: спочатку ліві, потім праві. Крен — правий стік ←/→, газ — лівий стік.",
-		"tip": "У віражі додавайте трохи газу, інакше дрон просівде і зачепить нижню стійку.",
-		"focus": "right"
-	},
-	Step.ALTITUDE_GATES: {
-		"title": "ВИСОТА · НИЗЬКІ ТА ВИСОКІ ВОРОТА",
-		"inst": "Спочатку пролетіть низько (газ менше), потім підніміться і пролетіть високі ворота. Дивіться на цифри висоти.",
-		"tip": "Висота змінюється газом, а не нахилом. Піднімайтесь плавно, за 1–2 секунди до воріт.",
-		"focus": "left"
-	},
-	Step.WINDOW_PASS: {
-		"title": "ТОЧНИЙ ПРОЛІТ КРІЗЬ ВІКНО",
-		"inst": "Попереду стіна з вікном 3.6 x 3.2 м. Наведіть дрон у центр отвору і пролетіть крізь нього. Обліт стіни не зараховується.",
-		"tip": "Це вже справжня точність: вирівняйте крен, тримайте висоту і не поспішайте.",
-		"focus": "right"
-	},
-	Step.BRAKE_STOP: {
+	Step.BRAKE: {
 		"title": "ГАЛЬМУВАННЯ У ЗОНІ",
-		"inst": "Загальмуйте в жовтій зоні: відхиліть ніс назад (правий стік ↓) і додайте газу. Утримайте швидкість нижче 2.5 м/с.",
+		"inst": "Загальмуйте в жовтій зоні: відхиліть ніс назад (правий стік ↓) і додайте газу. Утримайте швидкість нижче 2.5 м/с 1.5 секунди.",
 		"tip": "Дрон не має гальм: щоб зупинитись, нахиліть його назад і компенсуйте втрату висоти газом.",
 		"focus": "both"
 	},
 	Step.LANDING: {
-		"title": "М'ЯКА ПОСАДКА ТА ВИМКНЕННЯ ДВИГУНІВ",
-		"inst": "Опустіться на майданчик зі швидкістю < 2 м/с, торкніться землі та натисніть ARM для вимкнення двигунів на висоті < 0.7 м.",
-		"tip": "Перед вимкненням двигунів переконайтеся, що дрон стоїть. Це фінальний модуль курсу.",
+		"title": "М'ЯКА ПОСАДКА · ВИМКНЕННЯ ДВИГУНІВ",
+		"inst": "Сядьте на майданчик [H] зі швидкістю < 2 м/с, торкніться землі та натисніть ARM (ПРОБІЛ), щоб вимкнути двигуни на висоті < 0.7 м.",
+		"tip": "Переконайтеся, що дрон стоїть, перш ніж вимикати двигуни. Це фінальний модуль.",
 		"focus": "left"
 	},
 	Step.COMPLETED: {
 		"title": "КУРС ЗАВЕРШЕНО",
-		"inst": "Ви пройшли всі 10 модулів: від першого увімкнення двигунів до точної посадки.",
-		"tip": "Сертифікат оператора FPV здобуто. Тепер можна переходити до бойових вильотів.",
+		"inst": "Ви пройшли всі 6 модулів: від першого ARM до точної посадки.",
+		"tip": "Сертифікат оператора FPV здобуто. Далі — бойова підготовка: 3 кроки до першого ураження цілі.",
 		"focus": "none"
 	}
 }
 
 const STEP_DATA_EN := {
-	Step.ARMING: {
-		"title": "ARM / DISARM MOTORS",
-		"inst": "Press ARM to start the motors. Without taking off, press ARM again to disarm, then arm once more.",
-		"tip": "ARM is the master switch. Confirm the drone is on the ground before disarming.",
-		"focus": "none"
-	},
-	Step.HOVER: {
-		"title": "THROTTLE & ALTITUDE HOLD",
-		"inst": "Raise the throttle gently (W or left stick ↑). Hold 2–4 m inside the green beacon for 4 seconds.",
-		"tip": "FPV throttle is direct: 0% is stopped; about 45% is hover. Make smooth inputs.",
+	Step.START: {
+		"title": "START · ARM & LIFT-OFF",
+		"inst": "Press ARM (SPACE) to start the motors. Raise the throttle gently (left stick ↑) and climb to 2–4 m. Hold inside the green beacon for 3 seconds.",
+		"tip": "ARM first, throttle second. Keep the throttle at zero while on the ground.",
 		"focus": "left"
 	},
-	Step.STICK_BASICS: {
-		"title": "RIGHT STICK: PITCH & ROLL",
-		"inst": "Pitch the nose forward or back (↑/↓), then centre the stick. Next, roll left or right (←/→) and centre it again.",
-		"tip": "The right stick controls attitude. Centre it after each input and the drone will level out.",
+	Step.CONTROL: {
+		"title": "CONTROL · BOTH STICKS",
+		"inst": "Right stick: pitch the nose ↑/↓, then centre it. Next roll ←/→ and centre again. Use the left stick ←/→ to turn 70°, then return to the original heading.",
+		"tip": "Centre the stick after every input and the drone levels itself. Hold altitude with throttle.",
+		"focus": "both"
+	},
+	Step.GATES: {
+		"title": "GATES · FORWARD FLIGHT & SLALOM",
+		"inst": "Pitch the nose forward (right stick ↑) and fly through wide gate 1. Then pass two offset gates: left first, then right.",
+		"tip": "Aim through the opening, not at the posts. Add a little throttle in a turn.",
 		"focus": "right"
 	},
-	Step.YAW_CONTROL: {
-		"title": "YAW CONTROL",
-		"inst": "Use the left stick (←/→) to turn about 70°. Return to your original heading while maintaining altitude.",
-		"tip": "Yaw rotates around the vertical axis. Use the left stick; do not bank the drone.",
-		"focus": "left"
+	Step.ACCURACY: {
+		"title": "ACCURACY · ALTITUDE & WINDOW",
+		"inst": "Fly through the low gate, climb to the high gate, then pass precisely through the centre of the 3.6 × 3.2 m window. Going around the wall does not count.",
+		"tip": "Altitude is throttle, not tilt. Level the roll before the window.",
+		"focus": "both"
 	},
-	Step.FORWARD_GATE: {
-		"title": "FIRST FORWARD FLIGHT · GATE 1",
-		"inst": "Pitch forward (right stick ↑) and fly through the wide gate. Level out and slow down after passing it.",
-		"tip": "The gate is deliberately wide. Aim through the opening, not at the posts.",
-		"focus": "right"
-	},
-	Step.SLALOM: {
-		"title": "SLALOM · LEFT / RIGHT BANK",
-		"inst": "Fly through two offset gates: left first, then right. Roll with the right stick; control throttle with the left.",
-		"tip": "Add a little throttle in a turn or the drone may sink and clip the lower post.",
-		"focus": "right"
-	},
-	Step.ALTITUDE_GATES: {
-		"title": "ALTITUDE · LOW & HIGH GATES",
-		"inst": "Fly through the low gate first, then climb for the high gate. Watch the altitude readout.",
-		"tip": "Altitude is controlled with throttle, not pitch. Start climbing 1–2 seconds before the gate.",
-		"focus": "left"
-	},
-	Step.WINDOW_PASS: {
-		"title": "PRECISION WINDOW PASS",
-		"inst": "A wall ahead has a 3.6 × 3.2 m opening. Line up with the centre and fly through it; going around does not count.",
-		"tip": "This requires precision: level the drone, hold altitude, and take your time.",
-		"focus": "right"
-	},
-	Step.BRAKE_STOP: {
+	Step.BRAKE: {
 		"title": "BRAKE INSIDE THE ZONE",
-		"inst": "Brake in the yellow zone: pitch back (right stick ↓), add throttle, and hold speed below 2.5 m/s.",
+		"inst": "Brake in the yellow zone: pitch back (right stick ↓) and add throttle. Hold speed below 2.5 m/s for 1.5 seconds.",
 		"tip": "There are no brakes. Pitch back to slow down and add throttle to offset the altitude loss.",
 		"focus": "both"
 	},
 	Step.LANDING: {
-		"title": "SOFT LANDING & DISARM",
-		"inst": "Touch down on the pad below 2 m/s, then press ARM to disarm below 0.7 m altitude.",
-		"tip": "Make sure the drone has settled before disarming. This is the final lesson.",
+		"title": "SOFT LANDING · DISARM",
+		"inst": "Touch down on the [H] pad below 2 m/s, then press ARM (SPACE) to disarm below 0.7 m altitude.",
+		"tip": "Make sure the drone has settled before disarming. This is the final module.",
 		"focus": "left"
 	},
 	Step.COMPLETED: {
 		"title": "COURSE COMPLETE",
-		"inst": "You completed all 10 modules, from arming the motors to a precision landing.",
-		"tip": "FPV pilot certificate earned. You are ready for operational sorties.",
+		"inst": "You completed all 6 modules, from the first ARM to a precision landing.",
+		"tip": "FPV pilot certificate earned. Next: combat training — three steps to your first target.",
 		"focus": "none"
 	}
 }
@@ -190,7 +136,7 @@ func _step_data(step: int = -1) -> Dictionary:
 	var key := current_step if step < 0 else step
 	return data.get(key, {})
 
-var current_step: int = Step.ARMING
+var current_step: int = Step.START
 var is_active: bool = false
 var ground_y: float = 0.0
 
@@ -235,12 +181,12 @@ var _step_heading := 0.0
 var _step_yaw_start := 0.0
 var _yaw_turned := false
 var _yaw_dir := 0.0
-var _arm_phase := 0
+var _start_phase := 0
 var _was_armed := false
 var _basic_phase := 0
 var _basic_hold := 0.0
-var _slalom_stage := 0
-var _altitude_stage := 0
+var _gate_stage := 0
+var _accuracy_stage := 0
 var _miss_cooldown := 0.0
 var _toast_timer := 0.0
 var _toast_panel: PanelContainer = null
@@ -267,7 +213,7 @@ func initialize(p_level: Node3D, p_drone: Drone, p_ground_y: float) -> void:
 	ground_y = p_ground_y
 	is_active = true
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	current_step = Step.ARMING
+	current_step = Step.START
 	hover_timer = 0.0
 	flare_timer = 0.0
 	settle_timer = 0.0
@@ -275,11 +221,11 @@ func initialize(p_level: Node3D, p_drone: Drone, p_ground_y: float) -> void:
 	retries = 0
 	help_opens = 0
 	gate_misses = 0
-	_arm_phase = 0
+	_start_phase = 0
 	_basic_phase = 0
 	_basic_hold = 0.0
-	_slalom_stage = 0
-	_altitude_stage = 0
+	_gate_stage = 0
+	_accuracy_stage = 0
 	_prev_pos = drone.global_position if drone != null else Vector3.ZERO
 	_has_prev = true
 	_build_world_track()
@@ -1000,8 +946,8 @@ func _build_help_overlay(hud_root: Node) -> void:
 	title.add_theme_color_override("font_color", MenuUI.WARN_AMBER)
 	vb.add_child(title)
 	var sub := Label.new()
-	sub.text = _tx("10 коротких модулів · орієнтовно 25–40 хвилин · помилки не караються",
-			"10 short modules · about 25–40 minutes · mistakes are part of learning")
+	sub.text = _tx("6 коротких модулів · орієнтовно 15–25 хвилин · помилки не караються",
+			"6 short modules · about 15–25 minutes · mistakes are part of learning")
 	sub.add_theme_font_size_override("font_size", 13)
 	sub.add_theme_color_override("font_color", Color(0.72, 0.85, 0.74))
 	vb.add_child(sub)
@@ -1025,23 +971,25 @@ func _build_help_overlay(hud_root: Node) -> void:
 		controls.text = _tx("СЕНСОР:  лівий стік — газ/рискання   ·   правий стік — тангаж/крен\n" \
 				+ "АРМ — двигуни   ·   РЕСЕТ — респавн   ·   ВІДЕО — режим зображення\n" \
 				+ "ПУЛЬТ ELRS:  лівий стік — газ/рискання   ·   правий стік — тангаж/крен\n" \
-				+ "START — довідка   ·   B — повторити модуль   ·   CH5/ARM — двигуни\n" \
+				+ "START — довідка   ·   B / T — повторити модуль   ·   CH5/ARM — двигуни\n" \
 				+ "ГОЛОВНЕ: рухи плавні, після кожного руху повертайте стік у центр. Висоту тримайте газом, а не нахилом.",
 				"TOUCH: left stick — throttle/yaw · right stick — pitch/roll\n" \
 				+ "ARM — motors · RESET — respawn · VIDEO — display mode\n" \
 				+ "ELRS RADIO: left stick — throttle/yaw · right stick — pitch/roll\n" \
-				+ "START — help · B — repeat module · CH5/ARM — motors\n" \
+				+ "START — help · B / T — repeat module · CH5/ARM — motors\n" \
 				+ "KEY TIP: Use smooth inputs and centre the sticks after each move. Control altitude with throttle, not tilt.")
 	else:
 		controls.text = _tx("КЛАВІАТУРА:  W / S — газ   ·   A / D — рискання   ·   ↑ / ↓ — тангаж   ·   ← / → — крен\n" \
 				+ "ARM (ПРОБІЛ) — увімкнути / вимкнути двигуни   ·   C/V — нахил FPV-камери   ·   T — повторити модуль   ·   F2 — ця довідка   ·   ESC — пауза\n" \
-				+ "ПУЛЬТ:  лівий стік — газ/рискання   ·   правий стік — тангаж/крен   ·   RS — двигуни   ·   LB — респавн\n" \
-				+ "X — скид   ·   Y — активація БЧ   ·   B — повторити модуль   ·   Start — довідка\n" \
+				+ "G — скид   ·   F — активація БЧ   ·   Backspace — респавн\n" \
+				+ "ПУЛЬТ:  лівий стік — газ/рискання   ·   правий стік — тангаж/крен   ·   RS — двигуни\n" \
+				+ "LB — респавн   ·   X — скид   ·   Y — активація БЧ   ·   B — повторити модуль   ·   Start — довідка\n" \
 				+ "ГОЛОВНЕ: рухи плавні, після кожного руху повертайте стік у центр. Висоту тримайте газом, а не нахилом.",
 				"KEYBOARD: W / S — throttle · A / D — yaw · ↑ / ↓ — pitch · ← / → — roll\n" \
 				+ "ARM (SPACE) — arm/disarm · C/V — FPV camera tilt · T — repeat module · F2 — help · ESC — pause\n" \
-				+ "RADIO: left stick — throttle/yaw · right stick — pitch/roll · RS — motors · LB — respawn\n" \
-				+ "X — payload drop · Y — activate warhead · B — repeat module · Start — help\n" \
+				+ "G — payload drop · F — activate warhead · Backspace — respawn\n" \
+				+ "RADIO: left stick — throttle/yaw · right stick — pitch/roll · RS — motors\n" \
+				+ "LB — respawn · X — payload drop · Y — activate warhead · B — repeat module · Start — help\n" \
 				+ "KEY TIP: Use smooth inputs and centre the sticks after each move. Control altitude with throttle, not tilt.")
 	controls.add_theme_font_size_override("font_size", 13)
 	controls.add_theme_color_override("font_color", Color(0.88, 0.93, 0.88))
@@ -1049,8 +997,8 @@ func _build_help_overlay(hud_root: Node) -> void:
 	vb.add_child(controls)
 
 	var hint := Label.new()
-	hint.text = _tx("ПЕРШИЙ МОДУЛЬ: увімкнути двигуни → вимкнути → увімкнути знову. Дрон стоїть на стартовому майданчику.",
-			"FIRST MODULE: arm → disarm → arm again. The drone is on the launch pad.")
+	hint.text = _tx("ПЕРШИЙ МОДУЛЬ: ARM → плавно газ → утримати 2–4 м 3 секунди. Дрон стоїть на стартовому майданчику.",
+			"FIRST MODULE: ARM → throttle up gently → hold 2–4 m for 3 seconds. The drone is on the launch pad.")
 	hint.add_theme_font_size_override("font_size", 13)
 	hint.add_theme_color_override("font_color", Color(0.55, 0.95, 0.60))
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1272,56 +1220,43 @@ func update_flight_school(delta: float) -> void:
 		_miss_cooldown -= delta
 
 	match current_step:
-		Step.ARMING:
-			_process_arming()
-		Step.HOVER:
-			_process_hover(delta)
-		Step.STICK_BASICS:
-			_process_stick_basics(delta)
-		Step.YAW_CONTROL:
-			_process_yaw(delta)
-		Step.FORWARD_GATE:
-			if _crossed_opening(gate_forward):
-				_pass_gate(gate_forward)
-				show_toast("✓ ВОРОТА 1 ПРОЙДЕНО. Тепер слалом — крен ліворуч/праворуч.")
-				advance_to_step(Step.SLALOM)
-			else:
-				_show_gate_metric(gate_forward, "ВОРОТА 1")
-				_report_gate_miss(gate_forward)
-		Step.SLALOM:
-			var target: Dictionary = gate_slalom_a if _slalom_stage == 0 else gate_slalom_b
-			if _crossed_opening(target):
-				_pass_gate(target)
-				if _slalom_stage == 0:
-					_slalom_stage = 1
+		Step.START:
+			_process_start(delta)
+		Step.CONTROL:
+			_process_control(delta)
+		Step.GATES:
+			var gate := _gate_target()
+			if _crossed_opening(gate):
+				_pass_gate(gate)
+				if _gate_stage == 0:
+					_gate_stage = 1
+					show_toast("✓ ВОРОТА 1 ПРОЙДЕНО. Тепер ліві ворота слалому.")
+				elif _gate_stage == 1:
+					_gate_stage = 2
 					show_toast("✓ СЛАЛОМ A. Тепер праві ворота — крен праворуч.")
 				else:
-					show_toast("✓ СЛАЛОМ ПРОЙДЕНО. Далі — низькі та високі ворота.")
-					advance_to_step(Step.ALTITUDE_GATES)
+					show_toast("✓ СЛАЛОМ ПРОЙДЕНО. Далі — точність: низько, високо, вікно.")
+					advance_to_step(Step.ACCURACY)
 			else:
-				_show_gate_metric(target, "СЛАЛОМ A" if _slalom_stage == 0 else "СЛАЛОМ B")
-				_report_gate_miss(target)
-		Step.ALTITUDE_GATES:
-			var target: Dictionary = gate_low if _altitude_stage == 0 else gate_high
+				_show_gate_metric(gate, _gate_label())
+				_report_gate_miss(gate)
+		Step.ACCURACY:
+			var target := _accuracy_target()
 			if _crossed_opening(target):
 				_pass_gate(target)
-				if _altitude_stage == 0:
-					_altitude_stage = 1
+				if _accuracy_stage == 0:
+					_accuracy_stage = 1
 					show_toast("✓ НИЗЬКІ ВОРОТА. Тепер підніміться до 5 м — високі ворота.")
-				else:
+				elif _accuracy_stage == 1:
+					_accuracy_stage = 2
 					show_toast("✓ ВИСОТА ПРОЙДЕНА. Попереду стіна з вікном.")
-					advance_to_step(Step.WINDOW_PASS)
+				else:
+					show_toast("✓ ВІКНО ПРОЙДЕНО! Тепер загальмуйте в жовтій зоні.")
+					advance_to_step(Step.BRAKE)
 			else:
-				_show_gate_metric(target, "НИЗЬКІ" if _altitude_stage == 0 else "ВИСОКІ")
+				_show_gate_metric(target, _accuracy_label())
 				_report_gate_miss(target)
-		Step.WINDOW_PASS:
-			if _crossed_opening(gate_window):
-				show_toast("✓ ВІКНО ПРОЙДЕНО! Тепер загальмуйте в жовтій зоні.")
-				advance_to_step(Step.BRAKE_STOP)
-			else:
-				_show_gate_metric(gate_window, "ВІКНО 3.6x3.2")
-				_report_gate_miss(gate_window)
-		Step.BRAKE_STOP:
+		Step.BRAKE:
 			_process_brake(delta)
 		Step.LANDING:
 			_process_landing()
@@ -1330,48 +1265,24 @@ func update_flight_school(delta: float) -> void:
 	_prev_pos = pos
 
 
-func _process_arming() -> void:
+func _process_start(delta: float) -> void:
 	var fc = drone.flight_controller
 	if fc == null:
 		return
-	var armed: bool = fc.state_armed
-	match _arm_phase:
-		0:
-			metric_lbl.text = _tx("ДВИГУНИ ВИМКНЕНО · натисніть ARM, щоб увімкнути",
-					"MOTORS DISARMED · PRESS ARM")
-			metric_lbl.add_theme_color_override("font_color", MenuUI.WARN_AMBER)
-			if armed:
-				_arm_phase = 1
-				show_toast(_tx(
-						"✓ Двигуни увімкнено. Тепер натисніть ARM, щоб вимкнути їх на землі.",
-						"✓ Motors armed. Press ARM again to disarm on the ground."))
-		1:
-			metric_lbl.text = _tx("ДВИГУНИ УВІМКНЕНО · натисніть ARM, щоб вимкнути на землі",
-					"MOTORS ARMED · PRESS ARM TO DISARM ON THE GROUND")
-			metric_lbl.add_theme_color_override("font_color", MenuUI.ACCENT)
-			if not armed:
-				if _step_alt > 3.0:
-					show_toast("⚠ Спочатку приземліться, потім вимикайте двигуни.", true)
-				else:
-					_arm_phase = 2
-					show_toast(_tx(
-							"✓ Двигуни вимкнено. Тепер увімкніть їх знову — і до зльоту.",
-							"✓ Motors disarmed. Arm once more before takeoff."))
-		2:
-			metric_lbl.text = _tx("ФІНАЛЬНИЙ ARM · натисніть кнопку ARM",
-					"FINAL ARM · PRESS THE ARM BUTTON")
-			metric_lbl.add_theme_color_override("font_color", MenuUI.WARN_AMBER)
-			if armed:
-				show_toast(_tx(
-						"✓ УВІМКНЕННЯ ЗАСВОЄНО. Плавно додайте газ — дрон має піднятися.",
-						"✓ ARMING COMPLETE. Raise the throttle gently to lift off."))
-				advance_to_step(Step.HOVER)
-
-
-func _process_hover(delta: float) -> void:
+	if not fc.state_armed:
+		_start_phase = 0
+		hover_timer = 0.0
+		metric_lbl.text = _tx("ДВИГУНИ ВИМКНЕНО · натисніть ARM (ПРОБІЛ), щоб увімкнути",
+				"MOTORS DISARMED · PRESS ARM (SPACE) TO START")
+		metric_lbl.add_theme_color_override("font_color", MenuUI.WARN_AMBER)
+		return
+	if _start_phase == 0:
+		_start_phase = 1
+		show_toast(_tx("✓ Двигуни увімкнено. Плавно додайте газ і підніміться на 2–4 м.",
+				"✓ Motors armed. Raise the throttle gently to 2–4 m."))
 	var dx := drone.global_position.x - hover_pos.x
 	var dz := drone.global_position.z - hover_pos.z
-	var in_zone := Vector2(dx, dz).length() < 8.0
+	var in_zone := Vector2(dx, dz).length() < HOVER_RADIUS
 	var in_band := _step_alt >= HOVER_MIN and _step_alt <= HOVER_MAX
 	if in_zone and in_band:
 		hover_timer += delta
@@ -1383,8 +1294,9 @@ func _process_hover(delta: float) -> void:
 		if hover_timer >= HOVER_HOLD:
 			if hover_beacon != null:
 				hover_beacon.visible = false
-			show_toast("✓ ВИСОТУ УТРИМАНО. Тепер спробуйте правий стік — тангаж і крен.")
-			advance_to_step(Step.STICK_BASICS)
+			show_toast(_tx("✓ ЗЛІТ І ВИСІННЯ ЗАСВОЄНО. Тепер обидва стіки — тангаж, крен і рискання.",
+					"✓ LIFT-OFF AND HOVER MASTERED. Now both sticks — pitch, roll and yaw."))
+			advance_to_step(Step.CONTROL)
 	else:
 		hover_timer = maxf(0.0, hover_timer - delta * 0.5)
 		var hint := _tx("ЗАНИЗЬКО — додайте газ", "TOO LOW — ADD THROTTLE") \
@@ -1397,11 +1309,11 @@ func _process_hover(delta: float) -> void:
 		metric_lbl.add_theme_color_override("font_color", MenuUI.WARN_AMBER)
 
 
-func _process_stick_basics(delta: float) -> void:
+func _process_control(delta: float) -> void:
 	var e := drone.global_transform.basis.get_euler()
 	var pitch := e.x
 	var roll := e.z
-	if _step_alt < 1.2 or _step_alt > 6.5:
+	if _step_alt < 1.2 or _step_alt > 7.0:
 		metric_lbl.text = _tx("ВИСОТА %.1f м · тримайте 2–5 м газом",
 				"ALTITUDE %.1f m · HOLD 2–5 m WITH THROTTLE") % _step_alt
 		metric_lbl.add_theme_color_override("font_color", MenuUI.WARN_AMBER)
@@ -1436,41 +1348,64 @@ func _process_stick_basics(delta: float) -> void:
 			if absf(roll) < 0.05:
 				_basic_hold += delta
 				if _basic_hold >= 0.7:
-					show_toast("✓ Правий стік засвоєно. Тепер рискання лівим стіком.")
+					_basic_phase = 4
+					_basic_hold = 0.0
 					_step_yaw_start = _step_heading
-					advance_to_step(Step.YAW_CONTROL)
+					_yaw_turned = false
+					settle_timer = 0.0
+					show_toast("✓ Правий стік засвоєно. Тепер рискання лівим стіком.")
 			else:
 				_basic_hold = 0.0
+		4:
+			var rel_out := wrapf(_step_heading - _step_yaw_start, -PI, PI)
+			metric_lbl.text = _tx("ПОВОРОТ · лівий стік ←/→ · %.0f° / 70°",
+					"YAW TURN · LEFT STICK ←/→ · %.0f° / 70°") % absf(rad_to_deg(rel_out))
+			if absf(rel_out) > deg_to_rad(70.0):
+				_basic_phase = 5
+				_yaw_turned = true
+				settle_timer = 0.0
+				show_toast("✓ Поворот виконано. Тепер поверніться на початковий курс.")
+		5:
+			var rel_back := wrapf(_step_heading - _step_yaw_start, -PI, PI)
+			metric_lbl.text = _tx("ПОВЕРНЕННЯ · залишилось %.0f° · висота %.1f м",
+					"RETURN TO HEADING · %.0f° LEFT · ALTITUDE %.1f m") % [
+					absf(rad_to_deg(rel_back)), _step_alt]
+			if absf(rel_back) < deg_to_rad(15.0):
+				settle_timer += delta
+				if settle_timer >= 0.8:
+					show_toast("✓ КЕРУВАННЯ ЗАСВОЄНО. Тепер перший політ уперед — ворота.")
+					advance_to_step(Step.GATES)
+			else:
+				settle_timer = 0.0
 	metric_lbl.add_theme_color_override("font_color", MenuUI.ACCENT)
 
 
-func _process_yaw(delta: float) -> void:
-	if _step_alt < 1.2 or _step_alt > 7.0:
-		metric_lbl.text = _tx("ВИСОТА %.1f м · тримайте 2–5 м перед поворотом",
-				"ALTITUDE %.1f m · HOLD 2–5 m BEFORE TURNING") % _step_alt
-		metric_lbl.add_theme_color_override("font_color", MenuUI.WARN_AMBER)
-		return
-	var rel := wrapf(_step_heading - _step_yaw_start, -PI, PI)
-	if not _yaw_turned:
-		metric_lbl.text = _tx("ПОВОРОТ · лівий стік ←/→ · %.0f° / 70°",
-				"YAW TURN · LEFT STICK ←/→ · %.0f° / 70°") % absf(rad_to_deg(rel))
-		if absf(rel) > deg_to_rad(70.0):
-			_yaw_turned = true
-			_yaw_dir = signf(rel)
-			settle_timer = 0.0
-			show_toast("✓ Поворот виконано. Тепер поверніться на початковий курс.")
-	else:
-		metric_lbl.text = _tx("ПОВЕРНЕННЯ · залишилось %.0f° · висота %.1f м",
-				"RETURN TO HEADING · %.0f° LEFT · ALTITUDE %.1f m") % [
-				absf(rad_to_deg(rel)), _step_alt]
-		if absf(rel) < deg_to_rad(15.0):
-			settle_timer += delta
-			if settle_timer >= 0.8:
-				show_toast("✓ Рискання засвоєно. Тепер перший політ уперед — ворота 1.")
-				advance_to_step(Step.FORWARD_GATE)
-		else:
-			settle_timer = 0.0
-	metric_lbl.add_theme_color_override("font_color", MenuUI.ACCENT)
+func _gate_target() -> Dictionary:
+	match _gate_stage:
+		0: return gate_forward
+		1: return gate_slalom_a
+		_: return gate_slalom_b
+
+
+func _gate_label() -> String:
+	match _gate_stage:
+		0: return "ВОРОТА 1"
+		1: return "СЛАЛОМ A"
+		_: return "СЛАЛОМ B"
+
+
+func _accuracy_target() -> Dictionary:
+	match _accuracy_stage:
+		0: return gate_low
+		1: return gate_high
+		_: return gate_window
+
+
+func _accuracy_label() -> String:
+	match _accuracy_stage:
+		0: return "НИЗЬКІ ВОРОТА"
+		1: return "ВИСОКІ ВОРОТА"
+		_: return "ВІКНО 3.6x3.2"
 
 
 func _show_gate_metric(gate: Dictionary, label: String) -> void:
@@ -1562,6 +1497,24 @@ func _pass_gate(gate: Dictionary) -> void:
 		node.visible = false
 
 
+func _show_gate(gate: Dictionary) -> void:
+	var node: Node = gate.get("node", null)
+	if node != null and is_instance_valid(node):
+		node.visible = true
+
+
+## Re-show every gate that belongs to the active module so a retry always
+## starts from a clean, fully visible course section.
+func _reset_module_visuals() -> void:
+	match current_step:
+		Step.GATES:
+			for gate in [gate_forward, gate_slalom_a, gate_slalom_b]:
+				_show_gate(gate)
+		Step.ACCURACY:
+			for gate in [gate_low, gate_high, gate_window]:
+				_show_gate(gate)
+
+
 func advance_to_step(next_step: int) -> void:
 	current_step = next_step
 	hover_timer = 0.0
@@ -1569,12 +1522,10 @@ func advance_to_step(next_step: int) -> void:
 	settle_timer = 0.0
 	_basic_phase = 0
 	_basic_hold = 0.0
-	_slalom_stage = 0
-	_altitude_stage = 0
+	_gate_stage = 0
+	_accuracy_stage = 0
 	_yaw_turned = false
-	if next_step == Step.YAW_CONTROL:
-		_step_yaw_start = _step_heading
-	if next_step == Step.FORWARD_GATE:
+	if next_step == Step.GATES:
 		_force_fpv_camera()
 	_update_hud_content()
 	_apply_stick_focus()
@@ -1593,8 +1544,6 @@ func _force_fpv_camera() -> void:
 			break
 		level.call("change_camera")
 		cam = level.get("camera")
-	if cam != null and String(cam.name) == "FPVCamera":
-		show_toast("Камера FPV увімкнена · C/V — нахил об'єктива")
 
 
 func complete_course() -> void:
@@ -1609,27 +1558,19 @@ func complete_course() -> void:
 
 func get_current_target_info() -> Dictionary:
 	match current_step:
-		Step.ARMING:
-			return {"pos": start_pos, "label": _tx("СТАРТ", "START")}
-		Step.HOVER:
-			return {"pos": hover_pos, "label": _tx("МАЯК ВИСІННЯ", "HOVER BEACON")}
-		Step.STICK_BASICS:
-			return {"pos": hover_pos, "label": _tx("ЗОНА СТІКІВ", "STICK CONTROL ZONE")}
-		Step.YAW_CONTROL:
-			return {"pos": hover_pos, "label": _tx("КУРС", "HEADING")}
-		Step.FORWARD_GATE:
-			return {"pos": gate_forward.get("pos", start_pos), "label": _tx("ВОРОТА 1", "GATE 1")}
-		Step.SLALOM:
-			var g := gate_slalom_a if _slalom_stage == 0 else gate_slalom_b
+		Step.START:
+			return {"pos": hover_pos, "label": _tx("ЗЛІТ · 2–4 м", "LIFT-OFF · 2–4 m")}
+		Step.CONTROL:
+			return {"pos": hover_pos, "label": _tx("ЗОНА КЕРУВАННЯ", "CONTROL ZONE")}
+		Step.GATES:
+			var g := _gate_target()
 			return {"pos": g.get("pos", start_pos),
-					"label": MenuUI.translate_text(str(g.get("name", "СЛАЛОМ")))}
-		Step.ALTITUDE_GATES:
-			var g := gate_low if _altitude_stage == 0 else gate_high
+					"label": MenuUI.translate_text(str(g.get("name", _gate_label())))}
+		Step.ACCURACY:
+			var g := _accuracy_target()
 			return {"pos": g.get("pos", start_pos),
-					"label": MenuUI.translate_text(str(g.get("name", "ВИСОТА")))}
-		Step.WINDOW_PASS:
-			return {"pos": gate_window.get("pos", start_pos), "label": _tx("ВІКНО", "WINDOW")}
-		Step.BRAKE_STOP:
+					"label": MenuUI.translate_text(str(g.get("name", _accuracy_label())))}
+		Step.BRAKE:
 			return {"pos": brake_pos, "label": _tx("ЗОНА ГАЛЬМУВАННЯ", "BRAKING ZONE")}
 		Step.LANDING:
 			return {"pos": landing_pos, "label": _tx("МАЙДАНЧИК", "LANDING PAD")}
@@ -1657,9 +1598,12 @@ func reset_step() -> void:
 		return
 	retries += 1
 	close_help()
+	_gate_stage = 0
+	_accuracy_stage = 0
+	_reset_module_visuals()
 	var cp := _checkpoint_for_step()
 	var safe_y := cp.y
-	if current_step != Step.ARMING:
+	if current_step != Step.START:
 		safe_y = maxf(cp.y, _ground_at(cp.x, cp.z) + 2.6)
 	drone.global_position = Vector3(cp.x, safe_y, cp.z)
 	drone.rotation = Vector3(0.0, 0.0, 0.0)
@@ -1668,9 +1612,9 @@ func reset_step() -> void:
 	drone.freeze = false
 	var fc := drone.flight_controller
 	if fc != null:
-		if current_step == Step.ARMING:
+		if current_step == Step.START:
 			fc.set_armed(false)
-			_arm_phase = 0
+			_start_phase = 0
 		elif not fc.state_armed:
 			fc.set_armed(true)
 	hover_timer = 0.0
@@ -1679,8 +1623,6 @@ func reset_step() -> void:
 	_basic_phase = 0
 	_basic_hold = 0.0
 	_yaw_turned = false
-	_slalom_stage = 0
-	_altitude_stage = 0
 	_has_prev = true
 	_prev_pos = drone.global_position
 	_update_hud_content()
@@ -1689,23 +1631,17 @@ func reset_step() -> void:
 
 func _checkpoint_for_step() -> Vector3:
 	match current_step:
-		Step.ARMING:
+		Step.START:
 			return Vector3(start_pos.x, _ground_at(start_pos.x, start_pos.z) + 0.3,
 					start_pos.z)
-		Step.HOVER, Step.STICK_BASICS, Step.YAW_CONTROL:
+		Step.CONTROL:
 			return Vector3(start_pos.x, _ground_at(start_pos.x, start_pos.z) + 3.0,
 					start_pos.z - 4.0)
-		Step.FORWARD_GATE:
-			return gate_forward.get("pos", start_pos) + Vector3(0.0, 0.0, 14.0)
-		Step.SLALOM:
-			var g := gate_slalom_a if _slalom_stage == 0 else gate_slalom_b
-			return g.get("pos", start_pos) + Vector3(0.0, 0.0, 14.0)
-		Step.ALTITUDE_GATES:
-			var g := gate_low if _altitude_stage == 0 else gate_high
-			return g.get("pos", start_pos) + Vector3(0.0, 0.0, 14.0)
-		Step.WINDOW_PASS:
-			return gate_window.get("pos", start_pos) + Vector3(0.0, 0.0, 16.0)
-		Step.BRAKE_STOP:
+		Step.GATES:
+			return _gate_target().get("pos", start_pos) + Vector3(0.0, 0.0, 14.0)
+		Step.ACCURACY:
+			return _accuracy_target().get("pos", start_pos) + Vector3(0.0, 0.0, 16.0)
+		Step.BRAKE:
 			return brake_pos + Vector3(0.0, 3.0, 18.0)
 		Step.LANDING:
 			return landing_pos + Vector3(0.0, 3.0, 16.0)

@@ -33,6 +33,10 @@ var active_track: Track = null
 ## Currently selected gameplay mode, chosen in the main menu and consumed by
 ## CourseLevel when it starts.
 var play_mode: int = PlayMode.TUTORIAL
+## Standalone combat-training sortie: TRAINING mode with one tutorial target and
+## an explicit three-step guide instead of the freestyle ring course.  It never
+## touches campaign records.
+var combat_training: bool = false
 ## Current combat mission stage (1 = Recon Sector, 2 = Armor Column, 3 = Rotary Target, 4 = Aerial Intercept).
 var combat_mission: int = 1
 ## Special operations are standalone sorties, not campaign records.  0 means a
@@ -224,6 +228,12 @@ func _ready() -> void:
 		combat_mission = clampi(int(OS.get_environment("DRONE_COMBAT_MISSION")), 1, 4)
 	if OS.has_environment("DRONE_PRESET"):
 		drone_preset = clampi(int(OS.get_environment("DRONE_PRESET")), 0, maxi(DroneCatalog.count() - 1, 0))
+	# QA screenshot hook: enter the three-step combat lesson directly with the
+	# GRIM-7M dropper, without navigating the menus.
+	if OS.has_environment("DRONE_COMBAT_TRAINING"):
+		combat_training = true
+		play_mode = PlayMode.TRAINING
+		drone_preset = 1
 
 
 func _exit_tree() -> void:
@@ -404,6 +414,22 @@ func is_tutorial_completed() -> bool:
 
 func set_tutorial_completed(completed: bool = true) -> void:
 	var sec := "flight_school"
+	var rec: Dictionary = campaign_records.get(sec, {})
+	rec["completed"] = completed
+	rec["timestamp"] = get_formatted_date_time()
+	campaign_records[sec] = rec
+	save_campaign_records()
+
+
+## The combat-training badge is a progress marker only; it is not a campaign
+## mission and does not unlock anything or contribute stars.
+func is_combat_training_completed() -> bool:
+	var rec: Dictionary = campaign_records.get("combat_training", {})
+	return bool(rec.get("completed", false))
+
+
+func set_combat_training_completed(completed: bool = true) -> void:
+	var sec := "combat_training"
 	var rec: Dictionary = campaign_records.get(sec, {})
 	rec["completed"] = completed
 	rec["timestamp"] = get_formatted_date_time()

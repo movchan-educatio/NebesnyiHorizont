@@ -1,6 +1,6 @@
 ﻿extends Node3D
 
-## QA suite for the ten-module Flight School.  It builds the real course in an
+## QA suite for the six-module Flight School.  It builds the real course in an
 ## empty scene and teleports the drone through each module's success condition,
 ## so every state transition is exercised without a human pilot.
 
@@ -18,7 +18,7 @@ func _ready() -> void:
 	_saved_records = Global.campaign_records.duplicate(true)
 	_saved_language = LocScript.get_language()
 	LocScript.set_language(LocScript.Language.UA, false)
-	print("=== FLIGHT SCHOOL 10-MODULE QA ===")
+	print("=== FLIGHT SCHOOL 6-MODULE QA ===")
 	Global.play_mode = Global.PlayMode.TUTORIAL
 	Global.drone_preset = 0
 	Global.set_tutorial_completed(false)
@@ -41,38 +41,31 @@ func _ready() -> void:
 	await get_tree().process_frame
 	await get_tree().physics_frame
 
-	assert(school.current_step == FlightSchool.Step.ARMING)
+	assert(school.current_step == FlightSchool.Step.START)
 	assert(school.hover_beacon != null)
 	assert(not school.gate_forward.is_empty())
 	assert(not school.gate_window.is_empty())
 	assert(school.brake_node != null)
 	assert(school.landing_node != null)
 	assert(school._dots.size() == FlightSchool.TOTAL_MODULES)
-	print("[OK] course built: 10 progress dots, all gates present")
+	assert(FlightSchool.TOTAL_MODULES == 6)
+	print("[OK] course built: 6 progress dots, all gates present")
 
-	# --- 1. ARM -> DISARM -> ARM -------------------------------------------
-	assert(school.current_step == FlightSchool.Step.ARMING)
+	# --- 1. START: one ARM, take off, hold 2-4 m for 3 s ------------------
+	assert(school.current_step == FlightSchool.Step.START)
 	drone.flight_controller.set_armed(true)
 	school.update_flight_school(0.05)
-	assert(school.current_step == FlightSchool.Step.ARMING, "one arm is not enough")
-	drone.flight_controller.set_armed(false)
-	school.update_flight_school(0.05)
-	assert(school.current_step == FlightSchool.Step.ARMING, "must arm again")
-	drone.flight_controller.set_armed(true)
-	school.update_flight_school(0.05)
-	assert(school.current_step == FlightSchool.Step.HOVER)
-	print("[OK] arm / disarm / arm")
-
-	# --- 2. HOVER ----------------------------------------------------------
+	assert(school.current_step == FlightSchool.Step.START, "one arm starts the take-off module")
+	assert(school._start_phase == 1, "arming must enter the lift-off phase")
 	var hov := school.hover_pos
 	drone.global_position = Vector3(hov.x, hov.y, hov.z)
 	drone.linear_velocity = Vector3.ZERO
-	for i in range(15):
+	for i in range(13):
 		school.update_flight_school(0.3)
-	assert(school.current_step == FlightSchool.Step.STICK_BASICS)
-	print("[OK] hover 2-4 m hold")
+	assert(school.current_step == FlightSchool.Step.CONTROL)
+	print("[OK] arm, lift-off and 3 s hover hold")
 
-	# --- 3. RIGHT STICK: pitch -> centre -> roll -> centre ------------------
+	# --- 2. CONTROL: pitch -> centre -> roll -> centre -> yaw -> back -----
 	drone.global_position = Vector3(hov.x, 3.0, hov.z)
 	drone.rotation = Vector3(0.22, 0.0, 0.0)
 	school.update_flight_school(0.05)
@@ -84,37 +77,37 @@ func _ready() -> void:
 	drone.rotation = Vector3.ZERO
 	for i in range(4):
 		school.update_flight_school(0.25)
-	assert(school.current_step == FlightSchool.Step.YAW_CONTROL)
-	print("[OK] pitch/roll excursions + return to centre")
-
-	# --- 4. YAW 70 degrees and back ----------------------------------------
+	assert(school.current_step == FlightSchool.Step.CONTROL, "stick module continues into yaw")
 	drone.rotation = Vector3(0.0, deg_to_rad(80.0), 0.0)
 	school.update_flight_school(0.05)
 	drone.rotation = Vector3.ZERO
 	for i in range(4):
 		school.update_flight_school(0.3)
-	assert(school.current_step == FlightSchool.Step.FORWARD_GATE)
-	print("[OK] yaw turn and return")
+	assert(school.current_step == FlightSchool.Step.GATES)
+	print("[OK] pitch/roll centring + yaw turn and return")
 
+	# --- 3. GATES: gate 1, slalom A, slalom B -----------------------------
 	_cross(school.gate_forward)
-	assert(school.current_step == FlightSchool.Step.SLALOM)
-	print("[OK] forward gate")
-
+	assert(school.current_step == FlightSchool.Step.GATES)
+	assert(school._gate_stage == 1, "gate 1 should advance to slalom A")
+	print("[OK] forward gate 1")
 	_cross(school.gate_slalom_a)
+	assert(school.current_step == FlightSchool.Step.GATES)
+	assert(school._gate_stage == 2, "slalom A should advance to slalom B")
 	_cross(school.gate_slalom_b)
-	assert(school.current_step == FlightSchool.Step.ALTITUDE_GATES)
+	assert(school.current_step == FlightSchool.Step.ACCURACY)
 	print("[OK] slalom A/B")
 
+	# --- 4. ACCURACY: low, high, window -----------------------------------
 	_cross(school.gate_low)
+	assert(school.current_step == FlightSchool.Step.ACCURACY)
 	_cross(school.gate_high)
-	assert(school.current_step == FlightSchool.Step.WINDOW_PASS)
-	print("[OK] low/high altitude gates")
-
+	assert(school.current_step == FlightSchool.Step.ACCURACY)
 	_cross(school.gate_window)
-	assert(school.current_step == FlightSchool.Step.BRAKE_STOP)
-	print("[OK] window pass")
+	assert(school.current_step == FlightSchool.Step.BRAKE)
+	print("[OK] low/high altitude gates + window")
 
-	# --- 9. BRAKE ----------------------------------------------------------
+	# --- 5. BRAKE ----------------------------------------------------------
 	drone.global_position = school.brake_pos + Vector3(1.0, 2.0, 1.0)
 	drone.linear_velocity = Vector3(0.4, 0.0, 0.2)
 	for i in range(7):
@@ -122,7 +115,7 @@ func _ready() -> void:
 	assert(school.current_step == FlightSchool.Step.LANDING)
 	print("[OK] brake zone")
 
-	# --- 10. LAND + DISARM -------------------------------------------------
+	# --- 6. LAND + DISARM --------------------------------------------------
 	drone.global_position = school.landing_pos + Vector3(0.4, 0.35, 0.4)
 	drone.linear_velocity = Vector3.ZERO
 	drone.flight_controller.set_armed(false)
@@ -167,7 +160,7 @@ func _ready() -> void:
 	assert(school._toast_lbl.text.contains("ЗНОС"), school._toast_lbl.text)
 	print("[OK] pilot error assistant")
 
-	print("=== RESULT: FLIGHT SCHOOL 10-MODULE QA PASS ===")
+	print("=== RESULT: FLIGHT SCHOOL 6-MODULE QA PASS ===")
 	Global.campaign_records = _saved_records
 	Global.save_campaign_records()
 	LocScript.set_language(_saved_language, false)

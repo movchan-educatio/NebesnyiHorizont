@@ -50,7 +50,10 @@ const PRESETS := {
 		"adaptive": false, "target_fps": 118.0,
 		"physics_hz": 60,
 		"static_sky": true,
-		"fsr_sharpness": 0.38, "msaa": 0, "fxaa": true,
+		# 0.38 was soft enough to read as a low-resolution image on a 1080p
+		# panel; 0.55 keeps the FSR2-style upscale while restoring micro-detail
+		# on grass, concrete and armour edges.
+		"fsr_sharpness": 0.55, "msaa": 0, "fxaa": true,
 		"ssao": false, "ssao_quality": RenderingServer.ENV_SSAO_QUALITY_VERY_LOW,
 		"ssil": false, "volumetric_fog": false, "glow": false,
 		"shadows": true, "shadow_splits": 2, "shadow_distance": 120.0,
@@ -249,39 +252,81 @@ static func apply_viewport(vp: Viewport) -> void:
 	RenderingServer.positional_soft_shadow_filter_set_quality(p["soft_shadow"])
 
 
-## Static sky shared by the low-end presets.  The cloud panorama is baked to a
-## texture once, so the sky costs a single cubemap sample instead of running
-## the procedural cloud shader and regenerating the radiance map every frame.
-static var _static_sky_material: PanoramaSkyMaterial = null
+## Static sky shared by the presets.  The cloud panorama is baked to a texture
+## once, so the sky costs a single cubemap sample instead of running the
+## procedural cloud shader and regenerating the radiance map every frame.
+##
+## Desktop MEDIUM/HIGH use the 4K panorama with the distant ridge silhouette:
+## the extra aerial depth is the single strongest "expensive look" cue on the
+## horizon and costs no per-frame work once the radiance cubemap is baked.
+## Desktop LOW and every phone profile keep the compact 2K panorama to save
+## memory and bandwidth on the target hardware.
+static var _static_sky_materials: Dictionary = {}
+
+const SKY_PANORAMA_HI := "res://Assets/textures/sky_mountains.png"
+const SKY_PANORAMA_COMPACT := "res://Assets/textures/sky_static.png"
+## Azimuth of the baked sun glow measured from +Z toward +X.  Godot's
+## equirectangular sky maps u=0 to -Z, u=0.25 to +X and u=0.5 to +Z, so the
+## 4K panorama's glow at u=0.17 sits at 118.8 degrees.
+const SKY_SUN_AZIMUTH_HI := 118.8
+const SKY_SUN_AZIMUTH_COMPACT := 298.8
+
+
+static func _is_phone_profile() -> bool:
+	return OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")
+
+
+static func _use_hi_res_sky() -> bool:
+	return level() >= Level.MEDIUM and not _is_phone_profile()
 
 
 static func _get_static_sky() -> PanoramaSkyMaterial:
-	if _static_sky_material == null:
-		var tex := load("res://Assets/textures/sky_static.png") as Texture2D
+	var hi := _use_hi_res_sky()
+	var key := "hi" if hi else "compact"
+	if not _static_sky_materials.has(key):
+		var tex := load(SKY_PANORAMA_HI if hi else SKY_PANORAMA_COMPACT) as Texture2D
 		if tex != null:
-			_static_sky_material = PanoramaSkyMaterial.new()
-			_static_sky_material.panorama = tex
-			_static_sky_material.filter = true
-	return _static_sky_material
+			var mat := PanoramaSkyMaterial.new()
+			mat.panorama = tex
+			mat.filter = true
+			_static_sky_materials[key] = mat
+	return _static_sky_materials.get(key, null)
+
+
+## Puts the baked sun glow in the same world direction as the map's key light.
+## Shadows, terrain highlights and the glow in the sky then agree, which is the
+## detail that makes a baked panorama read as a real sky instead of wallpaper.
+## Called by BigLevel after it applies its per-map sun rotation.
+static func align_sky_to_sun(env: Environment, sun: DirectionalLight3D) -> void:
+	if env == null or env.sky == null or sun == null:
+		return
+	if not env.sky.has_meta("lowspec_sky_sun_azimuth"):
+		return
+	var az := float(env.sky.get_meta("lowspec_sky_sun_azimuth"))
+	env.sky_rotation.y = deg_to_rad(sun.rotation_degrees.y - az)
 
 
 static func _apply_static_sky(env: Environment) -> void:
 	if env == null or env.sky == null:
 		return
+	var hi := _use_hi_res_sky()
 	var mat := _get_static_sky()
 	if mat == null:
 		return
+	var sun_az := SKY_SUN_AZIMUTH_HI if hi else SKY_SUN_AZIMUTH_COMPACT
 	if not env.sky.has_meta("lowspec_sky_backup"):
 		env.sky.set_meta("lowspec_sky_backup", env.sky.sky_material)
 		env.sky.set_meta("lowspec_sky_process", env.sky.process_mode)
 		env.sky.set_meta("lowspec_sky_rot", env.sky_rotation)
 	env.background_mode = Environment.BG_SKY
-	if OS.get_name() == "iOS" or OS.has_feature("mobile") \
-			or OS.has_environment("MOBILE_UI"):
+	if _is_phone_profile():
 		env.background_energy_multiplier = 1.0
 	env.sky.sky_material = mat
 	env.sky.process_mode = Sky.PROCESS_MODE_INCREMENTAL
-	env.sky_rotation.y = PI
+	# Default orientation until the map aligns the glow with its own key light.
+	env.sky_rotation.y = deg_to_rad(52.0 - sun_az)
+	env.sky.set_meta("lowspec_sky_sun_azimuth", sun_az)
 	# Baked sky radiance ambient (0 SSAO/GI per-frame cost): shadows receive cool
 	# sky-dome blue instead of flat grey-blue, while metal & roofs reflect sky.
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
@@ -303,6 +348,7 @@ static func _restore_sky(env: Environment) -> void:
 			env.sky.remove_meta("lowspec_sky_rot")
 		env.sky.remove_meta("lowspec_sky_backup")
 		env.sky.remove_meta("lowspec_sky_process")
+		env.sky.remove_meta("lowspec_sky_sun_azimuth")
 
 
 ## Environment-level settings. Expensive effects are swapped for cheap

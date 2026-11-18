@@ -76,6 +76,7 @@ var _lang_btn: Button = null
 var _gc_btn: Button = null
 var _daily_lbl: Label = null
 var _quick_tut_btn: Button = null
+var _quick_ct_btn: Button = null
 var _foot_status_lbl: Label = null
 var _settings_overlay: Control = null
 var _mode_copy: Dictionary = {}
@@ -798,6 +799,18 @@ func _build_recon_card() -> Control:
 			_launch_current_selection()
 		)
 		vbox.add_child(_quick_tut_btn)
+
+	# Explicit first-strike training: one tank, three steps, no campaign record.
+	var ct_done := Global.is_combat_training_completed()
+	_quick_ct_btn = MenuUI.feel_button(_ui_text(
+			"🎯 БОЙОВЕ ТРЕНУВАННЯ: 3 КРОКИ" if not ct_done \
+					else "✓ БОЙОВЕ ТРЕНУВАННЯ ПРОЙДЕНО · ПОВТОРИТИ",
+			"🎯 COMBAT TRAINING: 3 STEPS" if not ct_done \
+					else "✓ COMBAT TRAINING DONE · REPEAT"), 34, false)
+	_quick_ct_btn.add_theme_font_size_override("font_size", 11)
+	_quick_ct_btn.add_theme_color_override("font_color", MenuUI.FPV_AMBER)
+	_quick_ct_btn.pressed.connect(func(): _launch_current_selection(true))
+	vbox.add_child(_quick_ct_btn)
 
 	# Quick Difficulty Selector Row
 	var diff_box := VBoxContainer.new()
@@ -1622,9 +1635,19 @@ func _update_diff_buttons() -> void:
 	_update_drone_intel()
 
 
-func _launch_current_selection() -> void:
+func _launch_current_selection(combat_training: bool = false) -> void:
+	Global.combat_training = combat_training
 	Global.play_mode = _selected_mode
-	if _selected_mode == Global.PlayMode.COMBAT:
+	if combat_training:
+		# Three-step first-strike training: village north field, combat-ready
+		# dropper, no campaign records and no freestyle ring course.
+		Global.play_mode = Global.PlayMode.TRAINING
+		_selected_mode = Global.PlayMode.TRAINING
+		_selected_map = "village"
+		Global.special_mission = 0
+		QuadSettings.custom_rates = false
+		DroneCatalog.apply(1)
+	elif _selected_mode == Global.PlayMode.COMBAT:
 		if _selected_special > 0:
 			Global.special_mission = _selected_special
 			Global.chain_briefing_pending = false

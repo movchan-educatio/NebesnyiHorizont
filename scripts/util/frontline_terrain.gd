@@ -2373,6 +2373,11 @@ static func _ground_material(map_name: String) -> ShaderMaterial:
 	else:
 		mat.set_shader_parameter("wet_falloff", 4.0)
 	if uniforms.has("cloud_shadow_strength"):
+		# The drifting cloud term is pure arithmetic in the fragment shader: no
+		# texture reads and no extra draw calls.  Desktop presets previously
+		# left it at zero, which made the open maps look flat and static under
+		# the baked sky; a light, per-map amount restores large-scale motion
+		# without touching frame time.  Phones keep the denser values.
 		var cs := 0.0
 		if _is_mobile_platform():
 			cs = 0.16
@@ -2383,6 +2388,16 @@ static func _ground_material(map_name: String) -> ShaderMaterial:
 					cs = 0.10
 				"wetlands":
 					cs = 0.09
+		else:
+			match map_name:
+				"steppe":
+					cs = 0.14
+				"village":
+					cs = 0.12
+				"industrial":
+					cs = 0.08
+				"wetlands":
+					cs = 0.11
 		mat.set_shader_parameter("cloud_shadow_strength", cs)
 	return mat
 
