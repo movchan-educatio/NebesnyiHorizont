@@ -82,6 +82,7 @@ const COMBAT_TIME_LIMIT := 1200.0
 var menu_settings := {"haptics_enabled": true, "drone_preset": 0,
 		"selected_mode": PlayMode.TUTORIAL, "selected_mission": 1, "selected_special": 0,
 		"selected_map": "village", "difficulty": 1,
+		"radio_chatter_mode": 2,
 		"touch_floating_sticks": false, "touch_left_spring": false,
 		"touch_input_mode": "auto",
 		"touch_sensitivity": 1.0, "touch_expo": 0.2,

@@ -1,7 +1,8 @@
 extends Node3D
 
-## Isolated regression test for the Shahed attack run.  It exercises acquire,
-## dive, proximity damage, recovery and the unarmed-target safety gate.
+## Regression test for the Shahed-136 route patrol.  The airframe is a target,
+## not an attacker: it must hold cruise altitude, follow its waypoints and never
+## dive at, ram or damage the player drone.
 
 const VehicleScript = preload("res://combat/vehicle.gd")
 
@@ -60,44 +61,36 @@ func _run() -> void:
 	await get_tree().physics_frame
 
 	var cruise_y := shahed.global_position.y
-	shahed.call("_move_along_route", 0.05)
-	_check(int(shahed.get("_shahed_phase")) == 1,
-			"armed target makes Shahed acquire instead of circle")
-	var saw_dive := false
+	var start := shahed.global_position
+	var min_y := cruise_y
+	var moved := 0.0
+	for _i in range(400):
+		shahed.call("_move_along_route", 0.05)
+		shahed.call("_update_height", 0.05)
+		min_y = minf(min_y, shahed.global_position.y)
+		moved = maxf(moved, start.distance_to(shahed.global_position))
+	_check(int(shahed.get("_shahed_phase")) == 0,
+			"Shahed stays in route-patrol state near an armed drone")
+	_check(absf(min_y - cruise_y) < 1.5,
+			"Shahed never leaves cruise altitude (min %.2f, cruise %.2f)" % [
+				min_y, cruise_y])
+	_check(moved > 30.0, "Shahed keeps flying its route")
+	_check(combat.hit_count == 0, "route patrol never damages the player drone")
+
+	# Point-blank hover: the airframe still must not turn into a suicide drone.
+	target.global_position = shahed.global_position + Vector3(0.0, -1.0, -7.0)
 	for _i in range(120):
 		shahed.call("_move_along_route", 0.05)
 		shahed.call("_update_height", 0.05)
-		if int(shahed.get("_shahed_phase")) == 2:
-			saw_dive = true
-		if combat.hit_count > 0:
-			break
-	_check(saw_dive or combat.hit_count > 0, "Shahed commits to a dive")
-	_check(shahed.global_position.y < cruise_y - 8.0,
-			"cruise altitude lock is bypassed during the dive")
-	_check(combat.hit_count == 1, "proximity pass damages the armed drone once")
-	_check(combat.last_damage > 0.0, "attack damage is difficulty-scaled and non-zero")
-	_check(int(shahed.get("_shahed_phase")) == 3,
-			"after the attack the Shahed overshoots and recovers")
-	var reattacked := false
-	for _i in range(600):
-		shahed.call("_move_along_route", 0.05)
-		shahed.call("_update_height", 0.05)
-		if combat.hit_count >= 2:
-			reattacked = true
-			break
-	_check(reattacked, "Shahed returns to patrol and commits to another attack run")
-
-	# Disarming cancels an attack immediately; no extra damage can be delivered.
-	target.flight_controller["state_armed"] = false
-	for _i in range(8):
-		shahed.call("_move_along_route", 0.05)
 	_check(int(shahed.get("_shahed_phase")) == 0,
-			"disarming returns the Shahed to patrol")
-	_check(combat.hit_count == 2, "disarmed drone receives no further attack")
+			"point-blank player proximity does not trigger an attack state")
+	_check(combat.hit_count == 0, "point-blank proximity deals no damage")
+	_check(absf(shahed.global_position.y - (cruise_y)) < 3.0,
+			"point-blank proximity does not pull the Shahed into a dive")
 
 	print("[SHAHED_QA] failures=", _failures,
 			" phase=", shahed.get("_shahed_phase"),
-			" hit_damage=", combat.last_damage)
+			" hits=", combat.hit_count)
 	get_tree().quit(0 if _failures == 0 else 1)
 
 

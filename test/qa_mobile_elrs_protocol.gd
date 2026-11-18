@@ -28,6 +28,7 @@ func _run() -> void:
 	var old_switches: Dictionary = elrs._switch_state.duplicate(true)
 	var old_arm_state: bool = elrs._armed_level_state
 	var old_status: String = elrs.status_text
+	var old_interval: float = elrs._frame_interval_ms
 	elrs.channel_map = {"roll": 0, "pitch": 1, "throttle": 2, "yaw": 3}
 	elrs.valid = true
 	elrs.invert_throttle = false
@@ -107,6 +108,56 @@ func _run() -> void:
 			and absf(elrs._axis(0)) < 0.01 and elrs.throttle() == 0.0,
 			"real packet parser canonicalizes a native frame")
 	_check(not elrs._armed_level_state, "first native packet initializes low ARM without arming")
+
+	# One NO_DATA sentinel on an unused AUX channel must not discard the whole
+	# packet; the stick channels still work and the link heartbeat is refreshed.
+	# Use the raw parser here (no mobile canonicalization) so the held AUX value
+	# can be compared directly.
+	OS.unset_environment("MOBILE_UI")
+	var held_aux: float = elrs.channels[5]
+	for i in range(16):
+		var value: int = 992
+		if i == 2 or i == 4:
+			value = 172
+		if i == 5:
+			value = elrs.NO_DATA
+		packet[2 + 2 * i] = value & 0xff
+		packet[3 + 2 * i] = value >> 8
+	elrs._last_frame_ms = Time.get_ticks_msec() - 9000
+	elrs._parse_channels(packet, "127.0.0.1")
+	_check(elrs.valid and absf(elrs.channels[5] - held_aux) < 0.01,
+			"one NO_DATA AUX channel keeps the frame and its last value")
+	_check(Time.get_ticks_msec() - elrs._last_frame_ms < 500,
+			"valid frame refreshes the link heartbeat")
+
+	# Even a frame with only three usable channels proves the RF link is alive.
+	# It must hold the controls instead of tearing the session down.
+	var held: PackedFloat32Array = elrs.channels.duplicate()
+	for i in range(16):
+		var value: int = elrs.NO_DATA
+		if i < 3:
+			value = 992
+		packet[2 + 2 * i] = value & 0xff
+		packet[3 + 2 * i] = value >> 8
+	elrs._last_frame_ms = Time.get_ticks_msec() - 9000
+	elrs._parse_channels(packet, "127.0.0.1")
+	_check(elrs.valid and elrs.channels == held
+			and Time.get_ticks_msec() - elrs._last_frame_ms < 500,
+			"NO_DATA heartbeat keeps the link alive without moving controls")
+	OS.set_environment("MOBILE_UI", "1")
+
+	# A slow but healthy link gets a longer grace window, with a hard cap so a
+	# dead transmitter cannot stay "connected" forever.
+	elrs._frame_interval_ms = 400.0
+	_check(elrs._stale_limit_ms() == elrs.STALE_MS,
+			"stale window keeps its 20 s floor for normal frame rates")
+	elrs._frame_interval_ms = 2000.0
+	_check(elrs._stale_limit_ms() > elrs.STALE_MS and elrs._stale_limit_ms() <= 60000,
+			"stale window stretches for low-rate links")
+	elrs._frame_interval_ms = 9000.0
+	_check(elrs._stale_limit_ms() == 60000, "stale window is capped at 60 s")
+	elrs._frame_interval_ms = old_interval
+
 	elrs.module_ip = ""
 	elrs._last_frame_ms = Time.get_ticks_msec() - elrs.STALE_MS - 1
 	elrs._process(0.0)
@@ -125,5 +176,6 @@ func _run() -> void:
 	elrs._switch_state = old_switches
 	elrs._armed_level_state = old_arm_state
 	elrs.status_text = old_status
+	elrs._frame_interval_ms = old_interval
 	print("[MOBILE_ELRS] failures=", _failures)
 	get_tree().quit(0 if _failures == 0 else 1)

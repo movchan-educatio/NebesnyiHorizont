@@ -160,6 +160,9 @@ var _special_convoy_dest := Vector3.ZERO
 var _special_convoy_start := Vector3.ZERO
 var _special_convoy_far_timer := 0.0
 var _special_convoy_warned := false
+var _special_convoy_stall_anchor := Vector3.ZERO
+var _special_convoy_stall := 0.0
+var _special_convoy_recoveries := 0
 var _special_extract_active := false
 var _special_extract_point := Vector3.ZERO
 var _special_extract_hold := 0.0
@@ -209,10 +212,31 @@ var _payload_hits := 0
 var _results_career_label: Label = null
 var _results_career_bar: ProgressBar = null
 var _fiber_spool_used_m := 0.0
+const FIBER_CABLE_SEGMENTS := 26
+const FIBER_CABLE_COLOR := Color(0.28, 0.93, 1.0, 1.0)
+var _fiber_cable: MeshInstance3D = null
+var _fiber_cable_mesh: ImmediateMesh = null
+var _fiber_spool_marker: Node3D = null
+var _fiber_core_mat: StandardMaterial3D = null
+var _fiber_glow_mat: StandardMaterial3D = null
+var _fiber_anchor := Vector3.ZERO
+var _fiber_anchor_ready := false
 var _analog_bar_a: ColorRect = null
 var _analog_bar_b: ColorRect = null
 var _dvr_samples: Array = []
 var _dvr_sample_timer := 0.0
+const DVR_FPS := 5
+const DVR_MAX_FRAMES := 60
+const DVR_FRAME_W := 384
+const DVR_FRAME_H := 216
+var _dvr_frames: Array[Texture2D] = []
+var _dvr_frame_timer := 0.0
+var _dvr_capture_failed := false
+var _dvr_capture_pending := false
+var _dvr_overlay: CanvasLayer = null
+var _dvr_overlay_rect: TextureRect = null
+var _dvr_overlay_stamp: Label = null
+var _dvr_overlay_time: Label = null
 var _last_strike_pos := Vector3.ZERO
 var _results_dvr_btn: Button = null
 var _dvr_replaying := false
@@ -2339,6 +2363,7 @@ func _on_respawned() -> void:
 	_pending_kamikaze_respawn = false
 	_airframe_consumed_this_life = false
 	_place_drone_over_ground()
+	_reset_fiber_cable()
 	if Global.play_mode == Global.PlayMode.TUTORIAL and _flight_school != null \
 			and is_instance_valid(_flight_school) \
 			and _flight_school.current_step < FlightSchool.Step.COMPLETED:
@@ -2426,10 +2451,36 @@ func consume_sortie_airframe(reason: String = "") -> bool:
 			var delay := 1.2 if reason == "STRIKE" else 1.0
 			var timer := get_tree().create_timer(delay)
 			timer.timeout.connect(func() -> void:
-				if not _mission_finished:
-					_finish_mission(_txt(
-						"ВСІ БОРТИ ВТРАЧЕНО — МІСІЮ ПРОВАЛЕНО",
-						"ALL AIRFRAMES LOST — MISSION FAILED"), true))
+				if _mission_finished:
+					return
+				# Re-evaluate at the timeout.  The last hit can land in the same
+				# physics frame as the final airframe loss, and the kill-cam
+				# completion is deferred by several seconds.  The old closure
+				# used the stale pre-hit counters and showed "ALL AIRFRAMES
+				# LOST" over a 2/2 targets-destroyed debrief.
+				if _pending_combat_complete:
+					return
+				if _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active():
+					return
+				var complete_now := _mission_targets_total > 0 \
+						and _mission_targets_destroyed >= _mission_targets_total
+				if complete_now:
+					_check_combat_mission_complete()
+					return
+				if Global.special_mission == 2:
+					# The friendly convoy completes the operation by itself if
+					# it is already on the final approach.
+					if _special_convoy != null and is_instance_valid(_special_convoy) \
+							and _special_convoy.global_position.distance_to(
+									_special_convoy_dest) < 85.0:
+						return
+				elif Global.special_mission > 0 and not _special_zones.is_empty() \
+						and _special_index >= _special_zones.size():
+					return
+				_finish_mission(_txt(
+					"ВСІ БОРТИ ВТРАЧЕНО — МІСІЮ ПРОВАЛЕНО",
+					"ALL AIRFRAMES LOST — MISSION FAILED"), true)
+			)
 			return false
 	return true
 
@@ -2580,14 +2631,14 @@ func get_mission_phase_info() -> Dictionary:
 ## Radio callout hook: prefers synthesized VHF WAV lines on the dedicated Radio
 ## bus (`Audio.play_radio_line`) and falls back to CombatSfx radio tone bursts.
 func _play_radio_callout(text: String, force := false, line_key: String = "") -> void:
-	var r_mode := int(Global.menu_settings.get("radio_chatter_mode", 1)) if Global != null else 1
+	var r_mode := int(Global.menu_settings.get("radio_chatter_mode", 2)) if Global != null else 2
 	if r_mode == 0:
 		return
 	var is_start_or_end := (line_key == "01" or line_key == "04" or _mission_finished \
 			or text.contains("ВИКОНАНО") or text.contains("COMPLETE") \
 			or text.contains("ПРОВАЛЕНО") or text.contains("FAILED"))
-	# In mode 1 (Start & End only, default), mid-mission phase/kill callouts show
-	# only as non-intrusive HUD text without repeating voice chatter.
+	# Mode 0 mutes radio voice, mode 1 keeps only start/end lines, and mode 2
+	# (the default) voices every phase/kill callout with HUD subtitles.
 	var play_voice := (r_mode >= 2) or is_start_or_end
 	if not force and _radio_cooldown > 0.0:
 		return
@@ -4274,19 +4325,23 @@ func _spawn_special_beacon(pos: Vector3, text: String, color: Color) -> Node3D:
 	root.add_child(ring)
 	var beam := MeshInstance3D.new()
 	var cylinder := CylinderMesh.new()
-	cylinder.top_radius = 0.35
-	cylinder.bottom_radius = 0.35
-	cylinder.height = 18.0
+	# Objective beams used to be 18 m tall and 0.7 m wide, which filled the
+	# whole screen like a giant green wall in the convoy mission.  Keep a slim
+	# navigation column that marks the point without obscuring the scene.
+	cylinder.top_radius = 0.16
+	cylinder.bottom_radius = 0.16
+	cylinder.height = 6.0
 	beam.mesh = cylinder
+	beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var beam_mat := StandardMaterial3D.new()
 	beam_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	beam_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	beam_mat.albedo_color = Color(color.r, color.g, color.b, 0.16)
+	beam_mat.albedo_color = Color(color.r, color.g, color.b, 0.10)
 	beam_mat.emission_enabled = true
 	beam_mat.emission = color
-	beam_mat.emission_energy_multiplier = 0.8
+	beam_mat.emission_energy_multiplier = 0.55
 	beam.material_override = beam_mat
-	beam.position.y = 9.0
+	beam.position.y = 3.0
 	root.add_child(beam)
 	var label := Label3D.new()
 	label.text = text
@@ -4550,6 +4605,9 @@ func _spawn_special_mission(mission_id: int) -> void:
 	_special_convoy = null
 	_special_convoy_far_timer = 0.0
 	_special_convoy_warned = false
+	_special_convoy_stall_anchor = Vector3.ZERO
+	_special_convoy_stall = 0.0
+	_special_convoy_recoveries = 0
 	_special_extract_active = false
 	_special_extract_hold = 0.0
 	_special_extract_point = _special_ground_point(10.0, 145.0)
@@ -4670,8 +4728,43 @@ func _update_escort_mission(delta: float, drone: Drone) -> void:
 		_special_convoy_far_timer = maxf(_special_convoy_far_timer - delta * 2.0, 0.0)
 		if _special_convoy_far_timer < 1.0:
 			_special_convoy_warned = false
-	if _special_convoy.global_position.distance_to(_special_convoy_dest) < 42.0:
+	var convoy_dist := _special_convoy.global_position.distance_to(_special_convoy_dest)
+	if convoy_dist < 55.0:
 		_finish_special_success()
+		return
+	# The truck is kinematic: if a blocker or a bad nav segment stops it, the
+	# old code could sit at the same spot until the mission timer expired.
+	# Watch real displacement and force waypoint skips / a direct goal run.
+	if _special_convoy_stall_anchor == Vector3.ZERO:
+		_special_convoy_stall_anchor = _special_convoy.global_position
+	if _special_convoy.global_position.distance_to(_special_convoy_stall_anchor) < 0.35:
+		_special_convoy_stall += delta
+	else:
+		_special_convoy_stall_anchor = _special_convoy.global_position
+		_special_convoy_stall = 0.0
+	if _special_convoy_stall >= 4.0:
+		_special_convoy_stall = 0.0
+		_special_convoy_recoveries += 1
+		_special_convoy.call("escort_emergency_advance")
+		if _special_convoy_recoveries == 1:
+			_set_flash(_txt("КОЛОНА ОБ'ЇЗДИТЬ ПЕРЕШКОДУ", "CONVOY BYPASSING OBSTACLE"))
+		# Last-resort recovery: after four blocked attempts place the convoy on
+		# the final approach so a level-geometry dead end can never soft-lock the
+		# operation.  The move happens off the normal route and preserves the
+		# success condition (arrival at the checkpoint).
+		if _special_convoy_recoveries >= 4:
+			_special_convoy_recoveries = 0
+			var approach := _special_convoy_dest - _special_convoy_start
+			approach.y = 0.0
+			if approach.length_squared() > 0.01:
+				approach = approach.normalized()
+			var drop := _special_ground_point(
+					_special_convoy_dest.x - approach.x * 30.0,
+					_special_convoy_dest.z - approach.z * 30.0)
+			_special_convoy.global_position = drop + Vector3.UP * 0.2
+			_special_convoy.call("escort_emergency_advance")
+			_play_radio_callout(_txt("КОЛОНА ПРОРВАЛАСЬ ДО КП — СУПРОВІД ТРИВАЄ",
+					"CONVOY BROKE THROUGH TO THE CP — ESCORT CONTINUES"), true)
 
 
 func _complete_special_zone() -> void:
@@ -5963,6 +6056,180 @@ func _setup_fpv_camera_for_preset() -> void:
 	cam.set_meta("base_rot", cam.rotation_degrees)
 
 
+func _ensure_fiber_cable() -> void:
+	if _fiber_cable != null and is_instance_valid(_fiber_cable):
+		return
+	_fiber_cable = MeshInstance3D.new()
+	_fiber_cable.name = "FiberOpticCable"
+	_fiber_cable.top_level = true
+	_fiber_cable.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_fiber_cable_mesh = ImmediateMesh.new()
+	_fiber_cable.mesh = _fiber_cable_mesh
+	add_child(_fiber_cable)
+	_fiber_cable.global_transform = Transform3D.IDENTITY
+	_fiber_cable.visible = false
+	_fiber_core_mat = _fiber_cable_material(true)
+	_fiber_glow_mat = _fiber_cable_material(false)
+
+	_fiber_spool_marker = Node3D.new()
+	_fiber_spool_marker.name = "FiberSpool"
+	_fiber_spool_marker.top_level = true
+	add_child(_fiber_spool_marker)
+	var drum := MeshInstance3D.new()
+	var drum_mesh := CylinderMesh.new()
+	drum_mesh.top_radius = 0.16
+	drum_mesh.bottom_radius = 0.16
+	drum_mesh.height = 0.11
+	drum.mesh = drum_mesh
+	drum.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var drum_mat := StandardMaterial3D.new()
+	drum_mat.albedo_color = Color(0.045, 0.085, 0.075, 1.0)
+	drum_mat.metallic = 0.45
+	drum_mat.roughness = 0.55
+	drum.material_override = drum_mat
+	drum.position.y = 0.055
+	_fiber_spool_marker.add_child(drum)
+	var ring := MeshInstance3D.new()
+	var ring_mesh := TorusMesh.new()
+	ring_mesh.inner_radius = 0.17
+	ring_mesh.outer_radius = 0.235
+	ring_mesh.rings = 24
+	ring_mesh.ring_segments = 8
+	ring.mesh = ring_mesh
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var ring_mat := StandardMaterial3D.new()
+	ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ring_mat.albedo_color = FIBER_CABLE_COLOR
+	ring_mat.emission_enabled = true
+	ring_mat.emission = FIBER_CABLE_COLOR
+	ring_mat.emission_energy_multiplier = 2.2
+	ring.material_override = ring_mat
+	ring.position.y = 0.085
+	_fiber_spool_marker.add_child(ring)
+	_fiber_spool_marker.visible = false
+
+
+func _fiber_cable_material(core: bool) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.albedo_color = Color(FIBER_CABLE_COLOR.r, FIBER_CABLE_COLOR.g,
+			FIBER_CABLE_COLOR.b, 0.96 if core else 0.16)
+	mat.emission_enabled = true
+	mat.emission = FIBER_CABLE_COLOR
+	mat.emission_energy_multiplier = 3.4 if core else 1.2
+	mat.render_priority = 2 if core else 1
+	return mat
+
+
+func _fiber_cable_path(anchor: Vector3, tip: Vector3) -> PackedVector3Array:
+	var pts := PackedVector3Array()
+	var horizontal := Vector2(tip.x - anchor.x, tip.z - anchor.z).length()
+	var height := maxf(tip.y - anchor.y, 0.0)
+	var sag := minf(horizontal * 0.012, 0.32 + height * 0.055)
+	sag = minf(sag, 2.6)
+	for i in range(FIBER_CABLE_SEGMENTS + 1):
+		var t := float(i) / float(FIBER_CABLE_SEGMENTS)
+		var p := anchor.lerp(tip, t)
+		p.y -= sag * 4.0 * t * (1.0 - t)
+		# A cable cannot sink through the launch apron even while slack.
+		if i > 0:
+			p.y = maxf(p.y, anchor.y + 0.018)
+		pts.append(p)
+	pts[pts.size() - 1] = tip
+	return pts
+
+
+func _fiber_ribbon_vertices(points: PackedVector3Array, cam_pos: Vector3,
+		core: bool) -> PackedVector3Array:
+	var verts := PackedVector3Array()
+	for i in range(points.size() - 1):
+		var a := points[i]
+		var b := points[i + 1]
+		var dir := b - a
+		if dir.length_squared() < 0.000001:
+			continue
+		dir = dir.normalized()
+		var mid := (a + b) * 0.5
+		var to_cam := cam_pos - mid
+		if to_cam.length_squared() < 0.000001:
+			to_cam = Vector3.UP
+		var side := dir.cross(to_cam.normalized())
+		if side.length_squared() < 0.000001:
+			side = Vector3.RIGHT
+		var cam_dist := mid.distance_to(cam_pos)
+		# Perspective-correct screen width: the strand stays legible hundreds of
+		# metres out without becoming a pipe as the drone passes the camera.
+		var half := 0.022 + minf(cam_dist * 0.0012, 0.18)
+		if not core:
+			half = 0.060 + minf(cam_dist * 0.0034, 0.46)
+		side = side.normalized() * half
+		verts.append(a - side)
+		verts.append(a + side)
+		verts.append(b + side)
+		verts.append(a - side)
+		verts.append(b + side)
+		verts.append(b - side)
+	return verts
+
+
+func _rebuild_fiber_cable(tip: Vector3, cam_pos: Vector3) -> void:
+	_ensure_fiber_cable()
+	if _fiber_cable_mesh == null:
+		return
+	var pts := _fiber_cable_path(_fiber_anchor, tip)
+	_fiber_cable_mesh.clear_surfaces()
+	for core in [false, true]:
+		var verts := _fiber_ribbon_vertices(pts, cam_pos, core)
+		if verts.is_empty():
+			continue
+		_fiber_cable_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES,
+				_fiber_core_mat if core else _fiber_glow_mat)
+		for v in verts:
+			_fiber_cable_mesh.surface_add_vertex(v)
+		_fiber_cable_mesh.surface_end()
+	_fiber_cable.visible = true
+	if _fiber_spool_marker != null:
+		_fiber_spool_marker.global_position = _fiber_anchor
+		_fiber_spool_marker.visible = true
+
+
+func _update_fiber_cable(drone: Node3D, cam: Camera3D, fiber_mode: bool) -> void:
+	if drone == null or not is_instance_valid(drone):
+		return
+	if not fiber_mode or _dvr_replaying:
+		if _fiber_cable != null and is_instance_valid(_fiber_cable):
+			_fiber_cable.visible = false
+		if _fiber_spool_marker != null and is_instance_valid(_fiber_spool_marker):
+			_fiber_spool_marker.visible = false
+		return
+	if not _fiber_anchor_ready:
+		var behind := drone.global_transform.basis.z
+		behind.y = 0.0
+		if behind.length_squared() < 0.0001:
+			behind = Vector3.BACK
+		behind = behind.normalized() * 2.4
+		var anchor := drone.global_position + behind
+		anchor.y = _terrain_y(anchor.x, anchor.z) + 0.16
+		_fiber_anchor = anchor
+		_fiber_anchor_ready = true
+	var tip := drone.global_position + drone.global_transform.basis.z * 0.34
+	var cam_pos := cam.global_position if cam != null and is_instance_valid(cam) \
+			else drone.global_position + Vector3.UP * 0.15
+	_rebuild_fiber_cable(tip, cam_pos)
+
+
+func _reset_fiber_cable() -> void:
+	_fiber_anchor_ready = false
+	_fiber_anchor = Vector3.ZERO
+	_fiber_spool_used_m = 0.0
+	if _fiber_cable != null and is_instance_valid(_fiber_cable):
+		_fiber_cable.visible = false
+	if _fiber_spool_marker != null and is_instance_valid(_fiber_spool_marker):
+		_fiber_spool_marker.visible = false
+
+
 func _update_fpv_camera_fx(delta: float) -> void:
 	var drone := get_node_or_null("Drone") as Drone
 	var cam := get_node_or_null("Drone/FPVCamera") as Camera3D
@@ -5971,6 +6238,7 @@ func _update_fpv_camera_fx(delta: float) -> void:
 	var speed := drone.linear_velocity.length()
 	var armed: bool = drone.flight_controller != null and drone.flight_controller.state_armed
 	var fiber_mode: bool = Global != null and bool(Global.menu_settings.get("fiber_optic_mode", false))
+	_update_fiber_cable(drone, cam, fiber_mode)
 	if armed and fiber_mode:
 		_fiber_spool_used_m = clampf(_fiber_spool_used_m + speed * delta, 0.0, 10000.0)
 	if armed and not _dvr_replaying and not _mission_finished:
@@ -5980,9 +6248,21 @@ func _update_fpv_camera_fx(delta: float) -> void:
 			_dvr_samples.append({
 				"pos": drone.global_position,
 				"rot": drone.global_rotation,
+				"cam_pos": cam.global_position,
+				"cam_rot": cam.global_rotation,
+				"cam_fov": cam.fov,
 			})
-			if _dvr_samples.size() > 75:
+			if _dvr_samples.size() > 300:
 				_dvr_samples.pop_front()
+		# Record the real FPV picture, not only transforms.  5 fps at a reduced
+		# resolution is enough for the debrief replay and keeps the rolling
+		# buffer around 20 MB.  The previous implementation teleported the live
+		# drone around the current world, so the "replay" looked like gameplay
+		# with a REC banner on top.
+		_dvr_frame_timer += delta
+		if _dvr_frame_timer >= 1.0 / float(DVR_FPS):
+			_dvr_frame_timer = 0.0
+			_capture_dvr_frame()
 	# Low-altitude radio horizon multipath scanlines (when flying standard radio below 2.6 m)
 	if _hud != null and _analog_bar_a == null:
 		_analog_bar_a = ColorRect.new()
@@ -6936,56 +7216,214 @@ func _on_leaderboard_pressed() -> void:
 	_set_flash(_txt("ТАБЛИЦЯ ЛІДЕРІВ НЕДОСТУПНА ОФЛАЙН", "LEADERBOARD UNAVAILABLE OFFLINE"))
 
 
+## Grabs one low-resolution frame of the live FPV viewport for the DVR buffer.
+func _capture_dvr_frame() -> void:
+	if _dvr_capture_failed or _dvr_capture_pending:
+		return
+	if DisplayServer.get_name() == "headless":
+		_dvr_capture_failed = true
+		return
+	# The viewport texture is only readable after the frame has actually been
+	# drawn.  Reading it from _process returned an all-black image, so the
+	# "replay" looked like a black screen with a REC stamp on top.
+	_dvr_capture_pending = true
+	await RenderingServer.frame_post_draw
+	_dvr_capture_pending = false
+	if not is_inside_tree() or _dvr_capture_failed or _mission_finished or _dvr_replaying:
+		return
+	var vp := get_viewport()
+	if vp == null:
+		return
+	var img := vp.get_texture().get_image() if vp.get_texture() != null else null
+	if img == null or img.is_empty():
+		_dvr_capture_failed = true
+		return
+	img.resize(DVR_FRAME_W, DVR_FRAME_H, Image.INTERPOLATE_BILINEAR)
+	var tex := ImageTexture.create_from_image(img)
+	_dvr_frames.append(tex)
+	while _dvr_frames.size() > DVR_MAX_FRAMES:
+		_dvr_frames.pop_front()
+
+
+func _ensure_dvr_overlay() -> void:
+	if _dvr_overlay != null and is_instance_valid(_dvr_overlay):
+		return
+	_dvr_overlay = CanvasLayer.new()
+	_dvr_overlay.name = "DvrReplayLayer"
+	_dvr_overlay.layer = 300
+	_dvr_overlay.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(_dvr_overlay)
+	var root := Control.new()
+	root.name = "DvrReplayRoot"
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	_dvr_overlay.add_child(root)
+	var bg := ColorRect.new()
+	bg.color = Color(0.005, 0.008, 0.006, 1.0)
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.add_child(bg)
+	_dvr_overlay_rect = TextureRect.new()
+	_dvr_overlay_rect.name = "DvrFrame"
+	_dvr_overlay_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_dvr_overlay_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_dvr_overlay_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_dvr_overlay_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_dvr_overlay_rect)
+	# Thin viewfinder frame + scanline tint sell the recording as archive
+	# footage rather than live gameplay.
+	var frame := Panel.new()
+	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	frame.offset_left = 10.0
+	frame.offset_top = 10.0
+	frame.offset_right = -10.0
+	frame.offset_bottom = -10.0
+	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var frame_style := StyleBoxFlat.new()
+	frame_style.bg_color = Color(0, 0, 0, 0)
+	frame_style.border_color = Color(0.92, 0.94, 0.90, 0.28)
+	frame_style.set_border_width_all(1)
+	frame.add_theme_stylebox_override("panel", frame_style)
+	root.add_child(frame)
+	var scan := ColorRect.new()
+	scan.color = Color(1, 1, 1, 1)
+	scan.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	scan.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# A multiply-blended black ColorRect erased the recorded frame completely.
+	# Draw real (subtle) scanlines instead so the footage stays visible.
+	var scan_shader := Shader.new()
+	scan_shader.code = """
+shader_type canvas_item;
+void fragment() {
+	float line = step(0.5, fract(SCREEN_UV.y * 160.0));
+	COLOR = vec4(0.0, 0.0, 0.0, 0.035 + line * 0.045);
+}
+"""
+	var scan_mat := ShaderMaterial.new()
+	scan_mat.shader = scan_shader
+	scan.material = scan_mat
+	root.add_child(scan)
+	_dvr_overlay_stamp = Label.new()
+	_dvr_overlay_stamp.name = "DvrStamp"
+	_dvr_overlay_stamp.position = Vector2(28.0, 24.0)
+	_dvr_overlay_stamp.add_theme_font_size_override("font_size", 18)
+	_dvr_overlay_stamp.add_theme_color_override("font_color", Color(1.0, 0.30, 0.22, 1.0))
+	_dvr_overlay_stamp.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
+	_dvr_overlay_stamp.add_theme_constant_override("outline_size", 5)
+	root.add_child(_dvr_overlay_stamp)
+	_dvr_overlay_time = Label.new()
+	_dvr_overlay_time.name = "DvrTimecode"
+	_dvr_overlay_time.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	_dvr_overlay_time.offset_left = -300.0
+	_dvr_overlay_time.offset_top = -52.0
+	_dvr_overlay_time.offset_right = -28.0
+	_dvr_overlay_time.offset_bottom = -24.0
+	_dvr_overlay_time.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_dvr_overlay_time.add_theme_font_size_override("font_size", 18)
+	_dvr_overlay_time.add_theme_color_override("font_color", Color(0.86, 0.96, 0.88, 0.95))
+	_dvr_overlay_time.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
+	_dvr_overlay_time.add_theme_constant_override("outline_size", 5)
+	root.add_child(_dvr_overlay_time)
+	_dvr_overlay.visible = false
+
+
 func _on_dvr_replay_pressed() -> void:
 	if _dvr_replaying or _results == null:
 		return
 	_dvr_replaying = true
 	var was_paused := get_tree().paused
-	get_tree().paused = false
+	var results_was_visible := _results_canvas_layer == null \
+			or _results_canvas_layer.visible
+	var hud_was_visible := _hud == null or _hud.visible
 	_results.visible = false
 	if _results_canvas_layer != null:
 		_results_canvas_layer.visible = false
-	if _dvr_banner_label == null and _hud != null:
-		_dvr_banner_label = Label.new()
-		_dvr_banner_label.name = "DvrReplayStamp"
-		_dvr_banner_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
-		_dvr_banner_label.offset_left = -360.0
-		_dvr_banner_label.offset_right = 360.0
-		_dvr_banner_label.offset_top = 42.0
-		_dvr_banner_label.offset_bottom = 86.0
-		_dvr_banner_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		_dvr_banner_label.add_theme_font_size_override("font_size", 20)
-		_dvr_banner_label.add_theme_color_override("font_color", Color(1.0, 0.32, 0.24, 0.98))
-		_dvr_banner_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
-		_dvr_banner_label.add_theme_constant_override("outline_size", 5)
-		_hud.add_child(_dvr_banner_label)
-	if _dvr_banner_label != null:
+	_ensure_dvr_overlay()
+	if _dvr_overlay != null:
+		_dvr_overlay.visible = true
+	if _dvr_overlay_stamp != null:
 		var b_name := DroneCatalog.get_drone_name(Global.drone_preset)
-		_dvr_banner_label.text = ("● REC // DVR STRIKE REPLAY · %s · HEAVENLY HORIZON" if _is_en() \
-				else "● REC // БОРТОВИЙ ЗАПИС УДАРУ (DVR) · %s · НЕБЕСНИЙ ГОРИЗОНТ") % b_name
-		_dvr_banner_label.visible = true
-	var drone := get_node_or_null("Drone") as Drone
-	if drone != null and not _dvr_samples.is_empty():
-		drone.visible = true
-		drone.freeze = true
-		for sample in _dvr_samples:
-			if not is_inside_tree():
-				break
-			var s_dict: Dictionary = sample
-			drone.global_position = s_dict["pos"]
-			drone.global_rotation = s_dict["rot"]
-			await get_tree().create_timer(0.04).timeout
-	if _last_strike_pos != Vector3.ZERO:
-		ExplosionScript.spawn(self, _last_strike_pos, 1.35)
-		await get_tree().create_timer(1.1).timeout
-	if _dvr_banner_label != null:
-		_dvr_banner_label.visible = false
-	if _results_canvas_layer != null and _is_mobile_runtime():
-		_results_canvas_layer.visible = true
+		_dvr_overlay_stamp.text = ("● REC  DVR STRIKE REPLAY · %s" if _is_en() \
+				else "● REC  БОРТОВИЙ ЗАПИС (DVR) · %s") % b_name
+	if _dvr_overlay_time != null:
+		_dvr_overlay_time.text = ""
+	# Freeze the world so the replay is a playback, not live gameplay.
+	if _hud != null:
+		_hud.visible = false
+	get_tree().paused = true
+	if _dvr_frames.size() >= 6:
+		await _play_dvr_frames()
+	else:
+		await _play_dvr_camera_path()
+	# Restore the debrief exactly as it was before playback.
+	if _dvr_overlay != null:
+		_dvr_overlay.visible = false
+	if _dvr_overlay_rect != null:
+		_dvr_overlay_rect.texture = null
+	if _hud != null:
+		_hud.visible = hud_was_visible
+	if _results_canvas_layer != null:
+		_results_canvas_layer.visible = results_was_visible
 	if _results != null:
 		_results.visible = true
 	get_tree().paused = was_paused
 	_dvr_replaying = false
+
+
+func _play_dvr_frames() -> void:
+	var total := _dvr_frames.size()
+	for i in range(total):
+		if not is_inside_tree() or _dvr_overlay_rect == null:
+			break
+		_dvr_overlay_rect.texture = _dvr_frames[i]
+		if _dvr_overlay_time != null:
+			var t_sec := int(float(i) / float(DVR_FPS))
+			var total_sec := int(float(total) / float(DVR_FPS))
+			_dvr_overlay_time.text = "▶ PLAY  %02d:%02d / %02d:%02d" % [
+				t_sec / 60, t_sec % 60, total_sec / 60, total_sec % 60]
+		await get_tree().create_timer(1.0 / float(DVR_FPS), true).timeout
+	# Hold the final (strike) frame for a moment before returning to debrief.
+	await get_tree().create_timer(0.65, true).timeout
+
+
+func _play_dvr_camera_path() -> void:
+	var drone := get_node_or_null("Drone") as Drone
+	var old_cam := get_viewport().get_camera_3d() if get_viewport() != null else null
+	if _dvr_samples.is_empty():
+		if _dvr_overlay_time != null:
+			_dvr_overlay_time.text = _txt("ЗАПИС ВІДСУТНІЙ", "NO RECORDING")
+		await get_tree().create_timer(1.2, true).timeout
+		return
+	var replay_cam := Camera3D.new()
+	replay_cam.name = "DvrReplayCamera"
+	replay_cam.fov = 100.0
+	replay_cam.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(replay_cam)
+	replay_cam.current = true
+	var drone_was_visible := drone != null and drone.visible
+	if drone != null:
+		drone.visible = false
+	var total := _dvr_samples.size()
+	for i in range(total):
+		if not is_inside_tree():
+			break
+		var sd: Dictionary = _dvr_samples[i]
+		var cp: Vector3 = sd.get("cam_pos", sd.get("pos", Vector3.ZERO))
+		var cr: Vector3 = sd.get("cam_rot", sd.get("rot", Vector3.ZERO))
+		replay_cam.global_position = cp
+		replay_cam.global_rotation = cr
+		replay_cam.fov = float(sd.get("cam_fov", 100.0))
+		if _dvr_overlay_time != null:
+			var t_sec := int(float(i) * 0.05)
+			var total_sec := int(float(total) * 0.05)
+			_dvr_overlay_time.text = "▶ PLAY  %02d:%02d / %02d:%02d" % [
+				t_sec / 60, t_sec % 60, total_sec / 60, total_sec % 60]
+		await get_tree().create_timer(0.05, true).timeout
+	await get_tree().create_timer(0.4, true).timeout
+	if old_cam != null and is_instance_valid(old_cam):
+		old_cam.current = true
+	if drone != null:
+		drone.visible = drone_was_visible
+	replay_cam.queue_free()
 
 
 func _build_chain_briefing() -> void:

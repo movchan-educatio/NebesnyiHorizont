@@ -174,6 +174,12 @@ static func setup_propellers(model: Node3D, preset_index: int, prop_d: float = 5
 	return pivots
 
 
+## Real props turn at 15-25k RPM, which aliases into a frozen or strobing disc
+## on a 60 Hz display.  The visual layer therefore drives the pivots at a
+## readable rate while the flight model keeps the physical RPM: the blades stay
+## clearly in motion instead of appearing stopped.
+const MAX_VISUAL_RPM := 780.0
+
 ## Spins all 4 propellers by delta according to motor RPM.
 ## If rpms is empty, an idle spin is applied (useful for menus & preview).
 static func animate_propellers(model: Node3D, delta: float, rpms: Array = []) -> void:
@@ -196,9 +202,13 @@ static func animate_propellers(model: Node3D, delta: float, rpms: Array = []) ->
 			# The flight model has four physical motors; the six-rotor visual
 			# maps them onto its six pivots.
 			rpm = float(rpms[i % rpms.size()])
-			
 		var dir: float = float(pivot.get_meta("spin_dir", 1.0))
-		var visual_rpm: float = clampf(rpm, -18000.0, 18000.0)
+		# Preserve direction and the zero-RPM stop, but squeeze the enormous
+		# physical RPM into a range the eye can actually resolve.
+		var visual_rpm: float = signf(rpm) * minf(absf(rpm), MAX_VISUAL_RPM)
+		# Any armed motor still turns: never freeze a live propeller.
+		if absf(rpm) > 50.0 and absf(visual_rpm) < 180.0:
+			visual_rpm = signf(rpm) * 180.0
 		var rad_step: float = visual_rpm * (TAU / 60.0) * delta * dir
 		var axis: Vector3 = pivot.get_meta("spin_axis", Vector3.UP)
 		pivot.rotate_object_local(axis, rad_step)

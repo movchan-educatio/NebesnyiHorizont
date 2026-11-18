@@ -92,7 +92,9 @@ func _run() -> void:
 	var truck := Vehicle.new()
 	truck.kind = Vehicle.Kind.TRUCK
 	add_child(truck)
-	truck.hostile = false
+	# Only hostile supply/recon trucks break away from an approaching armed
+	# drone; a friendly one keeps its route speed.
+	truck.hostile = true
 	truck.move_speed = 10.0
 	truck._damage_speed_mult = 1.0
 	truck.meander_amplitude = 0.0
@@ -150,13 +152,17 @@ func _run() -> void:
 	shahed.call("_move_along_route", 0.5)
 	shahed.call("_move_along_route", 0.5)
 	shahed.call("_move_along_route", 0.5)
-	var to_drone := drone.global_position - shahed.global_position
-	to_drone.y = 0.0
+	var to_wp := Vector3(0.0, 0.0, -200.0) - shahed.global_position
+	to_wp.y = 0.0
 	var forward := -shahed.global_transform.basis.z
 	forward.y = 0.0
 	var angle_deg := rad_to_deg(absf(angle_difference(atan2(-forward.x, -forward.z),
-			atan2(-to_drone.x, -to_drone.z))))
-	_check(angle_deg < 20.0, "Shahed steers at the armed drone on mobile (%.1f deg)" % angle_deg)
+			atan2(-to_wp.x, -to_wp.z))))
+	_check(angle_deg < 20.0, "Shahed follows its route waypoint on mobile (%.1f deg)" % angle_deg)
+	_check(int(shahed.get("_shahed_phase")) == 0,
+			"Shahed stays in route patrol near the armed drone on mobile")
+	_check(not bool(shahed.get("_engaging")),
+			"Shahed does not enter an attack engagement on mobile")
 
 	print("[MOBILE_VEHICLE] failures=", _failures)
 	get_tree().quit(0 if _failures == 0 else 1)

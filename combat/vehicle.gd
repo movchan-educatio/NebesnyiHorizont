@@ -120,6 +120,9 @@ var _reverse_left := 0.0
 var _retreating := false
 var _orbit_phase := 0.0
 var _last_obstacle_normal := Vector3.ZERO
+## Escort convoys can be pinned by a nav dead end.  This flag makes the truck
+## ignore the look-ahead blocker and run directly for the final checkpoint.
+var _escort_goal_seek := false
 var _shahed_phase := ShahedPhase.PATROL
 var _shahed_phase_timer := 0.0
 var _shahed_attack_cooldown := 0.0
@@ -1281,6 +1284,7 @@ func set_waypoints(points: Array) -> void:
 		v.z = clampf(v.z, -lim, lim)
 		_waypoints.append(v)
 	_wp_index = 0
+	_escort_goal_seek = false
 	if kind == Kind.SHAHED:
 		_shahed_phase = ShahedPhase.PATROL
 		_shahed_phase_timer = 0.0
@@ -1355,11 +1359,19 @@ func _move_along_route(delta: float) -> void:
 	if kind == Kind.SHAHED:
 		_move_shahed_along_route(delta)
 		return
+	if _waypoints.is_empty():
+		_step = 0.0
+		return
+	var is_escort := is_in_group("escort_convoy") or not hostile
+	if is_escort and _escort_goal_seek and _waypoints.size() > 0:
+		# Emergency mode: drive straight at the final checkpoint.  The convoy is
+		# kinematic and the route generator has already sanitised the corridor;
+		# ignoring the look-ahead blocker is what lets it escape a dead-end.
+		_wp_index = _waypoints.size() - 1
 	var target := _waypoints[_wp_index]
 	var flat := target - global_position
 	flat.y = 0.0
 	var wp_reach := 8.0 if (kind == Kind.HELI or kind == Kind.SHAHED) else 6.5
-	var is_escort := is_in_group("escort_convoy") or not hostile
 	if flat.length() < wp_reach:
 		if is_escort:
 			if _wp_index < _waypoints.size() - 1:
@@ -1465,7 +1477,8 @@ func _move_along_route(delta: float) -> void:
 		_reverse_left = maxf(0.0, _reverse_left - delta)
 
 	var blocked := false
-	if kind != Kind.HELI and kind != Kind.SHAHED and _reverse_left <= 0.0:
+	if kind != Kind.HELI and kind != Kind.SHAHED and _reverse_left <= 0.0 \
+			and not (is_escort and _escort_goal_seek):
 		var look_ahead := _step + (3.4 if is_escort else 2.2)
 		blocked = _is_path_blocked(forward, look_ahead)
 		if blocked:
@@ -1532,21 +1545,32 @@ func _move_along_route(delta: float) -> void:
 	_enforce_map_bounds()
 
 
-## Shahed-136 attack profile: patrol its route, commit to a short lead pursuit,
-## then make a steep, non-orbiting dive.  A pass triggers a proximity warhead
-## and a straight overshoot/recovery before the next attack run.
+## Escort mission recovery: clear the stuck/reverse state and head straight for
+## the final checkpoint.  Called by the mission director after a real stall.
+func escort_emergency_advance() -> void:
+	_stuck_time = 0.0
+	_reverse_left = 0.0
+	_escort_goal_seek = true
+	if _waypoints.size() > 1 and _wp_index < _waypoints.size() - 1:
+		_wp_index = _waypoints.size() - 1
+
+
+## Shahed-136 route patrol.  The drone is a target for the player, not an
+## attacker: it flies its authored loop at cruise altitude and never dives at,
+## rams, or damages the player.  Keeping it on rails also makes the interception
+## mission deterministic and removes the old circling/overshoot behaviour.
 func _move_shahed_along_route(delta: float) -> void:
 	if _waypoints.is_empty():
 		_step = 0.0
 		return
 	if _wp_index < 0 or _wp_index >= _waypoints.size():
 		_wp_index = 0
+	_shahed_phase = ShahedPhase.PATROL
 
-	_update_shahed_attack_state(delta)
 	var route_target := _waypoints[_wp_index]
 	var route_flat := route_target - global_position
 	route_flat.y = 0.0
-	if _shahed_phase == ShahedPhase.PATROL and route_flat.length() < 8.0:
+	if route_flat.length() < 8.0:
 		_wp_index = (_wp_index + 1) % _waypoints.size()
 		route_target = _waypoints[_wp_index]
 		route_flat = route_target - global_position
@@ -1554,20 +1578,6 @@ func _move_shahed_along_route(delta: float) -> void:
 
 	var desired_yaw := atan2(-route_flat.x, -route_flat.z)
 	var speed_boost := 1.0
-	if _shahed_phase == ShahedPhase.APPROACH or _shahed_phase == ShahedPhase.DIVE:
-		var aim := _shahed_aim_position()
-		var to_aim := aim - global_position
-		to_aim.y = 0.0
-		if _shahed_phase == ShahedPhase.DIVE:
-			desired_yaw = _shahed_dive_yaw
-			speed_boost = 1.30
-		else:
-			if to_aim.length_squared() > 0.01:
-				desired_yaw = atan2(-to_aim.x, -to_aim.z)
-			speed_boost = 1.14
-	elif _shahed_phase == ShahedPhase.OVERSHOOT:
-		desired_yaw = _shahed_recovery_yaw
-		speed_boost = 1.10
 
 	var lim := _arena_limit()
 	var margin := 12.0
@@ -1591,15 +1601,7 @@ func _move_shahed_along_route(delta: float) -> void:
 	_steer_angle = clampf(yaw_diff * 0.65, -0.46, 0.46)
 	rotation.z = lerpf(rotation.z,
 			clampf(-yaw_diff * 0.45, -0.40, 0.40), clampf(delta * 3.0, 0.0, 1.0))
-	var pitch_target := 0.0
-	match _shahed_phase:
-		ShahedPhase.APPROACH:
-			pitch_target = -0.08
-		ShahedPhase.DIVE:
-			pitch_target = -0.48
-		ShahedPhase.OVERSHOOT:
-			pitch_target = 0.18
-	rotation.x = lerpf(rotation.x, pitch_target, clampf(delta * 2.8, 0.0, 1.0))
+	rotation.x = lerpf(rotation.x, 0.0, clampf(delta * 2.8, 0.0, 1.0))
 
 	var speed := move_speed * _damage_speed_mult * speed_boost
 	_step = speed * delta
@@ -1607,7 +1609,6 @@ func _move_shahed_along_route(delta: float) -> void:
 	if forward.length_squared() > 0.001:
 		global_position += forward.normalized() * _step
 	_enforce_map_bounds()
-	_shahed_check_attack_pass()
 
 
 func _shahed_target_armed() -> bool:
@@ -1808,21 +1809,10 @@ func _update_height(delta: float) -> void:
 		global_position.y = lerpf(global_position.y, gy + cruise_height,
 				clampf(delta * 2.0, 0.0, 1.0))
 	elif kind == Kind.SHAHED:
-		if _shahed_phase == ShahedPhase.DIVE and _shahed_target_armed():
-			# The cruise-altitude servo yields during an attack run.  Keep a small
-			# terrain/rotor clearance while descending toward the drone's altitude.
-			var dive_floor := gy + 4.5
-			var attack_height := minf(global_position.y, _drone.global_position.y + 2.0)
-			var target_height := maxf(dive_floor, attack_height)
-			global_position.y = move_toward(global_position.y, target_height,
-					delta * 22.0)
-		elif _shahed_phase == ShahedPhase.OVERSHOOT:
-			var recovery_height := gy + maxf(cruise_height + 9.0, 42.0)
-			global_position.y = move_toward(global_position.y, recovery_height,
-					delta * 15.0)
-		else:
-			global_position.y = lerpf(global_position.y, gy + cruise_height,
-					clampf(delta * 2.0, 0.0, 1.0))
+		# Route patrol only: hold the authored cruise altitude above the terrain.
+		# No dive/attack servo is allowed to bypass this altitude lock.
+		global_position.y = lerpf(global_position.y, gy + cruise_height,
+				clampf(delta * 2.0, 0.0, 1.0))
 	else:
 		# Strictly clamp ground vehicles to the terrain surface so they never float.
 		_ground = lerpf(_ground, gy, clampf(delta * 18.0, 0.0, 1.0))

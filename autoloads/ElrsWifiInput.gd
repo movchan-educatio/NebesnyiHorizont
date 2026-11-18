@@ -23,7 +23,7 @@ const UDP_PORT := 11000
 const CHANNEL_COUNT := 16
 const NO_DATA := 62058
 const ACTIVATE_INTERVAL := 4.0
-const STALE_MS := 8000
+const STALE_MS := 20000
 const CENTER := 16384.0
 const MOBILE_FORMAT_UNKNOWN := 0
 const MOBILE_FORMAT_15BIT := 1
@@ -87,6 +87,7 @@ var _http_busy := false
 var _pending_ip := ""
 var _last_frame_ms := 0
 var _last_valid_ms := 0
+var _frame_interval_ms := 100.0
 var _last_activate_ms := 0
 var _switch_state := {}
 var _switch_ready := false
@@ -132,7 +133,7 @@ func _process(delta: float) -> void:
 	var now := Time.get_ticks_msec()
 	if valid:
 		_last_valid_ms = now
-	if valid and now - _last_frame_ms > STALE_MS:
+	if valid and now - _last_frame_ms > _stale_limit_ms():
 		valid = false
 		if OS.get_name() == "iOS" or OS.has_feature("mobile") \
 				or OS.has_environment("MOBILE_UI"):
@@ -145,6 +146,14 @@ func _process(delta: float) -> void:
 	# to prevent continuous socket timeouts / micro-stutters on standard home Wi-Fi
 	if not valid and not module_ip.is_empty() and now - _last_activate_ms >= int(ACTIVATE_INTERVAL * 1000.0):
 		_try_activate(module_ip)
+
+
+## The stale window adapts to the measured frame cadence so a brief Wi-Fi
+## retransmission gap no longer tears down the link, while a really dead
+## transmitter is still detected within a bounded time.
+func _stale_limit_ms() -> int:
+	return clampi(int(maxf(float(STALE_MS), _frame_interval_ms * 12.0)),
+			STALE_MS, 60000)
 
 
 func was_recently_active(window_ms: int = 20000) -> bool:
@@ -182,13 +191,32 @@ func _parse_channels(packet: PackedByteArray, ip: String) -> void:
 		return
 	if packet.size() < 2 + count * 2:
 		return
+	var now := Time.get_ticks_msec()
+	if _last_frame_ms > 0:
+		var frame_dt := now - _last_frame_ms
+		if frame_dt > 0 and frame_dt < 4000:
+			_frame_interval_ms = lerpf(_frame_interval_ms, float(frame_dt), 0.15)
+	# A structurally valid packet proves the RF link is alive even when the TX
+	# fills some channels with the NO_DATA sentinel.  Heartbeat every frame.
+	_last_frame_ms = now
+	module_ip = ip
 	var fresh := PackedFloat32Array()
 	fresh.resize(count)
+	var data_channels := 0
 	for i in range(count):
 		var value := int(packet[2 + i * 2]) | (int(packet[3 + i * 2]) << 8)
 		if value == NO_DATA:
-			return
+			# Keep the last known value for this channel instead of rejecting
+			# the whole frame.  A single unused AUX channel used to drop the
+			# complete stick/frame stream and made ELRS look intermittent.
+			fresh[i] = channels[i] if i < channels.size() else CENTER
+			continue
 		fresh[i] = float(value)
+		data_channels += 1
+	if data_channels < 4:
+		# Nothing usable in this frame: keep the previous control state and
+		# let the heartbeat above hold the link open.
+		return
 	var was_valid := valid
 	if OS.get_name() == "iOS" or OS.has_feature("mobile") \
 			or OS.has_environment("MOBILE_UI"):

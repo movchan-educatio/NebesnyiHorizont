@@ -156,6 +156,9 @@ var _hangar_perf_bars: Dictionary = {}
 var _hangar_select_btn: Button = null
 var _hangar_preview_idx: int = 0
 var _hangar_list_container: VBoxContainer = null
+var _hangar_scroll: ScrollContainer = null
+var _hangar_scroll_dragging := false
+var _hangar_scroll_drag_dist := 0.0
 var _is_dragging_hangar: bool = false
 # Guards the deferred one/two-frame fit.  The imported GLB prop nodes settle
 # their transforms after being added; fitting the same frame can read an
@@ -2952,14 +2955,25 @@ func _build_drone() -> void:
 	# --- Left Column: 13 Drones Scrollable List ---
 	var list_card := _panel(Color(0.025, 0.065, 0.05, 0.92), Color(0.38, 0.54, 0.42, 0.55), 1, 14)
 	list_card.custom_minimum_size.x = _fs(340)
+	list_card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	list_card.clip_contents = true
 	cols.add_child(list_card)
 
 	var scroll := ScrollContainer.new()
+	scroll.name = "HangarScroll"
 	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	scroll.scroll_deadzone = 4
+	scroll.follow_focus = false
 	list_card.add_child(scroll)
+	_hangar_scroll = scroll
+	scroll.gui_input.connect(_on_hangar_scroll_gui_input.bind(scroll))
 
 	_hangar_list_container = VBoxContainer.new()
 	_hangar_list_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_hangar_list_container.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	_hangar_list_container.add_theme_constant_override("separation", _gap(6))
 	scroll.add_child(_hangar_list_container)
 
@@ -2998,7 +3012,12 @@ func _build_drone() -> void:
 		bv.add_child(tag_lbl)
 
 		var cur_i := i
+		btn.gui_input.connect(_on_hangar_scroll_gui_input.bind(scroll))
 		btn.pressed.connect(func():
+			# A vertical swipe that started on a row must scroll the hangar,
+			# not select the drone under the finger.
+			if _hangar_scroll_drag_dist > 12.0:
+				return
 			_hangar_preview_idx = cur_i
 			var total := DroneCatalog.count()
 			DroneCatalog.prefetch_model((cur_i + 1) % total)
@@ -3341,6 +3360,33 @@ func _on_hangar_choose_pressed() -> void:
 	_update_hangar_info(_hangar_preview_idx)
 	_update_hangar_list_styles()
 	_update_play_caption()
+
+
+## Manual drag-to-scroll for the hangar list.  iOS sends touch drags directly
+## (the rows are Buttons and consume the press), so scrolling is driven here
+## instead of relying only on ScrollContainer's built-in desktop wheel path.
+func _on_hangar_scroll_gui_input(event: InputEvent, scroll: ScrollContainer) -> void:
+	if scroll == null:
+		return
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_LEFT:
+			if mb.pressed:
+				_hangar_scroll_drag_dist = 0.0
+			_hangar_scroll_dragging = mb.pressed
+	elif event is InputEventScreenTouch:
+		var st := event as InputEventScreenTouch
+		if st.pressed:
+			_hangar_scroll_drag_dist = 0.0
+		_hangar_scroll_dragging = st.pressed
+	elif event is InputEventMouseMotion and _hangar_scroll_dragging:
+		var mm := event as InputEventMouseMotion
+		scroll.scroll_vertical -= int(mm.relative.y)
+		_hangar_scroll_drag_dist += absf(mm.relative.y)
+	elif event is InputEventScreenDrag:
+		var sd := event as InputEventScreenDrag
+		scroll.scroll_vertical -= int(sd.relative.y)
+		_hangar_scroll_drag_dist += absf(sd.relative.y)
 
 
 func _on_hangar_gui_input(event: InputEvent) -> void:
@@ -4184,14 +4230,14 @@ func _build_settings_tab_sys() -> void:
 			else ("Play voice callouts only at mission start and completion (no replay on respawn)" if is_en else "Озвучення лише на старті та в кінці місії (без повторів після респавну)"),
 			12 if compact else 14, MenuUI.MUTED))
 	rad_box.add_child(rad_info)
-	var cur_rmode := int(Global.menu_settings.get("radio_chatter_mode", 1))
+	var cur_rmode := int(Global.menu_settings.get("radio_chatter_mode", 2))
 	var rmode_names_ua := ["ВИМК.", "СТАРТ / ФІНІШ", "ПОВНИЙ"]
 	var rmode_names_en := ["OFF", "START / END", "FULL"]
 	var rmode_arr := rmode_names_en if is_en else rmode_names_ua
 	var rad_btn := _button(rmode_arr[clampi(cur_rmode, 0, 2)], 40, true)
 	rad_btn.custom_minimum_size = Vector2(_ui_sz(115 if compact else 185), _ui_sz(40))
 	rad_btn.pressed.connect(func():
-		var next_m := (int(Global.menu_settings.get("radio_chatter_mode", 1)) + 1) % 3
+		var next_m := (int(Global.menu_settings.get("radio_chatter_mode", 2)) + 1) % 3
 		Global.menu_settings["radio_chatter_mode"] = next_m
 		Global.save_menu_settings()
 		var arr_now := rmode_names_en if MenuUI.is_english() else rmode_names_ua
