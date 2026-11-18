@@ -10,6 +10,35 @@ extends RefCounted
 const G := 9.81
 const FRONTLINE_TERRAIN := preload("res://scripts/util/frontline_terrain.gd")
 
+## Canonical release state shared by the CCIP sight and every physical dropper.
+## The store leaves the hardpoint slightly below and ahead of the airframe
+## origin so it clears the propellers, with the same small forward/down impulse
+## in both the predictor and the spawned rigid body.  Keeping one definition is
+## what makes the pipper land on the real impact point.
+const RELEASE_DOWN_OFFSET := 0.35
+const RELEASE_FORWARD_OFFSET := 0.2
+const RELEASE_FORWARD_IMPULSE := 2.0
+const RELEASE_DOWN_IMPULSE := 1.0
+
+
+## Return the exact origin/velocity used when a store leaves `drone`.
+## `origin_override` lets an airframe with a modelled rack release from the bay;
+## pass `Vector3.INF` (the default) to use the shared hardpoint.
+static func release_state(drone: Node3D, origin_override: Variant = null) -> Dictionary:
+	if drone == null or not is_instance_valid(drone):
+		return {"origin": Vector3.ZERO, "velocity": Vector3.ZERO, "forward": Vector3.FORWARD}
+	var forward := -drone.global_transform.basis.z
+	var origin := drone.global_position + Vector3.DOWN * RELEASE_DOWN_OFFSET \
+			+ forward * RELEASE_FORWARD_OFFSET
+	if origin_override is Vector3 and (origin_override as Vector3).is_finite():
+		origin = origin_override
+	return {
+		"origin": origin,
+		"velocity": drone.linear_velocity + forward * RELEASE_FORWARD_IMPULSE \
+				+ Vector3.DOWN * RELEASE_DOWN_IMPULSE,
+		"forward": forward,
+	}
+
 
 static func drag_k(kind: String) -> float:
 	match kind:

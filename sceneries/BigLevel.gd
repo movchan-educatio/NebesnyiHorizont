@@ -39,6 +39,18 @@ const MAP_AIR_SAFE := 172.0
 const MIN_ENEMY_SPAWN_DIST_GROUND := 80.0
 const MIN_ENEMY_SPAWN_DIST_AIR := 95.0
 
+## Air-target engagement envelope for campaign missions 3 and 4.
+## Both sorties are kinetic-intercept missions flown with a stock strike quad,
+## so the targets must stay inside the altitude band the drone can climb to and
+## at a speed the player can close on.  The old 30-54 m / 23-28 m/s band put the
+## helicopter and Shaheds above the practical zoom envelope, which made the
+## missions effectively unwinnable.
+const AIR_MISSION_HELI_ALT := Vector2(20.0, 30.0)
+const AIR_MISSION_HELI_SPEED := Vector2(10.5, 12.5)
+const AIR_MISSION_SHAHED_ALT_1 := Vector2(18.0, 24.0)
+const AIR_MISSION_SHAHED_ALT_2 := Vector2(22.0, 30.0)
+const AIR_MISSION_SHAHED_SPEED := Vector2(16.0, 20.0)
+
 var _map_root: Node3D = null
 var _triggers: Node3D = null
 var _hud: CanvasLayer = null
@@ -4917,9 +4929,11 @@ func _spawn_combat_mission(mission_id: int) -> void:
 			var h_center_x := randf_range(-25.0, 25.0) + _mission_offset.x
 			var h_center_z := randf_range(15.0, 42.0) + _mission_offset.z
 			var h_radius := randf_range(65.0, 88.0)
-			var h_height := randf_range(30.0, 42.0)
+			var h_height := randf_range(AIR_MISSION_HELI_ALT.x, AIR_MISSION_HELI_ALT.y)
 			var heli_pts := _loop_waypoints(h_center_x, h_center_z, h_radius, 8, 0.2)
-			_add_vehicle(Vehicle.Kind.HELI, heli_pts, randf_range(12.0, 13.8), true, true, h_height)
+			_add_vehicle(Vehicle.Kind.HELI, heli_pts,
+					randf_range(AIR_MISSION_HELI_SPEED.x, AIR_MISSION_HELI_SPEED.y),
+					true, true, h_height)
 			_mission_targets_total += 1
 
 			var sam_rot := randf_range(-0.4, 0.4)
@@ -4936,8 +4950,10 @@ func _spawn_combat_mission(mission_id: int) -> void:
 
 		4:
 			# МІСІЯ 4: Шахед (Максимальна складність — швидкісні повітряні цілі + ЗРК та БМП прикриття)
-			var sh1_alt := randf_range(36.0, 44.0)
-			var sh2_alt := randf_range(44.0, 54.0)
+			var sh1_alt := randf_range(AIR_MISSION_SHAHED_ALT_1.x,
+					AIR_MISSION_SHAHED_ALT_1.y)
+			var sh2_alt := randf_range(AIR_MISSION_SHAHED_ALT_2.x,
+					AIR_MISSION_SHAHED_ALT_2.y)
 			var ang := randf_range(-0.25, 0.25)
 			var p_pts1 := [
 				Vector3(-115.0, 0.0, 62.0).rotated(Vector3.UP, ang) + _mission_offset,
@@ -4945,7 +4961,10 @@ func _spawn_combat_mission(mission_id: int) -> void:
 				Vector3(115.0, 0.0, -26.0).rotated(Vector3.UP, ang) + _mission_offset,
 				Vector3(-115.0, 0.0, -26.0).rotated(Vector3.UP, ang) + _mission_offset,
 			]
-			_add_vehicle(Vehicle.Kind.SHAHED, p_pts1, randf_range(23.0, 25.5), true, false, sh1_alt)
+			_add_vehicle(Vehicle.Kind.SHAHED, p_pts1,
+					randf_range(AIR_MISSION_SHAHED_SPEED.x,
+							AIR_MISSION_SHAHED_SPEED.y),
+					true, false, sh1_alt)
 			_mission_targets_total += 1
 
 			var p_pts2 := [
@@ -4954,7 +4973,10 @@ func _spawn_combat_mission(mission_id: int) -> void:
 				Vector3(-120.0, 0.0, 82.0).rotated(Vector3.UP, -ang) + _mission_offset,
 				Vector3(120.0, 0.0, 82.0).rotated(Vector3.UP, -ang) + _mission_offset,
 			]
-			_add_vehicle(Vehicle.Kind.SHAHED, p_pts2, randf_range(25.0, 28.0), true, false, sh2_alt)
+			_add_vehicle(Vehicle.Kind.SHAHED, p_pts2,
+					randf_range(AIR_MISSION_SHAHED_SPEED.x,
+							AIR_MISSION_SHAHED_SPEED.y),
+					true, false, sh2_alt)
 			_mission_targets_total += 1
 
 			_add_vehicle(Vehicle.Kind.SAM, [
@@ -6625,6 +6647,17 @@ func _preset_payload_unit_mass() -> float:
 	return total / units
 
 
+## Exact release state for the current airframe.  The heavy bomber releases
+## from its modelled BombBay; every other dropper uses the shared hardpoint.
+## BombSight calls this too, so the CCIP pipper and the spawned rigid body
+## always start from the same point with the same velocity.
+func _bomb_release_state(drone_node: Node3D, _kind: String = "82mm") -> Dictionary:
+	var override := Vector3.INF
+	if _heavy_bomber and _fpv_payload != null and is_instance_valid(_fpv_payload):
+		override = _fpv_payload.global_position
+	return BombBallisticsScript.release_state(drone_node, override)
+
+
 func _setup_bomber_systems() -> void:
 	var drone := get_node_or_null("Drone") as Drone
 	if drone == null or _hud == null:
@@ -6684,7 +6717,9 @@ func _drop_heavy_bomb() -> void:
 		_set_flash("ЗАНИЗЬКО ДЛЯ СКИДУ" if not MenuUI.is_english() else "TOO LOW TO RELEASE")
 		return
 	_payload_drops += 1
-	var bomb: Node3D = _bomb_nodes.pop_back()
+	var bomb: Node3D = _bomb_nodes[_bomb_nodes.size() - 1]
+	var state := _bomb_release_state(drone, _bomb_kind)
+	_bomb_nodes.pop_back()
 	bomb.visible = false
 	var payload := PayloadScript.new()
 	payload.kind = _bomb_kind
@@ -6694,10 +6729,10 @@ func _drop_heavy_bomb() -> void:
 			payload.kind, payload.mass_override])
 	payload.damage = BombBallisticsScript.damage_for(_bomb_kind)
 	payload.blast_radius = BombBallisticsScript.blast_for(_bomb_kind)
-	var spawn := bomb.global_position
+	var spawn: Vector3 = state.get("origin", bomb.global_position)
 	add_child(payload)
 	payload.global_position = spawn
-	payload.linear_velocity = drone.linear_velocity + Vector3.DOWN * 0.8
+	payload.linear_velocity = state.get("velocity", drone.linear_velocity + Vector3.DOWN * 0.8)
 	payload.angular_velocity = Vector3(randf_range(-0.8, 0.8),
 			randf_range(-1.2, 1.2), randf_range(-0.8, 0.8))
 	payload.add_collision_exception_with(drone)
@@ -6759,18 +6794,18 @@ func _configure_model_for_camera(node: Node, is_fpv: bool,
 		return
 	if node.is_in_group("drone_prop_pivot") or node.name == "PropellerAssembly":
 		if node is Node3D:
-			var pn := String(node.name).to_lower()
-			var front_pivot := pn.contains("fl") or pn.contains("fr") \
-					or pn.ends_with("_0") or pn.ends_with("_1")
-			(node as Node3D).visible = (not is_fpv) or (only_payload and front_pivot)
+			# Never show a spinning blade in the FPV lens: the front props of
+			# the Grim-7 sit millimetres from the camera and sweep through the
+			# near plane, producing huge clipped black arcs across the frame.
+			(node as Node3D).visible = not is_fpv
 		return
 	if node is MeshInstance3D:
 		var mi := node as MeshInstance3D
 		if is_fpv and only_payload:
-			# Combat FPV: keep the warhead, camera/nose housing and the front
-			# propeller/arm silhouettes visible (the authentic FPV framing).
-			# Fixed-wing recon drones show their chin camera instead of an
-			# empty screen.
+			# Combat FPV: keep only the warhead, camera/nose housing and the
+			# fixed arms.  Propellers and motor bells belong to the airframe
+			# silhouette, not the lens: at this camera distance they clip
+			# through the near plane and fill the corners with black arcs.
 			var n2 := String(mi.name).to_lower()
 			if _heavy_bomber:
 				# The 2.8 m six-rotor airframe (battery cases, tanks, Starlink
@@ -6782,20 +6817,20 @@ func _configure_model_for_camera(node: Node, is_fpv: bool,
 				return
 			var is_warhead_part := n2.contains("morkva") or n2.contains("provoloka") \
 					or n2.contains("styazka") or n2.contains("detonator") \
-					or n2.contains("warhead") or n2.contains("pg7") \
-					or n2.contains("carbon") or n2.contains("material.003")
-			var is_front_part := n2.contains("propeller_fl") or n2.contains("propeller_fr") \
-					or n2.contains("propeller_0") or n2.contains("propeller_1") \
-					or n2.contains("motor_fl") or n2.contains("motor_fr") \
-					or n2.contains("arm_fl") or n2.contains("arm_fr") \
+					or n2.contains("warhead") or n2.contains("pg7")
+			var is_front_part := n2.contains("arm_fl") or n2.contains("arm_fr") \
 					or n2.contains("front_arm") or n2.contains("front_frame")
 			var is_camera_part := n2.contains("cam") or n2.contains("lens") \
 					or n2.contains("glass") or n2.contains("thermal")
+			var is_prop_part := n2.contains("propeller") or n2.contains("prop_") \
+					or n2.contains("rotor") or n2.contains("motor_f") \
+					or n2.contains("motor_b")
 			var is_nose_part := not _heavy_bomber and (n2.contains("nose") \
 					or n2.contains("chin") or n2.contains("pitot"))
-			mi.visible = (_fpv_payload != null and _is_under(mi, _fpv_payload)) \
+			mi.visible = not is_prop_part and ((_fpv_payload != null \
+					and _is_under(mi, _fpv_payload)) \
 					or is_warhead_part or is_front_part \
-					or is_camera_part or is_nose_part
+					or is_camera_part or is_nose_part)
 			return
 		var n := String(mi.name).to_lower()
 		var is_cam_mesh := n.contains("camera_low") or n.contains("camera_holder") \
@@ -6890,9 +6925,9 @@ func _drop_fpv_payload() -> void:
 	var drop_pos := global_position + Vector3.DOWN * 0.4
 	var drop_vel := Vector3.DOWN * 1.5
 	if drone != null:
-		var forward := -drone.global_transform.basis.z
-		drop_pos = drone.global_position + Vector3.DOWN * 0.35 + forward * 0.25
-		drop_vel = drone.linear_velocity + forward * 2.5 + Vector3.DOWN * 1.0
+		var state := BombBallisticsScript.release_state(drone)
+		drop_pos = state.get("origin", drop_pos)
+		drop_vel = state.get("velocity", drop_vel)
 		payload.add_collision_exception_with(drone)
 		if drone.has_method("drop_payload_action"):
 			var dropped_w: float = drone.drop_payload_action()
@@ -8649,22 +8684,12 @@ func _refresh_model_visibility() -> void:
 		if bool(p.get("heavy_bomber", false)):
 			hide_model = true
 		_model_root.visible = ((combat_airframe and _rig_visible) or show_airframe) and not hide_model
-		# Mobile attitude-reference props were removed: at 110° FOV the front
-		# blades were visibly cut off at the screen edges, which read as a
-		# rendering bug.  Keep the clean lens instead.
-		var mobile_front_props := false
-		if mobile_front_props and _rig_visible:
-			_model_root.visible = true
 		_apply_combat_fpv_camera(combat_airframe and _rig_visible and not show_airframe and not hide_model, p)
 		if show_airframe:
 			# Recon/loitering fixed-wing aircraft need enough body in frame for
 			# orientation. Hide the close-up camera gimbal itself, which otherwise
 			# fills the centre of the FPV image on Leleka/Furia.
 			_configure_fixed_wing_fpv(_model_root)
-		elif mobile_front_props:
-			# iOS-only: show just the rotating front props/arms at the screen
-			# edges so pilots can judge attitude. PC keeps the clean lens.
-			_configure_mobile_front_props(_model_root)
 		else:
 			_configure_model_for_camera(_model_root, true, combat_airframe)
 	else:
@@ -8676,7 +8701,6 @@ func _refresh_model_visibility() -> void:
 	# corners of the FPV frame.
 	var drone_node := get_node_or_null("Drone")
 	var preset_now := DroneCatalog.preset(Global.drone_preset)
-	var mobile_side_props := false
 	if drone_node != null:
 		for prop in drone_node.find_children("*", "Propeller", true, false):
 			if prop.has_method("set_visibility"):
@@ -8689,12 +8713,8 @@ func _refresh_model_visibility() -> void:
 		return
 	for pivot in get_tree().get_nodes_in_group("drone_prop_pivot"):
 		if pivot is Node3D:
-			var pivot_name := String(pivot.name).to_lower()
-			var front_pivot := pivot_name.contains("fl") or pivot_name.contains("fr") \
-					or pivot_name.ends_with("_0") or pivot_name.ends_with("_1")
-			(pivot as Node3D).visible = third_person or (_rig_visible and (bool(
-				preset_now.get("fpv_show_airframe", false)) \
-				or (mobile_side_props and front_pivot)))
+			(pivot as Node3D).visible = third_person or bool(
+					preset_now.get("fpv_show_airframe", false))
 
 
 ## The mobile HUD is customized and persisted by the player. Loading a level
@@ -8714,25 +8734,6 @@ func _apply_flight_hud_defaults() -> void:
 func _is_mobile_runtime() -> bool:
 	return OS.get_name() == "iOS" or OS.has_feature("mobile") \
 			or OS.has_environment("MOBILE_UI")
-
-
-func _configure_mobile_front_props(node: Node) -> void:
-	if node == null:
-		return
-	if node.is_in_group("drone_prop_pivot") or node.name == "PropellerAssembly":
-		if node is Node3D:
-			var pn := String(node.name).to_lower()
-			(node as Node3D).visible = pn.contains("fl") or pn.contains("fr") \
-					or pn.ends_with("_0") or pn.ends_with("_1")
-		return
-	if node is MeshInstance3D:
-		var n := String(node.name).to_lower()
-		(node as MeshInstance3D).visible = n.contains("propeller_fl") \
-				or n.contains("propeller_fr") or n.contains("motor_fl") \
-				or n.contains("motor_fr") or n.contains("arm_fl") \
-				or n.contains("arm_fr") or n.contains("front_arm")
-	for child in node.get_children():
-		_configure_mobile_front_props(child)
 
 
 func _configure_fixed_wing_fpv(node: Node) -> void:

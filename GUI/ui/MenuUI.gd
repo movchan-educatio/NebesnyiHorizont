@@ -256,6 +256,8 @@ const EN_TEXT: Dictionary = {
 	"ПЕРЕХОПЛЕННЯ В ПОВІТРІ": "AERIAL INTERCEPTION",
 	"ДЕЛЬТА-136": "DELTA-136",
 	"ШАХЕД-136": "DELTA-136",
+	"20–30 м · 45 км/год": "20–30 m · 45 km/h",
+	"58–72 км/год · КУРС 240°": "58–72 km/h · HEADING 240°",
 	"185 km/h · КУРС 240°": "185 km/h · HEADING 240°",
 	"ВИСОКОШВИДКІСНИЙ ПЕРЕХОПЛЮВАЧ": "HIGH-SPEED INTERCEPTOR",
 	"АКВАТОРІЯ ГЕС": "HYDROELECTRIC PLANT WATERS",

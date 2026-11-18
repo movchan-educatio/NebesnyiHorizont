@@ -321,7 +321,7 @@ static func _replace_prop(prop_node: Node3D, preset_index: int, prop_d: float,
 	mi.scale = Vector3.ONE * maxf(prop_d * 0.0254 * 0.72, 0.02)
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var tint: Color = p.get("prop_tint", PROP_TINTS[idx % PROP_TINTS.size()])
-	mi.material_override = _paint(tint, 0.30, 0.18)
+	mi.material_override = _prop_material(tint)
 	prop_node.add_child(mi)
 
 
@@ -372,6 +372,28 @@ static func _paint(color: Color, roughness: float, metallic: float) -> StandardM
 	return mat
 
 
+## Blades are thin twisted airfoils authored from open-ended sections.  A stock
+## single-sided material made them vanish whenever the back face turned toward
+## the camera (hangar turntable, chase cam), which read as "static/invisible"
+## propellers.  Double-sided shading plus a rim term keeps every blade readable
+## from any angle while preserving the per-airframe tint.
+static func _prop_material(tint: Color) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	# Very dark carbon/gunmetal tints disappear against the hangar backdrop.
+	# Lift them to a readable floor without changing the airframe identity.
+	var lum := tint.get_luminance()
+	if lum < 0.24:
+		tint = tint.lightened((0.24 - lum) * 1.35)
+	mat.albedo_color = tint
+	mat.roughness = 0.38
+	mat.metallic = 0.0
+	mat.rim_enabled = true
+	mat.rim = 0.45
+	mat.rim_tint = 0.7
+	return mat
+
+
 static func _normalise_prop_size(prop_node: Node3D, prop_d: float) -> void:
 	if prop_node == null or prop_node.has_meta("prop_size_normalised"):
 		return
@@ -404,13 +426,10 @@ static func _prop_meshes(node: Node) -> Array[MeshInstance3D]:
 
 
 static func _apply_prop_tint(node: Node, preset_index: int) -> void:
-	var mat := StandardMaterial3D.new()
 	var p := DroneCatalog.preset(preset_index)
 	var idx := _profile_index_for(p, preset_index)
 	var tint: Color = p.get("prop_tint", PROP_TINTS[idx % PROP_TINTS.size()])
-	mat.albedo_color = tint
-	mat.roughness = 0.38
-	mat.metallic = 0.05
+	var mat := _prop_material(tint)
 	_apply_material_recursive(node, mat)
 	if OS.has_environment("PROP_DEBUG"):
 		for mi in _prop_meshes(node):

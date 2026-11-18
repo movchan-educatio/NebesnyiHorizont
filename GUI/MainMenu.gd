@@ -175,18 +175,18 @@ const BRIEFINGS := {
 		"code": "TAC-03",
 		"name": "УДАРНИЙ ГЕЛІКОПТЕР",
 		"op_name": "ОПЕРАЦІЯ «РОЗПРАВЛЕНІ КРИЛА»",
-		"sector": "Повітряний ешелон 140м · Русло річки · Азимут 085°",
+		"sector": "Повітряний ешелон 20–30 м · Русло річки · Азимут 085°",
 		"time": "20:00 хв",
 		"diff": "ВАЖКА",
 		"desc": "Низьковисотне перехоплення повітряної цілі.",
-		"intel": "Навчальний гелікоптер типу Мі-8/Ка-52 баражує на наднизькій висоті (140м) зі швидкістю понад 130 км/год вздовж річкового русла. Необхідно зайти на зустрічно-пересічний курс.",
+		"intel": "Навчальний гелікоптер типу Мі-8/Ка-52 баражує на гранично малій висоті (20–30 м) зі швидкістю до 45 км/год вздовж річкового русла. Необхідно зайти на зустрічно-пересічний курс.",
 		"tasks": [
-			"Набрати висоту понад 140 метрів по вектору руху борту",
+			"Набрати висоту 20–30 метрів по вектору руху борту",
 			"Здійснити лобовий або верхній таран несучого гвинта або кабіни екіпажу",
 			"Компенсувати потужну аеродинамічну турбулентність лопатей (downwash)"
 		],
 		"threats": [
-			"Висока швидкість зближення (понад 130 км/год)",
+			"Швидкість зближення до 45 км/год",
 			"Потужний індуктивний потік від гвинтів (ризик зриву потоку дрона)",
 			"Бортові кулеметні розрахунки"
 		],
@@ -202,18 +202,18 @@ const BRIEFINGS := {
 		"code": "TAC-04",
 		"name": "БАРАЖУЮЧИЙ БПЛА-136",
 		"op_name": "ОПЕРАЦІЯ «ЧИСТЕ НЕБО»",
-		"sector": "Ешелон 80–120 м · курс 240° · швидкість 185 км/год",
+		"sector": "Ешелон 18–30 м · курс 240° · швидкість 58–72 км/год",
 		"time": "20:00 хв",
 		"diff": "ЕКСТРЕМ",
 		"desc": "Повітряне перехоплення високошвидкісної БПЛА-мішені «Дельта-136».",
-		"intel": "Радіолокаційними постами полігону зафіксовано одиночний високошвидкісний БПЛА-мішень «Дельта-136», що прямує на захищений енерговузол. Крейсерська швидкість 185 км/год за автопілотом. Час на реакцію обмежений.",
+		"intel": "Радіолокаційними постами полігону зафіксовано одиночний високошвидкісний БПЛА-мішень «Дельта-136», що прямує на захищений енерговузол. Крейсерська швидкість 58–72 км/год за автопілотом. Час на реакцію обмежений.",
 		"tasks": [
 			"Вийти на точку рандеву з випередженням курсу цілі",
 			"Розігнати перехоплювач до максимальної швидкості у похилому пікіруванні",
 			"Здійснити кінетичний таран штовхаючого гвинта або кореневої частини крила"
 		],
 		"threats": [
-			"Гранична швидкість цілі (185 км/год)",
+			"Швидкість цілі 58–72 км/год",
 			"Обмежене вікно перехоплення до виходу з радіусу телеметрії",
 			"Висока кінетична енергія при зіткненні"
 		],
@@ -253,10 +253,10 @@ const BRIEFINGS_EN := {
 	3: {
 		"name": "ATTACK HELICOPTER",
 		"op_name": "OPERATION \"WINGS CLIPPED\"",
-		"sector": "Air corridor · 140 m AGL · Riverbed · Heading 085°",
-		"intel": "A simulated Mi-8 / Ka-52 helicopter target is flying low along the river. Intercept on a crossing or head-on course.",
-		"tasks": ["Climb above 140 m along the aircraft's flight vector", "Intercept the rotor or cockpit on a crossing course", "Compensate for severe rotor-wash turbulence"],
-		"threats": ["Closing speed above 130 km/h", "Strong rotor downwash may destabilize the quad", "Side defensive fire arcs"],
+		"sector": "Air corridor · 20–30 m AGL · Riverbed · Heading 085°",
+		"intel": "A simulated Mi-8 / Ka-52 helicopter target is flying low along the river at 20–30 m and up to 45 km/h. Intercept on a crossing or head-on course.",
+		"tasks": ["Climb to 20–30 m along the aircraft's flight vector", "Intercept the rotor or cockpit on a crossing course", "Compensate for severe rotor-wash turbulence"],
+		"threats": ["Closing speed up to 45 km/h", "Strong rotor downwash may destabilize the quad", "Side defensive fire arcs"],
 		"drone": "7–8-inch high-speed interceptor (3000 KV, TWR 8.5:1)",
 		"weather": "Turbulence · Ridge updrafts and hot-air currents",
 		"rewards": ["★★★ Gold Cross (Ace): under 3:30 or complete on Ace", "★★ Silver award: under 7:00 or complete on Operator", "★ Bronze award: intercept the helicopter"]
@@ -264,10 +264,10 @@ const BRIEFINGS_EN := {
 	4: {
 		"name": "LOITERING UAV-136",
 		"op_name": "OPERATION \"CLEAR SKY\"",
-		"sector": "Air corridor · 80–120 m AGL · Heading 240° · 185 km/h",
-		"intel": "Range radar has detected a Delta-136 target UAV heading toward a simulated power node. It is flying on autopilot at 185 km/h; the interception window is short.",
+		"sector": "Air corridor · 18–30 m AGL · Heading 240° · 58–72 km/h",
+		"intel": "Range radar has detected a Delta-136 target UAV heading toward a simulated power node. It is flying on autopilot at 58–72 km/h; the interception window is short.",
 		"tasks": ["Reach the rendezvous point ahead of the target", "Build speed in a shallow dive", "Intercept the pusher propeller or wing root"],
-		"threats": ["Target speed: 185 km/h", "Short interception window before telemetry is lost", "High kinetic energy on impact"],
+		"threats": ["Target speed: 58–72 km/h", "Short interception window before telemetry is lost", "High kinetic energy on impact"],
 		"drone": "7-inch FPV interceptor with extreme thrust-to-weight ratio (10:1)",
 		"weather": "Twilight · Light crosswind",
 		"rewards": ["★★★ Gold Cross (Ace): under 3:00 or complete on Ace", "★★ Silver award: under 6:00 or complete on Operator", "★ Bronze award: intercept the Delta-136 UAV"]
@@ -411,7 +411,7 @@ class _TacticalMapCanvas extends Control:
 			draw_arc(heli_pos, 9.0, 0.0, TAU, 18, tgt_red, 1.1)
 			draw_line(heli_pos, heli_pos + Vector2(-36, 10), tgt_red, 1.4)
 			_draw_map_text(font, heli_pos + Vector2(12, -3), "МІ-8 / КА-52", 11, tgt_red)
-			_draw_map_text(font, heli_pos + Vector2(12, 7), "140 м · 130 км/год", 10, amber)
+			_draw_map_text(font, heli_pos + Vector2(12, 7), "20–30 м · 45 км/год", 10, amber)
 			_draw_map_text(font, Vector2(center.x - 20, sz.y - 6), "ПЕРЕХОПЛЕННЯ В ПОВІТРІ", 11, amber, HORIZONTAL_ALIGNMENT_CENTER)
 
 		elif mission_id == 4:
@@ -423,7 +423,7 @@ class _TacticalMapCanvas extends Control:
 			draw_line(sh_pos + Vector2(-7, 5), sh_pos + Vector2(7, 0), tgt_red, 1.6)
 			draw_line(sh_pos, sh_pos + Vector2(-48, 18), tgt_red, 1.4)
 			_draw_map_text(font, sh_pos + Vector2(11, -3), "ДЕЛЬТА-136", 11, tgt_red)
-			_draw_map_text(font, sh_pos + Vector2(11, 7), "185 км/год · КУРС 240°", 10, tgt_red)
+			_draw_map_text(font, sh_pos + Vector2(11, 7), "58–72 км/год · КУРС 240°", 10, tgt_red)
 			_draw_map_text(font, Vector2(center.x - 20, sz.y - 6), "ШВИДКІСНИЙ ПЕРЕХОПЛЮВАЧ", 11, tgt_red, HORIZONTAL_ALIGNMENT_CENTER)
 
 	func _draw_training_recon(sz: Vector2, center: Vector2, base_pos: Vector2, font: Font) -> void:
@@ -1316,12 +1316,12 @@ func _update_selection_ui() -> void:
 			3:
 				_map_title_lbl.text = "TAC-03: LOW ALTITUDE · HELICOPTER" if is_en else "TAC-03: Низька висота · Гелікоптер"
 				_map_obj_lbl.text = "Intercept low-flying attack helicopter target." if is_en else "Перехопити низьколетючий ударний гелікоптер."
-				_map_stats_lbl.text = ("Target: Helicopter (140m)  ·  Time: %s  ·  Diff: %s" if is_en else "Ціль: гелікоптер (140м)  ·  Час: %s  ·  Складність: %s") % [t_limit_str, diff_str]
+				_map_stats_lbl.text = ("Target: Helicopter (20–30 m)  ·  Time: %s  ·  Diff: %s" if is_en else "Ціль: гелікоптер (20–30 м)  ·  Час: %s  ·  Складність: %s") % [t_limit_str, diff_str]
 				_launch_btn.text = "▶  START MISSION: TAC-03" if is_en else "▶  ПОЧАТИ ВИЛІТ: TAC-03"
 			4:
 				_map_title_lbl.text = "TAC-04: HEADING 240° · DELTA-136" if is_en else "TAC-04: Курс 240° · Дельта-136"
 				_map_obj_lbl.text = "Intercept incoming high-speed Delta-136 target UAV." if is_en else "Перехоплення швидкісного БПЛА-мішені «Дельта-136»."
-				_map_stats_lbl.text = ("Target: Delta-136 (185 km/h)  ·  Time: %s  ·  Difficulty: %s" if is_en else "Ціль: Дельта-136 (185 км/год)  ·  Час: %s  ·  Складність: %s") % [t_limit_str, diff_str]
+				_map_stats_lbl.text = ("Target: Delta-136 (58–72 km/h)  ·  Time: %s  ·  Difficulty: %s" if is_en else "Ціль: Дельта-136 (58–72 км/год)  ·  Час: %s  ·  Складність: %s") % [t_limit_str, diff_str]
 				_launch_btn.text = "▶  START MISSION: TAC-04" if is_en else "▶  ПОЧАТИ ВИЛІТ: TAC-04"
 	if _launch_btn != null:
 		match _selected_mode:

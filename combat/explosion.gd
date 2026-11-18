@@ -8,6 +8,13 @@ const CombatSfxScript = preload("res://combat/sfx.gd")
 const BINBUN_GROUND := "res://Assets/BinbunVFX_Vol2/ExplosionFX/effects/ground/vfx_ground_explosion_01.tscn"
 const BINBUN_AIR := "res://Assets/BinbunVFX_Vol2/ExplosionFX/effects/air/vfx_air_explosion_01.tscn"
 
+## Fragmentation reaches further through an airframe than through soil or
+## sandbags.  Without this, a bomb that detonated a few metres from a flying
+## helicopter or Shahed dealt no damage at all, so the campaign air targets
+## could only be hit by a perfect physical contact.
+const AIR_TARGET_BLAST_SCALE := 1.45
+const AIR_TARGET_BLAST_BONUS := 2.0
+
 var radius := 8.0
 var damage := 450.0
 var _damage_pending := true
@@ -73,7 +80,6 @@ func _apply_damage() -> void:
 	# still receive splash damage even if physics shape overlap hits saturate.
 	var tree := get_tree()
 	if tree != null:
-		var max_dist := radius + 1.0
 		for target in tree.get_nodes_in_group("combat_target"):
 			if target == null or not is_instance_valid(target) or not (target is Node3D):
 				continue
@@ -85,6 +91,10 @@ func _apply_damage() -> void:
 			var owner_ref: Variant = target.get("landmark")
 			if owner_ref is Object and is_instance_valid(owner_ref) and seen.has(owner_ref.get_instance_id()):
 				continue
+			var effective_radius := radius
+			if target.is_in_group("air_target"):
+				effective_radius = radius * AIR_TARGET_BLAST_SCALE + AIR_TARGET_BLAST_BONUS
+			var max_dist := effective_radius + 1.0
 			var center: Vector3 = (target as Node3D).global_position + Vector3.UP * 0.8
 			var distance := global_position.distance_to(center)
 			if distance > max_dist:
@@ -92,7 +102,8 @@ func _apply_damage() -> void:
 			seen[id] = true
 			if owner_ref is Object and is_instance_valid(owner_ref):
 				seen[owner_ref.get_instance_id()] = true
-			var falloff := clampf(1.0 - distance / maxf(radius, 0.01), 0.15, 1.0)
+			var falloff := clampf(1.0 - distance / maxf(effective_radius, 0.01),
+					0.25 if target.is_in_group("air_target") else 0.15, 1.0)
 			target.take_damage(damage * falloff, global_position)
 		var alert_dist := maxf(radius * 2.4, 24.0)
 		for soldier in tree.get_nodes_in_group("enemy_infantry"):

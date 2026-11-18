@@ -118,6 +118,13 @@ var is_destroyed := false
 var _stuck_time := 0.0
 var _reverse_left := 0.0
 var _retreating := false
+## Generic route watchdog.  Any ground unit that should be driving but has not
+## actually displaced for a few seconds gets its stale flags cleared and its
+## route advanced; repeated failures nudge it past a dead nav segment.  This
+## covers every map/mode without special-casing individual missions.
+var _watchdog_anchor := Vector3.ZERO
+var _watchdog_stall := 0.0
+var _watchdog_recoveries := 0
 var _orbit_phase := 0.0
 var _last_obstacle_normal := Vector3.ZERO
 ## Escort convoys can be pinned by a nav dead end.  This flag makes the truck
@@ -244,6 +251,8 @@ func _ready() -> void:
 	health = max_health
 	add_to_group("combat_target")
 	add_to_group("vehicle")
+	if _is_air():
+		add_to_group("air_target")
 	collision_layer = 1
 	collision_mask = 1
 	sync_to_physics = false
@@ -327,8 +336,12 @@ func _configure_stats_by_kind() -> void:
 			max_health = 360.0
 			points = 600
 			fire_range = 140.0
-			fire_interval = 0.45
-			tracer_damage = 6.5
+			# The helicopter is a target, not a gunship boss.  Its old
+			# 0.45 s / 6.5 HP burst killed a 100 HP strike quad during the
+			# intercept run; a slower, lighter burst keeps the attack run
+			# survivable while the target still shoots back.
+			fire_interval = 0.70
+			tracer_damage = 4.2
 			tracer_speed = 140.0
 			_turn_rate = 1.9
 		Kind.SHAHED:
@@ -1285,6 +1298,10 @@ func set_waypoints(points: Array) -> void:
 		_waypoints.append(v)
 	_wp_index = 0
 	_escort_goal_seek = false
+	_retreating = false
+	_watchdog_anchor = global_position
+	_watchdog_stall = 0.0
+	_watchdog_recoveries = 0
 	if kind == Kind.SHAHED:
 		_shahed_phase = ShahedPhase.PATROL
 		_shahed_phase_timer = 0.0
@@ -1347,6 +1364,7 @@ func _physics_process(delta: float) -> void:
 		_move_along_route(delta)
 	else:
 		_step = 0.0
+	_update_movement_watchdog(delta, holding, hovering, tank_hold)
 	_enforce_map_bounds()
 	_update_height(delta)
 	_engine_speed = _step / maxf(delta, 0.0001)
@@ -1545,12 +1563,96 @@ func _move_along_route(delta: float) -> void:
 	_enforce_map_bounds()
 
 
+## Displacement watchdog shared by every ground vehicle.  It runs after route
+## movement and only counts windows where the unit should be driving; random
+## halts, tank firing holds, aerial hover and legitimate mobility kills are
+## excluded.  A stale retreat flag, a blocked nav segment or a bad waypoint on
+## another map is recovered without touching mission code.
+func _update_movement_watchdog(delta: float, holding: bool, hovering: bool,
+		tank_hold: bool) -> void:
+	if is_destroyed or _is_air() or _damage_speed_mult <= 0.01 \
+			or holding or hovering or tank_hold or _waypoints.size() <= 1:
+		_watchdog_anchor = global_position
+		_watchdog_stall = 0.0
+		return
+	if is_in_group("escort_convoy") and not _waypoints.is_empty() \
+			and _wp_index >= _waypoints.size() - 1 \
+			and global_position.distance_to(_waypoints[_wp_index]) < 8.0:
+		# The convoy is parked at its final checkpoint: arrival is success.
+		_watchdog_anchor = global_position
+		_watchdog_stall = 0.0
+		return
+	if _watchdog_anchor == Vector3.ZERO:
+		_watchdog_anchor = global_position
+	if global_position.distance_to(_watchdog_anchor) > 0.6:
+		_watchdog_anchor = global_position
+		_watchdog_stall = 0.0
+		return
+	_watchdog_stall += delta
+	if _watchdog_stall < 3.0:
+		return
+	_watchdog_stall = 0.0
+	_watchdog_anchor = global_position
+	_watchdog_recoveries += 1
+	_recover_from_stall()
+
+
+func _recover_from_stall() -> void:
+	_retreating = false
+	_reverse_left = 0.0
+	_stuck_time = 0.0
+	if is_in_group("escort_convoy"):
+		_escort_goal_seek = true
+		if _waypoints.size() > 1:
+			_wp_index = _waypoints.size() - 1
+	elif _waypoints.size() > 1:
+		_wp_index = (_wp_index + 1) % _waypoints.size()
+	if _watchdog_recoveries >= 3:
+		# Three stalled windows in a row: the segment itself is unusable.
+		_watchdog_recoveries = 0
+		_nudge_toward_route()
+
+
+## Last-resort placement onto the next clear spot of the current leg.  Keeps
+## the unit inside the arena and out of water; only fires after ~9 s of real
+## immobility, so normal encounters never see it.
+func _nudge_toward_route() -> void:
+	if _waypoints.is_empty():
+		return
+	var target := _waypoints[clampi(_wp_index, 0, _waypoints.size() - 1)]
+	var flat := target - global_position
+	flat.y = 0.0
+	if flat.length_squared() < 4.0 and _waypoints.size() > 1:
+		# Standing on the current node: aim at the next leg instead of
+		# teleporting nowhere.
+		target = _waypoints[(_wp_index + 1) % _waypoints.size()]
+		flat = target - global_position
+		flat.y = 0.0
+	if flat.length_squared() < 0.01:
+		return
+	var dir := flat.normalized()
+	var lim := _arena_limit() - 2.0
+	for dist in [8.0, 5.0, 3.0]:
+		var cand := global_position + dir * float(dist)
+		cand.x = clampf(cand.x, -lim, lim)
+		cand.z = clampf(cand.z, -lim, lim)
+		if _is_water_hazard(cand.x, cand.z):
+			continue
+		var info := _sample_ground(cand.x, cand.z)
+		global_position = Vector3(cand.x, float(info["y"]), cand.z)
+		rotation.y = atan2(-dir.x, -dir.z)
+		return
+
+
 ## Escort mission recovery: clear the stuck/reverse state and head straight for
 ## the final checkpoint.  Called by the mission director after a real stall.
 func escort_emergency_advance() -> void:
 	_stuck_time = 0.0
 	_reverse_left = 0.0
+	_retreating = false
 	_escort_goal_seek = true
+	_watchdog_anchor = global_position
+	_watchdog_stall = 0.0
 	if _waypoints.size() > 1 and _wp_index < _waypoints.size() - 1:
 		_wp_index = _waypoints.size() - 1
 
@@ -1940,6 +2042,10 @@ func _apply_downwash(_delta: float) -> void:
 # ------------------------------------------------------------------ combat
 func _combat_engage(delta: float) -> void:
 	_engaging = false
+	# Re-evaluated from scratch every tick.  Leaving a stale `true` here used to
+	# freeze a BMP/SAM permanently once the player disarmed or flew out of the
+	# branch that clears it.
+	_retreating = false
 	if ai_vs_ai:
 		_chaos_engage(delta)
 		return
@@ -1995,7 +2101,11 @@ func _combat_engage(delta: float) -> void:
 		_orbit_phase += delta * 0.55
 		var flat := Vector3(to.x, 0.0, to.z)
 		if flat.length_squared() > 0.01:
-			var ring_radius := fire_range * 0.55
+			# Hold a firing orbit that a strike quad can actually close on.
+			# The old 55%-of-range ring (77 m) combined with an uncapped lerp
+			# made the helicopter outrun every player airframe, so the mission
+			# could never be completed.  The move is now speed-limited.
+			var ring_radius := minf(fire_range * 0.30, 42.0)
 			var toward := -flat.normalized()
 			var strafe_dir := Vector3(-toward.z, 0.0, toward.x) * sin(_orbit_phase) * 0.8
 			var hold_pos := _drone.global_position + toward * ring_radius + strafe_dir * 10.0
@@ -2009,7 +2119,11 @@ func _combat_engage(delta: float) -> void:
 				hold_pos.x = clampf(hold_pos.x, -lim, lim)
 				hold_pos.z = clampf(hold_pos.z, -lim, lim)
 			hold_pos.y = global_position.y
-			global_position = global_position.lerp(hold_pos, clampf(delta * 0.5, 0.0, 1.0))
+			var to_hold := hold_pos - global_position
+			var max_step := move_speed * 1.15 * delta
+			if to_hold.length() > max_step:
+				to_hold = to_hold.normalized() * max_step
+			global_position += to_hold
 	var space := get_world_3d().direct_space_state
 	var q := PhysicsRayQueryParameters3D.create(muzzle, _drone.global_position)
 	q.collision_mask = 1
@@ -2461,6 +2575,7 @@ func _destroy() -> void:
 	remove_from_group("combat_target")
 	remove_from_group("primary_combat_target")
 	remove_from_group("bonus_combat_target")
+	remove_from_group("air_target")
 	collision_layer = 0
 	collision_mask = 0
 	_clear_flash_overlay()

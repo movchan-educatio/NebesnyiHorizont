@@ -17,6 +17,14 @@ const CombatSfxScript = preload("res://combat/sfx.gd")
 @export var crash_speed := 15.0
 @export var drone_max_health := 100.0
 
+## Airframes are much larger than their origin point, and a crossing intercept
+## closes fast.  The old 4.8 m / 3.2 m spheres demanded a pixel-perfect hit on
+## a 16.5 m helicopter and a 3.8 m Shahed, so campaign 3/4 were unwinnable in
+## practice.  These envelopes cover the airframe silhouette and the rotor disc.
+const KAMIKAZE_RADIUS_HELI := 7.0
+const KAMIKAZE_RADIUS_SHAHED := 5.0
+const KAMIKAZE_RADIUS_VEHICLE := 3.5
+
 var score := 0
 var ammo := 0
 var drops_count := 0
@@ -507,6 +515,7 @@ func drop_payload() -> bool:
 		return false
 	var forward := -_drone.global_transform.basis.z
 	var unit_mass := _payload_unit_mass(p)
+	var state := Ballistics.release_state(_drone)
 	var payload = PayloadScript.new()
 	payload.kind = Ballistics.kind_for_mass(unit_mass)
 	payload.mass_override = unit_mass
@@ -514,8 +523,10 @@ func drop_payload() -> bool:
 	payload.blast_radius = payload_radius
 	payload.exploded.connect(_on_payload_exploded)
 	get_parent().add_child(payload)
-	payload.global_position = _drone.global_position + Vector3.DOWN * 0.35 + forward * 0.2
-	payload.linear_velocity = _drone.linear_velocity + forward * 2.0 + Vector3.DOWN * 1.0
+	payload.global_position = state.get("origin", _drone.global_position \
+			+ Vector3.DOWN * 0.35 + forward * 0.2)
+	payload.linear_velocity = state.get("velocity", _drone.linear_velocity \
+			+ forward * 2.0 + Vector3.DOWN * 1.0)
 	payload.angular_velocity = Vector3(randf_range(-3.0, 3.0), randf_range(-3.0, 3.0),
 			randf_range(-3.0, 3.0))
 	payload.add_collision_exception_with(_drone)
@@ -617,6 +628,25 @@ func add_bonus_score(points: int, label: String = "TARGET DOWN") -> void:
 	_update_hud()
 
 
+## Proximity envelope for a kinetic intercept.  One source of truth for the
+## live detector, the campaign tuning and the regression test.
+static func kamikaze_hit_radius(node: Node) -> float:
+	if node == null or not is_instance_valid(node):
+		return 0.0
+	if node is Vehicle:
+		var v := node as Vehicle
+		match v.kind:
+			Vehicle.Kind.HELI:
+				return KAMIKAZE_RADIUS_HELI
+			Vehicle.Kind.SHAHED:
+				return KAMIKAZE_RADIUS_SHAHED
+			_:
+				return KAMIKAZE_RADIUS_VEHICLE
+	if node.is_in_group("enemy_infantry"):
+		return 1.8
+	return 0.0
+
+
 func _check_aerial_and_moving_kamikaze() -> void:
 	if _lost or _range_cleared or _drone == null or not is_instance_valid(_drone):
 		return
@@ -631,18 +661,8 @@ func _check_aerial_and_moving_kamikaze() -> void:
 		if not (node is Node3D) or not is_instance_valid(node) or not node.has_method("take_damage"):
 			continue
 		var n3 := node as Node3D
-		var hit_radius := 2.6
-		if node is Vehicle:
-			var v := node as Vehicle
-			if v.kind == Vehicle.Kind.HELI:
-				hit_radius = 4.8
-			elif v.kind == Vehicle.Kind.SHAHED:
-				hit_radius = 3.2
-			else:
-				hit_radius = 3.5
-		elif node.is_in_group("enemy_infantry"):
-			hit_radius = 1.8
-		else:
+		var hit_radius := kamikaze_hit_radius(node)
+		if hit_radius <= 0.0:
 			# Static buildings and landmarks use physical contact (_on_drone_body_entered)
 			continue
 		if d_pos.distance_to(n3.global_position + Vector3.UP * 1.0) <= hit_radius:

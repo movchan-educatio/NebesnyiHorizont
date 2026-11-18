@@ -1,0 +1,91 @@
+extends Node
+
+## Regression: ground vehicles must never remain parked because of a stale
+## combat flag or a dead nav segment.  Covers the direct `_retreating` reset and
+## the generic displacement watchdog on an empty flat world.
+
+const VehicleScript = preload("res://combat/vehicle.gd")
+
+var _failures := 0
+var _vehicle: Vehicle = null
+
+
+func _ready() -> void:
+	call_deferred("_run")
+
+
+func _check(ok: bool, label: String) -> void:
+	if ok:
+		print("[VEH_WD] PASS ", label)
+	else:
+		_failures += 1
+		print("[VEH_WD] FAIL ", label)
+
+
+func _run() -> void:
+	_vehicle = VehicleScript.new()
+	_vehicle.kind = VehicleScript.Kind.BMP
+	_vehicle.hostile = true
+	_vehicle.move_speed = 9.0
+	add_child(_vehicle)
+	_vehicle.global_position = Vector3.ZERO
+	_vehicle.set_waypoints([Vector3.ZERO, Vector3(0.0, 0.0, -60.0)])
+	_vehicle.set_physics_process(false)
+
+	# A stale retreat flag must be cleared even when the drone is gone/unarmed
+	# (this was the permanent freeze path in every mode).
+	_vehicle.set("_retreating", true)
+	_vehicle.call("_combat_engage", 0.02)
+	_check(not bool(_vehicle.get("_retreating")),
+			"combat tick clears a stale retreat flag")
+
+	# The watchdog ignores legitimate mobility kills.
+	_vehicle.set("_damage_speed_mult", 0.0)
+	var recoveries_before := int(_vehicle.get("_watchdog_recoveries"))
+	for i in range(200):
+		_vehicle.call("_update_movement_watchdog", 0.02, false, false, false)
+	_check(int(_vehicle.get("_watchdog_recoveries")) == recoveries_before,
+			"mobility-killed unit is left parked without watchdog churn")
+	_vehicle.set("_damage_speed_mult", 1.0)
+
+	# Real immobility for >3 s clears the flags and advances the route.
+	_vehicle.set("_retreating", true)
+	_vehicle.set("_reverse_left", 1.0)
+	_vehicle.set("_watchdog_anchor", _vehicle.global_position)
+	_vehicle.set("_watchdog_stall", 0.0)
+	var wp_before := int(_vehicle.get("_wp_index"))
+	for i in range(160):
+		_vehicle.call("_update_movement_watchdog", 0.02, false, false, false)
+	_check(not bool(_vehicle.get("_retreating")) and float(_vehicle.get("_reverse_left")) == 0.0,
+			"watchdog clears stuck retreat/reverse state")
+	_check(int(_vehicle.get("_wp_index")) != wp_before or int(_vehicle.get("_watchdog_recoveries")) > 0,
+			"watchdog advances the route after a stall")
+
+	# Three consecutive stalled windows force a small placement toward the
+	# current leg so a dead nav segment cannot soft-lock the unit.
+	var before_nudge := _vehicle.global_position
+	_vehicle.set("_watchdog_anchor", before_nudge)
+	_vehicle.set("_watchdog_stall", 0.0)
+	for i in range(320):
+		_vehicle.call("_update_movement_watchdog", 0.02, false, false, false)
+	_check(_vehicle.global_position.distance_to(before_nudge) > 2.0,
+			"third stalled window nudges the unit toward its route")
+
+	# And the normal case still drives: route movement over 1.5 s.
+	_vehicle.global_position = Vector3.ZERO
+	_vehicle.set_waypoints([Vector3.ZERO, Vector3(0.0, 0.0, -60.0)])
+	_vehicle.set_physics_process(true)
+	await get_tree().create_timer(1.5).timeout
+	_check(_vehicle.global_position.length() > 3.0,
+			"vehicle drives normally over a clear route (%.1f m)" % _vehicle.global_position.length())
+
+	# A new route resets watchdog state so a previous stall cannot leak.
+	_vehicle.set("_retreating", true)
+	_vehicle.set("_watchdog_recoveries", 2)
+	_vehicle.set_waypoints([Vector3.ZERO, Vector3(0.0, 0.0, 40.0)])
+	_check(not bool(_vehicle.get("_retreating"))
+			and int(_vehicle.get("_watchdog_recoveries")) == 0,
+			"set_waypoints resets combat and watchdog state")
+
+	print("[VEH_WD] failures=%d" % _failures)
+	get_tree().quit(0 if _failures == 0 else 1)

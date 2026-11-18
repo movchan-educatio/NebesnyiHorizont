@@ -14,6 +14,10 @@ var blast_radius := 9.0
 var arm_time := 0.35
 var kind := "vog"
 var wind := Vector3.ZERO
+## Air targets are small, fast crossings; a free-fall store needs a radio
+## proximity fuse to be usable against them.  The fuse only reacts to enemy
+## aerial vehicles so ground drops keep their contact fuzing.
+const AIR_FUSE_RADIUS := 7.5
 ## Optional per-munition mass (kg).  When > 0 it overrides the profile mass so
 ## every drone drops a projectile that matches its own payload_mass.
 var mass_override := 0.0
@@ -50,8 +54,32 @@ func _physics_process(delta: float) -> void:
 	if _age > 60.0 or global_position.y < -40.0:
 		queue_free()
 		return
-	if _age > arm_time and not get_colliding_bodies().is_empty():
-		explode()
+	if _age > arm_time:
+		if _air_proximity_fuse():
+			explode()
+			return
+		if not get_colliding_bodies().is_empty():
+			explode()
+
+
+## Radio proximity fuse for airborne targets.  A bomb passing within 7.5 m of
+## a helicopter or Shahed detonates, which is what makes payload drops a
+## viable alternative to ramming in campaign missions 3 and 4.
+func _air_proximity_fuse() -> bool:
+	var tree := get_tree()
+	if tree == null:
+		return false
+	for target in tree.get_nodes_in_group("air_target"):
+		if target == null or not is_instance_valid(target) or not (target is Node3D):
+			continue
+		if bool(target.get("is_destroyed")):
+			continue
+		if not bool(target.get("hostile")):
+			continue
+		var center: Vector3 = (target as Node3D).global_position + Vector3.UP * 1.0
+		if global_position.distance_to(center) <= AIR_FUSE_RADIUS:
+			return true
+	return false
 
 
 func _on_body_entered(_body: Node) -> void:
