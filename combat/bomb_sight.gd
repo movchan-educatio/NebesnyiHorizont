@@ -69,7 +69,9 @@ func _update_pipper() -> void:
 	if _solution.is_empty():
 		return
 	var solved: Vector3 = _solution.get("impact", Vector3.ZERO)
-	var vel := drone.linear_velocity if drone != null and is_instance_valid(drone) else Vector3.ZERO
+	var vel: Vector3 = Vector3.ZERO
+	if drone != null and is_instance_valid(drone):
+		vel = drone.linear_velocity
 	vel.y = 0.0
 	_display_impact = solved + vel * minf(_solve_elapsed, 0.2)
 	camera = get_viewport().get_camera_3d()

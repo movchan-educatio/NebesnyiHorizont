@@ -38,9 +38,10 @@ func _ready() -> void:
 		stick_right.visible = false
 	reset_data()
 	update_data(hud_delta, hud_position, hud_angles, hud_velocity, hud_left_stick, hud_right_stick, hud_rpm)
-	# Mobile cinematic grade sits behind every HUD widget (moved to child 0),
-	# so corner telemetry stays fully readable.
-	CinematicOverlay.attach(self, 0.30, 0.012, 0.003)
+	# Light cinematic grade behind the HUD widgets.  The old 0.30 vignette +
+	# warm leak made the maps read as dusk; keep a hint of film without
+	# darkening the playfield.
+	CinematicOverlay.attach(self, 0.14, 0.010, 0.002, 0.0, 0.09, 1.04, 1.06, 0.03)
 
 
 func _process(_delta: float) -> void:

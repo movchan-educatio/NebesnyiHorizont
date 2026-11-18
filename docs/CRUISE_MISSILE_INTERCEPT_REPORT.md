@@ -182,6 +182,22 @@
 
 ---
 
+## 4.3 Світліші карти
+
+Скарга: «карти занадто похмурі». Причини й виправлення:
+
+| Що затемнювало | Де | Виправлення |
+|---|---|---|
+| Мобільний «кінематографічний» грейд знижував brightness до 0.97, exposure −0.04, ambient −0.05 і підсилював контраст | `sceneries/BigLevel.gd` `_tune_map_environment()` | Замінено на денний грейд: brightness 1.035, exposure +0.06, ambient +0.07, контраст −0.03, нейтральні кольори підсвітки |
+| Щільний туман (особливо industrial/wetlands) | там само | `fog_density × 0.65`, `fog_height_density × 0.72` |
+| Сильний vignette 0.30 + теплий light leak у HUD | `HUD/HUD.gd` | vignette 0.14, leak 0.09, contrast 1.04, halation 0.03 |
+
+Скріншоти всіх чотирьох карт після змін:
+`screenshots/maps_bright/map_steppe.png`, `map_village.png`,
+`map_industrial.png`, `map_wetlands.png`.
+
+---
+
 ## 5. Примітки для iOS / подальшої роботи
 
 - Модель не має текстур і використовує прості матеріали — це дешевше для

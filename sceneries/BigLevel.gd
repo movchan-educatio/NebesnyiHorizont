@@ -1256,9 +1256,9 @@ func _tune_map_environment() -> void:
 	env.background_energy_multiplier = bg_energy
 	env.ambient_light_color = amb_col
 	env.fog_enabled = true
-	env.fog_density = clampf(env.fog_density, 0.00014, 0.00028)
+	env.fog_density = clampf(env.fog_density * 0.65, 0.00008, 0.00018)
 	env.fog_height = fog_h
-	env.fog_height_density = fog_h_dens
+	env.fog_height_density = fog_h_dens * 0.72
 	env.fog_aerial_perspective = maxf(env.fog_aerial_perspective, 0.34)
 	env.ambient_light_energy = clampf(env.ambient_light_energy, 0.54, 0.78)
 	env.ambient_light_sky_contribution = maxf(env.ambient_light_sky_contribution, 0.72)
@@ -1288,24 +1288,20 @@ func _tune_map_environment() -> void:
 	fill.light_energy = fill_energy
 	fill.shadow_enabled = false
 	fill.light_volumetric_fog_energy = 0.0
-	# Mobile cinematic grade.  The baked panorama is now a golden-hour sky;
-	# warm the bounced light and deepen the grade so grass reads olive/gold
-	# instead of lime and the sky keeps its amber horizon.  Pure parameter
-	# changes: no extra render passes, so the low-spec budget is untouched.
+	# Mobile daylight grade.  The old cinematic pass crushed contrast, dropped
+	# exposure and warmed every shadow, which made the frontline maps look like
+	# dusk.  Keep the golden-hour sky but lift the whole frame so terrain, props
+	# and targets stay readable on a phone in daylight.  Pure parameter changes:
+	# no extra render passes, so the low-spec budget is untouched.
 	if OS.get_name() == "iOS" or OS.has_feature("mobile") or OS.has_environment("MOBILE_UI"):
-		env.adjustment_contrast = clampf(contrast + 0.08, 1.08, 1.25)
-		env.adjustment_saturation = clampf(saturation - 0.02, 0.98, 1.18)
-		env.adjustment_brightness = 0.97
-		env.tonemap_exposure = clampf(env.tonemap_exposure - 0.04, 0.92, 1.01)
-		env.ambient_light_energy = clampf(env.ambient_light_energy - 0.05, 0.48, 0.72)
-		env.ambient_light_color = Color(
-			clampf(amb_col.r * 1.05, 0.0, 1.0),
-			clampf(amb_col.g * 0.98, 0.0, 1.0),
-			clampf(amb_col.b * 0.82, 0.0, 1.0))
-		fill.light_color = Color(
-			clampf(fill_col.r * 1.04, 0.0, 1.0),
-			clampf(fill_col.g * 0.98, 0.0, 1.0),
-			clampf(fill_col.b * 0.86, 0.0, 1.0))
+		env.adjustment_contrast = clampf(contrast - 0.03, 1.0, 1.12)
+		env.adjustment_saturation = clampf(saturation + 0.02, 1.0, 1.18)
+		env.adjustment_brightness = 1.035
+		env.tonemap_exposure = clampf(env.tonemap_exposure + 0.06, 1.02, 1.14)
+		env.ambient_light_energy = clampf(env.ambient_light_energy + 0.07, 0.62, 0.86)
+		env.ambient_light_color = amb_col
+		fill.light_color = fill_col
+		fill.light_energy = fill_energy + 0.06
 	QualityManager.align_sky_to_sun(env, sun)
 
 
