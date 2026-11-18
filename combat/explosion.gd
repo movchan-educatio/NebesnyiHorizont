@@ -288,10 +288,10 @@ func _spawn_crater() -> void:
 			clod_y = (chit["position"] as Vector3).y
 		var h := randf_range(0.08, 0.25)
 		var clod := MeshInstance3D.new()
-		var box := BoxMesh.new()
-		box.size = Vector3(randf_range(0.12, 0.42), h,
-				randf_range(0.12, 0.42))
-		clod.mesh = box
+		var w := randf_range(0.12, 0.42)
+		var d := randf_range(0.12, 0.42)
+		clod.mesh = DestructionFx.debris_mesh()
+		clod.scale = Vector3(w / 0.34, h / 0.22, d / 0.28)
 		clod.material_override = mat
 		clod.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		clods_root.add_child(clod)

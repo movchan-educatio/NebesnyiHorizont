@@ -26,7 +26,11 @@ static var _smoke_tex: GradientTexture2D = null
 static var _dust_tex: GradientTexture2D = null
 static var _flame_tex: ImageTexture = null
 static var _cloud_puff_tex: ImageTexture = null
+static var _dust_ring_tex: ImageTexture = null
+static var _debris_mesh_cache: Mesh = null
 static var _shock_dome_shader: Shader = null
+static var _flame_shader: Shader = null
+static var _flame_atlas: ImageTexture = null
 static var _fx_cleanup_wired: bool = false
 
 
@@ -37,7 +41,11 @@ static func clear_caches() -> void:
 	_dust_tex = null
 	_flame_tex = null
 	_cloud_puff_tex = null
+	_dust_ring_tex = null
+	_debris_mesh_cache = null
 	_shock_dome_shader = null
+	_flame_shader = null
+	_flame_atlas = null
 	_fx_cleanup_wired = false
 
 
@@ -80,6 +88,87 @@ static func create_cloud_puff_texture() -> ImageTexture:
 	return _cloud_puff_tex
 
 
+## Rolling dust-ring sprite: a thin, noisy annulus instead of a filled disc.
+## Cached once at 64x64 - the ground shockwave reads as kicked-up dirt rather
+## than a translucent pancake, at the cost of one extra alpha-blended quad.
+static func create_dust_ring_texture() -> ImageTexture:
+	if _dust_ring_tex != null:
+		return _dust_ring_tex
+	var size := 64
+	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	var half := float(size) * 0.5
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 77021
+	for y in range(size):
+		for x in range(size):
+			var dx := (float(x) + 0.5 - half) / half
+			var dy := (float(y) + 0.5 - half) / half
+			var r := sqrt(dx * dx + dy * dy)
+			var ang := atan2(dy, dx)
+			var wobble := 0.78 + 0.10 * sin(ang * 5.0) + 0.06 * sin(ang * 9.0 + 1.3)
+			var n := rng.randf_range(-0.05, 0.05)
+			var d := absf(r - wobble) + n
+			var a := clampf(1.0 - d / 0.24, 0.0, 1.0)
+			a *= a
+			var shade := 0.74 + 0.26 * rng.randf()
+			img.set_pixel(x, y, Color(shade, shade * 0.93, shade * 0.84, a))
+	_dust_ring_tex = ImageTexture.create_from_image(img)
+	return _dust_ring_tex
+
+
+## One cached faceted shard used for every flying fragment.  A jittered cube
+## still reads as a rectangle; an octahedron has only triangular faces, so no
+## viewing angle produces a square silhouette.  Same 1-draw MultiMesh budget.
+static func debris_mesh() -> Mesh:
+	if _debris_mesh_cache != null:
+		return _debris_mesh_cache
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4242
+	var base := [
+		Vector3(1.0, 0.0, 0.0), Vector3(-1.0, 0.0, 0.0),
+		Vector3(0.0, 1.0, 0.0), Vector3(0.0, -1.0, 0.0),
+		Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, -1.0),
+	]
+	var dims := Vector3(0.19, 0.12, 0.15)
+	var pts := PackedVector3Array()
+	for p in base:
+		pts.append(Vector3(
+			p.x * rng.randf_range(0.55, 1.45) * dims.x,
+			p.y * rng.randf_range(0.40, 1.35) * dims.y,
+			p.z * rng.randf_range(0.55, 1.45) * dims.z))
+	var faces := [
+		0, 2, 4, 2, 1, 4, 1, 3, 4, 3, 0, 4,
+		2, 0, 5, 1, 2, 5, 3, 1, 5, 0, 3, 5,
+	]
+	var verts := PackedVector3Array()
+	var norms := PackedVector3Array()
+	for i in range(0, faces.size(), 3):
+		var a := pts[faces[i]]
+		var b := pts[faces[i + 1]]
+		var c := pts[faces[i + 2]]
+		var n := (b - a).cross(c - a).normalized()
+		if n.dot(a) < 0.0:
+			# Swap winding so every face normal points away from the centre.
+			var tmp := b
+			b = c
+			c = tmp
+			n = -n
+		verts.append(a)
+		verts.append(b)
+		verts.append(c)
+		norms.append(n)
+		norms.append(n)
+		norms.append(n)
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = norms
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	_debris_mesh_cache = mesh
+	return mesh
+
+
 static func _get_shock_dome_shader() -> Shader:
 	_wire_cache_cleanup()
 	if _shock_dome_shader != null:
@@ -101,6 +190,105 @@ void fragment() {
 """
 	_shock_dome_shader = s
 	return _shock_dome_shader
+
+
+## An 8-frame flipbook of organic flame tongues, generated once at 48px/frame.
+## Gaussian blobs along a swaying centreline read as fire; a static cone or a
+## per-pixel noise field never did. Total texture: 384x48 RGBA (~72 KB).
+static func flame_atlas() -> ImageTexture:
+	if _flame_atlas != null:
+		return _flame_atlas
+	var frames := 8
+	var size := 48
+	var img := Image.create(size * frames, size, false, Image.FORMAT_RGBA8)
+	var rng := RandomNumberGenerator.new()
+	for f in range(frames):
+		rng.seed = 1000 + f * 37
+		var blobs: Array = []
+		for i in range(12):
+			var tt := float(i) / 11.0
+			# tt = 0 is the hot base (v=0, image bottom), tt = 1 the smoky tip.
+			var y := 0.10 + tt * 0.82
+			var x := 0.5 + sin(tt * 4.2 + float(f) * 0.85) * 0.17 * tt \
+					+ rng.randf_range(-0.05, 0.05)
+			var r := 0.34 * (1.0 - tt * 0.65) * rng.randf_range(0.78, 1.28)
+			blobs.append([x, y, r, tt])
+		for py in range(size):
+			var v := 1.0 - float(py) / float(size - 1)
+			for px in range(size):
+				var u := float(px) / float(size - 1)
+				var ar := 0.0
+				var ag := 0.0
+				var ab := 0.0
+				var aa := 0.0
+				for b in blobs:
+					var dx := (u - float(b[0])) / maxf(float(b[2]), 0.001)
+					var dy := (v - float(b[1])) / maxf(float(b[2]) * 1.35, 0.001)
+					var d2 := dx * dx + dy * dy
+					if d2 > 3.0:
+						continue
+					var c := exp(-d2 * 1.35)
+					var tt := float(b[3])
+					var cr := 1.0
+					var cg := 0.42
+					var cb := 0.05
+					if tt < 0.30:
+						var k := tt / 0.30
+						cg = lerpf(0.93, 0.52, k)
+						cb = lerpf(0.70, 0.06, k)
+					elif tt < 0.68:
+						var k := (tt - 0.30) / 0.38
+						cg = lerpf(0.52, 0.20, k)
+						cb = lerpf(0.06, 0.01, k)
+					else:
+						var k := (tt - 0.68) / 0.32
+						cr = lerpf(1.0, 0.55, k)
+						cg = lerpf(0.20, 0.04, k)
+						cb = 0.01
+					ar += cr * c
+					ag += cg * c
+					ab += cb * c
+					aa += c
+				if aa > 0.0001:
+					img.set_pixel(f * size + px, py, Color(ar / aa, ag / aa,
+							ab / aa, clampf(aa * 0.55, 0.0, 1.0)))
+				else:
+					img.set_pixel(f * size + px, py, Color(0.0, 0.0, 0.0, 0.0))
+	_flame_atlas = ImageTexture.create_from_image(img)
+	return _flame_atlas
+
+
+## Flame material: billboard quad that cycles through the flipbook atlas.
+## One texture sample per pixel; billboarding happens in vertex().
+static func _get_flame_shader() -> Shader:
+	_wire_cache_cleanup()
+	if _flame_shader != null:
+		return _flame_shader
+	var s := Shader.new()
+	s.code = """
+shader_type spatial;
+render_mode unshaded, blend_mix, depth_draw_never, cull_disabled;
+
+uniform sampler2D flame_atlas : source_color;
+uniform float fps : hint_range(1.0, 60.0) = 18.0;
+uniform float frames : hint_range(2.0, 32.0) = 8.0;
+uniform float seed_offset : hint_range(0.0, 64.0) = 0.0;
+
+void vertex() {
+	MODELVIEW_MATRIX = VIEW_MATRIX * mat4(
+		INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1], INV_VIEW_MATRIX[2], MODEL_MATRIX[3]);
+}
+
+void fragment() {
+	float idx = floor(mod(TIME * fps + seed_offset * frames, frames));
+	vec2 uv = vec2((clamp(UV.x, 0.01, 0.99) + idx) / frames, UV.y);
+	vec4 fire = texture(flame_atlas, uv);
+	ALBEDO = fire.rgb;
+	ALPHA = fire.a;
+}
+"""
+	_flame_shader = s
+	return _flame_shader
 
 
 ## Multi-stage explosion (ExplosionSystem.ts port tuned for LOW/mobile GPU budget):
@@ -145,8 +333,8 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 		ring_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		ring_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		ring_mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
-		ring_mat.albedo_color = Color(0.86, 0.78, 0.64, 0.58)
-		ring_mat.albedo_texture = puff_tex
+		ring_mat.albedo_color = Color(0.72, 0.62, 0.48, 0.52)
+		ring_mat.albedo_texture = create_dust_ring_texture()
 		ring_mesh.material_override = ring_mat
 		ring_mesh.position = Vector3(0.0, clampf(gy - pos.y + 0.14, -12.0, 0.35), 0.0)
 		fx_root.add_child(ring_mesh)
@@ -163,9 +351,9 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 	dome_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var dome_mat := ShaderMaterial.new()
 	dome_mat.shader = _get_shock_dome_shader()
-	dome_mat.set_shader_parameter("rim_power", 2.3)
-	dome_mat.set_shader_parameter("intensity", 1.15)
-	dome_mat.set_shader_parameter("rim_color", Color(1.0, 0.86, 0.62, 1.0))
+	dome_mat.set_shader_parameter("rim_power", 3.1)
+	dome_mat.set_shader_parameter("intensity", 0.85)
+	dome_mat.set_shader_parameter("rim_color", Color(1.0, 0.82, 0.52, 1.0))
 	dome_mesh.material_override = dome_mat
 	fx_root.add_child(dome_mesh)
 
@@ -184,8 +372,31 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 	core_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	core_mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 	core_mat.albedo_color = Color(1.0, 0.94, 0.78, 0.95)
+	# Soft-edged puff instead of a hard sphere - the fireball now reads as a
+	# luminous cloud and the dark smoke stage blends into it naturally.
+	core_mat.albedo_texture = puff_tex
 	core_mesh.material_override = core_mat
 	fx_root.add_child(core_mesh)
+
+	# Tiny white-hot ignition core; lives only ~0.3 s and sells the detonation.
+	var hot_mesh := MeshInstance3D.new()
+	hot_mesh.name = "HotCore"
+	var hot_sphere := SphereMesh.new()
+	hot_sphere.radius = 1.0
+	hot_sphere.height = 2.0
+	hot_sphere.radial_segments = 10 if low else 14
+	hot_sphere.rings = 6 if low else 8
+	hot_mesh.mesh = hot_sphere
+	hot_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var hot_mat := StandardMaterial3D.new()
+	hot_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	hot_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	hot_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	hot_mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	hot_mat.albedo_color = Color(1.0, 0.96, 0.82, 1.0)
+	hot_mat.albedo_texture = puff_tex
+	hot_mesh.material_override = hot_mat
+	fx_root.add_child(hot_mesh)
 
 	# Billowing smoke mushroom puffs (cloud_puff_texture)
 	var plume := GPUParticles3D.new()
@@ -236,6 +447,14 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 	plume.draw_pass_1 = puff_quad
 	fx_root.add_child(plume)
 
+	# Rising embers: reuses the cached spark texture and the shared emitter
+	# helper, so it adds detail without a new shader or texture upload.
+	var embers := _emitter(fx_root, "Embers", 10 if low else 18, 1.5,
+			Color(1.0, 0.52, 0.12, 1.0), _texture("spark"),
+			5.0 * s, 11.0 * s, Vector3(0.0, -4.0, 0.0), 0.05 * s, 0.13 * s, true)
+	embers.one_shot = true
+	embers.explosiveness = 0.85
+
 	# 4. 10-16 ballistic tumbling DebrisChunks (single batched MultiMesh draw)
 	var chunk_count := 10 if low else 16
 	var debris_mmi := MultiMeshInstance3D.new()
@@ -245,15 +464,14 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = true
 	mm.instance_count = chunk_count
-	var chunk_box := BoxMesh.new()
-	chunk_box.size = Vector3(0.32, 0.18, 0.26)
 	var chunk_mat := StandardMaterial3D.new()
 	chunk_mat.roughness = 0.88
 	chunk_mat.metallic = 0.12
 	chunk_mat.metallic_specular = 0.25
 	chunk_mat.vertex_color_use_as_albedo = true
-	chunk_box.material = chunk_mat
-	mm.mesh = chunk_box
+	var chunk_mesh := debris_mesh()
+	chunk_mesh.surface_set_material(0, chunk_mat)
+	mm.mesh = chunk_mesh
 	debris_mmi.multimesh = mm
 	fx_root.add_child(debris_mmi)
 
@@ -264,11 +482,13 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 	var chunk_rot := PackedVector3Array()
 	var chunk_spin := PackedVector3Array()
 	var chunk_scale := PackedFloat32Array()
+	var chunk_shape := PackedVector3Array()
 	chunk_pos.resize(chunk_count)
 	chunk_vel.resize(chunk_count)
 	chunk_rot.resize(chunk_count)
 	chunk_spin.resize(chunk_count)
 	chunk_scale.resize(chunk_count)
+	chunk_shape.resize(chunk_count)
 	var v_scale := clampf(s, 0.85, 1.25)
 	for i in range(chunk_count):
 		var a := rng.randf_range(0.0, TAU)
@@ -278,9 +498,13 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 		chunk_rot[i] = Vector3(rng.randf_range(0.0, TAU), rng.randf_range(0.0, TAU), rng.randf_range(0.0, TAU))
 		chunk_spin[i] = Vector3(rng.randf_range(-9.0, 9.0), rng.randf_range(-9.0, 9.0), rng.randf_range(-9.0, 9.0))
 		chunk_scale[i] = rng.randf_range(0.65, 1.55) * s
+		# Non-uniform per-instance scaling makes identical meshes read as
+		# different jagged splinters instead of repeated rectangular blocks.
+		chunk_shape[i] = Vector3(rng.randf_range(0.55, 1.60),
+				rng.randf_range(0.40, 1.05), rng.randf_range(0.55, 1.55))
 		var glow_hot := 1.0 if i < 4 else rng.randf_range(0.18, 0.36)
 		mm.set_instance_color(i, Color(glow_hot, glow_hot * 0.42, 0.14) if i < 4 else Color(0.14, 0.13, 0.12))
-		mm.set_instance_transform(i, Transform3D(Basis.from_euler(chunk_rot[i]).scaled(Vector3.ONE * chunk_scale[i]), chunk_pos[i]))
+		mm.set_instance_transform(i, Transform3D(Basis.from_euler(chunk_rot[i]).scaled(chunk_shape[i] * chunk_scale[i]), chunk_pos[i]))
 
 	# 5. Fast glowing SparkStreaks
 	var sparks := GPUParticles3D.new()
@@ -335,12 +559,15 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 	driver.dome_mat = dome_mat
 	driver.core_mesh = core_mesh
 	driver.core_mat = core_mat
+	driver.hot_mesh = hot_mesh
+	driver.hot_mat = hot_mat
 	driver.debris_mmi = debris_mmi
 	driver.chunk_pos = chunk_pos
 	driver.chunk_vel = chunk_vel
 	driver.chunk_rot = chunk_rot
 	driver.chunk_spin = chunk_spin
 	driver.chunk_scale = chunk_scale
+	driver.chunk_shape = chunk_shape
 	driver.local_ground_y = gy - pos.y + 0.10
 	driver.scale_factor = s
 	driver.max_life = 3.5
@@ -355,12 +582,15 @@ class _MultiphaseDriver extends Node:
 	var dome_mat: ShaderMaterial = null
 	var core_mesh: MeshInstance3D = null
 	var core_mat: StandardMaterial3D = null
+	var hot_mesh: MeshInstance3D = null
+	var hot_mat: StandardMaterial3D = null
 	var debris_mmi: MultiMeshInstance3D = null
 	var chunk_pos := PackedVector3Array()
 	var chunk_vel := PackedVector3Array()
 	var chunk_rot := PackedVector3Array()
 	var chunk_spin := PackedVector3Array()
 	var chunk_scale := PackedFloat32Array()
+	var chunk_shape := PackedVector3Array()
 	var local_ground_y := -1.0
 	var scale_factor := 1.0
 	var max_life := 4.4
@@ -384,15 +614,16 @@ class _MultiphaseDriver extends Node:
 				ring_mesh.scale = Vector3(radius, 1.0, radius)
 				ring_mat.albedo_color.a = 0.56 * pow(1.0 - rt, 1.6)
 
-		# 2. ShockwaveDome Fresnel flash during first 0.35 s
+		# 2. Shockwave: a flat, fast pressure lens rather than a giant bubble.
+		# Squashing Y keeps the volume cue but removes the translucent-ball look.
 		if dome_mesh != null and dome_mat != null:
-			var dt := clampf(_t / 0.35, 0.0, 1.0)
+			var dt := clampf(_t / 0.28, 0.0, 1.0)
 			if dt >= 1.0:
 				dome_mesh.visible = false
 			else:
-				var dr := lerpf(1.1, 14.5 * scale_factor, 1.0 - pow(1.0 - dt, 2.0))
-				dome_mesh.scale = Vector3.ONE * dr
-				dome_mat.set_shader_parameter("intensity", 1.2 * pow(1.0 - dt, 1.7))
+				var dr := lerpf(1.4, 8.0 * scale_factor, 1.0 - pow(1.0 - dt, 2.0))
+				dome_mesh.scale = Vector3(dr, dr * 0.26, dr)
+				dome_mat.set_shader_parameter("intensity", 0.60 * pow(1.0 - dt, 2.0))
 
 		# 3. FireballCore: hot white-orange (0..0.4 s) -> billowing smoke mushroom (0.4..1.5 s)
 		if core_mesh != null and core_mat != null:
@@ -401,9 +632,9 @@ class _MultiphaseDriver extends Node:
 				core_mesh.visible = false
 			else:
 				var phase_fire := clampf(_t / 0.40, 0.0, 1.0)
-				var cr := lerpf(0.9, 5.4 * scale_factor, 1.0 - pow(1.0 - ft, 2.1))
-				core_mesh.scale = Vector3(cr, cr * (1.0 + ft * 0.45), cr)
-				core_mesh.position.y = lerpf(0.2, 5.2 * scale_factor, ft)
+				var cr := lerpf(0.9, 4.0 * scale_factor, 1.0 - pow(1.0 - ft, 2.1))
+				core_mesh.scale = Vector3(cr, cr * (1.0 + ft * 0.38), cr)
+				core_mesh.position.y = lerpf(0.2, 3.8 * scale_factor, ft)
 				if phase_fire < 1.0:
 					var c1 := Color(1.0, 0.96, 0.78).lerp(Color(1.0, 0.46, 0.09), phase_fire)
 					c1.a = lerpf(0.95, 0.78, phase_fire)
@@ -413,6 +644,18 @@ class _MultiphaseDriver extends Node:
 					var c2 := Color(1.0, 0.46, 0.09).lerp(Color(0.18, 0.17, 0.17), clampf(st * 1.4, 0.0, 1.0))
 					c2.a = 0.76 * (1.0 - clampf(st, 0.0, 1.0))
 					core_mat.albedo_color = c2
+
+		# 3b. White-hot ignition flash, gone before the smoke takes over.
+		if hot_mesh != null and hot_mat != null:
+			var ht := clampf(_t / 0.30, 0.0, 1.0)
+			if ht >= 1.0:
+				hot_mesh.visible = false
+			else:
+				var hr := lerpf(0.6, 2.8 * scale_factor, 1.0 - pow(1.0 - ht, 2.0))
+				hot_mesh.scale = Vector3.ONE * hr
+				hot_mesh.position.y = 0.4 + ht * 1.1
+				hot_mat.albedo_color = Color(1.0, lerpf(0.97, 0.52, ht),
+						lerpf(0.82, 0.16, ht), 1.0 - ht)
 
 		# 4. Ballistic DebrisChunks (settle on local_ground_y and free cleanly by ~3.2 s)
 		if debris_mmi != null and is_instance_valid(debris_mmi) and debris_mmi.multimesh != null:
@@ -443,7 +686,7 @@ class _MultiphaseDriver extends Node:
 					if chunk_spin[i] != Vector3.ZERO:
 						chunk_rot[i] += chunk_spin[i] * delta
 					var sc := chunk_scale[i] * fade
-					mm.set_instance_transform(i, Transform3D(Basis.from_euler(chunk_rot[i]).scaled(Vector3.ONE * sc), p))
+					mm.set_instance_transform(i, Transform3D(Basis.from_euler(chunk_rot[i]).scaled(chunk_shape[i] * sc), p))
 ## Cap simultaneous burning wrecks; a large chaos battle must not end up with
 ## dozens of continuous particle systems and lights.
 const MAX_ACTIVE_BURNS := 10
@@ -530,23 +773,42 @@ static func _texture(kind: String) -> Texture2D:
 			return _smoke_tex
 
 
-## Soft flame sprite: a bright yellow-white base fading through orange into a
-## dark red tip.  Far cheaper than an animated flipbook and it reads correctly
-## when dozens overlap in a plume.
+## Organic flame sprite.  The old version drew a clean pointed cone, which is
+## why every particle looked like a burning triangle.  This one is a soft,
+## noise-warped tongue: rounded bright base, turbulent edges, a hot white core
+## and a smoky red tip.  Still one cached 64x64 texture, no flipbook.
 static func _flame_texture() -> ImageTexture:
 	if _flame_tex != null:
 		return _flame_tex
 	var size := 64
 	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 90210
+	var phase_a := rng.randf_range(0.0, TAU)
+	var phase_b := rng.randf_range(0.0, TAU)
 	for y in range(size):
-		# t = 0 at the wide bright base, 1 at the pointed dark-red tip.
-		var t := 1.0 - float(y) / float(size - 1)
-		var half_w := pow(1.0 - t, 0.62) * 0.86 + 0.04
+		# v = 0 at the image BOTTOM (base), 1 at the TOP (tip).
+		var v := 1.0 - float(y) / float(size - 1)
 		for x in range(size):
-			var u := absf((float(x) - 31.5) / 31.5)
-			var a := 1.0 - smoothstep(half_w * 0.45, half_w, u)
-			a *= pow(1.0 - t, 0.30)
-			var col := Color(1.0, 0.96, 0.70).lerp(Color(1.0, 0.20, 0.02), t)
+			var u := (float(x) + 0.5 - float(size) * 0.5) / (float(size) * 0.5)
+			# A turbulent, rounded blob - no straight tapering edges.
+			var turb := sin(v * 8.0 + u * 4.5 + phase_a) * 0.055 \
+					+ sin(v * 14.0 - u * 7.0 + phase_b) * 0.035
+			var du := u - turb
+			var rx := 0.42 - 0.18 * v
+			var rp := sqrt((du / rx) * (du / rx)
+					+ ((v - 0.44) / 0.50) * ((v - 0.44) / 0.50))
+			var a := 1.0 - smoothstep(0.52, 1.02, rp)
+			a *= 1.0 - smoothstep(0.66, 1.0, v)
+			a *= 0.55 + 0.45 * smoothstep(0.0, 0.16, v)
+			a = clampf(a, 0.0, 1.0)
+			a *= a
+			# Hot lower core -> orange body -> dark smoky tip.
+			var heat := clampf(1.15 - rp * 0.85 - v * 0.30, 0.0, 1.0)
+			var col := Color(0.42, 0.04, 0.01).lerp(
+					Color(1.0, 0.38, 0.03), clampf(heat * 1.8, 0.0, 1.0))
+			col = col.lerp(Color(1.0, 0.96, 0.74),
+					clampf((heat - 0.48) * 2.4, 0.0, 1.0))
 			col.a = a
 			img.set_pixel(x, y, col)
 	_flame_tex = ImageTexture.create_from_image(img)
@@ -691,8 +953,9 @@ static func destroy(parent: Node, unit: Node3D, kind: String = "vehicle",
 	if kind == "heli" or kind == "shahed":
 		if do_move:
 			_aerial_fall(parent, unit, kind, ground_y, pos)
-		if do_burn:
-			burn(unit, pos, kind, 22.0)
+		# The plume must not be created here: for aerial targets burn() is
+		# called on impact by _aerial_fall() (or by the live Vehicle.impact()),
+		# otherwise a flame stays stranded at the hit altitude.
 	elif kind == "infantry":
 		# Use the proper rigged soldier model, but fall the whole rig instead
 		# of the rig's internal death pose (the latter clips through the floor
@@ -708,13 +971,30 @@ static func destroy(parent: Node, unit: Node3D, kind: String = "vehicle",
 			burn(unit, pos, kind, 22.0)
 
 
+## Shared flipbook plume quad. One draw call, no particle simulation.
+static func _plume(parent: Node3D, name: String, width: float, height: float) -> MeshInstance3D:
+	var fire := MeshInstance3D.new()
+	fire.name = name
+	var fquad := QuadMesh.new()
+	fquad.size = Vector2(width, height)
+	var fmat := ShaderMaterial.new()
+	fmat.shader = _get_flame_shader()
+	fmat.set_shader_parameter("flame_atlas", flame_atlas())
+	fmat.set_shader_parameter("seed_offset", randf() * 64.0)
+	fquad.material = fmat
+	fire.mesh = fquad
+	fire.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(fire)
+	return fire
+
+
 ## Burning trail attached to a falling airframe.  Used by the live Vehicle
 ## crash path so the approved preview look matches the game.
 static func trail(unit: Node3D) -> void:
 	if unit == null or not is_instance_valid(unit):
 		return
-	_emitter(unit, "CrashTrail", 30, 0.65, Color(1.0, 0.72, 0.30, 1.0),
-			_texture("flame"), 0.9, 2.6, Vector3(0, 2.0, 0), 0.20, 0.55, false)
+	var fire := _plume(unit, "CrashFire", 1.8, 3.0)
+	fire.position = Vector3(0.0, 1.4, 0.0)
 	_emitter(unit, "CrashSmoke", 18, 1.9, SMOKE_COLOR,
 			_texture("smoke"), 0.5, 1.5, Vector3(0, 1.2, 0), 0.7, 1.6, false)
 
@@ -722,8 +1002,8 @@ static func trail(unit: Node3D) -> void:
 static func stop_trail(unit: Node3D) -> void:
 	if unit == null or not is_instance_valid(unit):
 		return
-	for n in unit.find_children("CrashTrail", "GPUParticles3D", true, false):
-		(n as GPUParticles3D).emitting = false
+	for n in unit.find_children("CrashFire", "MeshInstance3D", true, false):
+		(n as MeshInstance3D).visible = false
 	for n in unit.find_children("CrashSmoke", "GPUParticles3D", true, false):
 		(n as GPUParticles3D).emitting = false
 
@@ -779,9 +1059,9 @@ static func _aerial_fall(parent: Node, unit: Node3D, kind: String, ground_y: flo
 	if not is_instance_valid(unit):
 		return
 	var fall := maxf(0.9, minf(3.2, (unit.global_position.y - ground_y) / 9.5))
-	# Burning trail while the wreck falls.
-	var trail := _emitter(unit, "CrashTrail", 30, 0.65, Color(1.0, 0.72, 0.30, 1.0),
-			_texture("flame"), 0.9, 2.6, Vector3(0, 2.0, 0), 0.20, 0.55, false)
+	# One continuous flame quad follows the falling wreck - no particle trail.
+	var trail := _plume(unit, "CrashFire", 1.8, 3.0)
+	trail.position = Vector3(0.0, 1.4, 0.0)
 	var smoke := _emitter(unit, "CrashSmoke", 18, 1.9, SMOKE_COLOR,
 			_texture("smoke"), 0.5, 1.5, Vector3(0, 1.2, 0), 0.7, 1.6, false)
 	var tw := unit.create_tween()
@@ -795,7 +1075,7 @@ static func _aerial_fall(parent: Node, unit: Node3D, kind: String, ground_y: flo
 		if not is_instance_valid(unit):
 			return
 		if is_instance_valid(trail):
-			trail.emitting = false
+			trail.visible = false
 		if is_instance_valid(smoke):
 			smoke.emitting = false
 		var p := unit.global_position + Vector3.UP * 0.5
@@ -852,12 +1132,20 @@ static func burn(unit: Node3D, pos: Vector3, kind: String, duration: float) -> v
 	else:
 		unit.add_child(anchor)
 		anchor.position = Vector3(0.0, 1.25, 0.0)
-	var fire := _emitter(anchor, "WreckFire", int(56 * (0.55 if _low_quality() else 1.0)),
-			0.62, Color(1.0, 0.86, 0.42, 1.0), _texture("flame"), 1.6, 4.0,
-			Vector3(0, 3.0, 0), 0.22 * s, 0.62 * s, false)
+	# One continuous flipbook flame instead of a stack of identical sprites.
+	var fire := _plume(anchor, "WreckFire", 3.2 * s, 3.6 * s)
+	fire.position = Vector3(0.0, 1.6 * s, 0.0)
+	var fire_flick := fire.create_tween().set_loops(int(maxf(1.0, duration / 0.22)))
+	fire_flick.tween_property(fire, "scale:y", 1.10, 0.11)
+	fire_flick.tween_property(fire, "scale:y", 0.92, 0.11)
 	var smoke := _emitter(anchor, "WreckSmoke", int(22 * (0.55 if _low_quality() else 1.0)),
 			2.4, SMOKE_COLOR, _texture("smoke"), 0.4, 1.4, Vector3(0, 1.8, 0),
 			0.9 * s, 2.2 * s, false)
+	# A handful of rising embers makes the fire feel alive; still one cached
+	# texture and one GPU particle draw, disabled on LOW beyond 6 small sparks.
+	var embers := _emitter(anchor, "WreckEmbers", 6 if _low_quality() else 12, 1.6,
+			Color(1.0, 0.46, 0.10, 1.0), _texture("spark"), 1.8, 4.5,
+			Vector3(0, -1.6, 0), 0.04, 0.11, true)
 	var light := OmniLight3D.new()
 	light.light_color = Color(1.0, 0.48, 0.12)
 	light.light_energy = 1.6 * s
@@ -875,7 +1163,7 @@ static func burn(unit: Node3D, pos: Vector3, kind: String, duration: float) -> v
 	timer.timeout.connect(func() -> void:
 		_active_burns = maxi(0, _active_burns - 1)
 		if is_instance_valid(fire):
-			fire.emitting = false
+			fire.visible = false
 		if is_instance_valid(smoke):
 			smoke.emitting = false
 		if is_instance_valid(anchor):
@@ -898,6 +1186,7 @@ static func _emitter(parent: Node3D, name: String, amount: int, lifetime: float,
 	p.emitting = true
 	p.visibility_aabb = AABB(Vector3(-36, -24, -36), Vector3(72, 60, 72))
 	var apply_wind := name.contains("Smoke") or tex == _texture("smoke") or tex == _texture("dust")
+	var is_flame := (tex == _flame_texture())
 	var wind := _scene_wind(parent) if apply_wind else Vector3.ZERO
 	var wind_speed := wind.length()
 	var mat := ParticleProcessMaterial.new()
@@ -913,11 +1202,19 @@ static func _emitter(parent: Node3D, name: String, amount: int, lifetime: float,
 	mat.scale_min = size_min
 	mat.scale_max = size_max
 	mat.color = color
-	mat.angle_min = 0.0
-	mat.angle_max = TAU
-	mat.angular_velocity_min = -120.0
-	mat.angular_velocity_max = 120.0
-	mat.color = color
+	# Smoke and dust tumble freely; flames stay upright with only a gentle
+	# flicker.  Random 360-degree spin was what turned each flame into a
+	# recognizable spinning triangle.
+	if is_flame:
+		mat.angle_min = -0.16
+		mat.angle_max = 0.16
+		mat.angular_velocity_min = -14.0
+		mat.angular_velocity_max = 14.0
+	else:
+		mat.angle_min = 0.0
+		mat.angle_max = TAU
+		mat.angular_velocity_min = -120.0
+		mat.angular_velocity_max = 120.0
 	# Fade each particle out and shrink it near the end of its life instead of
 	# popping it out at full size; this is what separates fire from balloons.
 	var curve := Curve.new()
@@ -940,23 +1237,25 @@ static func _emitter(parent: Node3D, name: String, amount: int, lifetime: float,
 	p.process_material = mat
 	var quad := QuadMesh.new()
 	quad.size = Vector2.ONE
-	var m := StandardMaterial3D.new()
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	m.albedo_texture = tex
-	m.albedo_color = Color.WHITE
-	m.cull_mode = BaseMaterial3D.CULL_DISABLED
-	m.vertex_color_use_as_albedo = true
-	if additive:
-		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	if is_flame:
+		# Real animated fire: turbulence + rising motion computed per pixel.
+		# The shader billboards itself, so no StandardMaterial3D is needed.
+		var fm := ShaderMaterial.new()
+		fm.shader = _get_flame_shader()
+		fm.set_shader_parameter("flame_atlas", flame_atlas())
+		fm.set_shader_parameter("seed_offset", randf() * 64.0)
+		quad.material = fm
 	else:
-		m.blend_mode = BaseMaterial3D.BLEND_MODE_MIX
-		if tex == _flame_texture():
-			m.emission_enabled = true
-			m.emission = Color(1.0, 0.52, 0.16)
-			m.emission_energy_multiplier = 1.6
-	quad.material = m
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		m.albedo_texture = tex
+		m.albedo_color = Color.WHITE
+		m.cull_mode = BaseMaterial3D.CULL_DISABLED
+		m.vertex_color_use_as_albedo = true
+		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD if additive else BaseMaterial3D.BLEND_MODE_MIX
+		quad.material = m
 	p.draw_pass_1 = quad
 	parent.add_child(p)
 	return p
@@ -1100,11 +1399,11 @@ static func _spawn_debris(parent: Node, pos: Vector3, kind: String) -> void:
 		var piece := RigidBody3D.new()
 		piece.mass = 3.0
 		var mi := MeshInstance3D.new()
-		var bm := BoxMesh.new()
 		var s := Vector3(randf_range(0.18, 0.55), randf_range(0.10, 0.28),
 				randf_range(0.25, 0.85))
-		bm.size = s
-		mi.mesh = bm
+		mi.mesh = debris_mesh()
+		# The cached shard is ~0.34 units across; scale it to the old box size.
+		mi.scale = s / Vector3(0.34, 0.22, 0.28)
 		mi.material_override = mats[randi() % mats.size()]
 		piece.add_child(mi)
 		var cs := CollisionShape3D.new()

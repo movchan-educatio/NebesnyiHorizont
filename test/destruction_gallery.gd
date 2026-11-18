@@ -35,11 +35,18 @@ var _labels := {}
 var _solo := ""
 var _out_dir := ""
 var _t := 0.0
+var _cam: Camera3D = null
+var _cam_base := Vector3.ZERO
+var _shake := 0.0
+var _blob_tex: Texture2D = null
+var _phase_label: Label = null
 
 
 func _ready() -> void:
 	_out_dir = ProjectSettings.globalize_path("res://qa_shots/audit")
 	_setup_environment()
+	_setup_overlay()
+	_setup_phase_hud()
 	_solo = OS.get_environment("DESTR_CLASS")
 	if _solo.is_empty():
 		_build_grid()
@@ -68,31 +75,39 @@ func _setup_environment() -> void:
 	sky.sky_material = sky_mat
 	e.sky = sky
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	e.ambient_light_energy = 0.65
-	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	e.ambient_light_energy = 0.42
+	e.tonemap_mode = Environment.TONE_MAPPER_ACES
 	e.glow_enabled = true
-	e.glow_intensity = 0.55
-	e.glow_bloom = 0.12
+	e.glow_intensity = 0.82
+	e.glow_bloom = 0.28
 	e.fog_enabled = true
-	e.fog_light_color = Color(0.55, 0.62, 0.70)
-	e.fog_density = 0.0018
+	e.fog_light_color = Color(0.46, 0.50, 0.54)
+	e.fog_density = 0.0014
 	env.environment = e
 	add_child(env)
 
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-42.0, -38.0, 0.0)
-	sun.light_color = Color(1.0, 0.94, 0.84)
-	sun.light_energy = 1.35
+	sun.light_color = Color(1.0, 0.90, 0.76)
+	sun.light_energy = 1.65
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 120.0
 	add_child(sun)
 
 	var fill := DirectionalLight3D.new()
 	fill.rotation_degrees = Vector3(-20.0, 135.0, 0.0)
-	fill.light_color = Color(0.55, 0.68, 0.86)
-	fill.light_energy = 0.35
+	fill.light_color = Color(0.50, 0.66, 0.90)
+	fill.light_energy = 0.24
 	fill.shadow_enabled = false
 	add_child(fill)
+
+	# Warm back-rim separates the silhouettes from the sky at any zoom level.
+	var rim := DirectionalLight3D.new()
+	rim.rotation_degrees = Vector3(16.0, 205.0, 0.0)
+	rim.light_color = Color(1.0, 0.72, 0.44)
+	rim.light_energy = 0.55
+	rim.shadow_enabled = false
+	add_child(rim)
 
 	var ground := MeshInstance3D.new()
 	var plane := PlaneMesh.new()
@@ -120,12 +135,115 @@ func _setup_environment() -> void:
 			add_child(pad)
 
 
+## One full-screen quad: cinematic letterbox + vignette + fine film grain.
+## No SCREEN_TEXTURE copy, so it is effectively free on the mobile renderer.
+func _setup_overlay() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 20
+	add_child(layer)
+	var s := Shader.new()
+	s.code = """
+shader_type canvas_item;
+render_mode unshaded;
+uniform float bars : hint_range(0.0, 0.2) = 0.045;
+uniform float vignette : hint_range(0.0, 1.0) = 0.62;
+uniform float grain : hint_range(0.0, 0.3) = 0.07;
+void fragment() {
+	vec2 uv = UV;
+	float n = fract(sin(dot(uv * vec2(1234.5, 5678.9) + vec2(TIME * 13.0, TIME * 7.0),
+			vec2(12.9898, 78.233))) * 43758.5453);
+	float edge = smoothstep(0.28, 0.82, length(uv - 0.5));
+	float bar = 1.0 - step(bars, uv.y) * step(uv.y, 1.0 - bars);
+	float a = clamp(edge * vignette + bar + (n - 0.5) * grain, 0.0, 1.0);
+	COLOR = vec4(0.0, 0.0, 0.0, a);
+}
+"""
+	var rect := ColorRect.new()
+	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rect.material = ShaderMaterial.new()
+	(rect.material as ShaderMaterial).shader = s
+	layer.add_child(rect)
+
+
+func _setup_phase_hud() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 21
+	add_child(layer)
+	_phase_label = Label.new()
+	_phase_label.text = "STANDBY"
+	_phase_label.position = Vector2(36, 920)
+	_phase_label.add_theme_font_size_override("font_size", 22)
+	_phase_label.add_theme_color_override("font_color", Color(1.0, 0.72, 0.30))
+	_phase_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_phase_label.add_theme_constant_override("outline_size", 6)
+	layer.add_child(_phase_label)
+
+
+func _blob_texture() -> Texture2D:
+	if _blob_tex != null:
+		return _blob_tex
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 0.45, 0.8, 1.0])
+	grad.colors = PackedColorArray([
+		Color(0.0, 0.0, 0.0, 0.55),
+		Color(0.0, 0.0, 0.0, 0.34),
+		Color(0.0, 0.0, 0.0, 0.10),
+		Color(0.0, 0.0, 0.0, 0.0),
+	])
+	var tex := GradientTexture2D.new()
+	tex.gradient = grad
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(1.0, 0.5)
+	_blob_tex = tex
+	return tex
+
+
+## Cheap contact shadow / scorch disc. One quad per target, no shadow map work.
+func _ground_disc(pos: Vector3, radius: float, strength: float) -> void:
+	var mesh := MeshInstance3D.new()
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(radius * 2.0, radius * 2.0)
+	mesh.mesh = plane
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	mat.albedo_texture = _blob_texture()
+	mat.albedo_color = Color(1.0, 1.0, 1.0, strength)
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mesh.material_override = mat
+	mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mesh)
+	mesh.position = Vector3(pos.x, 0.115, pos.z)
+	mesh.rotation.x = -PI * 0.5
+
+
+func _process(delta: float) -> void:
+	if _cam == null:
+		return
+	_shake = maxf(0.0, _shake - delta * 1.7)
+	var amount := _shake * _shake
+	_cam.position = _cam_base + Vector3(
+			randf_range(-0.30, 0.30), randf_range(-0.22, 0.22), randf_range(-0.18, 0.18)) * amount
+
+
+func _set_phase(text: String) -> void:
+	if _phase_label != null and is_instance_valid(_phase_label):
+		_phase_label.text = text
+
+
+func _wait_real(seconds: float) -> void:
+	await get_tree().create_timer(seconds, true, false, true).timeout
+
+
 func _setup_title(title: String, subtitle: String) -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	var lbl := Label.new()
 	lbl.text = title + "\n" + subtitle
-	lbl.position = Vector2(36, 26)
+	lbl.position = Vector2(36, 78)
 	lbl.add_theme_font_size_override("font_size", 30)
 	lbl.add_theme_color_override("font_color", Color(0.95, 0.92, 0.80))
 	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
@@ -140,12 +258,16 @@ func _build_grid() -> void:
 	cam.current = true
 	add_child(cam)
 	cam.look_at(Vector3(0.0, 3.4, 0.0), Vector3.UP)
+	_cam = cam
+	_cam_base = cam.position
 	for i in range(KINDS.size()):
 		var kind: String = KINDS[i]
 		var x := -24.0 + float(i % 4) * 16.0
 		var z := -9.0 if i < 4 else 9.0
 		var y := 14.0 if kind in AERIAL else 0.0
 		_units[kind] = _spawn_unit(kind, Vector3(x, y, z))
+		if not (kind in AERIAL):
+			_ground_disc(Vector3(x, 0.0, z), float(SIZES.get(kind, 6.0)) * 0.62, 0.85)
 		var lbl := Label3D.new()
 		lbl.text = kind.to_upper()
 		lbl.font_size = 56
@@ -183,6 +305,10 @@ func _build_solo(kind: String) -> void:
 	cam.current = true
 	add_child(cam)
 	cam.look_at(Vector3(0.0, look_y, 0.0), Vector3.UP)
+	_cam = cam
+	_cam_base = cam.position
+	if not aerial:
+		_ground_disc(Vector3.ZERO, float(SIZES.get(kind, 6.0)) * 0.62, 0.85)
 	_units[kind] = _spawn_unit(kind, Vector3(0.0, 14.0 if aerial else 0.0, 0.0))
 	var lbl := Label3D.new()
 	lbl.text = kind.to_upper()
@@ -239,33 +365,56 @@ func _spawn_unit(kind: String, pos: Vector3) -> Node3D:
 
 
 func _sequence() -> void:
-	await get_tree().create_timer(0.35).timeout
+	await _wait_real(0.35)
+	_set_phase("01 · TARGET SET")
 	await _shot("01_idle")
-	# Hit stage.
+
+	# Hit stage - sparks, flash, jolt.
 	for kind in _units.keys():
 		var unit: Node3D = _units[kind]
 		DFx.hit(self, unit, unit.global_position + Vector3.UP * 1.2,
 				str(kind), 1.0)
-	await get_tree().create_timer(0.05).timeout
+	_set_phase("02 · IMPACT")
+	await _wait_real(0.05)
 	await _shot("02_hit")
-	await get_tree().create_timer(0.75).timeout
-	# Destruction stage.
+	await _wait_real(0.75)
+
+	# Destruction stage. Slow the clock for the detonation beat only; the real
+	# game never slows down, this is purely for the preview's cinematic read.
 	for kind in _units.keys():
 		var unit: Node3D = _units[kind]
 		DFx.destroy(self, unit, str(kind), 0.0)
-	await get_tree().create_timer(0.18).timeout
+	Engine.time_scale = 0.34
+	_shake = 1.0
+	_set_phase("03 · DETONATION · 0.34×")
+	await _wait_real(0.62)
+	Engine.time_scale = 1.0
 	await _shot("03_blast")
-	await get_tree().create_timer(0.55).timeout
+
+	_set_phase("04 · FIRE & SMOKE")
+	await _wait_real(0.55)
 	await _shot("04_burning")
-	await get_tree().create_timer(0.60).timeout
+	await _wait_real(0.60)
+	_set_phase("05 · AIRFRAME DOWN")
 	await _shot("05_falling")
-	await get_tree().create_timer(0.28).timeout
+	_shake = 0.55
+	await _wait_real(0.28)
 	await _shot("05b_impact")
-	await get_tree().create_timer(1.10).timeout
+
+	for kind in _units.keys():
+		if kind in AERIAL:
+			continue
+		var p: Vector3 = (_units[kind] as Node3D).global_position
+		_ground_disc(Vector3(p.x, 0.0, p.z), float(SIZES.get(kind, 6.0)) * 0.78, 0.55)
+
+	_set_phase("06 · WRECK BURNING")
+	await _wait_real(1.10)
 	await _shot("06_wreck")
-	await get_tree().create_timer(2.20).timeout
+	_set_phase("07 · AFTERMATH")
+	await _wait_real(2.20)
 	await _shot("07_aftermath")
-	await get_tree().create_timer(0.30).timeout
+	await _wait_real(0.30)
+	Engine.time_scale = 1.0
 	get_tree().quit(0)
 
 
