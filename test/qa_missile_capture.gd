@@ -68,13 +68,13 @@ func _ready() -> void:
 	_aim(Vector3(-20.0, 22.0, 40.0), Vector3(-70.0, 12.0, 0.0))
 	await _shot("07_wreck_falling")
 
-	# Jump to the largest wave to show a full swarm.
-	_level.set("_intercept_wave", 2)
+	# Jump to a later wave to show the repeating single-missile cadence.
+	_level.set("_intercept_wave", 4)
 	_level.set("_intercept_timer", 0.05)
 	_level.set("_intercept_warned", false)
 	await get_tree().create_timer(1.6).timeout
 	_aim(Vector3(-10.0, 38.0, 70.0), Vector3(-40.0, 28.0, 0.0))
-	await _shot("08_wave03_swarm")
+	await _shot("08_wave05_inbound")
 
 	# Force one missile through the defended edge -> breach VFX + flash.
 	var leaker := _first_missile()

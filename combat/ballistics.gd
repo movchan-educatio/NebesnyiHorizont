@@ -105,8 +105,9 @@ static func ground_at(level: Node, map_name: String, x: float, z: float) -> floa
 
 
 ## Integrate a bomb released at `origin` with `initial_velocity`.
-## Returns impact, time of flight and wind drift.  `dt` is deliberately coarse:
-## the sight refreshes at ~8 Hz and this loop is 500 steps maximum.
+## Returns impact, time of flight and wind drift.  `dt` is coarse on purpose:
+## the sight solves at 20 Hz and extrapolates between solves, so a 0.035 s step
+## keeps the predictor affordable on iOS without moving the pipper noticeably.
 static func simulate(level: Node, map_name: String, origin: Vector3,
 		initial_velocity: Vector3, wind: Vector3, kind: String = "82mm",
 		dt: float = 0.05) -> Dictionary:

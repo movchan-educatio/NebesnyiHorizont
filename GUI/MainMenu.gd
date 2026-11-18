@@ -27,7 +27,7 @@ const SPECIAL_MISSIONS := [
 	{"id": 7, "code": "CONV-07", "name": "Тилова колона", "name_en": "Rear-Area Convoy", "desc": "Знищити колону забезпечення: Урал, МТ-СМ, БТР", "desc_en": "Destroy the supply convoy: Ural truck, MTSM carrier, and BTR.", "diff": "Середня", "diff_en": "Medium", "col": Color("e2c276")},
 	{"id": 8, "code": "MSL-08", "name": "Орешник", "name_en": "Oreshnik Strike", "desc": "Знищити ракетний комплекс і його охорону", "desc_en": "Destroy the Oreshnik launcher and its escort.", "diff": "Важка", "diff_en": "Hard", "col": Color("c96f67")},
 	{"id": 9, "code": "DEEP-09", "name": "Глибокий тил", "name_en": "Deep-Strike Operation", "desc": "Комбінований удар по тиловій базі", "desc_en": "Conduct a combined strike on the rear-area base.", "diff": "Екстрим", "diff_en": "Extreme", "col": Color("c96f67")},
-	{"id": 10, "code": "MSL-10", "name": "Перехоплення ракет", "name_en": "Cruise Missile Intercept", "desc": "Відбити 4 хвилі крилатих ракет (5–7 у кожній)", "desc_en": "Defend against 4 waves of 5–7 cruise missiles.", "diff": "Екстрим", "diff_en": "Extreme", "col": Color("c96f67")},
+	{"id": 10, "code": "MSL-10", "name": "Перехоплення ракет", "name_en": "Cruise Missile Intercept", "desc": "Відбити 6 хвиль — по одній крилатій ракеті", "desc_en": "Defend against 6 waves of single cruise missiles.", "diff": "Екстрим", "diff_en": "Extreme", "col": Color("c96f67")},
 ]
 const START_SCREEN := "res://GUI/StartScreen.tscn"
 const GRAPHICS_SCREEN := "res://GUI/GraphicsScreen.tscn"

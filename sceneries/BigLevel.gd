@@ -55,13 +55,14 @@ const AIR_MISSION_SHAHED_SPEED := Vector2(16.0, 20.0)
 ## Special op 10 — cruise missile intercept.  Four waves sweep the full arena
 ## west -> east.  Speeds/altitudes stay inside the stock strike quad's zoom
 ## envelope so a mobile pilot can actually intercept them.
-const MISSILE_WAVE_COUNTS := [5, 6, 7, 6]
+## One missile per wave so a mobile pilot has time to line up every shot.
+const MISSILE_WAVE_COUNTS := [1, 1, 1, 1, 1, 1]
 const MISSILE_FIRST_WAVE_DELAY := 14.0
-const MISSILE_WAVE_INTERVAL := 34.0
+const MISSILE_WAVE_INTERVAL := 30.0
 const MISSILE_WARNING_LEAD := 8.0
 const MISSILE_SPEED := Vector2(11.0, 15.5)
 const MISSILE_ALTITUDE := Vector2(20.0, 34.0)
-const MISSILE_MAX_LEAKS := 4
+const MISSILE_MAX_LEAKS := 5
 const MISSILE_LANE_HALF := 88.0
 
 var _map_root: Node3D = null
@@ -2786,7 +2787,7 @@ func _special_mission_hint(mission_id: int) -> String:
 		9:
 			return _txt("ГЛИБОКИЙ ТИЛ", "DEEP STRIKE")
 		10:
-			return _txt("4 ХВИЛІ ППО", "4-WAVE AIR DEFENCE")
+			return _txt("6 ХВІЛЬ ППО", "6-WAVE AIR DEFENCE")
 		_:
 			return _txt("СПЕЦОПЕРАЦІЯ", "SPECIAL OP")
 
@@ -4778,8 +4779,8 @@ func _spawn_special_missile_intercept() -> void:
 	_intercept_missiles.clear()
 	_set_missile_warning("")
 	_play_radio_callout(_txt(
-		"Штаб борт-01: зафіксовано кластер крилатих ракет на західному напрямку. Чотири хвилі. Прикрити об'єкт.",
-		"HQ Valkyrie-01: cruise-missile cluster tracked to the west. Four waves inbound. Protect the asset."),
+		"Штаб борт-01: зафіксовано крилаті ракети на західному напрямку. Шість хвиль, по одній цілі. Прикрити об'єкт.",
+		"HQ Valkyrie-01: cruise missiles tracked to the west. Six waves, one target each. Protect the asset."),
 		true, "02")
 
 
@@ -4788,7 +4789,10 @@ func _spawn_missile_wave() -> void:
 	var wave_no := _intercept_wave + 1
 	var lane_step := (MISSILE_LANE_HALF * 2.0) / maxf(float(count) - 1.0, 1.0)
 	for i in range(count):
-		var lane := -MISSILE_LANE_HALF + lane_step * float(i) + randf_range(-7.0, 7.0)
+		# Single-missile waves arrive from a random lane so the defence must
+		# keep scanning the whole front instead of camping one approach.
+		var lane := randf_range(-MISSILE_LANE_HALF, MISSILE_LANE_HALF) if count == 1 \
+				else -MISSILE_LANE_HALF + lane_step * float(i) + randf_range(-7.0, 7.0)
 		var goal_lane := clampf(lane + randf_range(-10.0, 10.0),
 				-MISSILE_LANE_HALF, MISSILE_LANE_HALF)
 		var altitude := randf_range(MISSILE_ALTITUDE.x, MISSILE_ALTITUDE.y)
@@ -4812,9 +4816,9 @@ func _spawn_missile_wave() -> void:
 			"WAVE %d — MISSILES AIRBORNE!" % wave_no))
 	_play_alert("incoming")
 	_play_radio_callout(_txt(
-		"Попередження — хвиля %d, %d ракет у повітрі. Відкривайте вогонь!",
-		"Warning — wave %d, %d missiles airborne. Engage!") % [wave_no, count],
-		true, "04")
+		"Попередження — хвиля %d, ракета в повітрі. Відкривайте вогонь!",
+		"Warning — wave %d, missile airborne. Engage!") % [wave_no],
+		true, "02")
 
 
 func _update_missile_intercept(delta: float) -> void:
@@ -4847,25 +4851,24 @@ func _update_missile_intercept(delta: float) -> void:
 	if not _intercept_warned and _intercept_timer <= MISSILE_WARNING_LEAD:
 		_intercept_warned = true
 		_play_alert("sam_lock")
-		var incoming: int = MISSILE_WAVE_COUNTS[_intercept_wave]
 		_play_radio_callout(_txt(
-			"Увага! Хвиля %d — %d крилатих ракет на підході через %d секунд.",
-			"Attention! Wave %d — %d cruise missiles inbound in %d seconds."
-			) % [_intercept_wave + 1, incoming, int(ceilf(MISSILE_WARNING_LEAD))],
-			true, "04")
+			"Увага! Хвиля %d — крилата ракета на підході через %d секунд.",
+			"Attention! Wave %d — cruise missile inbound in %d seconds."
+			) % [_intercept_wave + 1, int(ceilf(MISSILE_WARNING_LEAD))],
+			true, "02")
 	if _intercept_warned and _intercept_timer > 0.0:
-		var count: int = MISSILE_WAVE_COUNTS[_intercept_wave]
 		var secs := int(ceilf(_intercept_timer))
 		_set_missile_warning(_txt(
-			"⚠ ПОВІТРЯНА ТРИВОГА · ХВИЛЯ %d/4 · %d РАКЕТ · СТАРТ ЧЕРЕЗ %ds · ПРОРИВИ %d/%d",
-			"⚠ AIR RAID · WAVE %d/4 · %d MISSILES · LAUNCH IN %ds · LEAKS %d/%d"
-			) % [_intercept_wave + 1, count, secs, _intercept_leaks, MISSILE_MAX_LEAKS])
+			"⚠ ПОВІТРЯНА ТРИВОГА · ХВИЛЯ %d/%d · 1 РАКЕТА · СТАРТ ЧЕРЕЗ %ds · ПРОРИВИ %d/%d",
+			"⚠ AIR RAID · WAVE %d/%d · 1 MISSILE · LAUNCH IN %ds · LEAKS %d/%d"
+			) % [_intercept_wave + 1, MISSILE_WAVE_COUNTS.size(), secs,
+					_intercept_leaks, MISSILE_MAX_LEAKS])
 	elif not _intercept_warned:
 		_set_missile_warning(_txt(
-			"ППО ГОТОВА · ХВИЛЯ %d/4 · НАСТУПНА ЧЕРЕЗ %ds · ПРОРИВИ %d/%d",
-			"DEFENCE READY · WAVE %d/4 · NEXT IN %ds · LEAKS %d/%d"
-			) % [_intercept_wave + 1, int(ceilf(_intercept_timer)),
-					_intercept_leaks, MISSILE_MAX_LEAKS], false)
+			"ППО ГОТОВА · ХВИЛЯ %d/%d · НАСТУПНА ЧЕРЕЗ %ds · ПРОРИВИ %d/%d",
+			"DEFENCE READY · WAVE %d/%d · NEXT IN %ds · LEAKS %d/%d"
+			) % [_intercept_wave + 1, MISSILE_WAVE_COUNTS.size(),
+					int(ceilf(_intercept_timer)), _intercept_leaks, MISSILE_MAX_LEAKS], false)
 	if _intercept_timer <= 0.0:
 		_set_missile_warning("")
 		_spawn_missile_wave()

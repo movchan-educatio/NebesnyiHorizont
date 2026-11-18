@@ -137,16 +137,16 @@ func _ready() -> void:
 				else:
 					print("[SPECIAL] PASS deep strike completes directly with no exit marker")
 			10:
-				# Four announced waves totalling 24 cruise missiles; none have
+				# Six announced waves of one cruise missile each; none have
 				# launched yet while the briefing banner is up.
-				if int(level.get("_mission_targets_total")) != 24 \
+				if int(level.get("_mission_targets_total")) != 6 \
 						or int(level.get("_intercept_wave")) != 0:
 					printerr("[SPECIAL] FAIL missile intercept setup: ",
 							level.get("_mission_targets_total"), "/",
 							level.get("_intercept_wave"))
 					ok = false
 				else:
-					print("[SPECIAL] PASS missile intercept 24 targets / 4 waves")
+					print("[SPECIAL] PASS missile intercept 6 targets / 6 waves")
 				level.call("_start_mission")
 				level.set("_mission_targets_destroyed", int(level.get("_mission_targets_total")))
 				level.call("_check_combat_mission_complete")

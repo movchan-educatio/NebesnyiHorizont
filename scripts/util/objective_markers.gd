@@ -159,6 +159,8 @@ func _target_type_name(n3: Node3D, is_en: bool) -> String:
 			return "MT-SM" if is_en else "ТЯГАЧ МТ-СМ"
 		elif v == "btr8":
 			return "BTR-80" if is_en else "БТР-80"
+		elif v == "cruise_missile":
+			return "CRUISE MISSILE" if is_en else "КРИЛАТА РАКЕТА"
 		match k:
 			0: return "T-72 TANK" if is_en else "ТАНК Т-72"
 			1: return "BMP-2M" if is_en else "БМП-2М"

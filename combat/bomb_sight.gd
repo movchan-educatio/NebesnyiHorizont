@@ -21,7 +21,12 @@ var thermal := false
 var _solution: Dictionary = {}
 var _aim_point := Vector3.ZERO
 var _aim_valid := false
+## The ballistic solve is comparatively heavy (hundreds of terrain samples), so
+## it runs at 20 Hz while the pipper follows the view every rendered frame via
+## velocity extrapolation.  The old 0.11 s tick made the sight feel sluggish.
 var _tick := 0.0
+var _solve_elapsed := 0.0
+var _display_impact := Vector3.ZERO
 var _font: Font = null
 
 
@@ -49,10 +54,37 @@ func _process(delta: float) -> void:
 	if not visible:
 		return
 	_tick -= delta
+	_solve_elapsed += delta
 	if _tick <= 0.0:
-		_tick = 0.11
+		_tick = 0.05
 		_recompute()
+	_update_pipper()
 	queue_redraw()
+
+
+## Cheap, every-frame follow-up: extrapolate the last solved impact with the
+## drone's horizontal velocity and re-cast the centre-of-screen aim ray.  This
+## removes the visible 9 Hz stepping without paying for a solve each frame.
+func _update_pipper() -> void:
+	if _solution.is_empty():
+		return
+	var solved: Vector3 = _solution.get("impact", Vector3.ZERO)
+	var vel := drone.linear_velocity if drone != null and is_instance_valid(drone) else Vector3.ZERO
+	vel.y = 0.0
+	_display_impact = solved + vel * minf(_solve_elapsed, 0.2)
+	camera = get_viewport().get_camera_3d()
+	if camera == null:
+		return
+	var from := camera.global_position
+	var to := from - camera.global_transform.basis.z * 3000.0
+	var space := camera.get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.create(from, to)
+	q.collision_mask = 1
+	if drone is CollisionObject3D:
+		q.exclude = [(drone as CollisionObject3D).get_rid()]
+	var hit := space.intersect_ray(q)
+	_aim_valid = not hit.is_empty()
+	_aim_point = hit.get("position", Vector3.ZERO)
 
 
 func _recompute() -> void:
@@ -78,26 +110,17 @@ func _recompute() -> void:
 			+ Vector3.DOWN * Ballistics.RELEASE_DOWN_IMPULSE)
 	var map_name := String(level.get("frontline_map")) \
 			if level.get("frontline_map") != null else ""
-	_solution = Ballistics.simulate(level, map_name, origin, vel, wind, kind, 0.02)
-
-	# Ground point under the camera centre: this is what the pilot is aiming
-	# at, and it drives the "release now" cue.
-	var from := camera.global_position
-	var to := from - camera.global_transform.basis.z * 3000.0
-	var space := camera.get_world_3d().direct_space_state
-	var q := PhysicsRayQueryParameters3D.create(from, to)
-	q.collision_mask = 1
-	if drone is CollisionObject3D:
-		q.exclude = [(drone as CollisionObject3D).get_rid()]
-	var hit := space.intersect_ray(q)
-	_aim_valid = not hit.is_empty()
-	_aim_point = hit.get("position", Vector3.ZERO)
+	# A slightly coarser step (0.035 s) keeps the 20 Hz solve affordable on iOS
+	# while staying well inside the accuracy envelope of the physical store.
+	_solution = Ballistics.simulate(level, map_name, origin, vel, wind, kind, 0.035)
+	_solve_elapsed = 0.0
+	_display_impact = _solution.get("impact", Vector3.ZERO)
 
 
 func _draw() -> void:
 	if _solution.is_empty() or camera == null:
 		return
-	var impact: Vector3 = _solution.get("impact", Vector3.ZERO)
+	var impact: Vector3 = _display_impact
 	if camera.is_position_behind(impact):
 		return
 	var p := camera.unproject_position(impact)
