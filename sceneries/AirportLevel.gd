@@ -116,8 +116,15 @@ func _replace_trees() -> void:
 	if root != null:
 		_find_dec_mesh(root, found)
 	for m in found:
-		# DEC__M_Ground — це додатковий схил із «травою», що висіла в повітрі,
-		# та дрібні бур'яни. DEC__M_Green — низькополігональні конус-дерева.
+		if m.name == "COL__M_Ground":
+			# Зовнішній ґрунт має бути таким самим темним, як льотне поле,
+			# інакше виходить яскраве «піщане поле» з різкою межею.
+			var ft = load("res://scripts/util/frontline_terrain.gd")
+			if ft != null:
+				m.material_override = ft._pbr("asphalt", Color(0.26, 0.25, 0.23), 0.05)
+			continue
+		# DEC__M_Ground — схил із «травою», DEC__M_Green — конус-дерева,
+		# DEC__M_Hill — штучна темна смуга на обрії.
 		m.visible = false
 	var oak := load(TREE_OAK) as PackedScene
 	var pine := load(TREE_PINE) as PackedScene
@@ -143,7 +150,8 @@ func _replace_trees() -> void:
 
 
 func _find_dec_mesh(node: Node, out: Array[MeshInstance3D]) -> void:
-	if node is MeshInstance3D and (node.name == "DEC__M_Green" or node.name == "DEC__M_Ground"):
+	if node is MeshInstance3D and (node.name == "DEC__M_Green" or node.name == "DEC__M_Ground"
+			or node.name == "DEC__M_Hill" or node.name == "COL__M_Ground"):
 		out.append(node)
 	for c in node.get_children():
 		_find_dec_mesh(c, out)
