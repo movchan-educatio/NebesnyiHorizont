@@ -38,6 +38,7 @@ const MAP_META := [
 	{"id": "village", "name": "СЕЛО", "name_en": "VILLAGE", "tag": "МІСЬКА ЗАБУДОВА", "tag_en": "BUILT-UP AREA", "diff": "СЕРЕДНЯ", "diff_en": "MEDIUM", "col": "e2c276"},
 	{"id": "industrial", "name": "ПРОМЗОНА", "name_en": "INDUSTRIAL ZONE", "tag": "ЗАВОДИ Й ТРУБИ", "tag_en": "FACTORY COMPLEX", "diff": "СКЛАДНА", "diff_en": "HARD", "col": "c96f67"},
 	{"id": "wetlands", "name": "БОЛОТА", "name_en": "WETLANDS", "tag": "ВОДА Й ОЧЕРЕТ", "tag_en": "WATER & REEDS", "diff": "СКЛАДНА", "diff_en": "HARD", "col": "79a58a"},
+	{"id": "airport", "name": "АЕРОПОРТ", "name_en": "AIRPORT", "tag": "ФРІСТАЙЛ", "tag_en": "FREESTYLE", "diff": "СЕРЕДНЯ", "diff_en": "MEDIUM", "col": "e2c276"},
 ]
 const MODE_META := [
 	{"id": 3, "name": "ТУТОРІАЛ", "name_en": "TUTORIAL"},
@@ -2937,6 +2938,7 @@ func _launch(combat_training: bool = false) -> void:
 		"village": "res://sceneries/VillageLevel.tscn",
 		"industrial": "res://sceneries/IndustrialLevel.tscn",
 		"wetlands": "res://sceneries/WetlandsLevel.tscn",
+		"airport": "res://sceneries/AirportLevel.tscn",
 	}
 	var launch_map := "village" if _selected_mode == Global.PlayMode.TUTORIAL else _selected_map
 	var path: String = scenes.get(launch_map, "res://sceneries/VillageLevel.tscn")

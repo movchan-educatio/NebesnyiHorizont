@@ -12,11 +12,12 @@ const FRONTLINE_LEVELS := {
 	"village": "res://sceneries/VillageLevel.tscn",
 	"industrial": "res://sceneries/IndustrialLevel.tscn",
 	"wetlands": "res://sceneries/WetlandsLevel.tscn",
+	"airport": "res://sceneries/AirportLevel.tscn",
 }
 ## The old valley/BigLevel scene is the legacy test range.  It stays in
 ## FRONTLINE_LEVELS because TAC-05 (the naval mission) still uses it, but it is
 ## never offered as a normal map: only the four finished frontline maps are.
-const SELECTABLE_MAPS := ["steppe", "village", "industrial", "wetlands"]
+const SELECTABLE_MAPS := ["steppe", "village", "industrial", "wetlands", "airport"]
 const SPECIAL_MISSIONS := [
 	{"id": 1, "code": "REC-01", "name": "Розвідка", "name_en": "Reconnaissance", "desc": "Пройти 3 зони спостереження", "desc_en": "Survey all three observation zones.", "diff": "Легка", "diff_en": "Easy", "col": Color("79a58a")},
 	{"id": 2, "code": "ESC-02", "name": "Супровід", "name_en": "Convoy Escort", "desc": "Провести дружню колону", "desc_en": "Escort the friendly convoy to its destination.", "diff": "Середня", "diff_en": "Medium", "col": Color("e2c276")},
@@ -627,6 +628,7 @@ func _build() -> void:
 		{"id": "village", "uk": "Село", "en": "Village"},
 		{"id": "industrial", "uk": "Промзона", "en": "Industry"},
 		{"id": "wetlands", "uk": "Плавні", "en": "Wetlands"},
+		{"id": "airport", "uk": "Аеропорт", "en": "Airport"},
 	]
 	_map_buttons.clear()
 	for md in map_defs:
