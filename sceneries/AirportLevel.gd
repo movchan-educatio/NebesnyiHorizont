@@ -66,6 +66,11 @@ func _place_drone_over_ground() -> void:
 		d.flight_controller.reset()
 	d.freeze = true
 	DroneCatalog.apply_to_drone(d, Global.drone_preset)
+	# Ми перевизначили _place_drone_over_ground, тому батьківський обробник ARM
+	# не підключається — робимо це самі, інакше дрон лишається замороженим.
+	var fc = d.flight_controller
+	if fc != null and not fc.armed.is_connected(_on_airport_armed):
+		fc.armed.connect(_on_airport_armed)
 
 
 ## Після кожного ARM примусово повертаємо стабілізований режим HORIZON,
@@ -80,6 +85,15 @@ func _connect_horizon_assist() -> void:
 
 
 func _on_airport_armed(_mode: int) -> void:
+	var d := get_node_or_null("Drone") as Drone
+	if d != null:
+		d.freeze = false
+		d.linear_velocity = Vector3.UP * 0.1
+	var help := get_node_or_null("Help")
+	if help is CanvasLayer:
+		(help as CanvasLayer).visible = false
+	if not _mission_started and not _mission_finished:
+		_start_mission()
 	call_deferred("_force_level_mode")
 
 
