@@ -1672,7 +1672,7 @@ func _launch_current_selection(combat_training: bool = false) -> void:
 	# The flight school has a fixed training strip on the north field of the
 	# village map; the selected combat map must not move the course into water
 	# or a forest.  The combat map choice itself is left untouched.
-	if _selected_mode == Global.PlayMode.TUTORIAL:
+	if _selected_mode == Global.PlayMode.TUTORIAL and map_id != "airport":
 		scene_path = FRONTLINE_LEVELS["village"]
 	Global.menu_settings["selected_map"] = map_id
 	Global.menu_settings["selected_mode"] = _selected_mode

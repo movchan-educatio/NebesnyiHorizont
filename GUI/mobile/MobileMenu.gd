@@ -2940,7 +2940,7 @@ func _launch(combat_training: bool = false) -> void:
 		"wetlands": "res://sceneries/WetlandsLevel.tscn",
 		"airport": "res://sceneries/AirportLevel.tscn",
 	}
-	var launch_map := "village" if _selected_mode == Global.PlayMode.TUTORIAL else _selected_map
+	var launch_map := "village" if (_selected_mode == Global.PlayMode.TUTORIAL and _selected_map != "airport") else _selected_map
 	var path: String = scenes.get(launch_map, "res://sceneries/VillageLevel.tscn")
 
 	# Stop menu ambient / music

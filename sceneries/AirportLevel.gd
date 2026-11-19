@@ -4,6 +4,10 @@ extends "res://sceneries/Level.gd"
 ## VisualEnhancer через базовий Level.gd. Не змінює жоден існуючий рівень.
 
 const AIRPORT_GLB := "res://Assets/maps/abandoned_airport.glb"
+const GATE_BIG := "res://tracks/gates/Gate_7x6_Simple.tscn"
+const GATE_SMALL := "res://tracks/gates/Gate_5x5_Simple.tscn"
+
+var _payload_label: Label = null
 
 
 func _ready() -> void:
@@ -26,8 +30,60 @@ func _ready() -> void:
 		cam.cull_mask = 1
 		cam.current = true
 	_configure_drone_visuals_for_camera(true)
+	_spawn_freestyle_gates()
+	_setup_airport_hud()
 	var en := MenuUI.is_english()
 	print("[AirportLevel] ", "ready" if en else "готово", ", GLB=", AIRPORT_GLB)
+
+
+func _spawn_freestyle_gates() -> void:
+	# Справжні ігрові кільця/ворота (як на інших картах), додатково до
+	# стаціонарних кілець із GLB.
+	var gates := [
+		[Vector3(-150, 6, 90), 0.0], [Vector3(-90, 9, 40), 0.2],
+		[Vector3(-30, 7, -20), -0.3], [Vector3(30, 10, -70), 0.35],
+		[Vector3(90, 8, -120), -0.2], [Vector3(150, 12, -170), 0.5],
+		[Vector3(210, 7, -215), 0.1], [Vector3(-200, 9, -150), 0.7],
+		[Vector3(-120, 8, -220), -0.4], [Vector3(60, 11, 150), 0.25],
+		[Vector3(250, 10, 60), -0.6], [Vector3(-260, 7, 30), 0.15],
+	]
+	for i in gates.size():
+		var path := GATE_BIG if i % 3 == 0 else GATE_SMALL
+		var packed := load(path) as PackedScene
+		if packed == null:
+			continue
+		var gate := packed.instantiate()
+		gate.name = "FreestyleGate%d" % i
+		add_child(gate)
+		gate.global_position = gates[i][0]
+		gate.global_rotation.y = float(gates[i][1])
+
+
+func _setup_airport_hud() -> void:
+	var canvas := CanvasLayer.new()
+	canvas.name = "AirportHUD"
+	canvas.layer = 4
+	add_child(canvas)
+	var label := Label.new()
+	label.name = "PayloadLabel"
+	label.position = Vector2(22.0, 92.0)
+	label.add_theme_font_size_override("font_size", 20)
+	label.add_theme_color_override("font_color", Color(1.0, 0.86, 0.55))
+	canvas.add_child(label)
+	_payload_label = label
+	var en := MenuUI.is_english()
+	var p: Dictionary = DroneCatalog.preset(Global.drone_preset)
+	var combat := bool(p.get("combat", false))
+	var has_drop := bool(p.get("has_drop", false))
+	if Global.play_mode == Global.PlayMode.TUTORIAL:
+		label.text = ("TUTORIAL: ARM → THROTTLE → STICKS" if en
+			else "ТУТОРІАЛ: ARM → ГАЗ → СТІКИ")
+	elif Global.play_mode == Global.PlayMode.COMBAT and combat:
+		label.text = (("DROP %d  [G]" % 3 if has_drop else "WARHEAD 1x  [F]") if en
+			else ("СКИД 3  [G]" if has_drop else "БЧ 1x  [F]"))
+	else:
+		label.text = ("FREESTYLE · ABANDONED AIRPORT" if en
+			else "ФРІСТАЙЛ · ПОКИНУТИЙ АЕРОПОРТ")
 
 
 func _tune_airport_environment() -> void:
@@ -115,3 +171,28 @@ func _place_drone_at_respawn() -> void:
 	DroneCatalog.apply_to_drone(d, Global.drone_preset)
 	var cam := get_node_or_null("Drone/FPVCamera") as Camera3D
 	_configure_drone_visuals_for_camera(cam != null and cam.current)
+	if not d.respawned.is_connected(_on_airport_drone_respawned):
+		d.respawned.connect(_on_airport_drone_respawned)
+	if d.flight_controller != null and not d.flight_controller.armed.is_connected(_on_airport_drone_armed):
+		d.flight_controller.armed.connect(_on_airport_drone_armed)
+
+
+func _on_airport_drone_armed(_mode: int) -> void:
+	var d := get_node_or_null("Drone") as Drone
+	if d == null:
+		return
+	d.freeze = false
+	var flight_controller := d.flight_controller as FlightController
+	if flight_controller != null and flight_controller.flight_mode == FlightController.FlightMode.AUTO:
+		flight_controller.restore_preferred_flight_mode()
+	var radio := get_node_or_null("RadioController") as RadioController
+	if radio != null:
+		radio.hover_assist = true
+
+
+func _on_airport_drone_respawned() -> void:
+	_place_drone_at_respawn()
+	var radio := get_node_or_null("RadioController") as RadioController
+	if radio != null:
+		radio.hover_assist = false
+		radio.test_throttle = -1.0
