@@ -73,8 +73,10 @@ func _place_drone_over_ground() -> void:
 		fc.armed.connect(_on_airport_armed)
 
 
-## Після кожного ARM примусово повертаємо стабілізований режим HORIZON,
-## щоб дрон не перемикався в ACRO і його можна було посадити.
+## Обробник ARM без примусової зміни режиму: BigLevel викликає
+## restore_preferred_flight_mode(), який перезаписує вибір кнопкою режиму
+## (HORIZON не зберігається як preferred). Тут просто знімаємо freeze,
+## запускаємо місію й лишаємо режим, обраний пілотом.
 func _connect_horizon_assist() -> void:
 	var d := get_node_or_null("Drone")
 	if d == null or d.flight_controller == null:
@@ -94,17 +96,6 @@ func _on_airport_armed(_mode: int) -> void:
 		(help as CanvasLayer).visible = false
 	if not _mission_started and not _mission_finished:
 		_start_mission()
-	call_deferred("_force_level_mode")
-
-
-func _force_level_mode() -> void:
-	var d := get_node_or_null("Drone")
-	if d == null or d.flight_controller == null:
-		return
-	if d.flight_controller.has_method("select_flight_mode"):
-		# HORIZON завжди доступний, на відміну від LEVEL, який у частині
-		# профілів вимкнено і resolve_flight_mode перетворює його на RATE.
-		d.flight_controller.call("select_flight_mode", FlightController.FlightMode.HORIZON)
 
 
 ## Трава BigLevel розрахована на процедурний height_field і на нашій карті
@@ -147,6 +138,15 @@ func _process(delta: float) -> void:
 func _force_touch_mode() -> void:
 	var touch := get_node_or_null("/root/TouchControls")
 	if touch == null or not bool(touch.get("enabled")):
+		return
+	# Якщо пульт (ELRS Wi-Fi) активний — НЕ перемикаємо на сенсор, інакше
+	# TouchControls перехоплює ввід і пульт «відвалюється».
+	var wifi := get_node_or_null("/root/ElrsWifiInput")
+	var elrs_ok := wifi != null and (bool(wifi.get("valid"))
+			or bool(wifi.call("was_recently_active", 20000)))
+	if elrs_ok:
+		if bool(touch.get("touch_mode")):
+			touch.call("set_controller_only", true)
 		return
 	if OS.get_name() == "iOS" or OS.has_environment("TOUCH_CONTROLS"):
 		touch.call("set_controller_only", false)
@@ -232,6 +232,12 @@ func _spawn_detailed_props() -> void:
 				rng.randf_range(0.0, TAU), rng.randf_range(0.85, 1.25))
 		if prop != null:
 			prop.name = "DetailedProp%d" % i
+			# spawn_prop дає convex-hull колізію — у тонких антен/знаків/труб
+			# вона виходить товстою. Для декоративних тонких пропсів прибираємо.
+			if nm == "prop_antenna" or nm == "prop_sign" or nm == "prop_pipe":
+				for c in prop.get_children():
+					if c is StaticBody3D:
+						c.queue_free()
 			spawned += 1
 	print("[Airport] detailed props: ", spawned)
 
