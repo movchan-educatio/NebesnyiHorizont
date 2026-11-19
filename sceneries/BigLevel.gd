@@ -6034,6 +6034,8 @@ func _update_telemetry(delta: float) -> void:
 	if Global.play_mode == Global.PlayMode.COMBAT and is_combat:
 		if has_drop:
 			ammo_line = _txt("СКИД %d  [G]\n", "DROP %d  [G]\n") % _ammo_count()
+		elif MenuUI.is_mobile_ui():
+			ammo_line = _txt("БЧ  · КНОПКА НА ЕКРАНІ\n", "WARHEAD · SCREEN BUTTON\n")
 		else:
 			ammo_line = _txt("БЧ 1x  [F]\n", "WARHEAD 1x  [F]\n")
 	_scene_uptime += delta

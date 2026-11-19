@@ -653,7 +653,7 @@ const EN_TEXT: Dictionary = {
 	"ВИСОКІ": "HIGH GATE",
 	"ВОРОТА 1": "GATE 1",
 	"ВІКНО 3.6x3.2": "WINDOW 3.6×3.2",
-	"G — скид    F — активація БЧ    F6 — FPV-ефекти    R — респавн    M — режим": "G — DROP    F — DETONATE WARHEAD    F6 — FPV EFFECTS    R — RESPAWN    M — MODE",
+	"СКИД / БЧ — кнопки на екрані    МЕНЮ — пауза    РЕСЕТ — респавн": "DROP / WARHEAD — on-screen buttons    MENU — pause    RESET — respawn",
 	"НЕ БОЙОВИЙ ДРОН — БОЙОВИЙ СКИД ВІДСУТНІЙ": "NON-COMBAT AIRCRAFT — NO PAYLOAD DROP",
 	"КАМІКАДЗЕ — СКИД ВІДСУТНІЙ (ДЕТОНАЦІЯ ПРИ УДАРІ)": "KAMIKAZE AIRCRAFT — NO DROP (WARHEAD DETONATES ON IMPACT)",
 	"СПОЧАТКУ УВІМКНІТЬ ДВИГУНИ (ARM)": "ARM THE MOTORS FIRST",

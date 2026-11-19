@@ -45,8 +45,13 @@ func _setup_payload_hud() -> void:
 	var en := MenuUI.is_english()
 	var p: Dictionary = DroneCatalog.preset(Global.drone_preset)
 	if bool(p.get("combat", false)) and DroneCatalog.supports_payload_actions(Global.drone_preset):
-		label.text = ("DROP 3  [G]" if bool(p.get("has_drop", false)) else "WARHEAD 1x  [F]") if en \
-			else ("СКИД 3  [G]" if bool(p.get("has_drop", false)) else "БЧ 1x  [F]")
+		var mobile := MenuUI.is_mobile_ui()
+		if mobile:
+			label.text = ("DROP · SCREEN BUTTON" if bool(p.get("has_drop", false)) else "WARHEAD · SCREEN BUTTON") if en \
+				else ("СКИД · КНОПКА НА ЕКРАНІ" if bool(p.get("has_drop", false)) else "БЧ · КНОПКА НА ЕКРАНІ")
+		else:
+			label.text = ("DROP 3  [G]" if bool(p.get("has_drop", false)) else "WARHEAD 1x  [F]") if en \
+				else ("СКИД 3  [G]" if bool(p.get("has_drop", false)) else "БЧ 1x  [F]")
 	else:
 		label.text = ("NO PAYLOAD" if en else "БЧ ВІДСУТНЯ")
 
