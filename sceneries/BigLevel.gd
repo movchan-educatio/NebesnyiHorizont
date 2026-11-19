@@ -34,9 +34,11 @@ const GhostScript = preload("res://drone/Ghost.gd")
 const MAIN_MENU := "res://GUI/MainMenu.tscn"
 const MOBILE_MENU := "res://GUI/mobile/MobileMenu.tscn"
 
-const MAP_FLIGHT_BOUND := 182.0
-const MAP_GROUND_SAFE := 152.0
-const MAP_AIR_SAFE := 172.0
+## Змінні (не const), щоб великі карти (наприклад аеропорт) могли збільшити
+## безпечну зону, не змінюючи логіку базового рівня.
+var MAP_FLIGHT_BOUND := 182.0
+var MAP_GROUND_SAFE := 152.0
+var MAP_AIR_SAFE := 172.0
 const MIN_ENEMY_SPAWN_DIST_GROUND := 80.0
 const MIN_ENEMY_SPAWN_DIST_AIR := 95.0
 

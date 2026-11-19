@@ -2457,6 +2457,9 @@ func _is_air() -> bool:
 
 
 func _arena_limit() -> float:
+	var scene := _find_level_scene()
+	if scene != null and scene.get("MAP_GROUND_SAFE") != null:
+		return maxf(VEHICLE_GROUND_BOUND, float(scene.get("MAP_GROUND_SAFE")) - 10.0)
 	return VEHICLE_AIR_BOUND if _is_air() else VEHICLE_GROUND_BOUND
 
 
@@ -2464,7 +2467,7 @@ func _is_water_hazard(x: float, z: float) -> bool:
 	if _is_air():
 		return false
 	var fmap := _frontline_map()
-	if fmap.is_empty():
+	if fmap.is_empty() or fmap == "airport":
 		return false
 	var h := FrontlineTerrainScript.height_at(fmap, x, z)
 	if fmap == "industrial":
@@ -2507,7 +2510,7 @@ func _frontline_map() -> String:
 ## ground units; only fall back to raycasts on the legacy GLB maps.
 func _terrain_ground(x: float, z: float) -> Dictionary:
 	var map := _frontline_map()
-	if map.is_empty():
+	if map.is_empty() or map == "airport":
 		return {}
 	var y := FrontlineTerrainScript.height_at(map, x, z)
 	var dx := FrontlineTerrainScript.height_at(map, x + 1.5, z) \

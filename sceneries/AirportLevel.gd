@@ -6,6 +6,10 @@ extends "res://sceneries/BigLevel.gd"
 const AIRPORT_GLB := "res://Assets/maps/abandoned_airport.glb"
 const GATE_BIG := "res://tracks/gates/Gate_7x6_Simple.tscn"
 const GATE_SMALL := "res://tracks/gates/Gate_5x5_Simple.tscn"
+const TREE_OAK := "res://Assets/frontline/oak.glb"
+const TREE_PINE := "res://Assets/frontline/pine.glb"
+
+
 
 
 func _map_path() -> String:
@@ -23,10 +27,85 @@ func _scatter_legacy_map(_instance: Node3D) -> void:
 
 
 func _ready() -> void:
+	# Карта 900×900 м — стандартні межі BigLevel (152/182 м) занадто тісні.
+	MAP_GROUND_SAFE = 430.0
+	MAP_FLIGHT_BOUND = 470.0
+	MAP_AIR_SAFE = 450.0
 	super._ready()
+	_force_touch_mode()
+	var radio := get_node_or_null("RadioController")
+	if radio != null:
+		radio.set("hover_assist", false)
+		radio.set("test_throttle", -1.0)
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 	_setup_payload_hud()
+	_replace_trees()
+
+
+## На телефоні стіки мають працювати завжди, якщо немає активного ELRS-пульту.
+func _force_touch_mode() -> void:
+	var touch := get_node_or_null("/root/TouchControls")
+	var wifi := get_node_or_null("/root/ElrsWifiInput")
+	if touch == null or not bool(touch.get("enabled")):
+		return
+	var elrs_ok := wifi != null and bool(wifi.get("valid"))
+	if not elrs_ok and OS.get_name() == "iOS":
+		touch.call("set_controller_only", false)
+
+
+# Наш GLB має власну плоску поверхню y≈0.1; процедурний height_at для
+# "airport" повертає хибні висоти — через це техніка й піхота були під/над ґрунтом.
+func _find_ground_y(_x: float, _z: float) -> float:
+	return 0.12
+
+
+func _is_ground_spot_clear(x: float, z: float) -> bool:
+	return absf(x) <= MAP_GROUND_SAFE and absf(z) <= MAP_GROUND_SAFE
+
+
+func _special_ground_point(x: float, z: float) -> Vector3:
+	return Vector3(clampf(x, -MAP_GROUND_SAFE, MAP_GROUND_SAFE), 0.14,
+			clampf(z, -MAP_GROUND_SAFE, MAP_GROUND_SAFE))
+
+
+func _replace_trees() -> void:
+	var found: Array[MeshInstance3D] = []
+	var root := get_node_or_null("MapRoot")
+	if root != null:
+		_find_dec_mesh(root, found)
+	for m in found:
+		# DEC__M_Ground — це додатковий схил із «травою», що висіла в повітрі,
+		# та дрібні бур'яни. DEC__M_Green — низькополігональні конус-дерева.
+		m.visible = false
+	var oak := load(TREE_OAK) as PackedScene
+	var pine := load(TREE_PINE) as PackedScene
+	if oak == null and pine == null:
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4242
+	for i in range(90):
+		var packed := pine if (i % 3 == 0 and pine != null) else oak
+		if packed == null:
+			packed = pine if pine != null else oak
+		var a := rng.randf_range(0.0, TAU)
+		var r := rng.randf_range(220.0, 400.0)
+		var x := cos(a) * r
+		var z := sin(a) * r
+		var tree := packed.instantiate()
+		tree.name = "AirportTree%d" % i
+		add_child(tree)
+		tree.global_position = Vector3(x, 0.05, z)
+		tree.global_rotation.y = rng.randf_range(0.0, TAU)
+		var s := rng.randf_range(0.85, 1.35)
+		tree.scale = Vector3(s, s, s)
+
+
+func _find_dec_mesh(node: Node, out: Array[MeshInstance3D]) -> void:
+	if node is MeshInstance3D and (node.name == "DEC__M_Green" or node.name == "DEC__M_Ground"):
+		out.append(node)
+	for c in node.get_children():
+		_find_dec_mesh(c, out)
 
 
 func _setup_payload_hud() -> void:

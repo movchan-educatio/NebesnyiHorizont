@@ -617,12 +617,13 @@ func _can_step(move_dir: Vector3, step_len: float) -> bool:
 	var space := get_world_3d().direct_space_state
 	var from := global_position + Vector3.UP * 0.95
 	var to := from + move_dir * (step_len + 0.55)
-	if absf(to.x) > INFANTRY_MAP_BOUND or absf(to.z) > INFANTRY_MAP_BOUND:
+	var bound := _map_bound()
+	if absf(to.x) > bound or absf(to.z) > bound:
 		return false
 	var scene := _find_level_scene()
 	if scene != null and scene.get("frontline_map") != null:
 		var map := String(scene.get("frontline_map"))
-		if not map.is_empty():
+		if not map.is_empty() and map != "airport":
 			var cur_h := FrontlineTerrainScript.height_at(map, global_position.x, global_position.z)
 			var next_h := FrontlineTerrainScript.height_at(map, to.x, to.z)
 			var on_bridge := false
@@ -845,10 +846,18 @@ func _find_level_scene() -> Node:
 	return null
 
 
+func _map_bound() -> float:
+	var scene := _find_level_scene()
+	if scene != null and scene.get("MAP_GROUND_SAFE") != null:
+		return maxf(INFANTRY_MAP_BOUND, float(scene.get("MAP_GROUND_SAFE")) - 10.0)
+	return INFANTRY_MAP_BOUND
+
+
 func _clamp_to_map_bounds() -> void:
-	if absf(global_position.x) > INFANTRY_MAP_BOUND or absf(global_position.z) > INFANTRY_MAP_BOUND:
-		global_position.x = clampf(global_position.x, -INFANTRY_MAP_BOUND, INFANTRY_MAP_BOUND)
-		global_position.z = clampf(global_position.z, -INFANTRY_MAP_BOUND, INFANTRY_MAP_BOUND)
+	var bound := _map_bound()
+	if absf(global_position.x) > bound or absf(global_position.z) > bound:
+		global_position.x = clampf(global_position.x, -bound, bound)
+		global_position.z = clampf(global_position.z, -bound, bound)
 		_patrol_dir = -_patrol_dir
 		_strafe_dir = -_strafe_dir
 		_flank_dir = -_flank_dir
@@ -863,7 +872,7 @@ func _snap_to_ground() -> void:
 	var scene := _find_level_scene()
 	if scene != null and scene.get("frontline_map") != null:
 		var map := String(scene.get("frontline_map"))
-		if not map.is_empty():
+		if not map.is_empty() and map != "airport":
 			global_position.y = FrontlineTerrainScript.height_at(map,
 					global_position.x, global_position.z)
 			return
