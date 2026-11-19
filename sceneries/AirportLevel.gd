@@ -37,20 +37,61 @@ func _ready() -> void:
 	if radio != null:
 		radio.set("hover_assist", false)
 		radio.set("test_throttle", -1.0)
+	_connect_landing_assist()
 	await get_tree().physics_frame
 	await get_tree().physics_frame
-	_setup_payload_hud()
 	_replace_trees()
+
+
+## На цій карті дрон за замовчуванням стабілізований — так його можна
+## нормально посадити, опустивши лівий стік.
+func _connect_landing_assist() -> void:
+	var d := get_node_or_null("Drone")
+	if d == null:
+		return
+	var fc = d.get("flight_controller")
+	if fc != null and not fc.armed.is_connected(_on_airport_armed):
+		fc.armed.connect(_on_airport_armed)
+
+
+func _on_airport_armed(_mode: int) -> void:
+	var d := get_node_or_null("Drone")
+	if d == null:
+		return
+	var fc = d.get("flight_controller")
+	if fc != null and fc.has_method("select_flight_mode"):
+		fc.call("select_flight_mode", FlightController.FlightMode.LEVEL)
+
+
+func _process(delta: float) -> void:
+	super._process(delta)
+	var d := get_node_or_null("Drone") as RigidBody3D
+	var radio := get_node_or_null("RadioController")
+	if d == null or radio == null or d.freeze:
+		return
+	var inp: Array = radio.get("input")
+	if inp.is_empty():
+		return
+	var throttle: float = float(inp[0])  # input[0] = газ, [1]=йав, [2]=рол, [3]=пігч
+	var fc = d.get("flight_controller")
+	var armed := fc != null and bool(fc.get("state_armed"))
+	# Газ 0 або двигуни вимкнені — гальмуємо ковзання біля землі.
+	if (throttle <= 0.05 or not armed) and d.global_position.y < 15.0:
+		var v := d.linear_velocity
+		var flat := Vector2(v.x, v.z)
+		if flat.length() > 0.05:
+			var damped := flat * 0.80
+			d.linear_velocity = Vector3(damped.x, v.y, damped.y)
+		if d.global_position.y < 2.0 and flat.length() < 1.5:
+			d.linear_velocity = Vector3(0.0, v.y, 0.0)
 
 
 ## На телефоні стіки мають працювати завжди, якщо немає активного ELRS-пульту.
 func _force_touch_mode() -> void:
 	var touch := get_node_or_null("/root/TouchControls")
-	var wifi := get_node_or_null("/root/ElrsWifiInput")
 	if touch == null or not bool(touch.get("enabled")):
 		return
-	var elrs_ok := wifi != null and bool(wifi.get("valid"))
-	if not elrs_ok and OS.get_name() == "iOS":
+	if OS.get_name() == "iOS" or OS.has_environment("TOUCH_CONTROLS"):
 		touch.call("set_controller_only", false)
 
 
@@ -106,33 +147,6 @@ func _find_dec_mesh(node: Node, out: Array[MeshInstance3D]) -> void:
 		out.append(node)
 	for c in node.get_children():
 		_find_dec_mesh(c, out)
-
-
-func _setup_payload_hud() -> void:
-	var canvas := CanvasLayer.new()
-	canvas.name = "AirportPayloadHUD"
-	canvas.layer = 6
-	add_child(canvas)
-	var label := Label.new()
-	label.name = "Payload"
-	label.position = Vector2(22.0, 152.0)
-	label.add_theme_font_size_override("font_size", 20)
-	label.add_theme_color_override("font_color", Color(1.0, 0.82, 0.42))
-	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
-	label.add_theme_constant_override("outline_size", 4)
-	canvas.add_child(label)
-	var en := MenuUI.is_english()
-	var p: Dictionary = DroneCatalog.preset(Global.drone_preset)
-	if bool(p.get("combat", false)) and DroneCatalog.supports_payload_actions(Global.drone_preset):
-		var mobile := MenuUI.is_mobile_ui()
-		if mobile:
-			label.text = ("DROP · SCREEN BUTTON" if bool(p.get("has_drop", false)) else "WARHEAD · SCREEN BUTTON") if en \
-				else ("СКИД · КНОПКА НА ЕКРАНІ" if bool(p.get("has_drop", false)) else "БЧ · КНОПКА НА ЕКРАНІ")
-		else:
-			label.text = ("DROP 3  [G]" if bool(p.get("has_drop", false)) else "WARHEAD 1x  [F]") if en \
-				else ("СКИД 3  [G]" if bool(p.get("has_drop", false)) else "БЧ 1x  [F]")
-	else:
-		label.text = ("NO PAYLOAD" if en else "БЧ ВІДСУТНЯ")
 
 
 func _load_map() -> void:

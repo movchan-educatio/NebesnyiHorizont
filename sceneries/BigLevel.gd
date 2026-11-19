@@ -4786,18 +4786,22 @@ func _spawn_special_missile_intercept() -> void:
 func _spawn_missile_wave() -> void:
 	var count: int = MISSILE_WAVE_COUNTS[_intercept_wave]
 	var wave_no := _intercept_wave + 1
-	var lane_step := (MISSILE_LANE_HALF * 2.0) / maxf(float(count) - 1.0, 1.0)
+	# Масштабуємо коридор під розмір карти: на аеропорті (430 м) ракети
+	# перетинають усе поле, а не вибухають посередині, як на 152 м арені.
+	var lane_half := MISSILE_LANE_HALF * (MAP_GROUND_SAFE / 152.0)
+	var edge_x := MAP_GROUND_SAFE - 20.0
+	var lane_step := (lane_half * 2.0) / maxf(float(count) - 1.0, 1.0)
 	for i in range(count):
 		# Single-missile waves arrive from a random lane so the defence must
 		# keep scanning the whole front instead of camping one approach.
-		var lane := randf_range(-MISSILE_LANE_HALF, MISSILE_LANE_HALF) if count == 1 \
-				else -MISSILE_LANE_HALF + lane_step * float(i) + randf_range(-7.0, 7.0)
+		var lane := randf_range(-lane_half, lane_half) if count == 1 \
+				else -lane_half + lane_step * float(i) + randf_range(-7.0, 7.0)
 		var goal_lane := clampf(lane + randf_range(-10.0, 10.0),
-				-MISSILE_LANE_HALF, MISSILE_LANE_HALF)
+				-lane_half, lane_half)
 		var altitude := randf_range(MISSILE_ALTITUDE.x, MISSILE_ALTITUDE.y)
 		var speed := randf_range(MISSILE_SPEED.x, MISSILE_SPEED.y)
-		var start := Vector3(-148.0, 0.0, lane)
-		var goal := Vector3(148.0, 0.0, goal_lane)
+		var start := Vector3(-edge_x, 0.0, lane)
+		var goal := Vector3(edge_x, 0.0, goal_lane)
 		var missile := _add_vehicle(Vehicle.Kind.SHAHED, [start, goal], speed,
 				false, false, altitude, true, "cruise_missile")
 		if missile == null:
