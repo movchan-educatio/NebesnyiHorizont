@@ -9,6 +9,8 @@ const GATE_SMALL := "res://tracks/gates/Gate_5x5_Simple.tscn"
 const TREE_OAK := "res://Assets/frontline/oak.glb"
 const TREE_PINE := "res://Assets/frontline/pine.glb"
 
+var _grass_hide_attempts := 0
+
 
 
 
@@ -37,30 +39,67 @@ func _ready() -> void:
 	if radio != null:
 		radio.set("hover_assist", false)
 		radio.set("test_throttle", -1.0)
-	_connect_landing_assist()
 	await get_tree().physics_frame
 	await get_tree().physics_frame
+	_connect_horizon_assist()
+	_hide_procedural_grass()
 	_replace_trees()
 
 
-## На цій карті дрон за замовчуванням стабілізований — так його можна
-## нормально посадити, опустивши лівий стік.
-func _connect_landing_assist() -> void:
-	var d := get_node_or_null("Drone")
+## Стартовий баррель BigLevel стоїть біля початку координат і ставить дрон
+## нижче рівня нашого GLB-ґрунту. Для аеропорту використовуємо власну безпечну
+## точку в повітрі над льотним полем.
+func _place_drone_over_ground() -> void:
+	var d := get_node_or_null("Drone") as Drone
 	if d == null:
 		return
-	var fc = d.get("flight_controller")
-	if fc != null and not fc.armed.is_connected(_on_airport_armed):
-		fc.armed.connect(_on_airport_armed)
+	d.global_transform = Transform3D(Basis(), Vector3(0.0, 62.0, 255.0))
+	d.linear_velocity = Vector3.ZERO
+	d.angular_velocity = Vector3.ZERO
+	if d.has_method("reset_motion_history"):
+		d.reset_motion_history()
+	if d.flight_controller != null and d.flight_controller.has_method("reset"):
+		d.flight_controller.reset()
+	d.freeze = true
+	DroneCatalog.apply_to_drone(d, Global.drone_preset)
+
+
+## Після кожного ARM примусово повертаємо стабілізований режим HORIZON,
+## щоб дрон не перемикався в ACRO і його можна було посадити.
+func _connect_horizon_assist() -> void:
+	var d := get_node_or_null("Drone")
+	if d == null or d.flight_controller == null:
+		return
+	var armed = d.flight_controller.armed
+	if not armed.is_connected(_on_airport_armed):
+		armed.connect(_on_airport_armed)
 
 
 func _on_airport_armed(_mode: int) -> void:
+	call_deferred("_force_level_mode")
+
+
+func _force_level_mode() -> void:
 	var d := get_node_or_null("Drone")
-	if d == null:
+	if d == null or d.flight_controller == null:
 		return
-	var fc = d.get("flight_controller")
-	if fc != null and fc.has_method("select_flight_mode"):
-		fc.call("select_flight_mode", FlightController.FlightMode.LEVEL)
+	if d.flight_controller.has_method("select_flight_mode"):
+		# HORIZON завжди доступний, на відміну від LEVEL, який у частині
+		# профілів вимкнено і resolve_flight_mode перетворює його на RATE.
+		d.flight_controller.call("select_flight_mode", FlightController.FlightMode.HORIZON)
+
+
+## Трава BigLevel розрахована на процедурний height_field і на нашій карті
+## висіла в повітрі — вимикаємо її повністю.
+func _hide_procedural_grass() -> void:
+	_grass_hide_attempts += 1
+	for n in ["DenseGrassFoliage", "DenseGrassFar", "FollowGrass"]:
+		var node := get_node_or_null(n)
+		if node != null:
+			node.visible = false
+	# BigLevel створює частину трави відкладено — перестраховуємося кількома кадрами.
+	if _grass_hide_attempts < 6:
+		call_deferred("_hide_procedural_grass")
 
 
 func _process(delta: float) -> void:
@@ -117,11 +156,13 @@ func _replace_trees() -> void:
 		_find_dec_mesh(root, found)
 	for m in found:
 		if m.name == "COL__M_Ground":
-			# Зовнішній ґрунт має бути таким самим темним, як льотне поле,
-			# інакше виходить яскраве «піщане поле» з різкою межею.
-			var ft = load("res://scripts/util/frontline_terrain.gd")
-			if ft != null:
-				m.material_override = ft._pbr("asphalt", Color(0.26, 0.25, 0.23), 0.05)
+			# Беремо той самий матеріал, що й у льотного поля, — межі не буде видно.
+			var tarmac := _find_named_mesh(get_node_or_null("MapRoot"), "COL__M_Tarmac")
+			var mat: Material = null
+			if tarmac != null and tarmac.mesh != null and tarmac.mesh.get_surface_count() > 0:
+				mat = tarmac.mesh.surface_get_material(0)
+			if mat != null:
+				m.material_override = mat
 			continue
 		# DEC__M_Ground — схил із «травою», DEC__M_Green — конус-дерева,
 		# DEC__M_Hill — штучна темна смуга на обрії.
@@ -132,12 +173,12 @@ func _replace_trees() -> void:
 		return
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 4242
-	for i in range(90):
+	for i in range(150):
 		var packed := pine if (i % 3 == 0 and pine != null) else oak
 		if packed == null:
 			packed = pine if pine != null else oak
 		var a := rng.randf_range(0.0, TAU)
-		var r := rng.randf_range(220.0, 400.0)
+		var r := rng.randf_range(220.0, 560.0)
 		var x := cos(a) * r
 		var z := sin(a) * r
 		var tree := packed.instantiate()
@@ -149,9 +190,22 @@ func _replace_trees() -> void:
 		tree.scale = Vector3(s, s, s)
 
 
+func _find_named_mesh(node: Node, target: String) -> MeshInstance3D:
+	if node == null:
+		return null
+	if node is MeshInstance3D and node.name == target:
+		return node
+	for c in node.get_children():
+		var found := _find_named_mesh(c, target)
+		if found != null:
+			return found
+	return null
+
+
 func _find_dec_mesh(node: Node, out: Array[MeshInstance3D]) -> void:
 	if node is MeshInstance3D and (node.name == "DEC__M_Green" or node.name == "DEC__M_Ground"
-			or node.name == "DEC__M_Hill" or node.name == "COL__M_Ground"):
+			or node.name == "DEC__M_Hill" or node.name == "DEC__M_Corrugated"
+			or node.name == "COL__M_Ground"):
 		out.append(node)
 	for c in node.get_children():
 		_find_dec_mesh(c, out)
@@ -213,7 +267,8 @@ func _build_airport_collision() -> void:
 		if mi.name in ["DEC__M_Hill", "DEC__M_FarHill", "DEC__M_FarConc",
 			"DEC__M_Green", "DEC__M_Ground"]:
 			mi.cast_shadow = MeshInstance3D.SHADOW_CASTING_SETTING_OFF
-		if not mi.name.begins_with("COL__"):
+		var collidable_dec := ["DEC__M_Concrete", "DEC__M_Rust", "DEC__M_Steel"]
+		if not mi.name.begins_with("COL__") and not (mi.name in collidable_dec):
 			continue
 		var mesh: Mesh = mi.mesh
 		if mesh == null:
