@@ -1567,8 +1567,12 @@ func _move_along_route(delta: float) -> void:
 			_reverse_left = 0.0
 	elif not blocked:
 		var next_pos := global_position + forward * _step
-		if _is_air() or not _is_water_hazard(next_pos.x, next_pos.z):
-			global_position = next_pos
+		if _is_air():
+			global_position = _air_route_step(forward, _step)
+		elif not _is_water_hazard(next_pos.x, next_pos.z):
+			# Same tangential slide for ground units so a new structure zone
+			# never becomes a dead end.
+			global_position = _air_route_step(forward, _step, true)
 		else:
 			_step = 0.0
 			rotation.y += clampf(delta * 2.5, 0.05, 0.35)
@@ -1653,7 +1657,8 @@ func _nudge_toward_route() -> void:
 		if _is_water_hazard(cand.x, cand.z):
 			continue
 		var info := _sample_ground(cand.x, cand.z)
-		global_position = Vector3(cand.x, float(info["y"]), cand.z)
+		global_position = _avoid_structures(
+				Vector3(cand.x, float(info["y"]), cand.z))
 		rotation.y = atan2(-dir.x, -dir.z)
 		return
 
@@ -1723,7 +1728,7 @@ func _move_shahed_along_route(delta: float) -> void:
 	_step = speed * delta
 	var forward := Vector3(-sin(rotation.y), 0.0, -cos(rotation.y))
 	if forward.length_squared() > 0.001:
-		global_position += forward.normalized() * _step
+		global_position = _air_route_step(forward.normalized(), _step)
 	_enforce_map_bounds()
 
 
@@ -1846,6 +1851,61 @@ func _shahed_begin_overshoot() -> void:
 	_shahed_attack_resolved = true
 
 
+## Kinematic vehicles are moved by direct position writes, so physics colliders
+## cannot stop them.  Push a candidate position out of the one-time analytic
+## structure AABBs registered by the terrain/prop builders.  Only structures
+## taller than the vehicle matter, so aircraft above a roof fly over it.
+func _avoid_structures(pos: Vector3, pad: float = 3.0) -> Vector3:
+	# Ground units already avoid solid bases through _is_path_blocked's rays and
+	# the hero-hall AABB.  Applying the upper-mesh exclusions to them would only
+	# create new dead ends, so these zones are air-only.
+	if not _is_air():
+		return pos
+	var exclusions: Array[Dictionary] = FrontlineTerrainScript.structure_exclusions()
+	if exclusions.is_empty():
+		return pos
+	var out := pos
+	for e in exclusions:
+		var center: Vector2 = e.get("center", Vector2.ZERO)
+		var half: Vector2 = e.get("half", Vector2.ZERO)
+		var top := float(e.get("top", 0.0))
+		if out.y > top + 4.0:
+			continue
+		var hx := half.x + pad
+		var hz := half.y + pad
+		var dx := out.x - center.x
+		var dz := out.z - center.y
+		if absf(dx) >= hx or absf(dz) >= hz:
+			continue
+		# Slide out along the shallower penetration axis.
+		if hx - absf(dx) < hz - absf(dz):
+			out.x = center.x + (hx if dx >= 0.0 else -hx)
+		else:
+			out.z = center.y + (hz if dz >= 0.0 else -hz)
+	return out
+
+
+## Air route movement with tangential sliding: if the direct step would enter a
+## large structure, try a few shallow detours before falling back to push-out.
+## This keeps aircraft moving past a hall instead of freezing against its wall.
+func _air_route_step(forward: Vector3, step: float,
+		check_water: bool = false) -> Vector3:
+	var direct := global_position + forward * step
+	var fixed := _avoid_structures(direct)
+	if (fixed - direct).length_squared() < 0.01 \
+			and (not check_water or not _is_water_hazard(direct.x, direct.z)):
+		return direct
+	for deg in [32.0, -32.0, 62.0, -62.0, 88.0, -88.0, 120.0, -120.0]:
+		var dir := forward.rotated(Vector3.UP, deg_to_rad(deg))
+		var cand := global_position + dir * step
+		if check_water and _is_water_hazard(cand.x, cand.z):
+			continue
+		var cand_fixed := _avoid_structures(cand)
+		if (cand_fixed - cand).length_squared() < 0.01:
+			return cand
+	return fixed
+
+
 func _is_path_blocked(forward: Vector3, dist: float) -> bool:
 	# Cast past the front bumper rather than only from the center of the chassis.
 	var probe_dist := maxf(dist, _half_len + 2.2)
@@ -1861,6 +1921,18 @@ func _is_path_blocked(forward: Vector3, dist: float) -> bool:
 				var to_center := Vector2(test_pos.x - hc.x, test_pos.z - hc.y)
 				_last_obstacle_normal = Vector3(to_center.x, 0.0, to_center.y).normalized()
 				return true
+	# Registered large structures (forge workshops, plant, etc.).  Look ahead
+	# by the same bumper margin so the existing whisker steering detours around
+	# them early instead of the vehicle ending up stuck against a wall.
+	for zone in FrontlineTerrainScript.structure_exclusions():
+		var test_pos := global_position + forward * probe_dist
+		var zc: Vector2 = zone.get("center", Vector2.ZERO)
+		var zh: Vector2 = zone.get("half", Vector2.ZERO)
+		if absf(test_pos.x - zc.x) < zh.x + 3.0 \
+				and absf(test_pos.z - zc.y) < zh.y + 3.0:
+			var away := Vector2(test_pos.x - zc.x, test_pos.z - zc.y)
+			_last_obstacle_normal = Vector3(away.x, 0.0, away.y).normalized()
+			return true
 
 	var space := get_world_3d().direct_space_state
 	if space == null:
@@ -2137,7 +2209,9 @@ func _combat_engage(delta: float) -> void:
 			var max_step := move_speed * 1.15 * delta
 			if to_hold.length() > max_step:
 				to_hold = to_hold.normalized() * max_step
-			global_position += to_hold
+			# The orbit target can land inside a hall/workshop; push the step
+			# out of large structures so the helicopter never clips the mesh.
+			global_position = _avoid_structures(global_position + to_hold)
 	var space := get_world_3d().direct_space_state
 	var q := PhysicsRayQueryParameters3D.create(muzzle, _drone.global_position)
 	q.collision_mask = 1
@@ -2874,7 +2948,7 @@ func _update_crash_fall(delta: float) -> void:
 	_crash_vel.y -= 21.0 * delta
 	_crash_vel.x *= 1.0 - delta * 0.35
 	_crash_vel.z *= 1.0 - delta * 0.35
-	global_position += _crash_vel * delta
+	global_position = _avoid_structures(global_position + _crash_vel * delta)
 	rotation.y += _crash_spin * delta
 	rotation.z += _crash_roll * delta
 	rotation.x = lerp_angle(rotation.x, _crash_pitch, clampf(delta * 1.4, 0.0, 1.0))

@@ -82,6 +82,25 @@ static var _hero_tree_slots := {"oak": [], "pine": []}
 static var _placed_tree_positions: Array[Vector2] = []
 static var _poi_positions: Array[Vector2] = []
 static var _reserved_zones: Array[Dictionary] = []
+## Cheap analytic AABBs of large structures, registered once at map build.
+## Vehicle AI reads plain numbers here — no per-frame raycasts, so this stays
+## affordable even with many air targets on low-spec iOS.
+static var _structure_exclusions: Array[Dictionary] = []
+
+
+static func clear_structure_exclusions() -> void:
+	_structure_exclusions.clear()
+
+
+static func register_structure_exclusion(center: Vector2, half: Vector2,
+		top_y: float) -> void:
+	_structure_exclusions.append({
+		"center": center, "half": half, "top": top_y,
+	})
+
+
+static func structure_exclusions() -> Array[Dictionary]:
+	return _structure_exclusions
 static var _structure_registry: Dictionary = {}
 static var _contact_shadow_tex_cache: GradientTexture2D = null
 static var _contact_shadow_mat_cache: StandardMaterial3D = null
@@ -415,6 +434,7 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 	_placed_tree_positions.clear()
 	_reserved_zones.clear()
 	_poi_positions.clear()
+	clear_structure_exclusions()
 	var root := Node3D.new()
 	root.name = "FrontlineTerrain"
 	level.add_child(root)
@@ -1646,6 +1666,9 @@ static func _spawn_handcrafted_assets(root: Node3D, map_name: String) -> void:
 			_replace_farm_silos(root, n)
 		_hide_handcrafted_windows(n)
 		_add_handcrafted_collision(n)
+		if reserve_slot:
+			register_structure_exclusion(Vector2(pos.x, pos.z),
+					Vector2(rad, rad), pos.y + rad * 0.9)
 		add_contact_shadow(root, map_name, Vector2(pos.x, pos.z), rad,
 				path.get_file().get_basename())
 
@@ -5383,6 +5406,11 @@ static func _build_hall_sites(root: Node3D, map_name: String) -> void:
 	hall.scale = Vector3.ONE * scale_f
 	try_reserve_structure(root, map_name, center, 34.0, 26.0, true)
 	root.add_child(hall)
+	# Large solid footprint: AI vehicles must steer around it instead of
+	# crossing the visible walls/roof.  The flyable openings are narrow and the
+	# AABB is a deliberate over-approximation for gameplay safety.
+	register_structure_exclusion(center, Vector2(site["half"]),
+			gy + float(site.get("roof_height", 20.0)))
 	_apply_hall_materials(hall, theme)
 	add_contact_shadow(root, map_name, center, 44.0, "HeroHall_" + map_name)
 

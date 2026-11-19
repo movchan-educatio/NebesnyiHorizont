@@ -15,6 +15,7 @@ extends RefCounted
 const PROP_ROOT := "res://Assets/handcrafted/props_lowpoly/"
 const LANDMARK_ROOT := "res://Assets/handcrafted/landmarks/"
 const FORGE_ROOT := "res://Assets/handcrafted/forge/"
+const FrontlineTerrainScript = preload("res://scripts/util/frontline_terrain.gd")
 
 const LOD_END := {
 	"watchtower": 900.0, "water_tower_small": 900.0, "antenna_mast": 950.0,
@@ -300,6 +301,12 @@ static func _place_forge(root: Node3D, pack: Node3D, terrain, map_name: String,
 	inst.set_meta("pack_large", false)
 	inst.set_meta("pack_floating", floating)
 	inst.set_meta("pack_forge", true)
+	# Tall forge halls/hangars only get a 2.8 m plinth collider so their openings
+	# stay flyable.  Register an analytic exclusion so AI vehicles cannot cross
+	# the visible upper mesh; physics alone cannot stop kinematic vehicles.
+	if box.size.y * scl > 12.0:
+		FrontlineTerrainScript.register_structure_exclusion(
+				site, Vector2(radius, radius), ground + box.size.y * scl)
 	if terrain != null:
 		terrain.call("reserve_area", site, radius + 4.5)
 		if not floating:
