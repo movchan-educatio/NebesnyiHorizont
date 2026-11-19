@@ -21,9 +21,8 @@ var thermal := false
 var _solution: Dictionary = {}
 var _aim_point := Vector3.ZERO
 var _aim_valid := false
-## The ballistic solve is comparatively heavy (hundreds of terrain samples), so
-## it runs at 20 Hz while the pipper follows the view every rendered frame via
-## velocity extrapolation.  The old 0.11 s tick made the sight feel sluggish.
+## The sight now solves on every rendered frame (coarse 0.05 s ballistic step)
+## and extrapolates between frames, so the pipper keeps up with a turning drone.
 var _tick := 0.0
 var _solve_elapsed := 0.0
 var _display_impact := Vector3.ZERO
@@ -53,11 +52,10 @@ func set_bomb_view(on: bool) -> void:
 func _process(delta: float) -> void:
 	if not visible:
 		return
-	_tick -= delta
 	_solve_elapsed += delta
-	if _tick <= 0.0:
-		_tick = 0.05
-		_recompute()
+	# Solve on every rendered frame: the ballistic loop is a few dozen cheap
+	# iterations and a 20 Hz tick made the pipper visibly trail a turning drone.
+	_recompute()
 	_update_pipper()
 	queue_redraw()
 
@@ -114,7 +112,7 @@ func _recompute() -> void:
 			if level.get("frontline_map") != null else ""
 	# A slightly coarser step (0.035 s) keeps the 20 Hz solve affordable on iOS
 	# while staying well inside the accuracy envelope of the physical store.
-	_solution = Ballistics.simulate(level, map_name, origin, vel, wind, kind, 0.035)
+	_solution = Ballistics.simulate(level, map_name, origin, vel, wind, kind, 0.05)
 	_solve_elapsed = 0.0
 	_display_impact = _solution.get("impact", Vector3.ZERO)
 

@@ -1906,6 +1906,21 @@ func _air_route_step(forward: Vector3, step: float,
 	return fixed
 
 
+## Highest safe altitude over large structures near this position.  The arched
+## hero-hall roof peaks well above the flat roof_height metadata, so a generous
+## margin is intentional.
+func _structure_ceiling(pos: Vector3) -> float:
+	if not _is_air():
+		return 0.0
+	var best := 0.0
+	for zone in FrontlineTerrainScript.structure_exclusions():
+		var c: Vector2 = zone.get("center", Vector2.ZERO)
+		var h: Vector2 = zone.get("half", Vector2.ZERO)
+		if absf(pos.x - c.x) < h.x + 10.0 and absf(pos.z - c.y) < h.y + 10.0:
+			best = maxf(best, float(zone.get("top", 0.0)) + 12.0)
+	return best
+
+
 func _is_path_blocked(forward: Vector3, dist: float) -> bool:
 	# Cast past the front bumper rather than only from the center of the chassis.
 	var probe_dist := maxf(dist, _half_len + 2.2)
@@ -1993,13 +2008,20 @@ func _update_height(delta: float) -> void:
 		var info := _sample_ground(global_position.x, global_position.z)
 		gy = float(info["y"])
 		n = info["normal"]
-	if kind == Kind.HELI:
-		global_position.y = lerpf(global_position.y, gy + cruise_height,
-				clampf(delta * 2.0, 0.0, 1.0))
-	elif kind == Kind.SHAHED:
-		# Route patrol only: hold the authored cruise altitude above the terrain.
-		# No dive/attack servo is allowed to bypass this altitude lock.
-		global_position.y = lerpf(global_position.y, gy + cruise_height,
+	if _is_air():
+		var target_y := gy + cruise_height
+		# Arched hall roofs peak above the flat roof_height metadata.  Climb
+		# clear of every large structure while over its footprint so aircraft
+		# never cut through the visible mesh (the player keeps the flyable
+		# interior — this applies to AI vehicles only).
+		var ceiling := _structure_ceiling(global_position)
+		if ceiling > 0.0:
+			target_y = maxf(target_y, ceiling)
+			if global_position.y < ceiling:
+				# Snap instead of lerping: a slow climb would itself cross the roof.
+				global_position.y = ceiling
+				return
+		global_position.y = lerpf(global_position.y, target_y,
 				clampf(delta * 2.0, 0.0, 1.0))
 	else:
 		# Strictly clamp ground vehicles to the terrain surface so they never float.

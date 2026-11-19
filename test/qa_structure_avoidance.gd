@@ -63,8 +63,12 @@ func _ready() -> void:
 			Vector3(-120.0, 0.0, 68.0), 10.0, 0.0)
 
 	var violations := {"heli": 0, "shahed": 0, "bmp": 0}
+	var min_heli_y_over_hall := 1.0e9
 	for i in range(900):
 		await get_tree().physics_frame
+		if _inside(heli.global_position, hall):
+			min_heli_y_over_hall = minf(min_heli_y_over_hall,
+					heli.global_position.y)
 		for e in exclusions:
 			for key in violations.keys():
 				var v: Vehicle = {"heli": heli, "shahed": shahed, "bmp": bmp}[key]
@@ -77,6 +81,11 @@ func _ready() -> void:
 
 	for key in violations.keys():
 		_check(int(violations[key]) == 0, "%s never enters hall (%d frames)" % [key, violations[key]])
+
+	# Over the hall the helicopter must climb above the arched roof.
+	_check(min_heli_y_over_hall >= float(hall.get("top", 0.0)) + 8.0,
+			"heli climbs above arched roof (min y=%.1f, roof=%.1f)" % [
+			min_heli_y_over_hall, float(hall.get("top", 0.0))])
 
 	# Vehicles must still make progress toward the far waypoint.
 	_check(heli.global_position.x > -40.0, "heli keeps moving past hall (x=%.1f)" % heli.global_position.x)
