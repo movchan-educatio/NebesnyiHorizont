@@ -22,6 +22,35 @@ func _scatter_legacy_map(_instance: Node3D) -> void:
 	pass
 
 
+func _ready() -> void:
+	super._ready()
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_setup_payload_hud()
+
+
+func _setup_payload_hud() -> void:
+	var canvas := CanvasLayer.new()
+	canvas.name = "AirportPayloadHUD"
+	canvas.layer = 6
+	add_child(canvas)
+	var label := Label.new()
+	label.name = "Payload"
+	label.position = Vector2(22.0, 152.0)
+	label.add_theme_font_size_override("font_size", 20)
+	label.add_theme_color_override("font_color", Color(1.0, 0.82, 0.42))
+	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
+	label.add_theme_constant_override("outline_size", 4)
+	canvas.add_child(label)
+	var en := MenuUI.is_english()
+	var p: Dictionary = DroneCatalog.preset(Global.drone_preset)
+	if bool(p.get("combat", false)) and DroneCatalog.supports_payload_actions(Global.drone_preset):
+		label.text = ("DROP 3  [G]" if bool(p.get("has_drop", false)) else "WARHEAD 1x  [F]") if en \
+			else ("СКИД 3  [G]" if bool(p.get("has_drop", false)) else "БЧ 1x  [F]")
+	else:
+		label.text = ("NO PAYLOAD" if en else "БЧ ВІДСУТНЯ")
+
+
 func _load_map() -> void:
 	super._load_map()
 	_build_airport_collision()
