@@ -9,6 +9,9 @@ const GATE_SMALL := "res://tracks/gates/Gate_5x5_Simple.tscn"
 const TREE_OAK := "res://Assets/frontline/oak.glb"
 const TREE_PINE := "res://Assets/frontline/pine.glb"
 
+const HIDDEN_DEC := ["DEC__M_Green", "DEC__M_Ground", "DEC__M_Hill",
+	"DEC__M_Corrugated", "DEC__M_Rust", "DEC__M_Steel", "DEC__M_Concrete", "DEC__M_Rubber"]
+
 var _grass_hide_attempts := 0
 
 
@@ -44,6 +47,7 @@ func _ready() -> void:
 	_connect_horizon_assist()
 	_hide_procedural_grass()
 	_replace_trees()
+	_spawn_detailed_props()
 
 
 ## Стартовий баррель BigLevel стоїть біля початку координат і ставить дрон
@@ -190,6 +194,34 @@ func _replace_trees() -> void:
 		tree.scale = Vector3(s, s, s)
 
 
+## Деталізовані пропси з бібліотеки основного проєкту замість наших
+## примітивних коробок. spawn_prop сам дає кожному пропсу колізію.
+func _spawn_detailed_props() -> void:
+	var assets = load("res://scripts/util/frontline_assets.gd")
+	if assets == null:
+		return
+	var names := ["prop_barrel", "prop_crate", "prop_pallet", "prop_tires",
+		"prop_fuel_tank", "prop_barrier", "prop_generator", "prop_pipe",
+		"prop_sandbags", "prop_sign", "prop_antenna", "prop_car_wreck"]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7777
+	var spawned := 0
+	for i in range(96):
+		var nm: String = str(names[i % names.size()])
+		var a := rng.randf_range(0.0, TAU)
+		var r := rng.randf_range(25.0, 390.0)
+		var x := cos(a) * r
+		var z := sin(a) * r
+		if Vector2(x, z).distance_to(Vector2(0.0, 255.0)) < 45.0:
+			continue
+		var prop = assets.spawn_prop(self, nm, Vector3(x, 0.12, z),
+				rng.randf_range(0.0, TAU), rng.randf_range(0.85, 1.25))
+		if prop != null:
+			prop.name = "DetailedProp%d" % i
+			spawned += 1
+	print("[Airport] detailed props: ", spawned)
+
+
 func _find_named_mesh(node: Node, target: String) -> MeshInstance3D:
 	if node == null:
 		return null
@@ -203,9 +235,7 @@ func _find_named_mesh(node: Node, target: String) -> MeshInstance3D:
 
 
 func _find_dec_mesh(node: Node, out: Array[MeshInstance3D]) -> void:
-	if node is MeshInstance3D and (node.name == "DEC__M_Green" or node.name == "DEC__M_Ground"
-			or node.name == "DEC__M_Hill" or node.name == "DEC__M_Corrugated"
-			or node.name == "COL__M_Ground"):
+	if node is MeshInstance3D and (node.name in HIDDEN_DEC or node.name == "COL__M_Ground"):
 		out.append(node)
 	for c in node.get_children():
 		_find_dec_mesh(c, out)
@@ -267,8 +297,10 @@ func _build_airport_collision() -> void:
 		if mi.name in ["DEC__M_Hill", "DEC__M_FarHill", "DEC__M_FarConc",
 			"DEC__M_Green", "DEC__M_Ground"]:
 			mi.cast_shadow = MeshInstance3D.SHADOW_CASTING_SETTING_OFF
-		var collidable_dec := ["DEC__M_Concrete", "DEC__M_Rust", "DEC__M_Steel"]
-		if not mi.name.begins_with("COL__") and not (mi.name in collidable_dec):
+		var flat_dec := ["DEC__M_Marking", "DEC__M_Oil", "DEC__M_Yellow", "DEC__M_Glass"]
+		if mi.name.begins_with("DEC__") and (mi.name in HIDDEN_DEC or mi.name in flat_dec):
+			continue
+		if not mi.name.begins_with("COL__") and not mi.name.begins_with("DEC__"):
 			continue
 		var mesh: Mesh = mi.mesh
 		if mesh == null:
