@@ -31,21 +31,24 @@ enum Step {
 }
 
 const TOTAL_MODULES := 6
-const HOVER_HOLD := 3.0
-const HOVER_MIN := 2.0
-const HOVER_MAX := 4.2
-const HOVER_RADIUS := 10.0
+## Beginner-friendly tolerances.  The course must be finishable on a phone
+## with touch sticks; the old 3 s hover in a narrow 2–4.2 m band and the 70°
+## yaw return made most players abandon it.
+const HOVER_HOLD := 1.2
+const HOVER_MIN := 1.0
+const HOVER_MAX := 6.0
+const HOVER_RADIUS := 14.0
 
 const STEP_DATA := {
 	Step.START: {
 		"title": "СТАРТ · АРМІНГ І ЗЛІТ",
-		"inst": "Натисніть ARM (ПРОБІЛ) — двигуни увімкнуться. Плавно додайте газ (лівий стік ↑) і підніміться на 2–4 м. Утримайте дрон у зеленому маяку 3 секунди.",
+		"inst": "Натисніть ARM (ПРОБІЛ) — двигуни увімкнуться. Плавно додайте газ (лівий стік ↑) і підніміться на 1–6 м. Утримайте дрон у зеленому маяку 1.2 секунди.",
 		"tip": "Спочатку ARM, потім газ. На землі газ має бути в нулі.",
 		"focus": "left"
 	},
 	Step.CONTROL: {
 		"title": "КЕРУВАННЯ · ОБИДВА СТІКИ",
-		"inst": "Правий стік: нахил носа ↑/↓, поверніть у центр. Потім крен ←/→ і знову в центр. Лівим стіком ←/→ поверніть на 70° і поверніться на початковий курс.",
+		"inst": "Правий стік: нахил носа ↑/↓, поверніть у центр. Потім крен ←/→ і знову в центр. Лівим стіком ←/→ поверніть на 35° і поверніться на початковий курс.",
 		"tip": "Після кожного руху повертайте стік у центр — дрон сам вирівняється. Висоту тримайте газом.",
 		"focus": "both"
 	},
@@ -63,13 +66,13 @@ const STEP_DATA := {
 	},
 	Step.BRAKE: {
 		"title": "ГАЛЬМУВАННЯ У ЗОНІ",
-		"inst": "Загальмуйте в жовтій зоні: відхиліть ніс назад (правий стік ↓) і додайте газу. Утримайте швидкість нижче 2.5 м/с 1.5 секунди.",
+		"inst": "Загальмуйте в жовтій зоні: відхиліть ніс назад (правий стік ↓) і додайте газу. Утримайте швидкість нижче 3.5 м/с 0.7 секунди.",
 		"tip": "Дрон не має гальм: щоб зупинитись, нахиліть його назад і компенсуйте втрату висоти газом.",
 		"focus": "both"
 	},
 	Step.LANDING: {
 		"title": "М'ЯКА ПОСАДКА · ВИМКНЕННЯ ДВИГУНІВ",
-		"inst": "Сядьте на майданчик [H] зі швидкістю < 2 м/с, торкніться землі та натисніть ARM (ПРОБІЛ), щоб вимкнути двигуни на висоті < 0.7 м.",
+		"inst": "Сядьте на майданчик [H] зі швидкістю < 3 м/с, торкніться землі та натисніть ARM (ПРОБІЛ), щоб вимкнути двигуни на висоті < 1.2 м.",
 		"tip": "Переконайтеся, що дрон стоїть, перш ніж вимикати двигуни. Це фінальний модуль.",
 		"focus": "left"
 	},
@@ -84,13 +87,13 @@ const STEP_DATA := {
 const STEP_DATA_EN := {
 	Step.START: {
 		"title": "START · ARM & LIFT-OFF",
-		"inst": "Press ARM (SPACE) to start the motors. Raise the throttle gently (left stick ↑) and climb to 2–4 m. Hold inside the green beacon for 3 seconds.",
+		"inst": "Press ARM (SPACE) to start the motors. Raise the throttle gently (left stick ↑) and climb to 1–6 m. Hold inside the green beacon for 1.2 seconds.",
 		"tip": "ARM first, throttle second. Keep the throttle at zero while on the ground.",
 		"focus": "left"
 	},
 	Step.CONTROL: {
 		"title": "CONTROL · BOTH STICKS",
-		"inst": "Right stick: pitch the nose ↑/↓, then centre it. Next roll ←/→ and centre again. Use the left stick ←/→ to turn 70°, then return to the original heading.",
+		"inst": "Right stick: pitch the nose ↑/↓, then centre it. Next roll ←/→ and centre again. Use the left stick ←/→ to turn 35°, then return to the original heading.",
 		"tip": "Centre the stick after every input and the drone levels itself. Hold altitude with throttle.",
 		"focus": "both"
 	},
@@ -108,13 +111,13 @@ const STEP_DATA_EN := {
 	},
 	Step.BRAKE: {
 		"title": "BRAKE INSIDE THE ZONE",
-		"inst": "Brake in the yellow zone: pitch back (right stick ↓) and add throttle. Hold speed below 2.5 m/s for 1.5 seconds.",
+		"inst": "Brake in the yellow zone: pitch back (right stick ↓) and add throttle. Hold speed below 3.5 m/s for 0.7 seconds.",
 		"tip": "There are no brakes. Pitch back to slow down and add throttle to offset the altitude loss.",
 		"focus": "both"
 	},
 	Step.LANDING: {
 		"title": "SOFT LANDING · DISARM",
-		"inst": "Touch down on the [H] pad below 2 m/s, then press ARM (SPACE) to disarm below 0.7 m altitude.",
+		"inst": "Touch down on the [H] pad below 3 m/s, then press ARM (SPACE) to disarm below 1.2 m altitude.",
 		"tip": "Make sure the drone has settled before disarming. This is the final module.",
 		"focus": "left"
 	},
@@ -1313,24 +1316,24 @@ func _process_control(delta: float) -> void:
 	var e := drone.global_transform.basis.get_euler()
 	var pitch := e.x
 	var roll := e.z
-	if _step_alt < 1.2 or _step_alt > 7.0:
-		metric_lbl.text = _tx("ВИСОТА %.1f м · тримайте 2–5 м газом",
-				"ALTITUDE %.1f m · HOLD 2–5 m WITH THROTTLE") % _step_alt
+	if _step_alt < 0.7 or _step_alt > 9.0:
+		metric_lbl.text = _tx("ВИСОТА %.1f м · тримайте 1–6 м газом",
+				"ALTITUDE %.1f m · HOLD 1–6 m WITH THROTTLE") % _step_alt
 		metric_lbl.add_theme_color_override("font_color", MenuUI.WARN_AMBER)
 		return
 	match _basic_phase:
 		0:
 			metric_lbl.text = _tx("ТАНГАЖ · нахиліть ніс (↑ або ↓) · зараз %.0f°",
 					"PITCH · TILT THE NOSE (↑ OR ↓) · NOW %.0f°") % rad_to_deg(pitch)
-			if absf(pitch) > 0.14:
+			if absf(pitch) > 0.08:
 				_basic_phase = 1
 				_basic_hold = 0.0
 		1:
 			metric_lbl.text = _tx("ПОВЕРНІТЬ ПРАВИЙ СТІК У ЦЕНТР · тангаж %.0f°",
 					"CENTRE THE RIGHT STICK · PITCH %.0f°") % rad_to_deg(pitch)
-			if absf(pitch) < 0.05:
+			if absf(pitch) < 0.12:
 				_basic_hold += delta
-				if _basic_hold >= 0.7:
+				if _basic_hold >= 0.25:
 					_basic_phase = 2
 					_basic_hold = 0.0
 					show_toast("✓ Тангаж і центрування засвоєно. Тепер крен.")
@@ -1339,15 +1342,15 @@ func _process_control(delta: float) -> void:
 		2:
 			metric_lbl.text = _tx("КРЕН · нахиліть дрон ліворуч/праворуч (← або →) · %.0f°",
 					"ROLL · BANK LEFT/RIGHT (← OR →) · %.0f°") % rad_to_deg(roll)
-			if absf(roll) > 0.14:
+			if absf(roll) > 0.08:
 				_basic_phase = 3
 				_basic_hold = 0.0
 		3:
 			metric_lbl.text = _tx("ПОВЕРНІТЬ СТІК У ЦЕНТР · крен %.0f°",
 					"CENTRE THE STICK · ROLL %.0f°") % rad_to_deg(roll)
-			if absf(roll) < 0.05:
+			if absf(roll) < 0.12:
 				_basic_hold += delta
-				if _basic_hold >= 0.7:
+				if _basic_hold >= 0.25:
 					_basic_phase = 4
 					_basic_hold = 0.0
 					_step_yaw_start = _step_heading
@@ -1358,9 +1361,9 @@ func _process_control(delta: float) -> void:
 				_basic_hold = 0.0
 		4:
 			var rel_out := wrapf(_step_heading - _step_yaw_start, -PI, PI)
-			metric_lbl.text = _tx("ПОВОРОТ · лівий стік ←/→ · %.0f° / 70°",
-					"YAW TURN · LEFT STICK ←/→ · %.0f° / 70°") % absf(rad_to_deg(rel_out))
-			if absf(rel_out) > deg_to_rad(70.0):
+			metric_lbl.text = _tx("ПОВОРОТ · лівий стік ←/→ · %.0f° / 35°",
+					"YAW TURN · LEFT STICK ←/→ · %.0f° / 35°") % absf(rad_to_deg(rel_out))
+			if absf(rel_out) > deg_to_rad(35.0):
 				_basic_phase = 5
 				_yaw_turned = true
 				settle_timer = 0.0
@@ -1370,9 +1373,9 @@ func _process_control(delta: float) -> void:
 			metric_lbl.text = _tx("ПОВЕРНЕННЯ · залишилось %.0f° · висота %.1f м",
 					"RETURN TO HEADING · %.0f° LEFT · ALTITUDE %.1f m") % [
 					absf(rad_to_deg(rel_back)), _step_alt]
-			if absf(rel_back) < deg_to_rad(15.0):
+			if absf(rel_back) < deg_to_rad(30.0):
 				settle_timer += delta
-				if settle_timer >= 0.8:
+				if settle_timer >= 0.3:
 					show_toast("✓ КЕРУВАННЯ ЗАСВОЄНО. Тепер перший політ уперед — ворота.")
 					advance_to_step(Step.GATES)
 			else:
@@ -1421,14 +1424,14 @@ func _show_gate_metric(gate: Dictionary, label: String) -> void:
 func _process_brake(delta: float) -> void:
 	var d := Vector2(drone.global_position.x - brake_pos.x,
 			drone.global_position.z - brake_pos.z).length()
-	if d < 8.5:
-		if _step_speed < 2.5:
+	if d < 12.0:
+		if _step_speed < 3.5:
 			flare_timer += delta
-			metric_lbl.text = _tx("ГАЛЬМУВАННЯ %.1f / 1.5 с · %.1f м/с · утримуйте",
-					"BRAKING %.1f / 1.5 s · %.1f m/s · HOLD") % [
+			metric_lbl.text = _tx("ГАЛЬМУВАННЯ %.1f / 0.7 с · %.1f м/с · утримуйте",
+					"BRAKING %.1f / 0.7 s · %.1f m/s · HOLD") % [
 					flare_timer, _step_speed]
 			metric_lbl.add_theme_color_override("font_color", MenuUI.ACCENT)
-			if flare_timer >= 1.5:
+			if flare_timer >= 0.7:
 				show_toast("✓ Інерцію погашено. Тепер посадка на майданчик [H].")
 				advance_to_step(Step.LANDING)
 		else:
@@ -1448,10 +1451,10 @@ func _process_landing() -> void:
 	var vy := absf(drone.linear_velocity.y)
 	var armed: bool = drone.flight_controller != null and drone.flight_controller.state_armed
 	var pad_alt := (drone.global_position.y - landing_pos.y) if d < 5.0 else _step_alt
-	if d < 4.5 and pad_alt < 0.85 and vy < 2.2 and not armed:
+	if d < 6.0 and pad_alt < 1.2 and vy < 3.0 and not armed:
 		complete_course()
 		return
-	if not armed and pad_alt >= 0.85:
+	if not armed and pad_alt >= 1.2:
 		metric_lbl.text = _tx("ЗАВИСОКО ДЛЯ ВИМКНЕННЯ · висота %.1f м · сідайте нижче",
 				"TOO HIGH TO DISARM · ALTITUDE %.1f m · LAND LOWER") % pad_alt
 		metric_lbl.add_theme_color_override("font_color", MenuUI.DANGER)
@@ -1477,8 +1480,10 @@ func _crossed_opening(gate: Dictionary) -> bool:
 	var t := (z0 - z) / denom
 	var hit := _prev_pos.lerp(drone.global_position, t)
 	var center: Vector3 = gate.get("pos", Vector3.ZERO)
-	return absf(hit.x - center.x) <= float(gate.get("half_w", 2.0)) \
-			and absf(hit.y - center.y) <= float(gate.get("half_h", 1.5))
+	# Generous forgiveness on touch screens: a near miss still teaches the
+	# idea, while a completely different lane is still a miss.
+	return absf(hit.x - center.x) <= float(gate.get("half_w", 2.0)) + 0.6 \
+			and absf(hit.y - center.y) <= float(gate.get("half_h", 1.5)) + 0.6
 
 
 func _report_gate_miss(gate: Dictionary) -> void:

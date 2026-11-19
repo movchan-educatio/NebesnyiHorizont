@@ -2588,7 +2588,10 @@ func _start_mission() -> void:
 					"HQ, this is Valkyrie-01. Operation %s underway, commencing run. Over." % Global.get_special_mission_name(Global.special_mission)),
 				true, "01")
 			_radio_beat_01_sent = true
-			_radio_beat_02_fallback_timer = 5.0
+			# Missile-intercept already announces each wave through HQ radio;
+			# the generic 5 s fallback would make the same female voice repeat
+			# right before the first wave warning.
+			_radio_beat_02_fallback_timer = -1.0 if Global.special_mission == 10 else 5.0
 		else:
 			_play_radio_callout(
 				_txt("Штаб, я Борт-01. Ціль у квадраті спостерігаю, заходжу на бойовий курс. Прийом.",
@@ -4774,10 +4777,8 @@ func _spawn_special_missile_intercept() -> void:
 	_intercept_leaks = 0
 	_intercept_missiles.clear()
 	_set_missile_warning("")
-	_play_radio_callout(_txt(
-		"Штаб борт-01: зафіксовано крилаті ракети на західному напрямку. Шість хвиль, по одній цілі. Прикрити об'єкт.",
-		"HQ Valkyrie-01: cruise missiles tracked to the west. Six waves, one target each. Protect the asset."),
-		true, "02")
+	# No HQ line here: this runs while the level is being built, before ARM,
+	# and would double up with the start-up and wave-warning callouts.
 
 
 func _spawn_missile_wave() -> void:
