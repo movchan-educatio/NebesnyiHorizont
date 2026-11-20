@@ -31,6 +31,7 @@ const LocScript = preload("res://scripts/util/localization_manager.gd")
 const FpvIconsScript = preload("res://scripts/util/fpv_icons.gd")
 const ReconKillCamScript = preload("res://scripts/combat/recon_kill_cam.gd")
 const GhostScript = preload("res://drone/Ghost.gd")
+const FreestyleCourseScript = preload("res://scripts/util/freestyle_course.gd")
 const MAIN_MENU := "res://GUI/MainMenu.tscn"
 const MOBILE_MENU := "res://GUI/mobile/MobileMenu.tscn"
 
@@ -102,6 +103,8 @@ var _rings_passed := 0
 var _rings_total := 0
 var _training_rings: Array[Area3D] = []
 var _training_ring_positions: Array[Vector3] = []
+var _freestyle_ring_specs: Array[Dictionary] = []
+var _freestyle_ghost_saved_once := false
 var _training_ring_spawn_queued := false
 var _ring_pulse := 0.0
 var _nav_marker: Label = null
@@ -291,6 +294,14 @@ const DVR_FPS := 5
 const DVR_MAX_FRAMES := 60
 const DVR_FRAME_W := 384
 const DVR_FRAME_H := 216
+## Phone profile: fewer, smaller frames.  Readback from the root viewport is
+## the expensive part on iOS, so keep it to ~0.15 MP / 3 fps instead of
+## ~0.4 MP / 5 fps.  Playback uses the same rate so the footage plays at the
+## correct speed.
+var _dvr_fps := DVR_FPS
+var _dvr_max_frames := DVR_MAX_FRAMES
+var _dvr_frame_w := DVR_FRAME_W
+var _dvr_frame_h := DVR_FRAME_H
 var _dvr_frames: Array[Texture2D] = []
 var _dvr_frame_timer := 0.0
 var _dvr_capture_failed := false
@@ -402,6 +413,7 @@ func _exit_tree() -> void:
 func _ready() -> void:
 	if Global.startup:
 		Global.initialize()
+	_configure_dvr_profile()
 	super._ready()
 
 	# A retry/reload must always start unpaused and focused. Results menus set
@@ -2607,6 +2619,7 @@ func _resolve_airframe_exhausted() -> void:
 func _start_mission() -> void:
 	_mission_started = true
 	_mission_time = 0.0
+	_freestyle_ghost_saved_once = false
 	_payload_drops = 0
 	_payload_hits = 0
 	_init_airframe_reserve()
@@ -3212,6 +3225,27 @@ func _on_menu_pressed() -> void:
 
 
 # ------------------------------------------------------------------ triggers
+func _hide_legacy_freestyle_gates() -> void:
+	var count := 0
+	for node in find_children("FreestyleGate*", "Node3D", true, false):
+		var n := node as Node3D
+		if n != null and n != self:
+			n.visible = false
+			count += 1
+	for node in find_children("Gate_*", "Node3D", true, false):
+		var n := node as Node3D
+		if n != null and n != self and not n.name.begins_with("FreestyleGate"):
+			n.visible = false
+			count += 1
+	for node in find_children("FPV_Gate*", "Node3D", true, false):
+		var n := node as Node3D
+		if n != null and n != self:
+			n.visible = false
+			count += 1
+	if count > 0:
+		print("[FREESTYLE] legacy gates hidden=", count)
+
+
 func _make_ring(position: Vector3, radius: float, color: Color,
 		yaw: float = 0.0) -> Area3D:
 	var area := Area3D.new()
@@ -3427,8 +3461,107 @@ func _find_training_ring_fallback(i: int, clearance: BoxShape3D) -> Vector3:
 	return last_resort
 
 
+func _freestyle_gate_clear(pos: Vector3, radius: float) -> bool:
+	var space := get_world_3d().direct_space_state
+	if space == null:
+		return true
+	var shape := SphereShape3D.new()
+	shape.radius = radius
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = shape
+	query.transform = Transform3D(Basis.IDENTITY, pos)
+	query.collision_mask = 1
+	query.collide_with_bodies = true
+	query.collide_with_areas = false
+	var drone := get_node_or_null("Drone")
+	if drone is CollisionObject3D:
+		query.exclude = [(drone as CollisionObject3D).get_rid()]
+	for hit in space.intersect_shape(query, 8):
+		var col = hit.get("collider")
+		if col is CollisionObject3D:
+			var nm := (col as CollisionObject3D).name
+			if nm == "UmanSafetyGround" or nm.begins_with("UmanGround"):
+				continue
+		return false
+	return true
+
+
+## Lift / nudge a gate until its opening is not inside a tree, wall or prop.
+func _freestyle_clear_gate_positions(specs: Array[Dictionary]) -> void:
+	for spec in specs:
+		var pos: Vector3 = spec.get("pos", Vector3.ZERO)
+		var radius: float = float(spec.get("size", 3.0)) * 0.7 + 0.8
+		if _freestyle_gate_clear(pos, radius):
+			continue
+		# Prefer sliding sideways at low altitude.  Lifting first used to
+		# park gates on top of building roofs, which is just as unflyable as
+		# putting them in a tree.
+		var moves: Array[Vector3] = [
+			Vector3(3.0, 0.0, 0.0), Vector3(-3.0, 0.0, 0.0),
+			Vector3(0.0, 0.0, 3.0), Vector3(0.0, 0.0, -3.0),
+			Vector3(6.0, 0.5, 0.0), Vector3(-6.0, 0.5, 0.0),
+			Vector3(0.0, 0.5, 6.0), Vector3(0.0, 0.5, -6.0),
+			Vector3(10.0, 1.0, 0.0), Vector3(-10.0, 1.0, 0.0),
+			Vector3(0.0, 1.0, 10.0), Vector3(0.0, 1.0, -10.0),
+			Vector3(14.0, 1.5, 14.0), Vector3(-14.0, 1.5, -14.0),
+			Vector3(14.0, 1.5, -14.0), Vector3(-14.0, 1.5, 14.0),
+			Vector3.UP * 3.0, Vector3.UP * 6.0,
+		]
+		for mv in moves:
+			var cand := pos + mv
+			var agl := cand.y - _find_ground_y(cand.x, cand.z)
+			if agl < 0.5 or agl > 9.0:
+				continue
+			if _freestyle_gate_clear(cand, radius):
+				spec["pos"] = cand
+				break
+
+
+## Freestyle courses live in real openings: hall windows/doors, hangar arches,
+## landmark facades, or a tight scenery loop.  Returns false when a map has no
+## authored layout, so the generic safe-course builder can still take over.
+func _build_freestyle_ring_positions() -> bool:
+	var ground_fn := Callable(self, "_find_ground_y")
+	var specs: Array[Dictionary] = []
+	var map := frontline_map
+	if map == "uman":
+		specs = FreestyleCourseScript.loop_waypoints(
+				FreestyleCourseScript.UMAN_WAYPOINTS, ground_fn)
+	elif map == "airport" or not FrontlineTerrainScript.HALL_SITES.get(map, {}).is_empty():
+		if map == "airport":
+			var landmarks: Array = []
+			for node in find_children("AirportLandmark_*", "Node3D", true, false):
+				landmarks.append((node as Node3D).global_position)
+			specs = FreestyleCourseScript.airport_waypoints(landmarks, ground_fn)
+		else:
+			specs = FreestyleCourseScript.hall_waypoints(map, ground_fn)
+	else:
+		# Valley / legacy: weave between the industrial props instead of the
+		# old high-altitude donut course.
+		var loop: Array = []
+		for i in range(24):
+			var a := TAU * float(i) / 24.0
+			var r := 78.0 + 14.0 * sin(a * 3.0 + 0.4)
+			loop.append(Vector3(cos(a) * r, 0.0, sin(a) * r * 0.88))
+		specs = FreestyleCourseScript.loop_waypoints(loop, ground_fn)
+	# Hall/airport gates are supposed to sit in wall openings; only the free
+	# scenery loops need to be pulled out of trees and props.
+	if map == "uman" or map.is_empty():
+		_freestyle_clear_gate_positions(specs)
+	if specs.size() < FreestyleCourseScript.RING_COUNT:
+		return false
+	_freestyle_ring_specs = specs
+	for spec in specs:
+		_training_ring_positions.append(spec["pos"])
+	return true
+
+
 func _build_training_ring_positions() -> void:
 	_training_ring_positions.clear()
+	_freestyle_ring_specs.clear()
+	if Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training:
+		if _build_freestyle_ring_positions():
+			return
 	var clearance := BoxShape3D.new()
 	# The gate's outer radius is 7.4 m.  This slightly larger envelope gives
 	# props, roofs and tree trunks a visible margin rather than merely avoiding
@@ -3490,18 +3623,29 @@ func _spawn_training_rings() -> void:
 	_next_turn_arrow = null
 	_ring_clean_streak = 0
 	_build_training_ring_positions()
-	for i in range(24):
-		var pos := _training_ring_position(i)
-		var next := _training_ring_position((i + 1) % 24)
-		var tangent := next - pos
-		tangent.y = 0.0
-		if tangent.length_squared() < 0.001:
-			tangent = Vector3.FORWARD
-		tangent = tangent.normalized()
-		var yaw := atan2(tangent.x, tangent.z)
-		var ring := _make_ring(pos, 6.2, Color(0.20, 0.86, 0.78), yaw)
+	# The old white GLB gates and the airport's decorative FreestyleGate nodes
+	# are removed everywhere in freestyle - they looked like a course but were
+	# never checkpoints and competed with the real neon gates.
+	_hide_legacy_freestyle_gates()
+	for i in range(_training_ring_positions.size()):
+		var ring: Area3D
+		if i < _freestyle_ring_specs.size():
+			ring = FreestyleCourseScript.make_checkpoint(_triggers,
+					_freestyle_ring_specs[i], i)
+		else:
+			var pos := _training_ring_position(i)
+			var next := _training_ring_position((i + 1) % _training_ring_positions.size())
+			var tangent := next - pos
+			tangent.y = 0.0
+			if tangent.length_squared() < 0.001:
+				tangent = Vector3.FORWARD
+			tangent = tangent.normalized()
+			ring = _make_ring(pos, 6.2, Color(0.20, 0.86, 0.78),
+					atan2(tangent.x, tangent.z))
 		ring.set_meta("training_ring_index", i)
-		ring.visible = (i == 0)
+		# All freestyle arches stay visible so the pilot can see the course;
+		# only the active one is monitored / brightly highlighted.
+		ring.visible = true
 		ring.monitoring = (i == 0)
 		ring.body_entered.connect(_on_ring_entered.bind(ring))
 		_training_rings.append(ring)
@@ -3550,9 +3694,9 @@ func _ensure_next_ring_preview() -> void:
 			for side_s in [-1.0, 1.0]:
 				var wing := MeshInstance3D.new()
 				var w_box := BoxMesh.new()
-				w_box.size = Vector3(0.16, 0.16, 1.15)
+				w_box.size = Vector3(0.24, 0.24, 1.9)
 				wing.mesh = w_box
-				wing.position = Vector3(float(side_s) * 0.36, -1.8, 0.0)
+				wing.position = Vector3(float(side_s) * 0.52, -2.4, 0.0)
 				wing.rotation.y = float(side_s) * deg_to_rad(36.0)
 				wing.material_override = arrow_mat
 				wing.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -3568,7 +3712,10 @@ func _sync_active_training_ring(animate_pop: bool = false) -> void:
 		if r == null or not is_instance_valid(r):
 			continue
 		var is_active := (i == _rings_passed and _rings_passed < _rings_total)
-		r.visible = is_active
+		r.visible = true
+		var label := r.get_node_or_null("GateNumber") as Label3D
+		if label != null:
+			label.visible = is_active
 		r.set_deferred("monitoring", is_active)
 		if is_active:
 			if animate_pop and is_inside_tree():
@@ -3586,6 +3733,8 @@ func _sync_active_training_ring(animate_pop: bool = false) -> void:
 			var cur_r := _training_rings[_rings_passed] if _rings_passed < _training_rings.size() else null
 			if nr != null and is_instance_valid(nr):
 				_next_ring_preview.visible = true
+				var next_radius := float(nr.get_meta("ring_radius", 6.2))
+				_next_ring_preview.scale = Vector3.ONE * clampf(next_radius / 6.2, 0.32, 1.6)
 				_next_ring_preview.global_position = nr.global_position
 				_next_ring_preview.global_rotation = Vector3(PI * 0.5, nr.global_rotation.y, 0.0)
 				if _next_turn_arrow != null and is_instance_valid(_next_turn_arrow) \
@@ -3615,9 +3764,14 @@ func _spawn_ring_pass_effect(ring_xf: Transform3D) -> void:
 		return
 	var fx := MeshInstance3D.new()
 	fx.name = "RingPassBurst"
+	var burst_radius := 6.2
+	if _rings_passed > 0 and _rings_passed <= _training_rings.size():
+		var passed_ring := _training_rings[_rings_passed - 1]
+		if passed_ring != null and is_instance_valid(passed_ring):
+			burst_radius = float(passed_ring.get_meta("ring_radius", 6.2))
 	var torus := TorusMesh.new()
-	torus.inner_radius = 6.2
-	torus.outer_radius = 7.2
+	torus.inner_radius = burst_radius
+	torus.outer_radius = burst_radius + 1.0
 	torus.rings = 24
 	torus.ring_segments = 8
 	fx.mesh = torus
@@ -3769,6 +3923,11 @@ func _save_training_ghost() -> void:
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	if f == null:
 		return
+	# MODEL line lets Ghost rebuild the translucent drone the player actually
+	# flew instead of falling back to the tiny procedural beacon.
+	var model_path := str(DroneCatalog.call("_model_path", Global.drone_preset))
+	if not model_path.is_empty():
+		f.store_line("MODEL:%s" % model_path)
 	for sample in _ghost_record_samples:
 		var vals: Array = sample
 		var strs: PackedStringArray = []
@@ -7024,18 +7183,19 @@ func _update_fpv_camera_fx(delta: float) -> void:
 			})
 			if _dvr_samples.size() > 300:
 				_dvr_samples.pop_front()
-		# Record the real FPV picture, not only transforms.  5 fps at a reduced
-		# resolution is enough for the debrief replay and keeps the rolling
-		# buffer around 20 MB.  The previous implementation teleported the live
-		# drone around the current world, so the "replay" looked like gameplay
-		# with a REC banner on top.
-		var allow_dvr_frames := QualityManagerScript.get_active_level() > QualityManagerScript.Level.LOW \
-				and not (OS.get_name() == "iOS" or OS.has_feature("mobile") or OS.has_environment("MOBILE_UI"))
-		if allow_dvr_frames:
-			_dvr_frame_timer += delta
-			if _dvr_frame_timer >= 1.0 / float(DVR_FPS):
-				_dvr_frame_timer = 0.0
-				_capture_dvr_frame()
+		# Record the real FPV picture, not only transforms.  A small rolling
+		# buffer is enough for the debrief replay.  The previous implementation
+		# teleported the live drone around the current world, so the "replay"
+		# looked like gameplay with a REC banner on top.
+		# Frame capture used to be gated behind MEDIUM/HIGH quality and disabled
+		# on mobile altogether.  That left _dvr_frames empty on LOWSPEC/iOS, so
+		# the debrief showed only a frozen camera-path flyby (or "NO RECORDING")
+		# instead of real footage.  Everywhere now records a small rolling
+		# buffer; _configure_dvr_profile() picks cheaper settings on phones.
+		_dvr_frame_timer += delta
+		if _dvr_frame_timer >= 1.0 / float(_dvr_fps):
+			_dvr_frame_timer = 0.0
+			_capture_dvr_frame()
 	# Low-altitude radio horizon multipath scanlines (when flying standard radio below 2.6 m)
 	if _hud != null and _analog_bar_a == null:
 		_analog_bar_a = ColorRect.new()
@@ -8046,6 +8206,15 @@ func _on_leaderboard_pressed() -> void:
 	_set_flash(_txt("ТАБЛИЦЯ ЛІДЕРІВ НЕДОСТУПНА ОФЛАЙН", "LEADERBOARD UNAVAILABLE OFFLINE"))
 
 
+func _configure_dvr_profile() -> void:
+	if not _is_mobile_runtime():
+		return
+	_dvr_fps = 3
+	_dvr_max_frames = 48          # 16 s rolling buffer
+	_dvr_frame_w = 256
+	_dvr_frame_h = 144
+
+
 ## Grabs one low-resolution frame of the live FPV viewport for the DVR buffer.
 func _capture_dvr_frame() -> void:
 	if _dvr_capture_failed or _dvr_capture_pending:
@@ -8068,10 +8237,10 @@ func _capture_dvr_frame() -> void:
 	if img == null or img.is_empty():
 		_dvr_capture_failed = true
 		return
-	img.resize(DVR_FRAME_W, DVR_FRAME_H, Image.INTERPOLATE_BILINEAR)
+	img.resize(_dvr_frame_w, _dvr_frame_h, Image.INTERPOLATE_BILINEAR)
 	var tex := ImageTexture.create_from_image(img)
 	_dvr_frames.append(tex)
-	while _dvr_frames.size() > DVR_MAX_FRAMES:
+	while _dvr_frames.size() > _dvr_max_frames:
 		_dvr_frames.pop_front()
 
 
@@ -8209,11 +8378,11 @@ func _play_dvr_frames() -> void:
 			break
 		_dvr_overlay_rect.texture = _dvr_frames[i]
 		if _dvr_overlay_time != null:
-			var t_sec := int(float(i) / float(DVR_FPS))
-			var total_sec := int(float(total) / float(DVR_FPS))
+			var t_sec := int(float(i) / float(_dvr_fps))
+			var total_sec := int(float(total) / float(_dvr_fps))
 			_dvr_overlay_time.text = "▶ PLAY  %02d:%02d / %02d:%02d" % [
 				t_sec / 60, t_sec % 60, total_sec / 60, total_sec % 60]
-		await get_tree().create_timer(1.0 / float(DVR_FPS), true).timeout
+		await get_tree().create_timer(1.0 / float(_dvr_fps), true).timeout
 	# Hold the final (strike) frame for a moment before returning to debrief.
 	await get_tree().create_timer(0.65, true).timeout
 
@@ -8575,6 +8744,14 @@ func _process(delta: float) -> void:
 		_bomb_cooldown = maxf(_bomb_cooldown - delta, 0.0)
 	if _mission_started and not _mission_finished:
 		_mission_time += delta
+		# A freestyle ghost should exist even if the full 24-gate course is
+		# still too hard: after a decent partial run, bank it as "my ghost".
+		if Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training \
+				and not _freestyle_ghost_saved_once and not _freestyle_ring_specs.is_empty() \
+				and _mission_time >= 45.0 and _rings_passed >= 6:
+			_freestyle_ghost_saved_once = true
+			_save_training_ghost()
+			_set_flash(_txt("ПРИВИД ЗБЕРЕЖЕНО", "GHOST SAVED"))
 		var combat_time_limit: float = Global.get_difficulty_time_limit()
 		if Global.play_mode == Global.PlayMode.COMBAT \
 				and _mission_time >= combat_time_limit:
@@ -8941,8 +9118,16 @@ func _update_hud() -> void:
 						short_name, time_str, _txt("ТРЕНУВАННЯ", "TRAINING"),
 						_combat_training.get_status_line()]
 			else:
-				_hud_label.text = "%s\n%s · %s %d/%d · %d" % [
-						short_name, time_str, _txt("КІЛЬЦЯ", "GATES"), _rings_passed, _rings_total, _score]
+				var dist_text := ""
+				var flyer := get_node_or_null("Drone") as Node3D
+				if flyer != null and _rings_passed < _training_rings.size():
+					var next_gate := _training_rings[_rings_passed]
+					if next_gate != null and is_instance_valid(next_gate):
+						dist_text = " · %dm" % int(flyer.global_position.distance_to(
+								next_gate.global_position))
+				_hud_label.text = "%s\n%s · %s %d/%d · %d%s" % [
+						short_name, time_str, _txt("КІЛЬЦЯ", "GATES"),
+						_rings_passed, _rings_total, _score, dist_text]
 		_:
 			var combat_time_limit: float = Global.get_difficulty_time_limit()
 			var time_left := maxf(0.0, combat_time_limit - _mission_time)

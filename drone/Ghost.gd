@@ -48,10 +48,17 @@ func update_drone_model(path: String) -> void:
 	if not path.is_empty() and ResourceLoader.exists(path):
 		var drone_packed: PackedScene = load(path)
 		if drone_packed != null and drone_packed.can_instantiate():
-			var drone: Drone = drone_packed.instantiate() as Drone
-			if drone != null:
-				add_meshes(drone)
-				drone.queue_free()
+			var inst: Node3D = drone_packed.instantiate() as Node3D
+			if inst != null:
+				# Race .rpl files point at full Drone scenes; freestyle ghosts
+				# point at the airframe GLB.  Wrap a GLB in a bare Drone so
+				# get_mesh_transform() can stop at a known root.
+				var holder: Node3D = inst
+				if not (inst is Drone):
+					holder = Drone.new()
+					holder.add_child(inst)
+				add_meshes(holder)
+				holder.queue_free()
 				loaded_meshes = get_child_count() > 0
 	if not loaded_meshes:
 		_build_procedural_beacon()

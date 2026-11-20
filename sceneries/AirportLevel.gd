@@ -561,6 +561,10 @@ func _collect_meshes(node: Node, out: Array[MeshInstance3D]) -> void:
 
 
 func _spawn_airport_gates() -> void:
+	# Old decorative FreestyleGate nodes are removed in freestyle: BigLevel now
+	# builds real neon checkpoints at the hangar arches and landmark facades.
+	if Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training:
+		return
 	var gates := [
 		[Vector3(-150, 6, 90), 0.0], [Vector3(-90, 9, 40), 0.2],
 		[Vector3(-30, 7, -20), -0.3], [Vector3(30, 10, -70), 0.35],

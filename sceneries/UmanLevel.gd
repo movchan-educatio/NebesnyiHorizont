@@ -20,15 +20,21 @@ const CC0_BUILDINGS := ["city-block-filler", "general-store", "museum", "bank",
 const CC0_HERO_TREES := ["spruce-tree", "birch-grove", "jungle-tree",
 		"mangrove-tree", "baobab-tree", "berry-bush"]
 
+## Only compact, ground-seated props.  The old pool also contained full road
+## pieces / loops / banked curves: their AABB is 20-40 m, so a single box
+## collider sealed the whole loop and the meshes ended up hanging in the air
+## when the height query hit another prop's roof.  They are decoration only.
 const FREESTYLE_MODELS := [
-	"race-track-jump-ramp", "sp_launchramp", "sp_quarterpipe",
-	"race-track-banked-curve", "race-track-chicane", "sp_grindbox",
-	"sp_halfpipe", "sp_funbox", "sp_bowlcorner", "sp_flatrail",
-	"sp_kinkedrail", "sp_pad", "sp_stairs", "tire-barrier-wall",
-	"catch-fence", "chain-link-fence", "concrete-barrier", "boost-pad",
-	"race-track-loop", "race-track-straight", "start-light-gantry",
-	"sp_kinkedrail", "sp_flatrail", "sp_pad",
+	"sp_launchramp", "sp_grindbox", "sp_flatrail", "sp_kinkedrail",
+	"sp_pad", "sp_stairs", "tire-barrier-wall", "catch-fence",
+	"chain-link-fence", "concrete-barrier", "boost-pad",
+	"sp_flatrail", "sp_pad",
 ]
+
+var _uman_water_y := 0.0
+var _uman_water_rect := Rect2()
+var _uman_water_tris: Array = []
+var _uman_prop_colliders: Array[RID] = []
 
 ## Віхи фрістайл-маршруту — петля навколо всієї карти (набережна →
 ## Софіївка → фонтани → місто → знову до старту). Кільця ставляться вздовж неї.
@@ -71,6 +77,9 @@ func _ready() -> void:
 	_ground_y = 0.12
 	set_meta("disable_procedural_grass", true)
 	super._ready()
+	# BigLevel re-applies the airframe preset later in its own _ready(), which
+	# replaces every material override.  Re-apply the subtle accent afterwards.
+	call_deferred("_uman_brighten_drone")
 	var radio := get_node_or_null("RadioController")
 	if radio != null:
 		radio.set("hover_assist", false)
@@ -84,6 +93,7 @@ func _load_map() -> void:
 	_uman_hide_static_jets()
 	_uman_hide_old_gates()
 	_uman_setup_water()
+	_uman_hide_water_stunts()
 	# Повний візуал демо: CC0-дерева/будівлі замість примітивів GLB.
 	_uman_replace_vegetation()
 	_uman_spawn_cc0_models()
@@ -91,7 +101,8 @@ func _load_map() -> void:
 	_uman_spawn_fountains()
 	_uman_spawn_freestyle_props()
 	_uman_populate_stunts()
-	_uman_build_neon_course()
+	# Старий декоративний неон-маршрут більше не будуємо — його замінив
+	# спільний course з контрольними точками (див. BigLevel._spawn_training_rings).
 	_uman_build_landing_pad()
 	_uman_setup_postfx()
 	_uman_fx_ready = true
@@ -153,28 +164,50 @@ func _place_drone_over_ground() -> void:
 		d.respawned.connect(_on_respawned)
 
 
-## Легке кольорове підсвічування моделі дрона (текстури лишаються):
-## 3" — яскраво-зелений, 5" — бурштиновий, 7" — блакитний.
+## Дуже легкий кольоровий акцент поверх рідних текстур дрона.  Стара версія
+## давала emission 0.45 на КОЖНУ поверхню з соковитим салатовим кольором —
+## дрон виглядав як неоновий ліхтар і перекривав FPV-картинку.  Тепер колір
+## приглушений, енергія ~0.08, а factory-світлодіоди (які вже мають emission)
+## взагалі не чіпаємо.
 func _uman_brighten_drone() -> void:
-	var d := get_node_or_null("Drone")
-	var model := d.get_node_or_null("DroneModel") if d != null else null
-	if model == null:
+	# BigLevel can keep several DroneModel roots (live, sensor preview, cached
+	# respawn model).  Tint all of them, otherwise the visible one stays bright
+	# green while only a hidden copy is dimmed.
+	var models := find_children("DroneModel", "Node3D", true, false)
+	if models.is_empty():
 		return
-	var accents := [Color(0.12, 1.0, 0.25), Color(1.0, 0.55, 0.06),
-			Color(0.10, 0.55, 1.0)]
-	var idx: int = int(model.get_meta("preset_index", 10)) - 10
+	var accents := [Color(0.14, 0.34, 0.17), Color(0.46, 0.27, 0.08),
+			Color(0.07, 0.24, 0.44)]
+	var idx: int = int((models[0] as Node3D).get_meta("preset_index", 10)) - 10
 	var accent: Color = accents[clampi(idx, 0, 2)]
-	for mi in _uman_find_meshes(model):
-		if mi.mesh == null:
-			continue
-		for s in range(mi.mesh.get_surface_count()):
-			var src: Material = mi.mesh.surface_get_material(s)
-			if src is StandardMaterial3D:
-				var dup := src.duplicate() as StandardMaterial3D
-				dup.emission_enabled = true
-				dup.emission = accent
-				dup.emission_energy = 0.45
-				mi.set_surface_override_material(s, dup)
+	for model in models:
+		for mi in _uman_find_meshes(model as Node3D):
+			if mi.mesh == null:
+				continue
+			for s in range(mi.mesh.get_surface_count()):
+				var src: Material = mi.mesh.surface_get_material(s)
+				if src is StandardMaterial3D:
+					var sm := src as StandardMaterial3D
+					var dup := sm.duplicate() as StandardMaterial3D
+					# The GLB's accent texture itself is saturated green and the
+					# LED material ships with emission 4.0.  Darken the albedo
+					# multiplier (the texture is preserved) and cap real LEDs.
+					var tint := 0.80 if idx == 0 else 0.88
+					dup.albedo_color = sm.albedo_color * Color(tint, tint, tint, 1.0)
+					if sm.emission_enabled and sm.emission_energy_multiplier > 0.15:
+						dup.emission_energy_multiplier = minf(sm.emission_energy_multiplier, 0.6)
+						dup.set_meta("uman_led_dimmed", true)
+					else:
+						dup.emission_enabled = true
+						dup.emission = accent
+						dup.emission_energy_multiplier = 0.08
+						dup.set_meta("uman_accent", true)
+					# Also write back into the mesh resource: BigLevel re-applies
+					# the airframe preset after this and rebuilds instance
+					# overrides from the mesh's surface materials.
+					if mi.mesh is ArrayMesh:
+						(mi.mesh as ArrayMesh).surface_set_material(s, dup)
+					mi.set_surface_override_material(s, dup)
 
 
 func _uman_find_spawn() -> Vector3:
@@ -197,16 +230,15 @@ func _uman_armed(_mode: int) -> void:
 
 
 ## Тільки фрістайл: ніяких місій, техніки, піхоти й спецоперацій.
-## Слабкі білі кільця BigLevel не використовуємо — у нас власний
-## яскравий неоновий маршрут (див. _uman_build_neon_course).
+## Неоновий маршрут тепер спільний для всіх карт і побудований у BigLevel як
+## справжні контрольні точки (таймер, лічильник, персональний привид).
 func _build_frontline_props() -> void:
-	pass
+	_queue_training_ring_spawn()
 
 
 ## Наступні заглуровки — страховка: навіть якщо батьківський код викличе
 ## бойові спавни з іншого шляху, на фрістайл-карті нічого не з'явиться.
-func _start_mission() -> void:
-	pass
+## _start_mission НЕ заглушка: він запускає таймер, привида та підсвітку воріт.
 
 
 func _spawn_vehicles() -> void:
@@ -279,9 +311,41 @@ func _tune_map_environment() -> void:
 ## Дві водойми карти (за даними демо). Використовується для авторестарту
 ## й щоб не ставити трюки/дерева просто у воді.
 func _uman_is_water(p: Vector3) -> bool:
+	# Exact test against the authored water triangles.  The old hand-written
+	# ellipses missed parts of the lake (stunt boxes over water) and a plain
+	# AABB wrongly marked the promenade / landing pad as water.
+	if not _uman_water_tris.is_empty():
+		var px := p.x
+		var pz := p.z
+		for t in _uman_water_tris:
+			if px < float(t[0]) or px > float(t[1]) or pz < float(t[2]) or pz > float(t[3]):
+				continue
+			var ax := float(t[4]); var az := float(t[5])
+			var bx := float(t[6]); var bz := float(t[7])
+			var cx := float(t[8]); var cz := float(t[9])
+			var d1 := (px - bx) * (az - bz) - (ax - bx) * (pz - bz)
+			var d2 := (px - cx) * (bz - cz) - (bx - cx) * (pz - cz)
+			var d3 := (px - ax) * (cz - az) - (cx - ax) * (pz - az)
+			if (d1 >= 0.0 and d2 >= 0.0 and d3 >= 0.0) \
+					or (d1 <= 0.0 and d2 <= 0.0 and d3 <= 0.0):
+				return true
+		return false
 	var big := pow((p.x - 60.0) / 85.0, 2.0) + pow((p.z - 25.0) / 65.0, 2.0)
 	var low := pow((p.x + 80.0) / 50.0, 2.0) + pow((p.z + 20.0) / 40.0, 2.0)
 	return big < 1.06 or low < 1.06
+
+
+func _uman_box_overlaps_water(box: AABB) -> bool:
+	var c := box.get_center()
+	if _uman_is_water(c):
+		return true
+	for dx in [-0.5, 0.5]:
+		for dz in [-0.5, 0.5]:
+			var p := box.position + Vector3(box.size.x * float(dx), 0.0,
+					box.size.z * float(dz))
+			if _uman_is_water(p):
+				return true
+	return false
 
 
 ## Промінь вниз по шару 1. Повертає реальну висоту поверхні (з урахуванням
@@ -291,13 +355,24 @@ func _uman_ground_y(p: Vector3) -> float:
 	var q := PhysicsRayQueryParameters3D.create(
 			Vector3(p.x, 320.0, p.z), Vector3(p.x, -60.0, p.z))
 	q.collision_mask = 1
+	var exclude: Array[RID] = []
+	for rid in _uman_prop_colliders:
+		exclude.append(rid)
 	var drone := get_node_or_null("Drone")
 	if drone is CollisionObject3D:
-		q.exclude = [(drone as CollisionObject3D).get_rid()]
+		exclude.append((drone as CollisionObject3D).get_rid())
+	q.exclude = exclude
 	var hit := space.intersect_ray(q)
 	if hit.is_empty():
 		return 0.14
-	return (hit["position"] as Vector3).y + 0.05
+	# Uman's authored terrain is essentially flat at y~0.12.  Any hit above
+	# 2.5 m is a roof / road deck / stunt piece, not soil: planting a tree on
+	# it is exactly what produced "trees hanging in the air".  Fall back to
+	# the ground plane for every decoration.
+	var y := (hit["position"] as Vector3).y
+	if y > 2.5:
+		return 0.14
+	return y + 0.03
 
 
 ## Суцільний ґрунт під усією картою: дрон більше не провалюється крізь
@@ -358,7 +433,7 @@ func _uman_neon_material() -> StandardMaterial3D:
 	mat.albedo_color = Color(1.0, 0.06, 0.02, 1.0)
 	mat.emission_enabled = true
 	mat.emission = Color(1.0, 0.08, 0.02)
-	mat.emission_energy = 8.0
+	mat.emission_energy_multiplier = 8.0
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	return mat
 
@@ -369,7 +444,7 @@ func _uman_glow_material() -> StandardMaterial3D:
 	mat.albedo_color = Color(1.0, 0.12, 0.03, 0.16)
 	mat.emission_enabled = true
 	mat.emission = Color(1.0, 0.10, 0.02)
-	mat.emission_energy = 2.0
+	mat.emission_energy_multiplier = 2.0
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -559,6 +634,60 @@ func _uman_setup_water() -> void:
 	mat.set_shader_parameter("sky_amount", 0.55)
 	(water as MeshInstance3D).material_override = mat
 	(water as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_uman_water_y = (water as MeshInstance3D).global_position.y
+	var wa := (water as MeshInstance3D).mesh.get_aabb()
+	_uman_water_rect = Rect2(wa.position.x + (water as MeshInstance3D).global_position.x,
+			wa.position.z + (water as MeshInstance3D).global_position.z,
+			wa.size.x, wa.size.z)
+	# Cache the water surface as world-space XZ triangles.  ~1900 triangles,
+	# queried a few hundred times while placing scenery - cheap and exact.
+	_uman_water_tris.clear()
+	if (water as MeshInstance3D).mesh is ArrayMesh:
+		var arrays := ((water as MeshInstance3D).mesh as ArrayMesh).surface_get_arrays(0)
+		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var inds: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		if inds.is_empty():
+			inds = PackedInt32Array()
+			for vi in range(verts.size()):
+				inds.append(vi)
+		var xf := (water as MeshInstance3D).global_transform
+		var i := 0
+		while i + 2 < inds.size():
+			var a := xf * verts[inds[i]]
+			var b := xf * verts[inds[i + 1]]
+			var c := xf * verts[inds[i + 2]]
+			_uman_water_tris.append([
+					mini(a.x, mini(b.x, c.x)), maxi(a.x, maxi(b.x, c.x)),
+					mini(a.z, mini(b.z, c.z)), maxi(a.z, maxi(b.z, c.z)),
+					a.x, a.z, b.x, b.z, c.x, c.z,
+			])
+			i += 3
+
+
+## Authored GLB stunt props can sit over the lake (e.g. Stunt_QuarterPipe_01
+## at x~87 z~76).  They look like floating black boxes and their colliders
+## create invisible walls above the water.  Hide the mesh AND disable its
+## collision so the airspace stays flyable.
+func _uman_hide_water_stunts() -> void:
+	var hidden := 0
+	for node in _uman_find_with_prefix(self, "Stunt_"):
+		var n := node as Node3D
+		if n == null or not n.visible:
+			continue
+		var box := _uman_visual_aabb(n)
+		if box.size.length() < 0.05 or not _uman_box_overlaps_water(box):
+			continue
+		n.visible = false
+		var stack: Array[Node] = [n]
+		while not stack.is_empty():
+			var cur: Node = stack.pop_back()
+			if cur is CollisionObject3D:
+				(cur as CollisionObject3D).collision_layer = 0
+			for c in cur.get_children():
+				stack.append(c)
+		hidden += 1
+	if hidden > 0:
+		print("[UMAN] water stunts hidden=", hidden)
 
 
 func _uman_spawn_fountains() -> void:
@@ -684,7 +813,7 @@ func _uman_replace_vegetation() -> void:
 		var m: String = CC0_TREES[placed % CC0_TREES.size()]
 		var s := clampf(h / maxf(float(heights.get(m, 1.0)), 1.0), 0.55, 2.1)
 		_uman_simple_model(UMAN_MODELS + m + ".glb",
-				Vector3(gp.x, _uman_ground_y(gp), gp.z), randf() * TAU, s)
+				Vector3(gp.x, _uman_ground_y(gp), gp.z), randf() * TAU, s, 1)
 		placed += 1
 	var shrubs := 0
 	for n in _uman_find_with_prefix(self, "Shrub_"):
@@ -713,7 +842,7 @@ func _uman_spawn_cc0_models() -> void:
 		var model: String = CC0_BUILDINGS[used % CC0_BUILDINGS.size()]
 		var gp := node.global_position
 		var inst := _uman_simple_model(UMAN_MODELS + model + ".glb",
-				Vector3(gp.x, _uman_ground_y(gp), gp.z), randf() * TAU, 1.0)
+				Vector3(gp.x, _uman_ground_y(gp), gp.z), randf() * TAU, 1.0, 2)
 		if inst != null:
 			var box := _uman_visual_aabb(inst)
 			if box.size.y > 0.5:
@@ -733,11 +862,15 @@ func _uman_spawn_cc0_models() -> void:
 			continue
 		_uman_simple_model(UMAN_MODELS + model + ".glb",
 				Vector3(tp.x, _uman_ground_y(tp), tp.z),
-				randf() * TAU, randf_range(0.8, 1.35))
+				randf() * TAU, randf_range(0.8, 1.35), 1)
 	print("[UMAN] CC0 buildings=", used, " hero trees=", tree_spots.size())
 
 
-func _uman_simple_model(path: String, pos: Vector3, yaw: float, s: float) -> Node3D:
+## `solid`: 0 = decoration, 1 = tree trunk cylinder, 2 = building box.
+## CC0 trees/buildings imported as plain GLB had no collider at all, which is
+## why the drone flew straight through them.
+func _uman_simple_model(path: String, pos: Vector3, yaw: float, s: float,
+		solid: int = 0) -> Node3D:
 	if not ResourceLoader.exists(path):
 		return null
 	var packed := load(path) as PackedScene
@@ -750,6 +883,34 @@ func _uman_simple_model(path: String, pos: Vector3, yaw: float, s: float) -> Nod
 	inst.position = pos
 	inst.rotation.y = yaw
 	inst.scale = Vector3.ONE * s
+	if solid > 0:
+		var box := _uman_visual_aabb(inst)
+		if box.size.length() > 0.05:
+			var body := StaticBody3D.new()
+			body.name = "uman_scenery_col_%d" % _uman_prop_colliders.size()
+			body.collision_layer = 1
+			body.collision_mask = 1
+			var cs := CollisionShape3D.new()
+			if solid == 1:
+				var cyl := CylinderShape3D.new()
+				cyl.radius = clampf(box.size.x * 0.055, 0.35, 1.3)
+				cyl.height = minf(box.size.y * 0.62, 9.0)
+				cs.shape = cyl
+				body.position = Vector3(box.get_center().x,
+						box.position.y + cyl.height * 0.5, box.get_center().z)
+			else:
+				var shape := BoxShape3D.new()
+				shape.size = box.size * 0.86
+				cs.shape = shape
+				# Anchor the shrunken box at ground level.  Using the visual
+				# centre used to lift its bottom by ~1.3 m on tall buildings,
+				# leaving the ground floor without collision.
+				body.position = Vector3(box.get_center().x,
+						box.position.y + shape.size.y * 0.5,
+						box.get_center().z)
+			body.add_child(cs)
+			add_child(body)
+			_uman_prop_colliders.append(body.get_rid())
 	return inst
 
 
@@ -820,6 +981,9 @@ func _uman_spawn_freestyle_props() -> void:
 			add_child(inst)
 			inst.position = Vector3(pp.x, _uman_ground_y(pp), pp.z)
 			inst.rotation.y = randf() * TAU
+			if _uman_box_overlaps_water(_uman_visual_aabb(inst)):
+				inst.queue_free()
+				continue
 			count += 1
 	lib.queue_free()
 
@@ -834,7 +998,10 @@ func _uman_populate_stunts() -> void:
 		{"c": Vector3(-130, 0, -70), "n": 22}, {"c": Vector3(20, 0, -40), "n": 24},
 	]
 	var total := 0
-	var limit := 110 if mobile else 240
+	# Fewer, smaller props: the old 240-object soup hid the course and its
+	# box colliders made the map feel like a wall.  Phones get an even lighter
+	# budget so the 3-fps DVR and the ghost stay smooth.
+	var limit := 64 if mobile else 130
 	for zone in zones:
 		var made := 0
 		var tries := 0
@@ -856,11 +1023,18 @@ func _uman_populate_stunts() -> void:
 				continue
 			p.y = _uman_ground_y(p)
 			var model: String = FREESTYLE_MODELS[total % FREESTYLE_MODELS.size()]
-			if _uman_spawn_model(UMAN_MODELS + model + ".glb", p,
-					randf() * TAU, randf_range(0.9, 1.35)) != null:
-				_uman_placed.append(Vector3(p.x, 0.0, p.z))
-				made += 1
-				total += 1
+			var inst := _uman_spawn_model(UMAN_MODELS + model + ".glb", p,
+					randf() * TAU, randf_range(0.9, 1.35))
+			if inst == null:
+				continue
+			var box := _uman_visual_aabb(inst)
+			if box.size.x > 9.0 or box.size.z > 9.0 or box.size.y > 3.8 \
+					or _uman_box_overlaps_water(box):
+				inst.queue_free()
+				continue
+			_uman_placed.append(Vector3(p.x, 0.0, p.z))
+			made += 1
+			total += 1
 	print("[UMAN] freestyle stunts=", total)
 
 
@@ -887,22 +1061,26 @@ func _uman_spawn_model(path: String, pos: Vector3, yaw: float, s: float) -> Node
 	inst.position = pos
 	inst.rotation.y = yaw
 	inst.scale = Vector3.ONE * s
-	# Один простий box-колайдер на об'єкт замість тисяч trimesh-ів:
-	# усі трюкові речі / будівлі мають фізику й лишаються бюджетними для iOS.
+	# Декоративні великі рампи/дуги НЕ отримують box-колайдера: суцільний box
+	# закривав отвір і не давав пролітати крізь них.  Малі пропси лишаються
+	# фізичними, але з трохи меншим колайдером, щоб не чіпляти повітря.
 	var box := _uman_visual_aabb(inst)
 	if box.size.length() < 0.05:
 		return inst
+	if box.size.x > 12.0 or box.size.z > 12.0 or box.size.y > 4.5:
+		return inst
 	var body := StaticBody3D.new()
-	body.name = "uman_obj_col"
+	body.name = "uman_obj_col_%d" % _uman_prop_colliders.size()
 	body.collision_layer = 1
 	body.collision_mask = 1
 	var cs := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = box.size
+	shape.size = box.size * 0.82
 	cs.shape = shape
 	body.add_child(cs)
 	body.position = box.get_center()
 	add_child(body)
+	_uman_prop_colliders.append(body.get_rid())
 	return inst
 
 
@@ -928,11 +1106,30 @@ func _process(delta: float) -> void:
 	super._process(delta)
 	if not _uman_fx_ready:
 		return
-	# Упав у воду або провалився крізь карту — автоматичний рестарт.
+	# Рестарт тільки якщо дрон справді нижче поверхні води.  Раніше будь-яка
+	# платформа/палуба над water-еліпсом з y<0.9 вважалася «водою» і кидала
+	# пілота на старт.  Платформи мають.collider вище води — перевіряємо його.
 	var drone := get_node_or_null("Drone") as Drone
 	if drone != null and is_instance_valid(drone):
 		var p := drone.global_position
-		var in_water := (p.y < 0.9 and _uman_is_water(p)) or p.y < -6.0
+		var below_water := p.y < _uman_water_y + 0.9
+		var supported := false
+		if below_water and _uman_is_water(p):
+			var space := get_world_3d().direct_space_state
+			var q := PhysicsRayQueryParameters3D.create(
+					p, p + Vector3.DOWN * 2.0)
+			q.collision_mask = 1
+			q.exclude = [(drone as CollisionObject3D).get_rid()]
+			var support := space.intersect_ray(q)
+			if not support.is_empty():
+				var sy := (support["position"] as Vector3).y
+				var col = support.get("collider")
+				var is_safety_ground := col is CollisionObject3D \
+						and (col as CollisionObject3D).name == "UmanSafetyGround"
+				supported = not is_safety_ground \
+						and sy > _uman_water_y - 0.2 and sy <= p.y + 0.05
+		var in_water := (below_water and _uman_is_water(p) and not supported) \
+				or p.y < -6.0
 		if in_water:
 			_uman_water_timer += delta
 			if _uman_water_timer > 1.2:

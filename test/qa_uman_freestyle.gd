@@ -73,8 +73,8 @@ func _ready() -> void:
 			"суцільний ґрунт/колізія під карті є")
 	_check(level.get_node_or_null("UmanGroundSkirt") != null,
 			"край карти закритий «спідницею»")
-	var gates := _count_prefix(level, "UmanNeonTrail")
-	_check(gates >= 1, "неоновий маршрут створено")
+	var gates := _count_prefix(level, "NeonGate")
+	_check(gates >= 24, "неоновий маршрут із контрольними точками створено (%d)" % gates)
 	var stunt_cols := _count_class(level, "StaticBody3D")
 	var sample: Array[String] = []
 	for c in level.get_children():
