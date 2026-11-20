@@ -587,7 +587,20 @@ func apply_to_drone(drone: Node, index: int) -> void:
 	if drone.get("flight_controller") != null:
 		drone.flight_controller.set_hover_thrust(drone.mass / 4.0 * 9.81)
 	print("[DroneCatalog] applied '", p["name"], "' (mass ", drone.mass, "kg)")
-	attach_model(drone, index)
+	var clamped_idx := clampi(index, 0, PRESETS.size() - 1)
+	if drone.get("current_preset_index") != null:
+		drone.set("current_preset_index", clamped_idx)
+	var attached := attach_model(drone, clamped_idx)
+	if attached != null:
+		attached.set_meta("preset_index", clamped_idx)
+	var parent_level := drone.get_parent()
+	if parent_level != null and is_instance_valid(parent_level):
+		if parent_level.has_method("_sync_fpv_drone_model"):
+			parent_level.call("_sync_fpv_drone_model", false, true, false)
+		elif parent_level.has_method("_configure_drone_visuals_for_camera"):
+			var cam = parent_level.get("camera")
+			var is_fpv: bool = cam == null or String(cam.name) == "FPVCamera"
+			parent_level.call("_configure_drone_visuals_for_camera", is_fpv)
 	if drone.has_method("refresh_motor_audio"):
 		drone.call("refresh_motor_audio")
 

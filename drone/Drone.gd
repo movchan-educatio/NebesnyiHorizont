@@ -1198,6 +1198,10 @@ func _on_quad_settings_updated() -> void:
 			fpv.position = cam_pos
 		var cam_pitch: float = float(p.get("fpv_cam_pitch", QuadSettings.angle))
 		fpv.transform.basis = Basis.IDENTITY.rotated(Vector3.RIGHT, deg_to_rad(cam_pitch))
+		var parent_level := get_parent()
+		if parent_level != null and parent_level.has_method("_sync_fpv_drone_model") \
+				and fpv.has_meta("base_pos"):
+			parent_level.call("_sync_fpv_drone_model", false, false, true)
 	control_profile.set_rates(QuadSettings.rate_pitch, QuadSettings.rate_roll, QuadSettings.rate_yaw)
 	control_profile.set_expo(QuadSettings.expo_pitch, QuadSettings.expo_roll, QuadSettings.expo_yaw)
 	control_profile.set_level_control(QuadSettings.level_bank,

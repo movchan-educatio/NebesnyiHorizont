@@ -2462,7 +2462,13 @@ func _on_respawned() -> void:
 	_kill_cam_triggered = false
 	_pending_kamikaze_respawn = false
 	_airframe_consumed_this_life = false
+	if _kamikaze_respawn_timer != null and is_instance_valid(_kamikaze_respawn_timer):
+		_kamikaze_respawn_timer.stop()
+	var d_vis := get_node_or_null("Drone") as Drone
+	if d_vis != null:
+		d_vis.visible = true
 	_place_drone_over_ground()
+	_sync_fpv_drone_model(true, false, true)
 	_reset_fiber_cable()
 	if Global.play_mode == Global.PlayMode.TUTORIAL and _flight_school != null \
 			and is_instance_valid(_flight_school) \
@@ -2474,6 +2480,7 @@ func _on_respawned() -> void:
 	_payload_ammo_left = int(DroneCatalog.preset(Global.drone_preset).get(
 			"payload", 0))
 	_reset_fpv_payload()
+	_refresh_model_visibility()
 	_mah = 0.0
 	_rings_passed = 0
 	_sync_active_training_ring(false)
@@ -7134,7 +7141,7 @@ func _setup_recon_view() -> void:
 			d.look_at(u.global_position + Vector3.UP * 1.0, Vector3.UP)
 
 
-func _attach_fpv_rig() -> void:
+func _attach_fpv_rig(reset_ammo: bool = true) -> void:
 	# Uses the real 3D drone model (DroneModel GLB in res://Assets/Drones/ua_norm/)
 	# instead of procedurally generating cylinders or wires.
 	var cam := get_node_or_null("Drone/FPVCamera") as Camera3D
@@ -7149,7 +7156,8 @@ func _attach_fpv_rig() -> void:
 	_fpv_rig = _model_root
 	var p := DroneCatalog.preset(Global.drone_preset)
 	_heavy_bomber = bool(p.get("heavy_bomber", false))
-	_payload_ammo_left = int(p.get("payload", 0))
+	if reset_ammo:
+		_payload_ammo_left = int(p.get("payload", 0))
 	_fpv_payload = _find_model_payload(_model_root)
 	if _fpv_payload != null:
 		_payload_rest = _fpv_payload.transform
@@ -7170,6 +7178,38 @@ func _attach_fpv_rig() -> void:
 			mode_label.visible = false
 	_rig_visible = bool(GameSettings.hud_config.get("fpv_rig", true)) if GameSettings != null else true
 	_apply_fpv_rig()
+
+
+## Re-binds the live DroneModel, FPV camera lift/pitch, and per-part FPV
+## visibility (hiding all propellers/motor bells and airframe clutter).
+## Safe to call after respawn, mid-flight settings updates, or DroneCatalog.apply_to_drone().
+func _sync_fpv_drone_model(reset_ammo: bool = false, reattach_sensor: bool = false,
+		preserve_tilt: bool = false) -> void:
+	var d := get_node_or_null("Drone") as Drone
+	if d == null or not is_instance_valid(d):
+		return
+	_hide_drone_visuals(d)
+	var live_model := d.get_node_or_null("DroneModel") as Node3D
+	var model_changed := (_model_root == null or not is_instance_valid(_model_root) or _model_root != live_model)
+	_model_root = live_model
+	var cam := d.get_node_or_null("FPVCamera") as Camera3D
+	var saved_tilt_x := 0.0
+	var has_saved_tilt := false
+	if cam != null:
+		cam.cull_mask = 1
+		if preserve_tilt and cam.has_meta("base_rot"):
+			saved_tilt_x = (cam.get_meta("base_rot") as Vector3).x
+			has_saved_tilt = true
+	if model_changed or reset_ammo:
+		_attach_fpv_rig(reset_ammo)
+	_setup_fpv_camera_for_preset()
+	if cam != null and has_saved_tilt:
+		var br := cam.get_meta("base_rot") as Vector3
+		cam.set_meta("base_rot", Vector3(saved_tilt_x, br.y, br.z))
+		cam.rotation_degrees = Vector3(saved_tilt_x, br.y, br.z)
+	if reattach_sensor:
+		_setup_warhead_sensor()
+	_refresh_model_visibility()
 
 
 func _on_hud_config_rig_updated() -> void:
@@ -9455,6 +9495,11 @@ func _update_wind_simulation(delta: float) -> void:
 
 
 func _refresh_model_visibility() -> void:
+	if _model_root == null or not is_instance_valid(_model_root):
+		var d_ref := get_node_or_null("Drone")
+		if d_ref != null:
+			_model_root = d_ref.get_node_or_null("DroneModel") as Node3D
+			_fpv_rig = _model_root
 	if _model_root == null or not is_instance_valid(_model_root):
 		return
 	var p := DroneCatalog.preset(Global.drone_preset)

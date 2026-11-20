@@ -13,7 +13,8 @@ $tests = @(
     @{ Scene = "res://test/qa_air_kill.tscn";               Name = "air-kill" },
     @{ Scene = "res://test/test_special_missions.tscn";     Name = "special-missions" },
     @{ Scene = "res://test/qa_structure_avoidance.tscn";    Name = "structure-avoidance" },
-    @{ Scene = "res://test/qa_milestone2_visuals_and_missions.tscn"; Name = "milestone2-visuals-missions" }
+    @{ Scene = "res://test/qa_milestone2_visuals_and_missions.tscn"; Name = "milestone2-visuals-missions" },
+    @{ Scene = "res://test/qa_respawn_fpv_view.tscn";       Name = "respawn-fpv-view" }
 )
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null

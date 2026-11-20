@@ -62,6 +62,9 @@ func _place_drone_over_ground() -> void:
 	if d == null:
 		return
 	d.global_transform = Transform3D(Basis(), Vector3(0.0, 62.0, 255.0))
+	_drone_prev_pos = d.global_position
+	_drone_last_speed = 0.0
+	_drone_peak_speed = 0.0
 	d.linear_velocity = Vector3.ZERO
 	d.angular_velocity = Vector3.ZERO
 	if d.has_method("reset_motion_history"):
@@ -69,7 +72,11 @@ func _place_drone_over_ground() -> void:
 	if d.flight_controller != null and d.flight_controller.has_method("reset"):
 		d.flight_controller.reset()
 	d.freeze = true
-	DroneCatalog.apply_to_drone(d, Global.drone_preset)
+	var existing_model := d.get_node_or_null("DroneModel")
+	if existing_model == null or int(existing_model.get_meta("preset_index", -1)) != Global.drone_preset:
+		DroneCatalog.apply_to_drone(d, Global.drone_preset)
+	else:
+		_sync_fpv_drone_model(false, false, true)
 	# Ми перевизначили _place_drone_over_ground, тому батьківський обробник ARM/respawn
 	# підключаємо тут самі, інакше дрон лишається замороженим і респавн не скидає БК/ліміти.
 	var fc = d.flight_controller
