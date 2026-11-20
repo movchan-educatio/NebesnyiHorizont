@@ -69,6 +69,32 @@ func _ready() -> void:
 						"швидкість обертання реагує на газ/стіки (%.3f → %.3f)" % [low_angle, high_angle])
 		_check(drone.global_position.y > 0.0, "дрон не під ґрунтом (y=%.2f)" % drone.global_position.y)
 
+	_check(level.get_node_or_null("UmanSafetyGround") != null,
+			"суцільний ґрунт/колізія під карті є")
+	_check(level.get_node_or_null("UmanGroundSkirt") != null,
+			"край карти закритий «спідницею»")
+	var gates := _count_prefix(level, "UmanNeonTrail")
+	_check(gates >= 1, "неоновий маршрут створено")
+	var stunt_cols := _count_class(level, "StaticBody3D")
+	var sample: Array[String] = []
+	for c in level.get_children():
+		if c is StaticBody3D:
+			sample.append(String(c.name))
+			if sample.size() >= 8:
+				break
+	print("[UMAN-QA] static bodies sample=", sample, " children=", level.get_child_count())
+	_check(stunt_cols >= 80, "трюкові/крайові об'єкти мають колізії (%d)" % stunt_cols)
+
+	# Авторестарт при падінні у воду.
+	if drone != null:
+		drone.global_position = Vector3(60.0, 0.4, 25.0)  # центр великої водойми
+		drone.linear_velocity = Vector3.ZERO
+		for _i in range(120):
+			await get_tree().physics_frame
+		var after: Vector3 = drone.global_position
+		_check(after.distance_to(Vector3(60.0, 0.4, 25.0)) > 30.0,
+				"після падіння у воду дрон автоматично рестартував (pos=%s)" % str(after))
+
 	_check(DroneCatalog.is_uman(Global.drone_preset), "активний дрон — фрістайльний")
 	_check(DroneCatalog.allowed_for_map("uman").size() == 3, "на Умані рівно 3 дрони")
 	_check(DroneCatalog.allowed_for_map("industrial").size() == 10, "на інших картах 10 звичайних дронів")
@@ -79,6 +105,31 @@ func _ready() -> void:
 func _get_tree_quit() -> void:
 	await get_tree().process_frame
 	get_tree().quit(0 if _fails == 0 else 1)
+
+
+func _count_class(node: Node, cls: String) -> int:
+	var n := 1 if node.is_class(cls) else 0
+	for c in node.get_children():
+		n += _count_class(c, cls)
+	return n
+
+
+func _count_name(node: Node, name_part: String) -> int:
+	var n := 0
+	if String(node.name).contains(name_part):
+		n += 1
+	for c in node.get_children():
+		n += _count_name(c, name_part)
+	return n
+
+
+func _count_prefix(node: Node, prefix: String) -> int:
+	var n := 0
+	if String(node.name).begins_with(prefix):
+		n += 1
+	for c in node.get_children():
+		n += _count_prefix(c, prefix)
+	return n
 
 
 func _find_prefix(node: Node, prefix: String) -> Array:
