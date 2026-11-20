@@ -1257,7 +1257,7 @@ func _build_main() -> void:
 	var course_line := "• Траса тренування: пройдіть ворота на ★ / S–B (з Привидом)"
 	if bool(trec.get("completed", false)):
 		course_line = ("• Траса: рекорд %.1f с · %s [%s]" if not is_en else "• Course best: %.1fs · %s [%s]") % [
-			float(trec.get("best_time", 0.0)), "★".repeat(int(trec.get("stars", 1))), str(trec.get("best_rank", "B"))]
+			float(trec.get("best_time", 0.0)), "★".repeat(int(trec.get("stars", 1))), str(trec.get("rank", trec.get("best_rank", "B")))]
 
 	var changes := [
 		dc_line,
@@ -2279,7 +2279,7 @@ func _build_play() -> void:
 	var rec_suffix := ""
 	if bool(trec.get("completed", false)):
 		rec_suffix = ("  ·  Course: %.1fs %s [%s]" if is_en else "  ·  Траса: %.1f с %s [%s]") % [
-			float(trec.get("best_time", 0.0)), "★".repeat(int(trec.get("stars", 1))), str(trec.get("best_rank", "B"))]
+			float(trec.get("best_time", 0.0)), "★".repeat(int(trec.get("stars", 1))), str(trec.get("rank", trec.get("best_rank", "B")))]
 	_play_daily_lbl = _label(("★ %s (+%d)%s%s" % [dc_title, int(dc.get("bonus_score", 500)), dc_done, rec_suffix]), 13, MenuUI.FPV_CYAN)
 	_play_daily_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	daily_row.add_child(_play_daily_lbl)
@@ -2494,9 +2494,9 @@ func _build_mobile_mission_strip(parent: VBoxContainer, is_en: bool) -> void:
 		strip.add_child(b)
 		_mission_buttons["tac:%d" % m_id] = b
 
-	for s_id in range(1, 11):
+	for s_id in range(1, 14):
 		var op_prefix := "OP" if is_en else "СО"
-		var b := _button("%s-0%d · %s" % [op_prefix, s_id, Global.get_special_mission_name(s_id)],
+		var b := _button("%s-%02d · %s" % [op_prefix, s_id, Global.get_special_mission_name(s_id)],
 				34, _selected_special == s_id)
 		b.custom_minimum_size = Vector2(0, _fs(34))
 		b.add_theme_font_size_override("font_size", _fs(14))
@@ -2519,7 +2519,7 @@ func _build_mobile_mission_strip(parent: VBoxContainer, is_en: bool) -> void:
 func _select_mobile_mission(mission_id: int, special_id: int) -> void:
 	if mission_id >= 1:
 		_selected_mission = clampi(mission_id, 1, 4)
-	_selected_special = clampi(special_id, 0, 10)
+	_selected_special = clampi(special_id, 0, 13)
 	if _selected_special == 0 and not Global.is_mission_unlocked(_selected_mission):
 		_selected_mission = 1 if Global.campaign_is_complete() else Global.campaign_unlocked_mission()
 	Global.menu_settings["selected_mission"] = _selected_mission
@@ -2555,13 +2555,13 @@ func _refresh_mobile_mission_strip() -> void:
 			b.modulate = Color(1, 1, 1, 1 if unlocked else 0.45)
 			_apply_button_primary_style(b, _selected_special == 0 and _selected_mission == m_id)
 	var op_prefix := "OP" if is_en else "СО"
-	for s_id in range(1, 11):
+	for s_id in range(1, 14):
 		var b: Button = _mission_buttons.get("spec:%d" % s_id, null) as Button
 		if b != null:
 			var srec := Global.get_special_mission_record(s_id) if Global.has_method("get_special_mission_record") else {}
 			var s_stars := int(srec.get("stars", 0)) if bool(srec.get("completed", false)) else 0
 			var suffix := (" " + "★".repeat(s_stars)) if s_stars > 0 else ""
-			b.text = "%s-0%d · %s%s" % [op_prefix, s_id, Global.get_special_mission_name(s_id), suffix]
+			b.text = "%s-%02d · %s%s" % [op_prefix, s_id, Global.get_special_mission_name(s_id), suffix]
 			_apply_button_primary_style(b, _selected_special == s_id)
 
 
@@ -2788,7 +2788,7 @@ func _open_mobile_briefing() -> void:
 	var lines: PackedStringArray = []
 	if _selected_special > 0:
 		var op_name := Global.get_special_mission_name(_selected_special)
-		_briefing_title.text = "%s-0%d · %s" % ["OP" if is_en else "СО", _selected_special, op_name]
+		_briefing_title.text = "%s-%02d · %s" % ["OP" if is_en else "СО", _selected_special, op_name]
 		var desc := ""
 		var sdiff := Global.get_difficulty_name()
 		if mm != null:
@@ -2855,7 +2855,7 @@ func _update_play_caption() -> void:
 	if _selected_mode == Global.PlayMode.COMBAT:
 		var d_tag := "%s/%d" % [Global.get_difficulty_name(), _mobile_airframe_budget()]
 		if _selected_special > 0:
-			mission_tag = " · %s-0%d (%s) · %s" % [
+			mission_tag = " · %s-%02d (%s) · %s" % [
 				"OP" if MenuUI.is_english() else "СО",
 				_selected_special,
 				Global.get_special_mission_name(_selected_special),

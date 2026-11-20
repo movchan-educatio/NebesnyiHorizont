@@ -54,6 +54,9 @@ const SPECIAL_MISSION_NAMES := {
 	8: "ОРЕШНИК",
 	9: "ГЛИБОКИЙ ТИЛ",
 	10: "ПЕРЕХОПЛЕННЯ РАКЕТ",
+	11: "ПОДВІЙНИЙ КОНВОЙ",
+	12: "ОБОРОНА ДО СВІТАНКУ",
+	13: "ПОШУК І ПОРЯТУНОК",
 }
 const SPECIAL_MISSION_NAMES_EN := {
 	1: "RECONNAISSANCE",
@@ -66,6 +69,9 @@ const SPECIAL_MISSION_NAMES_EN := {
 	8: "ORESHNIK",
 	9: "DEEP-STRIKE OPERATION",
 	10: "CRUISE MISSILE INTERCEPT",
+	11: "DUAL CONVOY ESCORT",
+	12: "HOLD UNTIL DAWN",
+	13: "SEARCH & RESCUE",
 }
 
 
@@ -136,6 +142,43 @@ func get_difficulty_score_multiplier() -> float:
 		Difficulty.OPERATOR: return 1.25
 		Difficulty.ACE: return 1.75
 		_: return 1.0
+
+
+func get_difficulty_enemy_accuracy_scale() -> float:
+	match difficulty:
+		Difficulty.RECRUIT: return 0.68
+		Difficulty.OPERATOR: return 1.0
+		Difficulty.ACE: return 1.35
+		_: return 1.0
+
+
+func get_difficulty_missile_speed_scale() -> float:
+	match difficulty:
+		Difficulty.RECRUIT: return 0.85
+		Difficulty.OPERATOR: return 1.0
+		Difficulty.ACE: return 1.22
+		_: return 1.0
+
+
+func get_difficulty_target_delta() -> int:
+	match difficulty:
+		Difficulty.RECRUIT: return -1
+		Difficulty.OPERATOR: return 0
+		Difficulty.ACE: return 2
+		_: return 0
+
+
+func get_difficulty_default_weather(_mission_id: int = 1, special_id: int = 0,
+		map_name: String = "") -> int:
+	if special_id == 5 or special_id == 12:
+		return 3 # Night
+	if difficulty == Difficulty.ACE:
+		if special_id in [6, 9, 10]:
+			return 2 # Storm
+		if map_name in ["village", "wetlands"]:
+			return 1 # Rain
+		return 4 # Dust
+	return 0 # Clear
 
 
 func _input(event: InputEvent) -> void:
@@ -575,6 +618,17 @@ func get_daily_challenge() -> Dictionary:
 			"desc_ua": "Тактичне перехоплення повітряної цілі над заплавою",
 			"desc_en": "Aerial target interception drill over the wetlands",
 		},
+		{
+			"id": "daily_airport_runway",
+			"map": "airport",
+			"mode": PlayMode.COMBAT,
+			"mission": 2,
+			"bonus_score": 500,
+			"title_ua": "ПРОРИВ ЗЛІТНОЇ СМУГИ",
+			"title_en": "AIRPORT RUNWAY ASSAULT",
+			"desc_ua": "Зачистка вузла ППО та бронегрупи на аеродромі",
+			"desc_en": "Clear air defense and armor around the abandoned airport",
+		},
 	]
 	var tpl: Dictionary = pool[seed_idx % pool.size()].duplicate(true)
 	var rec: Dictionary = campaign_records.get("daily_challenge", {})
@@ -634,6 +688,42 @@ func load_ghost_track(key: String) -> Array:
 	return []
 
 
+func export_ghost_track_text(key: String = "", samples: Array = []) -> String:
+	var data: Array = samples if not samples.is_empty() else load_ghost_track(key)
+	if data.is_empty():
+		return ""
+	var json_str := JSON.stringify(data)
+	return "FPVGHOST1:" + Marshalls.raw_to_base64(json_str.to_utf8_buffer())
+
+
+func import_ghost_track_text(encoded: String, save_key: String = "") -> Array:
+	var clean := encoded.strip_edges()
+	if clean.is_empty():
+		return []
+	var json_str := clean
+	if clean.begins_with("FPVGHOST1:"):
+		var b64 := clean.substr(10).strip_edges()
+		if b64.is_empty():
+			return []
+		var raw := Marshalls.base64_to_raw(b64)
+		if raw.is_empty():
+			return []
+		json_str = raw.get_string_from_utf8()
+	var parsed = JSON.parse_string(json_str)
+	if not (parsed is Array):
+		return []
+	var out: Array = []
+	for item in (parsed as Array):
+		if item is Array and (item as Array).size() >= 12:
+			var row: Array = []
+			for k in range(12):
+				row.append(float((item as Array)[k]))
+			out.append(row)
+	if not out.is_empty() and not save_key.strip_edges().is_empty():
+		save_ghost_track(save_key, out)
+	return out
+
+
 func is_game_center_available() -> bool:
 	return Engine.has_singleton("GameCenter")
 
@@ -644,7 +734,7 @@ func get_leaderboard_summary(is_en: bool = false) -> String:
 	var stars := campaign_stars_total()
 	for m_id in range(1, 5):
 		best_score = maxi(best_score, int(get_mission_record(m_id).get("best_score", 0)))
-	for map_id in ["steppe", "village", "industrial", "wetlands"]:
+	for map_id in ["steppe", "village", "industrial", "wetlands", "airport"]:
 		best_score = maxi(best_score, int(get_training_record(map_id).get("best_score", 0)))
 	var daily_streak := int(campaign_records.get("daily_challenge", {}).get("streak", 0))
 	if is_en:
@@ -670,7 +760,7 @@ func get_records_report(is_en: bool = false) -> String:
 	lines.append("%s: %d  (%s)" % [
 		"DAILY STREAK" if is_en else "ЩОДЕННА СЕРІЯ",
 		int(dc.get("streak", 0)),
-		("DONE TODAY ✓" if is_en else "ВИКОНАНО СЬОГОДНІ ✓") if bool(dc.get("completed", false))
+		("DONE TODAY ✓" if is_en else "ВИКОНАНО СЬОГОДНІ ✓") if bool(get_daily_challenge().get("completed", false))
 		else ("IN PROGRESS" if is_en else "АКТИВНИЙ")])
 	lines.append("")
 	lines.append("CAMPAIGN (TAC-01..04):" if is_en else "КАМПАНІЯ (TAC-01..04):")
@@ -688,26 +778,26 @@ func get_records_report(is_en: bool = false) -> String:
 		else:
 			lines.append("  • TAC-0%d: —" % m_id)
 	lines.append("")
-	lines.append("SPECIAL OPS (1..10):" if is_en else "СПЕЦОПЕРАЦІЇ (1..10):")
+	lines.append("SPECIAL OPS (1..13):" if is_en else "СПЕЦОПЕРАЦІЇ (1..13):")
 	var any_spec := false
-	for sp_id in range(1, 11):
+	for sp_id in range(1, 14):
 		var srec := get_special_mission_record(sp_id)
 		if bool(srec.get("completed", false)):
 			any_spec = true
-			lines.append("  • %s-0%d (%s): %s · %d" % [
+			lines.append("  • %s-%02d (%s): %s · %d" % [
 				"OP" if is_en else "СО", sp_id, get_special_mission_name(sp_id),
 				"★".repeat(maxi(1, int(srec.get("stars", 1)))), int(srec.get("best_score", 0))])
 	if not any_spec:
 		lines.append("  • —")
 	lines.append("")
 	lines.append("TRAINING & TIME TRIAL:" if is_en else "ТРЕНУВАННЯ ТА ПОЛІТ НА ЧАС:")
-	for map_id in ["course", "steppe", "village", "industrial", "wetlands"]:
+	for map_id in ["course", "steppe", "village", "industrial", "wetlands", "airport"]:
 		var trec := get_training_record(map_id)
 		if bool(trec.get("completed", false)):
 			lines.append("  • %s: %.1fs · %s [%s] · %d" % [
 				map_id.to_upper(), float(trec.get("best_time", 0.0)),
 				"★".repeat(maxi(1, int(trec.get("stars", 1)))),
-				str(trec.get("best_rank", "B")), int(trec.get("best_score", 0))])
+				str(trec.get("rank", trec.get("best_rank", "B"))), int(trec.get("best_score", 0))])
 	return "\n".join(lines)
 
 

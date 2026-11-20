@@ -29,6 +29,9 @@ const SPECIAL_MISSIONS := [
 	{"id": 8, "code": "MSL-08", "name": "Орешник", "name_en": "Oreshnik Strike", "desc": "Знищити ракетний комплекс і його охорону", "desc_en": "Destroy the Oreshnik launcher and its escort.", "diff": "Важка", "diff_en": "Hard", "col": Color("c96f67")},
 	{"id": 9, "code": "DEEP-09", "name": "Глибокий тил", "name_en": "Deep-Strike Operation", "desc": "Комбінований удар по тиловій базі", "desc_en": "Conduct a combined strike on the rear-area base.", "diff": "Екстрим", "diff_en": "Extreme", "col": Color("c96f67")},
 	{"id": 10, "code": "MSL-10", "name": "Перехоплення ракет", "name_en": "Cruise Missile Intercept", "desc": "Відбити 6 хвиль — по одній крилатій ракеті", "desc_en": "Defend against 6 waves of single cruise missiles.", "diff": "Екстрим", "diff_en": "Extreme", "col": Color("c96f67")},
+	{"id": 11, "code": "DUAL-11", "name": "Подвійний конвой", "name_en": "Dual Convoy Escort", "desc": "Супроводити дві дружні колони паралельними маршрутами", "desc_en": "Escort two friendly convoys along dual routes.", "diff": "Важка", "diff_en": "Hard", "col": Color("e2c276")},
+	{"id": 12, "code": "DAWN-12", "name": "Оборона до світанку", "name_en": "Hold Until Dawn", "desc": "Відбити нічний штурм опорного пункту до сходу сонця", "desc_en": "Defend the outpost against a night assault until sunrise.", "diff": "Важка", "diff_en": "Hard", "col": Color("c96f67")},
+	{"id": 13, "code": "SAR-13", "name": "Пошук і порятунок", "name_en": "Search & Rescue", "desc": "Знайти екіпаж, здійснити посадку в зоні та повернутися на базу", "desc_en": "Locate the crew, land in the rescue zone, and return to base.", "diff": "Середня", "diff_en": "Medium", "col": Color("79a58a")},
 ]
 const START_SCREEN := "res://GUI/StartScreen.tscn"
 const GRAPHICS_SCREEN := "res://GUI/GraphicsScreen.tscn"
@@ -1299,7 +1302,7 @@ func _update_selection_ui() -> void:
 		var rank_info := ""
 		if bool(trec.get("completed", false)):
 			var s_str := "★".repeat(int(trec.get("stars", 1)))
-			rank_info = ("  •  COURSE BEST: %.1fs %s [%s]" if is_en else "  •  РЕКОРД ТРАСИ: %.1f с %s [%s]") % [float(trec.get("best_time", 0.0)), s_str, str(trec.get("best_rank", "B"))]
+			rank_info = ("  •  COURSE BEST: %.1fs %s [%s]" if is_en else "  •  РЕКОРД ТРАСИ: %.1f с %s [%s]") % [float(trec.get("best_time", 0.0)), s_str, str(trec.get("rank", trec.get("best_rank", "B")))]
 		_map_title_lbl.text = "TRAINING · PROVING GROUND & COURSE" if is_en else "ТРЕНУВАННЯ · ПОЛІГОН ТА ТРАСА"
 		_map_obj_lbl.text = "Free flight training, stick calibration, checkpoint course timer and Ghost replay." if is_en else "Вільний політ, калібрування стіків, тренувальна траса на час і політ із Привидом."
 		_map_stats_lbl.text = ("TIME LIMIT: UNLIMITED  •  DAMAGE: DISABLED" if is_en else "ЧАС: БЕЗЛІМІТ  •  ПОШКОДЖЕННЯ: ВИМКНЕНО") + rank_info

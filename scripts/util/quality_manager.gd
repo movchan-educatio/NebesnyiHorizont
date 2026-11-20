@@ -504,14 +504,15 @@ static func apply_to_scene(scene_root: Node, _override_lvl: int = -1) -> void:
 		elif win.content_scale_mode == Window.CONTENT_SCALE_MODE_VIEWPORT:
 			win.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
 			win.content_scale_size = Vector2i(0, 0)
+	var allow_grass := not scene_root.has_meta("disable_procedural_grass")
 	var grass := scene_root.get_node_or_null("DenseGrassFoliage") as MultiMeshInstance3D
 	if grass != null:
-		grass.visible = true
+		grass.visible = allow_grass
 		grass.visibility_range_end = float(p["grass_range"])
 		grass.visibility_range_end_margin = clampf(float(p["grass_range"]) * 0.26, 3.0, 8.0)
 	var grass_far := scene_root.get_node_or_null("DenseGrassFar") as MultiMeshInstance3D
 	if grass_far != null:
-		grass_far.visible = true
+		grass_far.visible = allow_grass
 		grass_far.visibility_range_end = float(p["grass_range"])
 		grass_far.visibility_range_end_margin = clampf(float(p["grass_range"]) * 0.26, 3.0, 8.0)
 	for child in scene_root.get_children():

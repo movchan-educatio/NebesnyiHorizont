@@ -12,7 +12,8 @@ $tests = @(
     @{ Scene = "res://test/qa_vehicle_watchdog.tscn";       Name = "vehicle-watchdog" },
     @{ Scene = "res://test/qa_air_kill.tscn";               Name = "air-kill" },
     @{ Scene = "res://test/test_special_missions.tscn";     Name = "special-missions" },
-    @{ Scene = "res://test/qa_structure_avoidance.tscn";    Name = "structure-avoidance" }
+    @{ Scene = "res://test/qa_structure_avoidance.tscn";    Name = "structure-avoidance" },
+    @{ Scene = "res://test/qa_milestone2_visuals_and_missions.tscn"; Name = "milestone2-visuals-missions" }
 )
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
@@ -25,8 +26,9 @@ foreach ($t in $tests) {
         Tee-Object -FilePath $log | Out-Null
     $code = $LASTEXITCODE
     $text = Get-Content $log -Raw
-    $clean = $text -match '(failures?=0|RESULT PASS|ALL QA PASSED)'
-    if ($code -ne 0 -and -not $clean) {
+    $hasError = $text -match 'SCRIPT ERROR|USER ERROR|Parse Error'
+    $clean = ($text -match '(failures?=0|RESULT PASS|ALL QA PASSED)') -and (-not $hasError)
+    if ($code -ne 0 -or -not $clean) {
         $failed += $t.Name
         Write-Host "    FAIL (exit $code) -- see $log" -ForegroundColor Red
     } else {

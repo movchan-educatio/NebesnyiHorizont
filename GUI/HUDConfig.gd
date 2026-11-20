@@ -26,25 +26,25 @@ func _ready() -> void:
 		match button:
 			check_crosshair:
 				button.button_pressed = GameSettings.hud_config["crosshair"]
-				hud.show_component(HUD.Component.CROSSHAIR, button.pressed)
+				hud.show_component(HUD.Component.CROSSHAIR, button.button_pressed)
 			check_ladder:
 				button.button_pressed = GameSettings.hud_config["ladder"]
-				hud.show_component(HUD.Component.LADDER, button.pressed)
+				hud.show_component(HUD.Component.LADDER, button.button_pressed)
 			check_speed:
 				button.button_pressed = GameSettings.hud_config["speed"]
-				hud.show_component(HUD.Component.SPEED, button.pressed)
+				hud.show_component(HUD.Component.SPEED, button.button_pressed)
 			check_altitude:
 				button.button_pressed = GameSettings.hud_config["altitude"]
-				hud.show_component(HUD.Component.ALTITUDE, button.pressed)
+				hud.show_component(HUD.Component.ALTITUDE, button.button_pressed)
 			check_heading:
 				button.button_pressed = GameSettings.hud_config["heading"]
-				hud.show_component(HUD.Component.HEADING, button.pressed)
+				hud.show_component(HUD.Component.HEADING, button.button_pressed)
 			check_sticks:
 				button.button_pressed = GameSettings.hud_config["sticks"]
-				hud.show_component(HUD.Component.STICKS, button.pressed)
+				hud.show_component(HUD.Component.STICKS, button.button_pressed)
 			check_rpm:
 				button.button_pressed = GameSettings.hud_config["rpm"]
-				hud.show_component(HUD.Component.RPM, button.pressed)
+				hud.show_component(HUD.Component.RPM, button.button_pressed)
 
 	MenuUI.localize_tree(self)
 

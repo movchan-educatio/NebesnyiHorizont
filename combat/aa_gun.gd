@@ -195,7 +195,8 @@ func _fire() -> void:
 	if _demo_miss:
 		target += _barrels.global_transform.basis.x.normalized() * 1.15
 	var dir := (target - muzzle_pos).normalized()
-	var spread := 0.007 + _distance * 0.00028
+	var acc_scale := maxf(Global.get_difficulty_enemy_accuracy_scale(), 0.25)
+	var spread := (0.007 + _distance * 0.00028) / acc_scale
 	dir = (dir + Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0),
 			randf_range(-1.0, 1.0)) * spread).normalized()
 	var tracer = TracerScript.new()

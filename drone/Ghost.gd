@@ -11,6 +11,7 @@ var replay := []
 var type: int = Type.PREVIOUS
 var state: int = State.STANDBY
 var frame := 0
+var manual_step := false
 
 
 func _ready() -> void:
@@ -18,7 +19,7 @@ func _ready() -> void:
 
 
 func _physics_process(_delta: float) -> void:
-	if state == State.PLAYING:
+	if state == State.PLAYING and not manual_step:
 		frame += 1
 		update_transform()
 
@@ -144,3 +145,15 @@ func stop_replay() -> void:
 
 func reset_replay() -> void:
 	frame = 0
+
+
+func export_to_text() -> String:
+	return Global.export_ghost_track_text("", replay)
+
+
+func import_from_text(encoded: String, model_path: String = "") -> bool:
+	var imported := Global.import_ghost_track_text(encoded)
+	if imported.is_empty():
+		return false
+	set_samples(imported, model_path)
+	return true

@@ -2566,8 +2566,10 @@ func _spawn_muzzle_flash(pos: Vector3) -> void:
 func _fire_at(target: Vector3) -> void:
 	var muzzle := _muzzle_world()
 	var dir := (target - muzzle).normalized()
-	dir = (dir + Vector3(randf_range(-0.035, 0.035), randf_range(-0.035, 0.035),
-			randf_range(-0.035, 0.035))).normalized()
+	var acc_scale := maxf(Global.get_difficulty_enemy_accuracy_scale(), 0.25)
+	var sp := 0.035 / acc_scale
+	dir = (dir + Vector3(randf_range(-sp, sp), randf_range(-sp, sp),
+			randf_range(-sp, sp))).normalized()
 	var tracer = TracerScript.new()
 	tracer.tracer_color = Color(1.0, 0.55, 0.18) if kind == Kind.TANK else Color(1.0, 0.72, 0.24)
 	tracer.tracer_width = 1.65 if kind == Kind.TANK else 1.35
@@ -2893,7 +2895,8 @@ func _destroy() -> void:
 	else:
 		_char_hull()
 		_settle_wreck()
-		_spawn_cookoff_smoke()
+		if QualityManager.get_active_level() != QualityManager.Level.LOW:
+			_spawn_cookoff_smoke()
 
 	destroyed.emit(points + _bonus_points)
 
@@ -3150,13 +3153,6 @@ func _update_crash_fall(delta: float) -> void:
 	rotation.y += _crash_spin * delta
 	rotation.z += _crash_roll * delta
 	rotation.x = lerp_angle(rotation.x, _crash_pitch, clampf(delta * 1.4, 0.0, 1.0))
-	_crash_trail_cd -= delta
-	if _crash_trail_cd <= 0.0:
-		_crash_trail_cd = 0.12
-		var parent := get_parent()
-		if parent != null:
-			ExplosionScript.fire_column(parent, global_position, 2.4)
-			ExplosionScript.smoke_column(parent, global_position + Vector3.UP * 0.6, 6.0)
 	var t_ground := _terrain_ground(global_position.x, global_position.z)
 	var gy := float(t_ground["y"]) if not t_ground.is_empty() else _crash_ground_y
 	if global_position.y <= gy + 0.55:
@@ -3178,7 +3174,8 @@ func _crash_impact(gy: float) -> void:
 		_route_last_sfx_bus(parent, &"Combat")
 		CombatSfxScript.start_burning(parent, global_position, 30.0)
 		_route_last_sfx_bus(parent, &"Combat")
-	_spawn_cookoff_smoke()
+	if QualityManager.get_active_level() != QualityManager.Level.LOW:
+		_spawn_cookoff_smoke()
 
 
 func _spawn_debris(parent: Node) -> void:

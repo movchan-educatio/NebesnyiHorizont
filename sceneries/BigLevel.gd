@@ -196,6 +196,14 @@ var _special_convoy_warned := false
 var _special_convoy_stall_anchor := Vector3.ZERO
 var _special_convoy_stall := 0.0
 var _special_convoy_recoveries := 0
+var _special_convoy_b: Vehicle = null
+var _special_convoy_b_dest := Vector3.ZERO
+var _special_convoy_b_start := Vector3.ZERO
+var _special_convoy_b_stall_anchor := Vector3.ZERO
+var _special_convoy_b_stall := 0.0
+var _special_convoy_b_recoveries := 0
+var _dawn_defense_pos := Vector3.ZERO
+var _dawn_defense_beacon: Node3D = null
 ## Corridor kept free of procedural props/trees by the airport level.  Filled
 ## by the route planner when the escort mission is set up on a large map.
 var _reserved_ground_route: Array[Vector3] = []
@@ -237,7 +245,13 @@ var _kill_cam: ReconKillCamScript = null
 var _kill_cam_triggered := false
 var _kill_cam_last_ms := -10000
 var _pending_combat_complete := false
+var _pending_airframe_fail := false
+var _victory_scheduled := false
 var _pending_kamikaze_respawn := false
+var _airframe_fail_timer: Timer = null
+var _kamikaze_respawn_timer: Timer = null
+var _victory_timer: Timer = null
+var _victory_pending_msg := ""
 var _base_fpv_fov := 110.0
 var _top_banner_stack: VBoxContainer = null
 var _wind_row: HBoxContainer = null
@@ -251,6 +265,7 @@ var _radio_beat_02_fallback_timer := -1.0
 var _ghost_node: Ghost = null
 var _ghost_record_samples: Array = []
 var _ghost_record_timer := 0.0
+var _ghost_play_timer := 0.0
 var _results_lb_btn: Button = null
 var _elrs_status_timer := 2.5
 var _elrs_status_last_text := ""
@@ -281,6 +296,7 @@ var _dvr_frame_timer := 0.0
 var _dvr_capture_failed := false
 var _dvr_capture_pending := false
 var _dvr_overlay: CanvasLayer = null
+var _dvr_overlay_bg: ColorRect = null
 var _dvr_overlay_rect: TextureRect = null
 var _dvr_overlay_stamp: Label = null
 var _dvr_overlay_time: Label = null
@@ -473,7 +489,7 @@ func _ready() -> void:
 		_mission_offset = Vector3(randf_range(-28.0, 28.0), 0.0,
 				randf_range(-22.0, 22.0))
 	_place_drone_over_ground()
-	if d != null:
+	if d != null and not has_meta("disable_procedural_grass"):
 		var g_cnt := int(QualityManagerScript.get_value("grass_count", 2200))
 		var g_rad := float(QualityManagerScript.get_value("grass_range", 75.0))
 		# NOTE: raw linear values passed as Vector3 uniforms, not sRGB colours.
@@ -1320,6 +1336,8 @@ func _tune_map_environment() -> void:
 ## re-apply the map's atmosphere on top of the global profile.
 func on_quality_applied() -> void:
 	_tune_map_environment()
+	if _weather != 0:
+		_apply_weather()
 
 
 # --------------------------------------------------------------- prop builders
@@ -2461,6 +2479,7 @@ func _on_respawned() -> void:
 	_sync_active_training_ring(false)
 	_ghost_record_samples.clear()
 	_ghost_record_timer = 0.0
+	_ghost_play_timer = 0.0
 	if _ghost_node != null and is_instance_valid(_ghost_node) and _ghost_node.has_method("reset_replay"):
 		_ghost_node.reset_replay()
 		if not _ghost_node.replay.is_empty():
@@ -2534,40 +2553,47 @@ func consume_sortie_airframe(reason: String = "") -> bool:
 				or (Global.special_mission >= 5 and _mission_targets_total > 0 and _mission_targets_destroyed >= _mission_targets_total)
 		if not objectives_done:
 			var delay := 1.2 if reason == "STRIKE" else 1.0
-			var timer := get_tree().create_timer(delay)
-			timer.timeout.connect(func() -> void:
-				if _mission_finished:
-					return
-				# Re-evaluate at the timeout.  The last hit can land in the same
-				# physics frame as the final airframe loss, and the kill-cam
-				# completion is deferred by several seconds.  The old closure
-				# used the stale pre-hit counters and showed "ALL AIRFRAMES
-				# LOST" over a 2/2 targets-destroyed debrief.
-				if _pending_combat_complete:
-					return
-				if _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active():
-					return
-				var complete_now := _mission_targets_total > 0 \
-						and _mission_targets_destroyed >= _mission_targets_total
-				if complete_now:
-					_check_combat_mission_complete()
-					return
-				if Global.special_mission == 2:
-					# The friendly convoy completes the operation by itself if
-					# it is already on the final approach.
-					if _special_convoy != null and is_instance_valid(_special_convoy) \
-							and _special_convoy.global_position.distance_to(
-									_special_convoy_dest) < 85.0:
-						return
-				elif Global.special_mission > 0 and not _special_zones.is_empty() \
-						and _special_index >= _special_zones.size():
-					return
-				_finish_mission(_txt(
-					"ВСІ БОРТИ ВТРАЧЕНО — МІСІЮ ПРОВАЛЕНО",
-					"ALL AIRFRAMES LOST — MISSION FAILED"), true)
-			)
+			if _airframe_fail_timer == null or not is_instance_valid(_airframe_fail_timer):
+				_airframe_fail_timer = Timer.new()
+				_airframe_fail_timer.name = "AirframeFailTimer"
+				_airframe_fail_timer.one_shot = true
+				_airframe_fail_timer.timeout.connect(_resolve_airframe_exhausted)
+				add_child(_airframe_fail_timer)
+			_airframe_fail_timer.start(delay)
 			return false
 	return true
+
+
+func _resolve_airframe_exhausted() -> void:
+	if _mission_finished or _victory_scheduled or _pending_combat_complete:
+		_pending_airframe_fail = false
+		return
+	if _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active():
+		_pending_airframe_fail = true
+		return
+	_pending_airframe_fail = false
+	var complete_now := _mission_targets_total > 0 \
+			and _mission_targets_destroyed >= _mission_targets_total
+	if complete_now:
+		_check_combat_mission_complete()
+		return
+	if Global.special_mission == 2:
+		if _special_convoy != null and is_instance_valid(_special_convoy) \
+				and _special_convoy.global_position.distance_to(
+						_special_convoy_dest) < 85.0:
+			return
+	elif Global.special_mission == 11:
+		if _special_convoy != null and is_instance_valid(_special_convoy) \
+				and _special_convoy_b != null and is_instance_valid(_special_convoy_b) \
+				and _special_convoy.global_position.distance_to(_special_convoy_dest) < 85.0 \
+				and _special_convoy_b.global_position.distance_to(_special_convoy_b_dest) < 85.0:
+			return
+	elif Global.special_mission > 0 and not _special_zones.is_empty() \
+			and _special_index >= _special_zones.size():
+		return
+	_finish_mission(_txt(
+		"ВСІ БОРТИ ВТРАЧЕНО — МІСІЮ ПРОВАЛЕНО",
+		"ALL AIRFRAMES LOST — MISSION FAILED"), true)
 
 
 # ------------------------------------------------------------------ mission
@@ -2740,7 +2766,7 @@ func _play_radio_callout(text: String, force := false, line_key: String = "") ->
 	if play_voice:
 		if not line_key.is_empty() and Audio != null and Audio.has_method("play_radio_line"):
 			dur = maxf(float(Audio.call("play_radio_line", line_key)), 2.2)
-		else:
+		elif Audio == null or not Audio.has_method("is_radio_playing") or not bool(Audio.call("is_radio_playing")):
 			CombatSfxScript.play_radio(self, MenuUI.translate_text(text))
 			_route_last_sfx_bus(&"Radio")
 		_audio_duck_timer = maxf(dur, 2.6)
@@ -2803,6 +2829,12 @@ func _special_mission_hint(mission_id: int) -> String:
 			return _txt("ГЛИБОКИЙ ТИЛ", "DEEP STRIKE")
 		10:
 			return _txt("6 ХВІЛЬ ППО", "6-WAVE AIR DEFENCE")
+		11:
+			return _txt("СУПРОВІД 2 КОЛОН", "DUAL CONVOY ESCORT")
+		12:
+			return _txt("ОБОРОНА ДО СВІТАНКУ", "HOLD UNTIL DAWN")
+		13:
+			return _txt("ПОШУК І ПОРЯТУНОК", "SEARCH & RESCUE")
 		_:
 			return _txt("СПЕЦОПЕРАЦІЯ", "SPECIAL OP")
 
@@ -2827,6 +2859,8 @@ func _finish_mission(reason: String, failed: bool = false) -> void:
 	_mission_phase_active = false
 	_special_extract_active = false
 	_pending_combat_complete = false
+	_pending_airframe_fail = false
+	_victory_scheduled = false
 	_pending_kamikaze_respawn = false
 	if _special_extract_beacon != null and is_instance_valid(_special_extract_beacon):
 		_special_extract_beacon.visible = false
@@ -2942,6 +2976,10 @@ func _show_results(reason: String) -> void:
 						best_line = "%s\n%s %s" % [special_title, _txt("ПІЛОТ          ", "PILOT          "), outcome]
 					4:
 						best_line = "%s\n%s %s" % [special_title, _txt("ВАНТАЖ         ", "CARGO          "), outcome]
+					11:
+						best_line = "%s\n%s %s" % [special_title, _txt("КОЛОНИ (2)     ", "CONVOYS (2)    "), outcome]
+					13:
+						best_line = "%s\n%s %s" % [special_title, _txt("ЕКІПАЖ         ", "CREW           "), outcome]
 					_:
 						best_line = "%s\n%s %d/%d · %s" % [
 							special_title, _txt("ЦІЛІ           ", "TARGETS        "),
@@ -3657,6 +3695,7 @@ func _setup_training_ghost() -> void:
 		return
 	_ghost_record_samples.clear()
 	_ghost_record_timer = 0.0
+	_ghost_play_timer = 0.0
 	var path := _ghost_replay_file()
 	if not FileAccess.file_exists(path):
 		return
@@ -3664,6 +3703,7 @@ func _setup_training_ghost() -> void:
 	g.name = "TrainingGhost"
 	g.type = GhostScript.Type.PREVIOUS
 	g.replay_path = path
+	g.manual_step = true
 	add_child(g)
 	var f := FileAccess.open(path, FileAccess.READ)
 	if f != null:
@@ -3705,11 +3745,13 @@ func _update_training_ghost(delta: float) -> void:
 				t.basis.z.x, t.basis.z.y, t.basis.z.z,
 				t.origin.x, t.origin.y, t.origin.z,
 			])
-	if _ghost_node != null and is_instance_valid(_ghost_node) and _ghost_node.state == GhostScript.State.PLAYING:
+	if _ghost_node != null and is_instance_valid(_ghost_node) and _ghost_node.state == GhostScript.State.PLAYING \
+			and not _ghost_node.replay.is_empty():
+		_ghost_play_timer += delta
+		while _ghost_play_timer >= 0.05:
+			_ghost_play_timer -= 0.05
+			_ghost_node.frame = (_ghost_node.frame + 1) % _ghost_node.replay.size()
 		_ghost_node.update_transform()
-		_ghost_node.frame += 1
-		if _ghost_node.frame >= _ghost_node.replay.size():
-			_ghost_node.frame = 0
 
 
 func _save_training_ghost() -> void:
@@ -3836,7 +3878,9 @@ func _on_kill_cam_finished() -> void:
 	if _pending_combat_complete:
 		_pending_combat_complete = false
 		_check_combat_mission_complete()
-	if _pending_kamikaze_respawn and not _mission_finished and not _pending_combat_complete:
+	if _pending_airframe_fail and not _mission_finished and not _victory_scheduled and not _pending_combat_complete:
+		_resolve_airframe_exhausted()
+	if _pending_kamikaze_respawn and not _mission_finished and not _victory_scheduled and not _pending_combat_complete:
 		_pending_kamikaze_respawn = false
 		call_deferred("_execute_kamikaze_respawn")
 	else:
@@ -4007,7 +4051,7 @@ func _advance_phase_after_kill(is_primary: bool, defer_for_kill_cam: bool) -> vo
 
 
 func _check_combat_mission_complete() -> void:
-	if _mission_finished or _mission_targets_total <= 0:
+	if _mission_finished or _victory_scheduled or _mission_targets_total <= 0:
 		return
 	if _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active():
 		_pending_combat_complete = true
@@ -4028,8 +4072,23 @@ func _check_combat_mission_complete() -> void:
 		if Global.combat_mission >= 4:
 			msg = _txt("БОЙОВУ КАМПАНІЮ 4/4 ПОВНІСТЮ ВИКОНАНО!",
 					"COMBAT CAMPAIGN 4/4 FULLY COMPLETED!")
-		await get_tree().create_timer(0.8).timeout
-		_finish_mission(msg, false)
+		_victory_scheduled = true
+		_pending_airframe_fail = false
+		_pending_kamikaze_respawn = false
+		_victory_pending_msg = msg
+		if _victory_timer == null or not is_instance_valid(_victory_timer):
+			_victory_timer = Timer.new()
+			_victory_timer.name = "VictoryDeferTimer"
+			_victory_timer.one_shot = true
+			_victory_timer.timeout.connect(_on_victory_timer_timeout)
+			add_child(_victory_timer)
+		_victory_timer.start(0.8)
+
+
+func _on_victory_timer_timeout() -> void:
+	if not is_instance_valid(self) or _mission_finished:
+		return
+	_finish_mission(_victory_pending_msg, false)
 
 
 func _make_weather_particles(color: Color, direction: Vector3, speed: float,
@@ -4066,14 +4125,19 @@ func _setup_weather() -> void:
 	var cam := get_node_or_null("Drone/FPVCamera") as Camera3D
 	if cam == null:
 		return
+	var q := QualityManagerScript.get_active_level()
+	var rain_amt := 280 if q == QualityManagerScript.Level.LOW else (550 if q == QualityManagerScript.Level.MEDIUM else 900)
+	var dust_amt := 120 if q == QualityManagerScript.Level.LOW else (220 if q == QualityManagerScript.Level.MEDIUM else 350)
 	_rain = _make_weather_particles(Color(0.75, 0.82, 0.95, 0.5),
-			Vector3(0.05, -1.0, 0.0), 22.0, 1.0, Vector3(30.0, 18.0, 30.0), 900)
+			Vector3(0.05, -1.0, 0.0), 22.0, 1.0, Vector3(30.0, 18.0, 30.0), rain_amt)
 	_dust = _make_weather_particles(Color(0.72, 0.60, 0.40, 0.35),
-			Vector3(1.0, 0.06, 0.2), 5.0, 3.0, Vector3(34.0, 12.0, 34.0), 350)
+			Vector3(1.0, 0.06, 0.2), 5.0, 3.0, Vector3(34.0, 12.0, 34.0), dust_amt)
 	cam.add_child(_rain)
 	cam.add_child(_dust)
 	_weather = int(GameSettings.hud_config.get("weather", 0))
-	_lightning_light = get_node_or_null("DirectionalLight3D") as DirectionalLight3D
+	_lightning_light = get_node_or_null("Sun") as DirectionalLight3D
+	if _lightning_light == null:
+		_lightning_light = get_node_or_null("DirectionalLight3D") as DirectionalLight3D
 	if _lightning_light == null:
 		for ch in get_children():
 			if ch is DirectionalLight3D:
@@ -4099,10 +4163,14 @@ func _setup_weather() -> void:
 		_vision_mode = VisionMode.FLIR_WHITE_HOT
 	elif vision_env == "black_hot":
 		_vision_mode = VisionMode.FLIR_BLACK_HOT
+	if weather_env.is_empty() and Global.play_mode == Global.PlayMode.COMBAT:
+		var diff_weather := Global.get_difficulty_default_weather(
+				Global.combat_mission, Global.special_mission, frontline_map)
+		if diff_weather > 0:
+			_weather = diff_weather
 	_apply_weather()
-	if Global.special_mission == 5:
-		# Night strike: force the night palette even if the player's last
-		# weather preference was clear/rain.
+	if Global.special_mission == 5 or Global.special_mission == 12:
+		# Night strike / Hold until dawn: force the night palette at start.
 		_weather = 3
 		_apply_weather()
 
@@ -4110,8 +4178,16 @@ func _setup_weather() -> void:
 func _apply_weather() -> void:
 	if _rain != null:
 		_rain.emitting = (_weather == 1 or _weather == 2)
+		_rain.visible = _rain.emitting
 	if _dust != null:
 		_dust.emitting = (_weather == 4)
+		_dust.visible = _dust.emitting
+	if not frontline_map.is_empty():
+		_tune_map_environment()
+	if _lightning_light != null and _weather == 0:
+		_sun_light_energy_default = _lightning_light.light_energy
+	var we := get_node_or_null("WorldEnvironment") as WorldEnvironment
+	var fill := get_node_or_null("FillLight") as DirectionalLight3D
 	if _lightning_light != null:
 		match _weather:
 			1:
@@ -4125,14 +4201,29 @@ func _apply_weather() -> void:
 				_lightning_light.light_energy = _sun_light_energy_default * 0.80
 			_:
 				_lightning_light.light_energy = _sun_light_energy_default
-	var we := get_node_or_null("WorldEnvironment") as WorldEnvironment
 	if we != null and we.environment != null:
-		if _weather == 3:
-			we.environment.ambient_light_energy = 0.24
-		elif frontline_map != "":
-			_tune_map_environment()
-		else:
-			we.environment.ambient_light_energy = maxf(we.environment.ambient_light_energy, 0.72)
+		match _weather:
+			1:
+				we.environment.fog_density = maxf(we.environment.fog_density, 0.0018)
+				we.environment.fog_light_color = Color(0.56, 0.62, 0.70)
+			2:
+				we.environment.fog_density = maxf(we.environment.fog_density, 0.0026)
+				we.environment.fog_light_color = Color(0.40, 0.45, 0.54)
+			3:
+				we.environment.ambient_light_energy = 0.14
+				we.environment.background_energy_multiplier = 0.08
+				we.environment.fog_light_color = Color(0.04, 0.06, 0.10)
+				if fill != null:
+					fill.light_energy = 0.04
+			4:
+				we.environment.fog_density = maxf(we.environment.fog_density, 0.0024)
+				we.environment.fog_light_color = Color(0.76, 0.65, 0.48)
+			_:
+				if frontline_map.is_empty():
+					we.environment.ambient_light_energy = maxf(we.environment.ambient_light_energy, 0.72)
+					we.environment.background_energy_multiplier = maxf(we.environment.background_energy_multiplier, 0.72)
+					if fill != null:
+						fill.light_energy = maxf(fill.light_energy, 0.35)
 	match _weather:
 		1:
 			_set_flash(LocScript.t("WEATHER_RAIN"))
@@ -4317,10 +4408,22 @@ func _update_audio_priority(delta: float) -> void:
 		targets = {"Engine": -8.0, "Wind": -7.0, "Combat": -11.0, "Music": -15.0}
 	var blend := clampf(delta * 2.6, 0.0, 1.0)
 	for bus_name in targets.keys():
-		var idx := AudioServer.get_bus_index(String(bus_name))
-		if idx >= 0:
-			var current := AudioServer.get_bus_volume_db(idx)
-			AudioServer.set_bus_volume_db(idx, lerpf(current, float(targets[bus_name]), blend))
+		var bname := String(bus_name)
+		var idx := AudioServer.get_bus_index(bname)
+		if idx < 0:
+			continue
+		var base_lin := 1.0
+		if bname == "Music":
+			base_lin = float(Audio.audio_settings.get("music_volume", 0.55)) if Audio != null else 0.55
+		elif Audio != null and Audio.has_method("get_subbus_volume_linear"):
+			base_lin = float(Audio.call("get_subbus_volume_linear", bname))
+		if base_lin <= 0.001:
+			AudioServer.set_bus_mute(idx, true)
+			continue
+		AudioServer.set_bus_mute(idx, false)
+		var target_db := linear_to_db(base_lin) + float(targets[bus_name])
+		var current := AudioServer.get_bus_volume_db(idx)
+		AudioServer.set_bus_volume_db(idx, lerpf(current, target_db, blend))
 
 	if _ew_crackle_player != null:
 		var ew := 0.0
@@ -4516,7 +4619,13 @@ func _add_special_zone(pos: Vector3, radius: float, hold: float, label: String) 
 
 func _spawn_special_guards(spots: Array, count_as_primary: bool = false,
 		variant: String = "") -> void:
-	for spot in spots:
+	var active_spots: Array = spots.duplicate()
+	if Global.difficulty == Global.Difficulty.RECRUIT and active_spots.size() >= 2:
+		active_spots.resize(active_spots.size() - 1)
+	elif Global.difficulty == Global.Difficulty.ACE and not active_spots.is_empty():
+		var base_p: Vector3 = active_spots[0]
+		active_spots.append(base_p + Vector3(18.0, 0.0, -14.0))
+	for spot in active_spots:
 		var p: Vector3 = spot
 		_add_mission_infantry(p, Vector3(1.0, 0.0, 0.4), 13.0, 1.7,
 				count_as_primary, variant)
@@ -4797,6 +4906,14 @@ func _spawn_special_mission(mission_id: int) -> void:
 	_special_convoy_stall_anchor = Vector3.ZERO
 	_special_convoy_stall = 0.0
 	_special_convoy_recoveries = 0
+	_special_convoy_b = null
+	_special_convoy_b_dest = Vector3.ZERO
+	_special_convoy_b_start = Vector3.ZERO
+	_special_convoy_b_stall_anchor = Vector3.ZERO
+	_special_convoy_b_stall = 0.0
+	_special_convoy_b_recoveries = 0
+	_dawn_defense_pos = Vector3.ZERO
+	_dawn_defense_beacon = null
 	_reserved_ground_route.clear()
 	_special_extract_active = false
 	_special_extract_hold = 0.0
@@ -4849,8 +4966,14 @@ func _spawn_special_mission(mission_id: int) -> void:
 			_spawn_special_oreshnik(true)
 		10:
 			_spawn_special_missile_intercept()
+		11:
+			_setup_special_dual_escort()
+		12:
+			_setup_special_dawn_defense()
+		13:
+			_setup_special_sar_landing()
 
-	if mission_id >= 5:
+	if mission_id >= 5 and mission_id <= 10:
 		_special_extract_beacon = _spawn_special_beacon(_special_extract_point,
 				_txt("ВИХІД · БАЗА", "EXFIL · BASE"), Color(0.35, 0.95, 0.75))
 		_special_extract_beacon.visible = false
@@ -4901,7 +5024,9 @@ func _spawn_missile_wave() -> void:
 			# Airport hangars and wrecks reach ~56 m.  Cruise above them so a
 			# missile cannot clip geometry or vanish behind a roof.
 			altitude = clampf(maxf(altitude, MISSILE_MIN_BIG_MAP_ALT), 20.0, 115.0)
-		var speed := randf_range(MISSILE_SPEED.x, MISSILE_SPEED.y) * arena_scale
+		var speed := randf_range(MISSILE_SPEED.x, MISSILE_SPEED.y) * arena_scale \
+				* Global.get_difficulty_missile_speed_scale()
+		speed = maxf(speed, 26.0 if arena_scale > 1.5 else 10.5)
 		var start := Vector3(-edge_x, 0.0, lane)
 		var goal := Vector3(edge_x, 0.0, goal_lane)
 		var missile := _add_vehicle(Vehicle.Kind.SHAHED, [start, goal], speed,
@@ -4952,7 +5077,8 @@ func _update_missile_intercept(delta: float) -> void:
 			progress = travelled.dot(route) / route.length_squared()
 		# Projection along the actual route (not a fixed x threshold) keeps the
 		# breach check correct on the 900 m airport field.
-		var passed := progress >= 0.97 \
+		var passed := (progress >= 0.94 or missile.global_position.distance_to(
+				Vector3(goal.x, missile.global_position.y, goal.z)) < 12.0) \
 				and absf(missile.global_position.z - goal.z) < 45.0
 		var expected := route.length() / maxf(float(entry.get("speed", 12.0)), 1.0)
 		var timed_out := _mission_time - float(entry.get("spawned", 0.0)) > expected + 18.0
@@ -5068,6 +5194,15 @@ func _update_special_mission(delta: float) -> void:
 		return
 	if Global.special_mission == 2:
 		_update_escort_mission(delta, drone)
+		return
+	if Global.special_mission == 11:
+		_update_dual_escort_mission(delta, drone)
+		return
+	if Global.special_mission == 12:
+		_update_dawn_defense_mission(delta)
+		return
+	if Global.special_mission == 13:
+		_update_sar_landing_mission(delta, drone)
 		return
 	if Global.special_mission >= 5:
 		return
@@ -5186,6 +5321,184 @@ func _on_escort_destroyed(_points: int) -> void:
 	_special_fail("КОЛОНУ ЗНИЩЕНО — СУПРОВІД ПРОВАЛЕНО")
 
 
+func _setup_special_dual_escort() -> void:
+	_setup_special_escort()
+	var route_b: Array[Vector3] = []
+	if frontline_map == "airport":
+		var candidates_b := [
+			[Vector2(-300.0, -230.0), Vector2(300.0, -230.0)],
+			[Vector2(-330.0, 255.0), Vector2(330.0, 255.0)],
+		]
+		for pair in candidates_b:
+			var a: Vector2 = pair[0]
+			var b: Vector2 = pair[1]
+			var planned := GroundRoutePlanner.plan(self,
+					_special_ground_point(a.x, a.y),
+					_special_ground_point(b.x, b.y), 11.0, MAP_GROUND_SAFE - 12.0)
+			if planned.size() >= 2 and planned[0].distance_to(_special_convoy_start) > 25.0:
+				route_b = planned
+				break
+	if route_b.size() < 2:
+		var base_pts: Array = [
+			Vector2(-108.0, 14.0), Vector2(-52.0, 24.0),
+			Vector2(12.0, 18.0), Vector2(68.0, 22.0), Vector2(118.0, 18.0),
+		]
+		var raw_b: Array = []
+		for p2 in base_pts:
+			var v2: Vector2 = p2
+			var dry := _find_dry_spot(v2.x, v2.y) if not frontline_map.is_empty() else v2
+			raw_b.append(_special_ground_point(dry.x, dry.y))
+		if not frontline_map.is_empty():
+			raw_b = _sanitize_ground_waypoints(raw_b, false)
+		for wp in raw_b:
+			var v: Vector3 = wp as Vector3
+			route_b.append(_special_ground_point(v.x, v.z))
+	var vehicle_b := VEHICLE.new()
+	vehicle_b.kind = Vehicle.Kind.TRUCK
+	vehicle_b.hostile = false
+	vehicle_b.track_drone = false
+	vehicle_b.move_speed = 10.5 if frontline_map == "airport" else 7.8
+	add_child(vehicle_b)
+	vehicle_b.max_health = 480.0
+	vehicle_b.health = 480.0
+	vehicle_b.global_position = route_b[0] + Vector3.UP * 0.2
+	vehicle_b.set_waypoints(route_b)
+	vehicle_b.remove_from_group("combat_target")
+	vehicle_b.add_to_group("escort_convoy")
+	vehicle_b.destroyed.connect(_on_escort_destroyed)
+	_special_convoy_b = vehicle_b
+	_special_convoy_b_start = route_b[0]
+	_special_convoy_b_dest = route_b[route_b.size() - 1]
+
+
+func _update_dual_escort_mission(delta: float, drone: Drone) -> void:
+	if _special_convoy == null or not is_instance_valid(_special_convoy) \
+			or _special_convoy_b == null or not is_instance_valid(_special_convoy_b):
+		_special_fail("КОЛОНУ ЗНИЩЕНО — СУПРОВІД ПРОВАЛЕНО")
+		return
+	var dist_a := drone.global_position.distance_to(_special_convoy.global_position)
+	var dist_b := drone.global_position.distance_to(_special_convoy_b.global_position)
+	var dist := minf(dist_a, dist_b)
+	if dist > 180.0:
+		_special_convoy_far_timer += delta
+		if _special_convoy_far_timer > 4.0 and not _special_convoy_warned:
+			_special_convoy_warned = true
+			_set_flash(_txt("НЕ ВІДРИВАЙТЕСЯ ВІД КОЛОН!", "STAY WITH THE CONVOYS!"))
+			_play_radio_callout(_txt("ТРИМАЙТЕСЬ БЛИЖЧЕ ДО КОЛОН",
+					"KEEP CLOSER TO THE CONVOYS"), true)
+		if _special_convoy_far_timer > 12.0:
+			_special_fail("КОЛОНУ ВТРАЧЕНО — СУПРОВІД ПРОВАЛЕНО")
+			return
+	else:
+		_special_convoy_far_timer = maxf(_special_convoy_far_timer - delta * 2.0, 0.0)
+		if _special_convoy_far_timer < 1.0:
+			_special_convoy_warned = false
+
+	var a_arrived := _special_convoy.global_position.distance_to(_special_convoy_dest) < 55.0
+	var b_arrived := _special_convoy_b.global_position.distance_to(_special_convoy_b_dest) < 55.0
+	if a_arrived and b_arrived:
+		_finish_special_success()
+		return
+
+	if not a_arrived:
+		if _special_convoy_stall_anchor == Vector3.ZERO:
+			_special_convoy_stall_anchor = _special_convoy.global_position
+		if _special_convoy.global_position.distance_to(_special_convoy_stall_anchor) < 0.35:
+			_special_convoy_stall += delta
+		else:
+			_special_convoy_stall_anchor = _special_convoy.global_position
+			_special_convoy_stall = 0.0
+		if _special_convoy_stall >= 4.0:
+			_special_convoy_stall = 0.0
+			_special_convoy_recoveries += 1
+			_special_convoy.call("escort_emergency_advance")
+
+	if not b_arrived:
+		if _special_convoy_b_stall_anchor == Vector3.ZERO:
+			_special_convoy_b_stall_anchor = _special_convoy_b.global_position
+		if _special_convoy_b.global_position.distance_to(_special_convoy_b_stall_anchor) < 0.35:
+			_special_convoy_b_stall += delta
+		else:
+			_special_convoy_b_stall_anchor = _special_convoy_b.global_position
+			_special_convoy_b_stall = 0.0
+		if _special_convoy_b_stall >= 4.0:
+			_special_convoy_b_stall = 0.0
+			_special_convoy_b_recoveries += 1
+			_special_convoy_b.call("escort_emergency_advance")
+
+
+func _setup_special_dawn_defense() -> void:
+	_dawn_defense_pos = _special_ground_point(0.0, 52.0)
+	_dawn_defense_beacon = _spawn_special_beacon(_dawn_defense_pos,
+			"ОПОРНИЙ ПУНКТ", Color(0.95, 0.76, 0.28))
+	var bmp_route := [
+		_special_ground_point(-82.0, -38.0),
+		_special_ground_point(-18.0, 36.0),
+	]
+	_add_vehicle(Vehicle.Kind.BMP, bmp_route, 7.2, true, true)
+	_mission_targets_total += 1
+	var apc_route := [
+		_special_ground_point(82.0, -32.0),
+		_special_ground_point(20.0, 38.0),
+	]
+	_add_vehicle(Vehicle.Kind.APC, apc_route, 7.8, true, true, 0.0, true, "btr8")
+	_mission_targets_total += 1
+	if Global.difficulty == Global.Difficulty.ACE:
+		var tank_route := [
+			_special_ground_point(0.0, -72.0),
+			_special_ground_point(0.0, 22.0),
+		]
+		_add_vehicle(Vehicle.Kind.TANK, tank_route, 5.4, true, true)
+		_mission_targets_total += 1
+	_spawn_special_guards([
+		Vector3(-34.0, 0.0, -14.0), Vector3(36.0, 0.0, -12.0),
+	], true, "spetsnaz")
+	_add_aa_gun(Vector3(-48.0, 0.0, -24.0), false)
+
+
+func _update_dawn_defense_mission(_delta: float) -> void:
+	var kill_frac := clampf(float(_mission_targets_destroyed) / float(maxi(_mission_targets_total, 1)), 0.0, 1.0)
+	var time_frac := clampf(_mission_time / 90.0, 0.0, 0.25)
+	var dawn_t := clampf(kill_frac * 0.75 + time_frac, 0.0, 1.0)
+	if _lightning_light != null:
+		_lightning_light.light_energy = lerpf(0.05, maxf(_sun_light_energy_default, 1.4), dawn_t)
+	var we := get_node_or_null("WorldEnvironment") as WorldEnvironment
+	if we != null and we.environment != null:
+		we.environment.ambient_light_energy = lerpf(0.14, 0.68, dawn_t)
+		we.environment.background_energy_multiplier = lerpf(0.08, 0.72, dawn_t)
+	if _mission_targets_total > 0 and _mission_targets_destroyed >= _mission_targets_total:
+		if _weather != 0:
+			_weather = 0
+			_apply_weather()
+
+
+func _setup_special_sar_landing() -> void:
+	_add_special_zone(Vector3(-65.0, 0.0, -45.0), 32.0, 2.5, "РЯТУВАЛЬНА ЗОНА · ПОСАДКА")
+	_add_special_zone(Vector3(10.0, 0.0, 145.0), 38.0, 2.5, "БАЗА · ПОСАДКА")
+	_special_pickup_prop = _spawn_special_pickup_marker(
+			_special_zones[0]["pos"], true)
+	_spawn_special_guards([
+		Vector3(-32.0, 0.0, -22.0), Vector3(-84.0, 0.0, -68.0),
+	], false)
+
+
+func _update_sar_landing_mission(delta: float, drone: Drone) -> void:
+	if _special_index >= _special_zones.size():
+		_finish_special_success()
+		return
+	var zone: Dictionary = _special_zones[_special_index]
+	var zpos: Vector3 = zone["pos"]
+	var dist := drone.global_position.distance_to(zpos)
+	var agl := absf(drone.global_position.y - zpos.y)
+	var spd := drone.linear_velocity.length()
+	if dist <= float(zone["radius"]) and agl <= 8.5 and spd <= 7.5:
+		_special_hold += delta
+		if _special_hold >= float(zone["hold"]):
+			_complete_special_zone()
+	else:
+		_special_hold = maxf(_special_hold - delta * 2.0, 0.0)
+
+
 func get_special_objective_info() -> Dictionary:
 	if _special_extract_active:
 		return {
@@ -5248,15 +5561,21 @@ func _spawn_combat_mission(mission_id: int) -> void:
 				base_center.x = safe_bc.x
 				base_center.z = safe_bc.y
 
-			for i in range(6):
-				var angle := (float(i) / 6.0) * TAU + randf_range(-0.22, 0.22)
+			var inf_count := 6
+			if Global.difficulty == Global.Difficulty.RECRUIT:
+				inf_count = 4
+			elif Global.difficulty == Global.Difficulty.ACE:
+				inf_count = 8
+			for i in range(inf_count):
+				var angle := (float(i) / float(inf_count)) * TAU + randf_range(-0.22, 0.22)
 				var dist := randf_range(9.0, 21.0)
 				var pos := base_center + Vector3(cos(angle) * dist, 0.0, sin(angle) * dist)
 				var patrol_angle := randf() * TAU
 				var axis := Vector3(cos(patrol_angle), 0.0, sin(patrol_angle))
 				var p_dist := randf_range(8.0, 13.0)
 				var p_spd := randf_range(1.05, 1.35)
-				_add_mission_infantry(pos, axis, p_dist, p_spd, true)
+				var inf_var := "spetsnaz" if (Global.difficulty == Global.Difficulty.ACE and i >= 6) else ""
+				_add_mission_infantry(pos, axis, p_dist, p_spd, true, inf_var)
 
 		2:
 			# МІСІЯ 2: Знайти і знищити Танк і БТР (Середня складність)
@@ -5280,10 +5599,19 @@ func _spawn_combat_mission(mission_id: int) -> void:
 			_add_vehicle(Vehicle.Kind.APC, apc_box, randf_range(9.8, 11.2), true, true)
 			_mission_targets_total += 1
 
+			if Global.difficulty == Global.Difficulty.ACE:
+				var bmp_box := [
+					Vector3(-56.0, 0.0, 18.0) + _mission_offset,
+					Vector3(56.0, 0.0, 18.0) + _mission_offset,
+				]
+				_add_vehicle(Vehicle.Kind.BMP, bmp_box, 8.6, true, true)
+				_mission_targets_total += 1
+
 			var p1_pos := Vector3(randf_range(-42.0, -18.0), 0.0, randf_range(48.0, 80.0)) + _mission_offset
 			var p2_pos := Vector3(randf_range(18.0, 42.0), 0.0, randf_range(48.0, 80.0)) + _mission_offset
 			_add_mission_infantry(p1_pos, Vector3(1.0, 0.0, 0.0), 14.0, 1.7, false)
-			_add_mission_infantry(p2_pos, Vector3(-1.0, 0.0, 0.0), 14.0, 1.7, false)
+			if Global.difficulty != Global.Difficulty.RECRUIT:
+				_add_mission_infantry(p2_pos, Vector3(-1.0, 0.0, 0.0), 14.0, 1.7, false)
 			_add_aa_gun(Vector3(0.0, 0.0, 32.0), false)
 
 		3:
@@ -5307,6 +5635,12 @@ func _spawn_combat_mission(mission_id: int) -> void:
 			]
 			_add_vehicle(Vehicle.Kind.SAM, sam_box, 4.2, true, true)
 			_mission_targets_total += 1
+			if Global.difficulty == Global.Difficulty.ACE:
+				_add_vehicle(Vehicle.Kind.BMP, [
+					Vector3(-62.0, 0.0, 14.0) + _mission_offset,
+					Vector3(62.0, 0.0, 14.0) + _mission_offset,
+				], 8.4, true, true)
+				_mission_targets_total += 1
 			_add_aa_gun(Vector3(-56.0, 0.0, 42.0), false)
 			_add_aa_gun(Vector3(56.0, 0.0, 12.0), false)
 
@@ -5364,14 +5698,20 @@ func _spawn_combat_mission(mission_id: int) -> void:
 			], 4.5, true, true)
 			_mission_targets_total += 1
 
-			_add_vehicle(Vehicle.Kind.BMP, [
-				Vector3(randf_range(58.0, 82.0), 0.0, randf_range(12.0, 32.0)) + _mission_offset,
-				Vector3(randf_range(-82.0, -58.0), 0.0, randf_range(12.0, 32.0)) + _mission_offset,
-			], 9.2, true, true)
-			_mission_targets_total += 1
+			if Global.difficulty != Global.Difficulty.RECRUIT:
+				_add_vehicle(Vehicle.Kind.BMP, [
+					Vector3(randf_range(58.0, 82.0), 0.0, randf_range(12.0, 32.0)) + _mission_offset,
+					Vector3(randf_range(-82.0, -58.0), 0.0, randf_range(12.0, 32.0)) + _mission_offset,
+				], 9.2, true, true)
+				_mission_targets_total += 1
+			if Global.difficulty == Global.Difficulty.ACE:
+				_add_vehicle(Vehicle.Kind.APC, [
+					Vector3(-68.0, 0.0, -18.0) + _mission_offset,
+					Vector3(68.0, 0.0, -18.0) + _mission_offset,
+				], 9.6, true, true, 0.0, true, "btr8")
+				_mission_targets_total += 1
 			_add_aa_gun(Vector3(-68.0, 0.0, 26.0), false)
 			_add_aa_gun(Vector3(68.0, 0.0, 48.0), false)
-			_mission_targets_total += 1
 
 	_offset_targets = false
 	if frontline_map != "" and mission_id != 1:
@@ -5975,6 +6315,7 @@ func _setup_reb() -> void:
 	reb.name = "RebSystem"
 	reb.use_own_position_as_home = false
 	reb.home_position = Vector3(d.global_position.x, _ground_y, d.global_position.z)
+	reb.base_range_m = maxf(680.0, MAP_FLIGHT_BOUND * 2.2)
 	add_child(reb)
 	_reb = reb
 	# EW laydown per map: one omnidirectional trench dome (150-250 m) and one
@@ -5982,6 +6323,11 @@ func _setup_reb() -> void:
 	# to the procedural terrain so the masts always sit on the ground.
 	var domes: Array = []
 	match frontline_map:
+		"airport":
+			domes = [
+				{"p": Vector2(-165, -90), "r": 190.0, "s": 0.85, "dir": false, "yaw": 0.0, "fov": 75.0},
+				{"p": Vector2(180, -40), "r": 210.0, "s": 0.90, "dir": true, "yaw": -145.0, "fov": 80.0},
+			]
 		"village":
 			domes = [
 				{"p": Vector2(-52, -68), "r": 120.0, "s": 0.80, "dir": false, "yaw": 0.0, "fov": 70.0},
@@ -6676,10 +7022,13 @@ func _update_fpv_camera_fx(delta: float) -> void:
 		# buffer around 20 MB.  The previous implementation teleported the live
 		# drone around the current world, so the "replay" looked like gameplay
 		# with a REC banner on top.
-		_dvr_frame_timer += delta
-		if _dvr_frame_timer >= 1.0 / float(DVR_FPS):
-			_dvr_frame_timer = 0.0
-			_capture_dvr_frame()
+		var allow_dvr_frames := QualityManagerScript.get_active_level() > QualityManagerScript.Level.LOW \
+				and not (OS.get_name() == "iOS" or OS.has_feature("mobile") or OS.has_environment("MOBILE_UI"))
+		if allow_dvr_frames:
+			_dvr_frame_timer += delta
+			if _dvr_frame_timer >= 1.0 / float(DVR_FPS):
+				_dvr_frame_timer = 0.0
+				_capture_dvr_frame()
 	# Low-altitude radio horizon multipath scanlines (when flying standard radio below 2.6 m)
 	if _hud != null and _analog_bar_a == null:
 		_analog_bar_a = ColorRect.new()
@@ -7370,12 +7719,13 @@ func _activate_fpv_payload() -> void:
 	Haptics.trigger_explosion(1.15)
 	var has_next_airframe := consume_sortie_airframe("STRIKE")
 	_set_flash(_txt("БЧ АКТИВОВАНО", "WARHEAD DETONATED") if has_next_airframe else _txt("БЧ АКТИВОВАНО · ОСТАННІЙ БОРТ", "WARHEAD DETONATED · FINAL AIRFRAME"))
+	var targets_done := _mission_targets_total > 0 and _mission_targets_destroyed >= _mission_targets_total
 	var kc_active_now := _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active()
-	if (_payload_hits > hits_before or _mission_targets_destroyed >= _mission_targets_total) \
+	if (_payload_hits > hits_before or targets_done) \
 			and not kc_active_now:
 		_maybe_trigger_kill_cam(at, true)
 		kc_active_now = _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active()
-	if kc_active_now and _mission_targets_destroyed >= _mission_targets_total:
+	if kc_active_now and targets_done:
 		_pending_combat_complete = true
 	# Take the drone out of the simulation without triggering a crash message.
 	drone.visible = false
@@ -7389,12 +7739,22 @@ func _activate_fpv_payload() -> void:
 	if kc_active_now:
 		_pending_kamikaze_respawn = true
 	else:
-		var timer := get_tree().create_timer(2.4)
-		timer.timeout.connect(func() -> void:
-			if _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active():
-				_pending_kamikaze_respawn = true
-				return
-			_execute_kamikaze_respawn())
+		if _kamikaze_respawn_timer == null or not is_instance_valid(_kamikaze_respawn_timer):
+			_kamikaze_respawn_timer = Timer.new()
+			_kamikaze_respawn_timer.name = "KamikazeRespawnTimer"
+			_kamikaze_respawn_timer.one_shot = true
+			_kamikaze_respawn_timer.timeout.connect(_on_kamikaze_respawn_timer_timeout)
+			add_child(_kamikaze_respawn_timer)
+		_kamikaze_respawn_timer.start(2.4)
+
+
+func _on_kamikaze_respawn_timer_timeout() -> void:
+	if _mission_finished or _victory_scheduled or _pending_combat_complete:
+		return
+	if _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active():
+		_pending_kamikaze_respawn = true
+		return
+	_execute_kamikaze_respawn()
 
 
 func _execute_kamikaze_respawn() -> void:
@@ -7692,6 +8052,7 @@ func _ensure_dvr_overlay() -> void:
 	bg.color = Color(0.005, 0.008, 0.006, 1.0)
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.add_child(bg)
+	_dvr_overlay_bg = bg
 	_dvr_overlay_rect = TextureRect.new()
 	_dvr_overlay_rect.name = "DvrFrame"
 	_dvr_overlay_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -7770,6 +8131,8 @@ func _on_dvr_replay_pressed() -> void:
 	_ensure_dvr_overlay()
 	if _dvr_overlay != null:
 		_dvr_overlay.visible = true
+	if _dvr_overlay_bg != null and is_instance_valid(_dvr_overlay_bg):
+		_dvr_overlay_bg.visible = (_dvr_frames.size() >= 6 or _dvr_samples.is_empty())
 	if _dvr_overlay_stamp != null:
 		var b_name := DroneCatalog.get_drone_name(Global.drone_preset)
 		_dvr_overlay_stamp.text = ("● REC  DVR STRIKE REPLAY · %s" if _is_en() \
@@ -8196,6 +8559,11 @@ func _process(delta: float) -> void:
 	if _hud_tick <= 0.0:
 		_hud_tick = 0.083
 		var kc_live := _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active()
+		if _pending_combat_complete and not _mission_finished and not _victory_scheduled and not kc_live:
+			_pending_combat_complete = false
+			_check_combat_mission_complete()
+		elif _pending_airframe_fail and not _mission_finished and not _victory_scheduled and not kc_live:
+			_resolve_airframe_exhausted()
 		if _telem_left != null:
 			_telem_left.visible = not kc_live
 		if _telem_right != null:
@@ -8553,6 +8921,12 @@ func _update_hud() -> void:
 							_txt("БАЗА", "BASE"), 1 if _special_index > 1 else 0]
 					4:
 						sdetail = "%s %d/2" % [_txt("ВАНТАЖ", "CARGO"), _special_index]
+					11:
+						sdetail = _txt("СУПРОВІД 2 КОЛОН", "DUAL CONVOY ESCORT")
+					13:
+						sdetail = "%s %d/1 · %s %d/1" % [
+							_txt("ЕКІПАЖ", "CREW"), 1 if _special_index > 0 else 0,
+							_txt("БАЗА", "BASE"), 1 if _special_index > 1 else 0]
 					_:
 						sdetail = "%s %d/%d" % [
 							_txt("ЦІЛІ", "TARGETS"), _mission_targets_destroyed, _mission_targets_total]
@@ -9043,10 +9417,18 @@ func _update_wind_simulation(delta: float) -> void:
 			base_speed = 7.5
 			gust_speed = 3.5
 			turbulence = 0.8
-		2: # Dust/Storm
+		2: # Storm
 			base_speed = 13.0
 			gust_speed = 5.5
 			turbulence = 1.6
+		3: # Night
+			base_speed = 1.6
+			gust_speed = 0.8
+			turbulence = 0.15
+		4: # Dust
+			base_speed = 10.5
+			gust_speed = 4.8
+			turbulence = 1.2
 		_: # Clear
 			base_speed = 2.2
 			gust_speed = 1.0

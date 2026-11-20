@@ -28,7 +28,7 @@ func _ready() -> void:
 	resolution.get_popup().add_item("75%")
 	resolution.get_popup().add_item("50%")
 	_discard = resolution.connect("item_selected", Callable(self, "_on_resolution_changed"))
-	var res: int = Graphics.graphics_settings["resolution"]
+	var res: int = int(Graphics.graphics_settings.get("resolution", 100))
 	var option := 0
 	match res:
 		100:

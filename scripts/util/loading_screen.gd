@@ -120,7 +120,7 @@ static func _context_line(mode: int, mission_id: int, map_name: String,
 	if mode == Global.PlayMode.COMBAT:
 		if Global.special_mission > 0:
 			var op_prefix := "OP" if is_en else "СО"
-			return "%s  ·  %s-0%d: %s  ·  %s" % [
+			return "%s  ·  %s-%02d: %s  ·  %s" % [
 				map_upper, op_prefix, Global.special_mission,
 				Global.get_special_mission_name(Global.special_mission), difficulty.to_upper()]
 		return "%s  ·  TAC-0%d  ·  %s" % [map_upper, mission_id, difficulty.to_upper()]

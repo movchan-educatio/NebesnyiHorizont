@@ -97,6 +97,10 @@ static func kind_for_mass(mass_kg: float) -> String:
 static func ground_at(level: Node, map_name: String, x: float, z: float) -> float:
 	if level == null:
 		return -100.0
+	if map_name == "airport":
+		if level.has_method("_find_ground_y"):
+			return float(level.call("_find_ground_y", x, z))
+		return 0.12
 	if not map_name.is_empty():
 		return FRONTLINE_TERRAIN.height_at(map_name, x, z)
 	if level.has_method("_find_ground_y"):
@@ -115,22 +119,56 @@ static func simulate(level: Node, map_name: String, origin: Vector3,
 	var vel := initial_velocity
 	var k := drag_k(kind)
 	var age := 0.0
+	var prev_ground := ground_at(level, map_name, origin.x, origin.z)
+	var safe_pos := pos
+	var safe_vel := vel
+	var safe_age := age
+	var safe_ground := prev_ground
+	var steps_since_sample := 0
+	var coarse_allowed := true
 	for i in range(700):
+		var prev_pos := pos
 		var rel := vel - wind
 		var speed := rel.length()
 		var accel := Vector3.DOWN * G - rel * (speed * k)
 		vel += accel * dt
 		pos += vel * dt
 		age += dt
+		steps_since_sample += 1
+		if coarse_allowed and pos.y > prev_ground + 8.0 and steps_since_sample < 12:
+			if age > 40.0 or pos.y < -60.0:
+				break
+			continue
 		var ground := ground_at(level, map_name, pos.x, pos.z)
 		if pos.y <= ground and age > 0.05:
+			if steps_since_sample > 1:
+				pos = safe_pos
+				vel = safe_vel
+				age = safe_age
+				prev_ground = safe_ground
+				steps_since_sample = 0
+				coarse_allowed = false
+				continue
+			var prev_clear := prev_pos.y - prev_ground
+			var cur_pen := pos.y - ground
+			var frac := clampf(prev_clear / maxf(prev_clear - cur_pen, 0.0001), 0.0, 1.0)
+			var hit_x := lerpf(prev_pos.x, pos.x, frac)
+			var hit_z := lerpf(prev_pos.z, pos.z, frac)
+			var hit_y := ground_at(level, map_name, hit_x, hit_z)
+			var hit_tof := age - dt * (1.0 - frac)
 			return {
-				"impact": Vector3(pos.x, ground, pos.z),
-				"tof": age,
-				"drift": Vector2(pos.x - origin.x, pos.z - origin.z),
+				"impact": Vector3(hit_x, hit_y, hit_z),
+				"tof": hit_tof,
+				"drift": Vector2(hit_x - origin.x, hit_z - origin.z),
 				"wind": wind,
 				"kind": kind,
 			}
+		prev_ground = ground
+		safe_pos = pos
+		safe_vel = vel
+		safe_age = age
+		safe_ground = ground
+		steps_since_sample = 0
 		if age > 40.0 or pos.y < -60.0:
 			break
 	return {

@@ -108,6 +108,7 @@ static var _contact_shadow_quad_cache: QuadMesh = null
 static var _contact_shadow_queues: Dictionary = {}
 static var _height_tex_cache: Dictionary = {}
 static var _prop_detail_cache: Dictionary = {}
+static var _qa_no_relief_cached := -1
 
 
 static func _is_mobile_platform() -> bool:
@@ -490,8 +491,7 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 		_build_hall_occluders(root, map_name)
 	_spawn_handcrafted_assets(root, map_name)
 	_build_unique_pois(root, map_name)
-	if _is_mobile_platform():
-		_build_mobile_hero_landmarks(root, map_name)
+	_build_mobile_hero_landmarks(root, map_name)
 	_build_landmarks(root, map_name)
 	_build_blender_landmarks(root, map_name)
 	_add_war_wear(root, map_name)
@@ -569,6 +569,8 @@ static func build(level: Node3D, map_name: String, _base_y: float) -> void:
 #  Height field
 # ===========================================================================
 static func height_at(map_name: String, x: float, z: float) -> float:
+	if map_name == "airport":
+		return 0.12
 	return _height(map_name, x, z)
 
 
@@ -598,6 +600,8 @@ static func height_map_tex(map_name: String) -> ImageTexture:
 ## decorative ring of farmhouses (only their chimneys poked out of the hill).
 ## This reproduces the exact triangle split used by _build_chunk.
 static func mesh_surface_height(map_name: String, x: float, z: float) -> float:
+	if map_name == "airport":
+		return 0.12
 	var outer_cells := maxi(16, OUTER_CELLS / 2)
 	var step := OUTER_SIZE / float(OUTER_CHUNKS * outer_cells)
 	if absf(x) <= INNER_SIZE * 0.5 and absf(z) <= INNER_SIZE * 0.5:
@@ -643,6 +647,8 @@ static func water_level(map_name: String) -> float:
 
 
 static func _height(map_name: String, x: float, z: float) -> float:
+	if map_name == "airport":
+		return 0.12
 	var h := _base_height(map_name, x, z)
 	h += _relief_offset(map_name, x, z)
 	h += _trench_offset(map_name, x, z)
@@ -717,7 +723,9 @@ static func _relief_offset(map_name: String, x: float, z: float) -> float:
 			amp = 0.0
 		_:
 			amp = 2.4
-	if amp <= 0.0 or OS.has_environment("QA_NO_RELIEF"):
+	if _qa_no_relief_cached < 0:
+		_qa_no_relief_cached = 1 if OS.has_environment("QA_NO_RELIEF") else 0
+	if amp <= 0.0 or _qa_no_relief_cached == 1:
 		return 0.0
 	# Two plain noise taps: the grass carpet samples the height field thousands
 	# of times per rebuild, and a 5-octave version caused 50-100 ms spikes.
@@ -731,6 +739,8 @@ static func _relief_offset(map_name: String, x: float, z: float) -> float:
 
 
 static func _base_height(map_name: String, x: float, z: float) -> float:
+	if map_name == "airport":
+		return 0.12
 	match map_name:
 		"village":
 			var h := 1.2 + _fbm(x * 0.005, z * 0.005, 3) * 3.6
@@ -903,10 +913,10 @@ static func _crater_offset(map_name: String, x: float, z: float) -> float:
 	var h := 0.0
 	for c in _craters(map_name):
 		var pos: Vector2 = c["pos"]
-		if _is_tutorial_corridor(pos.x, pos.y):
-			continue
 		var r: float = c["r"]
 		if absf(x - pos.x) > r * 1.6 or absf(z - pos.y) > r * 1.6:
+			continue
+		if _is_tutorial_corridor(pos.x, pos.y):
 			continue
 		var d := Vector2(x, z).distance_to(pos)
 		if d < r:
@@ -2516,6 +2526,13 @@ static func _is_clear_beacon_site(map_name: String, x: float, z: float) -> bool:
 	return true
 
 
+static func _tag_signature_landmark(node: Node3D, id: String) -> void:
+	if node == null:
+		return
+	node.add_to_group("map_signature_landmark")
+	node.set_meta("landmark_id", id)
+
+
 ## Three unique signature hero landmarks per map, reserved through the shared
 ## structure registry so they maintain wide flight corridors and sit inside ±158 m.
 static func _build_mobile_hero_landmarks(root: Node3D, map_name: String) -> void:
@@ -2547,8 +2564,7 @@ static func _build_mobile_hero_landmarks(root: Node3D, map_name: String) -> void
 		if site == Vector2.INF:
 			site = _reserve_near_site(root, map_name, entry[1], 12.0, 25.0, false)
 		if site == Vector2.INF:
-			print("[MobileHero] ", map_name, " rejected ", entry[1])
-			continue
+			site = _poi_site(map_name, entry[1])
 		match String(entry[0]):
 			"wind_turbine":
 				_add_mobile_wind_turbine(root, map_name, site)
@@ -2574,6 +2590,9 @@ static func _build_mobile_hero_landmarks(root: Node3D, map_name: String) -> void
 				_add_mobile_water_cistern(root, map_name, site)
 			"pier_house":
 				_add_mobile_pier_house(root, map_name, site)
+		if root.get_child_count() > 0:
+			var hero_node := root.get_child(root.get_child_count() - 1) as Node3D
+			_tag_signature_landmark(hero_node, "hero_" + String(entry[0]))
 		_poi_positions.append(site)
 		add_contact_shadow(root, map_name, site, 14.0, "MobileHero_" + String(entry[0]))
 		print("[MobileHero] ", map_name, " ", entry[0], " at ", site)
@@ -4874,6 +4893,7 @@ static func _poi_water_tower(root: Node3D, map_name: String, p: Vector2) -> Node
 	node.name = "POI_WaterTower_" + map_name
 	node.position = Vector3(site.x, gy, site.y)
 	root.add_child(node)
+	_tag_signature_landmark(node, node.name)
 	_poi_positions.append(site)
 	add_contact_shadow(root, map_name, site, 11.0, "POI_WaterTower")
 	var concrete := _pbr("hall_concrete", Color(0.78, 0.76, 0.70), 0.16)
@@ -4937,6 +4957,7 @@ static func _poi_transformer_yard(root: Node3D, map_name: String, p: Vector2) ->
 	node.position = Vector3(site.x, gy, site.y)
 	node.rotation.y = 0.35
 	root.add_child(node)
+	_tag_signature_landmark(node, node.name)
 	_poi_positions.append(site)
 	add_contact_shadow(root, map_name, site, 13.0, "POI_TransformerYard")
 	var concrete := _pbr("hall_concrete", Color(0.74, 0.72, 0.68), 0.16)
@@ -5032,6 +5053,7 @@ static func _poi_burnt_armour(root: Node3D, map_name: String, p: Vector2) -> voi
 			Vector3(site.x, gy - 0.45, site.y), 0.55)
 	if tank != null:
 		tank.name = "POI_BurntTank_" + map_name
+		_tag_signature_landmark(tank as Node3D, tank.name)
 		_poi_positions.append(site)
 		add_contact_shadow(root, map_name, site, 11.0, "POI_BurntTank")
 	var btr_target := Vector2(clampf(site.x + 11.0, -154.0, 154.0),
@@ -5081,6 +5103,7 @@ static func _poi_watchtower(root: Node3D, map_name: String, p: Vector2) -> void:
 			Vector3(site.x, gy - 0.10, site.y), 0.25)
 	if tower != null:
 		tower.name = "POI_Watchtower_" + map_name
+		_tag_signature_landmark(tower as Node3D, tower.name)
 		_poi_positions.append(site)
 		add_contact_shadow(root, map_name, site, 11.0, "POI_Watchtower")
 	var wreck_target := Vector2(clampf(site.x - 24.0, -154.0, 154.0),
@@ -5406,6 +5429,7 @@ static func _build_hall_sites(root: Node3D, map_name: String) -> void:
 	hall.scale = Vector3.ONE * scale_f
 	try_reserve_structure(root, map_name, center, 34.0, 26.0, true)
 	root.add_child(hall)
+	_tag_signature_landmark(hall, hall.name)
 	# Large solid footprint: AI vehicles must steer around it instead of
 	# crossing the visible walls/roof.  The flyable openings are narrow and the
 	# AABB is a deliberate over-approximation for gameplay safety.

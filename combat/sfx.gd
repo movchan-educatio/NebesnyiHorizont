@@ -3,11 +3,26 @@
 class_name CombatSfx
 
 
+const MAX_LOW_VOICES := 16
+static var _active_3d_voices := 0
+
 static var _boom_stream: AudioStreamWAV = null
 static var _shot_stream: AudioStreamWAV = null
 static var _rifle_stream: AudioStreamWAV = null
 static var _radio_stream: AudioStreamWAV = null
 static var _hitmarker_stream: AudioStreamWAV = null
+
+
+static func _can_spawn_3d_voice(priority: bool = false) -> bool:
+	if QualityManager.get_active_level() == QualityManager.Level.LOW:
+		var cap := MAX_LOW_VOICES + (4 if priority else 0)
+		return _active_3d_voices < cap
+	return true
+
+
+static func _track_3d_voice(player: AudioStreamPlayer3D) -> void:
+	_active_3d_voices += 1
+	player.tree_exiting.connect(func(): _active_3d_voices = maxi(_active_3d_voices - 1, 0), CONNECT_ONE_SHOT)
 
 
 static func boom_stream() -> AudioStreamWAV:
@@ -46,11 +61,15 @@ static func play_boom(parent: Node, world_position: Vector3, volume_db: float = 
 		return
 	if parent == null or not parent.is_inside_tree():
 		return
+	if not _can_spawn_3d_voice(true):
+		return
 	var player := AudioStreamPlayer3D.new()
 	player.stream = boom_stream()
 	player.volume_db = volume_db
+	player.bus = "Combat"
 	player.unit_size = 26.0
 	player.max_distance = 500.0
+	_track_3d_voice(player)
 	parent.add_child(player)
 	player.global_position = world_position
 	player.play()
@@ -89,11 +108,15 @@ static func play_shot(parent: Node, world_position: Vector3, volume_db: float = 
 		return
 	if parent == null or not parent.is_inside_tree():
 		return
+	if not _can_spawn_3d_voice(false):
+		return
 	var player := AudioStreamPlayer3D.new()
 	player.stream = shot_stream()
 	player.volume_db = volume_db
+	player.bus = "Combat"
 	player.unit_size = 14.0
 	player.max_distance = 260.0
+	_track_3d_voice(player)
 	parent.add_child(player)
 	player.global_position = world_position
 	player.play()
@@ -139,11 +162,15 @@ static func play_rifle(parent: Node, world_position: Vector3, volume_db: float =
 		return
 	if parent == null or not parent.is_inside_tree():
 		return
+	if not _can_spawn_3d_voice(false):
+		return
 	var player := AudioStreamPlayer3D.new()
 	player.stream = rifle_stream()
 	player.volume_db = volume_db
+	player.bus = "Combat"
 	player.unit_size = 9.0
 	player.max_distance = 180.0
+	_track_3d_voice(player)
 	parent.add_child(player)
 	player.global_position = world_position
 	player.play()
@@ -282,10 +309,12 @@ static func artillery_stream() -> AudioStreamWAV:
 
 static func _play_3d(parent: Node, stream: AudioStream, world_position: Vector3,
 		volume_db: float, unit_size: float, max_distance: float,
-		pitch: float = 1.0, bus: String = "Combat") -> void:
+		pitch: float = 1.0, bus: String = "Combat", priority: bool = false) -> void:
 	if DisplayServer.get_name() == "headless":
 		return
 	if parent == null or not parent.is_inside_tree():
+		return
+	if not _can_spawn_3d_voice(priority):
 		return
 	var player := AudioStreamPlayer3D.new()
 	player.stream = stream
@@ -295,6 +324,7 @@ static func _play_3d(parent: Node, stream: AudioStream, world_position: Vector3,
 	player.max_distance = max_distance
 	player.pitch_scale = pitch
 	player.doppler_tracking = AudioStreamPlayer3D.DOPPLER_TRACKING_PHYSICS_STEP
+	_track_3d_voice(player)
 	parent.add_child(player)
 	player.global_position = world_position
 	player.play()
@@ -305,7 +335,7 @@ static func _play_3d(parent: Node, stream: AudioStream, world_position: Vector3,
 
 static func play_cannon(parent: Node, world_position: Vector3,
 		volume_db: float = -4.0) -> void:
-	_play_3d(parent, cannon_stream(), world_position, volume_db, 34.0, 900.0)
+	_play_3d(parent, cannon_stream(), world_position, volume_db, 34.0, 900.0, 1.0, "Combat", true)
 
 
 static func play_autocannon(parent: Node, world_position: Vector3,
@@ -353,13 +383,17 @@ static func play_artillery(parent: Node, world_position: Vector3,
 ## frees itself after `duration`.
 static func start_burning(parent: Node, world_position: Vector3,
 		duration: float = 26.0) -> void:
-	if DisplayServer.get_name() == "headless" or parent == null:
+	if DisplayServer.get_name() == "headless" or parent == null or not parent.is_inside_tree():
+		return
+	if not _can_spawn_3d_voice(false):
 		return
 	var fire := AudioStreamPlayer3D.new()
 	fire.stream = fire_stream()
 	fire.volume_db = -13.0
+	fire.bus = "Combat"
 	fire.unit_size = 11.0
 	fire.max_distance = 220.0
+	_track_3d_voice(fire)
 	parent.add_child(fire)
 	fire.global_position = world_position
 	fire.play()
@@ -369,17 +403,22 @@ static func start_burning(parent: Node, world_position: Vector3,
 	fire.add_child(timer)
 	timer.timeout.connect(fire.queue_free)
 	timer.start()
-	# Secondary ammunition pops at random moments.
-	var elapsed := 0.0
-	while elapsed < duration:
-		var wait := randf_range(1.4, 4.2)
-		elapsed += wait
-		await parent.get_tree().create_timer(wait).timeout
-		if not is_instance_valid(parent):
-			return
-		play_autocannon(parent, world_position + Vector3(
-				randf_range(-1.2, 1.2), randf_range(0.2, 1.2),
-				randf_range(-1.2, 1.2)), -17.0)
+	# Secondary ammunition pops at random moments (skipped on LOW voice budget).
+	if QualityManager.get_active_level() != QualityManager.Level.LOW:
+		var pop_timer := Timer.new()
+		pop_timer.one_shot = true
+		pop_timer.wait_time = randf_range(1.6, 4.2)
+		fire.add_child(pop_timer)
+		pop_timer.timeout.connect(func():
+			if not is_instance_valid(fire) or not is_instance_valid(parent) or not parent.is_inside_tree():
+				return
+			play_autocannon(parent, world_position + Vector3(
+					randf_range(-1.2, 1.2), randf_range(0.2, 1.2),
+					randf_range(-1.2, 1.2)), -17.0)
+			pop_timer.wait_time = randf_range(1.6, 4.2)
+			pop_timer.start()
+		)
+		pop_timer.start()
 
 
 static var _engine_stream: AudioStreamWAV = null
@@ -692,7 +731,7 @@ static func play_alert_3d(parent: Node, world_position: Vector3, kind: String,
 		volume_db: float = -8.0, unit_size: float = 22.0,
 		max_distance: float = 650.0) -> void:
 	_play_3d(parent, alert_stream(kind), world_position, volume_db,
-			unit_size, max_distance, 1.0, "Warning")
+			unit_size, max_distance, 1.0, "Warning", true)
 
 
 static func drop_stream() -> AudioStreamWAV:
@@ -855,7 +894,7 @@ static func play_soldier_death(parent: Node, world_position: Vector3,
 static func play_drone_impact(parent: Node, world_position: Vector3,
 		volume_db: float = 0.0) -> void:
 	_play_3d(parent, drone_impact_stream(), world_position, volume_db,
-			1.3, 120.0, randf_range(0.9, 1.1))
+			1.3, 120.0, randf_range(0.9, 1.1), "Combat", true)
 
 
 static func make_looping_player(stream: AudioStreamWAV, volume_db: float,
@@ -874,12 +913,15 @@ static func play_drop(parent: Node, world_position: Vector3, volume_db: float = 
 		return
 	if parent == null or not parent.is_inside_tree():
 		return
+	if not _can_spawn_3d_voice(true):
+		return
 	var player := AudioStreamPlayer3D.new()
 	player.stream = drop_stream()
 	player.volume_db = volume_db
 	player.bus = "Combat"
 	player.unit_size = 10.0
 	player.max_distance = 120.0
+	_track_3d_voice(player)
 	parent.add_child(player)
 	player.global_position = world_position
 	player.play()
@@ -1004,11 +1046,15 @@ static func play_thunder(parent: Node, world_position: Vector3, volume_db: float
 		return
 	if parent == null or not parent.is_inside_tree():
 		return
+	if not _can_spawn_3d_voice(true):
+		return
 	var player := AudioStreamPlayer3D.new()
 	player.stream = thunder_stream()
 	player.volume_db = volume_db
+	player.bus = "Combat"
 	player.unit_size = 45.0
 	player.max_distance = 1800.0
+	_track_3d_voice(player)
 	parent.add_child(player)
 	player.global_position = world_position
 	player.play()
@@ -1154,3 +1200,4 @@ static func clear_caches() -> void:
 	_thunder_stream = null
 	_alert_streams.clear()
 	_ew_crackle_stream = null
+	_active_3d_voices = 0

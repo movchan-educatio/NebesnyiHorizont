@@ -87,4 +87,7 @@ func _run() -> void:
 			"set_waypoints resets combat and watchdog state")
 
 	print("[VEH_WD] failures=%d" % _failures)
+	if is_instance_valid(_vehicle):
+		_vehicle.queue_free()
+		await get_tree().process_frame
 	get_tree().quit(0 if _failures == 0 else 1)

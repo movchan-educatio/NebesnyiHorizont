@@ -34,6 +34,34 @@ static var _flame_atlas: ImageTexture = null
 static var _fx_cleanup_wired: bool = false
 
 
+const MAX_ACTIVE_BURNS := 10
+const MAX_LOW_PARTICLE_SYSTEMS := 36
+static var _active_burns := 0
+static var _active_particle_systems := 0
+
+
+static func _can_spawn_particles(needed: int = 1) -> bool:
+	if not _low_quality():
+		return true
+	return _active_particle_systems + needed <= MAX_LOW_PARTICLE_SYSTEMS
+
+
+static func _track_particle_system(node: Node) -> void:
+	if node == null:
+		return
+	_active_particle_systems += 1
+	if not node.tree_exiting.is_connected(_on_particle_system_exiting):
+		node.tree_exiting.connect(_on_particle_system_exiting, CONNECT_ONE_SHOT)
+
+
+static func _on_particle_system_exiting() -> void:
+	_active_particle_systems = maxi(0, _active_particle_systems - 1)
+
+
+static func _on_burn_exiting() -> void:
+	_active_burns = maxi(0, _active_burns - 1)
+
+
 static func clear_caches() -> void:
 	_char_mat = null
 	_spark_tex = null
@@ -47,6 +75,8 @@ static func clear_caches() -> void:
 	_flame_shader = null
 	_flame_atlas = null
 	_fx_cleanup_wired = false
+	_active_burns = 0
+	_active_particle_systems = 0
 
 
 static func _wire_cache_cleanup() -> void:
@@ -92,6 +122,7 @@ static func create_cloud_puff_texture() -> ImageTexture:
 ## Cached once at 64x64 - the ground shockwave reads as kicked-up dirt rather
 ## than a translucent pancake, at the cost of one extra alpha-blended quad.
 static func create_dust_ring_texture() -> ImageTexture:
+	_wire_cache_cleanup()
 	if _dust_ring_tex != null:
 		return _dust_ring_tex
 	var size := 64
@@ -120,6 +151,7 @@ static func create_dust_ring_texture() -> ImageTexture:
 ## still reads as a rectangle; an octahedron has only triangular faces, so no
 ## viewing angle produces a square silhouette.  Same 1-draw MultiMesh budget.
 static func debris_mesh() -> Mesh:
+	_wire_cache_cleanup()
 	if _debris_mesh_cache != null:
 		return _debris_mesh_cache
 	var rng := RandomNumberGenerator.new()
@@ -196,6 +228,7 @@ void fragment() {
 ## Gaussian blobs along a swaying centreline read as fire; a static cone or a
 ## per-pixel noise field never did. Total texture: 384x48 RGBA (~72 KB).
 static func flame_atlas() -> ImageTexture:
+	_wire_cache_cleanup()
 	if _flame_atlas != null:
 		return _flame_atlas
 	var frames := 8
@@ -427,61 +460,64 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 	fx_root.add_child(hot_mesh)
 
 	# Billowing smoke mushroom puffs (cloud_puff_texture)
-	var plume := GPUParticles3D.new()
-	plume.name = "FireballSmokePlume"
-	plume.emitting = true
-	plume.one_shot = true
-	plume.explosiveness = 0.72
-	plume.amount = 14 if low else 24
-	plume.lifetime = 2.6 if low else 3.1
-	plume.visibility_aabb = AABB(Vector3(-36, -4, -36), Vector3(72, 44, 72))
-	var wind := _scene_wind(parent)
-	var wind_speed := wind.length()
-	var pmat := ParticleProcessMaterial.new()
-	pmat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	pmat.emission_sphere_radius = 1.2 * s
-	pmat.direction = (Vector3(0.0, 1.0, 0.0) + wind * 0.14).normalized()
-	pmat.spread = 32.0
-	pmat.initial_velocity_min = 3.8 * s + wind_speed * 0.20
-	pmat.initial_velocity_max = 9.2 * s + wind_speed * 0.38
-	pmat.gravity = Vector3(0.0, 2.2, 0.0) + wind * 0.45
-	pmat.damping_min = 2.4
-	pmat.damping_max = 3.6
-	pmat.scale_min = 2.2 * s
-	pmat.scale_max = 5.4 * s
-	var grad := Gradient.new()
-	grad.offsets = PackedFloat32Array([0.0, 0.14, 0.40, 1.0])
-	grad.colors = PackedColorArray([
-		Color(1.0, 0.92, 0.65, 0.92),
-		Color(1.0, 0.45, 0.10, 0.84),
-		Color(0.24, 0.22, 0.21, 0.68),
-		Color(0.14, 0.14, 0.14, 0.0),
-	])
-	var ramp := GradientTexture1D.new()
-	ramp.gradient = grad
-	pmat.color_ramp = ramp
-	plume.process_material = pmat
-	var puff_quad := QuadMesh.new()
-	puff_quad.size = Vector2(1.4, 1.4)
-	var puff_mat := StandardMaterial3D.new()
-	puff_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	puff_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	puff_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	puff_mat.billboard_keep_scale = true
-	puff_mat.vertex_color_use_as_albedo = true
-	puff_mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
-	puff_mat.albedo_texture = puff_tex
-	puff_quad.material = puff_mat
-	plume.draw_pass_1 = puff_quad
-	fx_root.add_child(plume)
+	if _can_spawn_particles(1):
+		var plume := GPUParticles3D.new()
+		plume.name = "FireballSmokePlume"
+		plume.emitting = true
+		plume.one_shot = true
+		plume.explosiveness = 0.72
+		plume.amount = 14 if low else 24
+		plume.lifetime = 2.6 if low else 3.1
+		plume.visibility_aabb = AABB(Vector3(-36, -4, -36), Vector3(72, 44, 72))
+		var wind := _scene_wind(parent)
+		var wind_speed := wind.length()
+		var pmat := ParticleProcessMaterial.new()
+		pmat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+		pmat.emission_sphere_radius = 1.2 * s
+		pmat.direction = (Vector3(0.0, 1.0, 0.0) + wind * 0.14).normalized()
+		pmat.spread = 32.0
+		pmat.initial_velocity_min = 3.8 * s + wind_speed * 0.20
+		pmat.initial_velocity_max = 9.2 * s + wind_speed * 0.38
+		pmat.gravity = Vector3(0.0, 2.2, 0.0) + wind * 0.45
+		pmat.damping_min = 2.4
+		pmat.damping_max = 3.6
+		pmat.scale_min = 2.2 * s
+		pmat.scale_max = 5.4 * s
+		var grad := Gradient.new()
+		grad.offsets = PackedFloat32Array([0.0, 0.14, 0.40, 1.0])
+		grad.colors = PackedColorArray([
+			Color(1.0, 0.92, 0.65, 0.92),
+			Color(1.0, 0.45, 0.10, 0.84),
+			Color(0.24, 0.22, 0.21, 0.68),
+			Color(0.14, 0.14, 0.14, 0.0),
+		])
+		var ramp := GradientTexture1D.new()
+		ramp.gradient = grad
+		pmat.color_ramp = ramp
+		plume.process_material = pmat
+		var puff_quad := QuadMesh.new()
+		puff_quad.size = Vector2(1.4, 1.4)
+		var puff_mat := StandardMaterial3D.new()
+		puff_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		puff_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		puff_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		puff_mat.billboard_keep_scale = true
+		puff_mat.vertex_color_use_as_albedo = true
+		puff_mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		puff_mat.albedo_texture = puff_tex
+		puff_quad.material = puff_mat
+		plume.draw_pass_1 = puff_quad
+		fx_root.add_child(plume)
+		_track_particle_system(plume)
 
 	# Rising embers: reuses the cached spark texture and the shared emitter
 	# helper, so it adds detail without a new shader or texture upload.
 	var embers := _emitter(fx_root, "Embers", 10 if low else 18, 1.5,
 			Color(1.0, 0.52, 0.12, 1.0), _texture("spark"),
 			5.0 * s, 11.0 * s, Vector3(0.0, -4.0, 0.0), 0.05 * s, 0.13 * s, true)
-	embers.one_shot = true
-	embers.explosiveness = 0.85
+	if embers != null:
+		embers.one_shot = true
+		embers.explosiveness = 0.85
 
 	# 4. 10-16 ballistic tumbling DebrisChunks (single batched MultiMesh draw)
 	var chunk_count := 10 if low else 16
@@ -535,49 +571,51 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 		mm.set_instance_transform(i, Transform3D(Basis.from_euler(chunk_rot[i]).scaled(chunk_shape[i] * chunk_scale[i]), chunk_pos[i]))
 
 	# 5. Fast glowing SparkStreaks
-	var sparks := GPUParticles3D.new()
-	sparks.name = "SparkStreaks"
-	sparks.emitting = true
-	sparks.one_shot = true
-	sparks.explosiveness = 0.95
-	sparks.amount = 14 if low else 24
-	sparks.lifetime = 0.85
-	sparks.visibility_aabb = AABB(Vector3(-16, -4, -16), Vector3(32, 24, 32))
-	var smat := ParticleProcessMaterial.new()
-	smat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	smat.emission_sphere_radius = 0.5 * s
-	smat.direction = Vector3(0.0, 1.0, 0.0)
-	smat.spread = 80.0
-	smat.initial_velocity_min = 14.0 * s
-	smat.initial_velocity_max = 30.0 * s
-	smat.gravity = Vector3(0.0, -18.0, 0.0)
-	smat.damping_min = 0.8
-	smat.damping_max = 1.6
-	smat.particle_flag_align_y = true
-	var sgrad := Gradient.new()
-	sgrad.offsets = PackedFloat32Array([0.0, 0.45, 1.0])
-	sgrad.colors = PackedColorArray([
-		Color(1.0, 0.96, 0.72, 1.0),
-		Color(1.0, 0.55, 0.14, 0.90),
-		Color(0.60, 0.15, 0.02, 0.0),
-	])
-	var sramp := GradientTexture1D.new()
-	sramp.gradient = sgrad
-	smat.color_ramp = sramp
-	sparks.process_material = smat
-	var streak_quad := QuadMesh.new()
-	streak_quad.size = Vector2(0.08 * s, 0.65 * s)
-	var streak_mat := StandardMaterial3D.new()
-	streak_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	streak_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	streak_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	streak_mat.vertex_color_use_as_albedo = true
-	streak_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	streak_mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
-	streak_mat.albedo_texture = _texture("spark")
-	streak_quad.material = streak_mat
-	sparks.draw_pass_1 = streak_quad
-	fx_root.add_child(sparks)
+	if _can_spawn_particles(1):
+		var sparks := GPUParticles3D.new()
+		sparks.name = "SparkStreaks"
+		sparks.emitting = true
+		sparks.one_shot = true
+		sparks.explosiveness = 0.95
+		sparks.amount = 14 if low else 24
+		sparks.lifetime = 0.85
+		sparks.visibility_aabb = AABB(Vector3(-16, -4, -16), Vector3(32, 24, 32))
+		var smat := ParticleProcessMaterial.new()
+		smat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+		smat.emission_sphere_radius = 0.5 * s
+		smat.direction = Vector3(0.0, 1.0, 0.0)
+		smat.spread = 80.0
+		smat.initial_velocity_min = 14.0 * s
+		smat.initial_velocity_max = 30.0 * s
+		smat.gravity = Vector3(0.0, -18.0, 0.0)
+		smat.damping_min = 0.8
+		smat.damping_max = 1.6
+		smat.particle_flag_align_y = true
+		var sgrad := Gradient.new()
+		sgrad.offsets = PackedFloat32Array([0.0, 0.45, 1.0])
+		sgrad.colors = PackedColorArray([
+			Color(1.0, 0.96, 0.72, 1.0),
+			Color(1.0, 0.55, 0.14, 0.90),
+			Color(0.60, 0.15, 0.02, 0.0),
+		])
+		var sramp := GradientTexture1D.new()
+		sramp.gradient = sgrad
+		smat.color_ramp = sramp
+		sparks.process_material = smat
+		var streak_quad := QuadMesh.new()
+		streak_quad.size = Vector2(0.08 * s, 0.65 * s)
+		var streak_mat := StandardMaterial3D.new()
+		streak_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		streak_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		streak_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		streak_mat.vertex_color_use_as_albedo = true
+		streak_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		streak_mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		streak_mat.albedo_texture = _texture("spark")
+		streak_quad.material = streak_mat
+		sparks.draw_pass_1 = streak_quad
+		fx_root.add_child(sparks)
+		_track_particle_system(sparks)
 
 	# Drive expansion, color transitions, debris ballistics, and clean auto-free in 1 light controller
 	var driver := _MultiphaseDriver.new()
@@ -733,10 +771,6 @@ class _MultiphaseDriver extends Node:
 					mm.set_instance_transform(i, Transform3D(Basis.from_euler(chunk_rot[i]).scaled(chunk_shape[i] * sc), p))
 ## Cap simultaneous burning wrecks; a large chaos battle must not end up with
 ## dozens of continuous particle systems and lights.
-const MAX_ACTIVE_BURNS := 10
-static var _active_burns := 0
-
-
 static func _scene_wind(node: Node) -> Vector3:
 	var tree: SceneTree = null
 	if node != null and node.is_inside_tree():
@@ -1177,6 +1211,7 @@ static func burn(unit: Node3D, pos: Vector3, kind: String, duration: float,
 		var wisp := Node3D.new()
 		wisp.name = "BurnAnchor"
 		wisp.position = Vector3(0.0, 0.10, 0.0)
+		wisp.tree_exiting.connect(_on_burn_exiting, CONNECT_ONE_SHOT)
 		unit.add_child(wisp)
 		var smoke := _emitter(wisp, "WreckSmoke", 5, 1.8, SMOKE_COLOR,
 				_texture("smoke"), 0.2, 0.7, Vector3(0, 0.8, 0),
@@ -1186,7 +1221,6 @@ static func burn(unit: Node3D, pos: Vector3, kind: String, duration: float,
 		timer.wait_time = 2.2
 		wisp.add_child(timer)
 		timer.timeout.connect(func() -> void:
-			_active_burns = maxi(0, _active_burns - 1)
 			if is_instance_valid(smoke):
 				smoke.emitting = false
 			if is_instance_valid(wisp):
@@ -1200,6 +1234,7 @@ static func burn(unit: Node3D, pos: Vector3, kind: String, duration: float,
 		s = 0.65
 	var anchor := Node3D.new()
 	anchor.name = "BurnAnchor"
+	anchor.tree_exiting.connect(_on_burn_exiting, CONNECT_ONE_SHOT)
 	var host: Node = unit.get_parent() if unit.get_parent() != null else unit
 	if kind == "heli" or kind == "shahed":
 		# A crashed airframe lies on its side; a local-space flame would be
@@ -1248,7 +1283,6 @@ static func burn(unit: Node3D, pos: Vector3, kind: String, duration: float,
 	timer.wait_time = maxf(1.0, duration)
 	anchor.add_child(timer)
 	timer.timeout.connect(func() -> void:
-		_active_burns = maxi(0, _active_burns - 1)
 		if is_instance_valid(fire):
 			fire.visible = false
 		if is_instance_valid(smoke):
@@ -1263,6 +1297,8 @@ static func _emitter(parent: Node3D, name: String, amount: int, lifetime: float,
 		color: Color, tex: Texture2D, speed_min: float, speed_max: float,
 		gravity: Vector3, size_min: float, size_max: float,
 		additive: bool) -> GPUParticles3D:
+	if not _can_spawn_particles(1):
+		return null
 	var p := GPUParticles3D.new()
 	p.name = name
 	p.amount = amount
@@ -1345,6 +1381,7 @@ static func _emitter(parent: Node3D, name: String, amount: int, lifetime: float,
 		quad.material = m
 	p.draw_pass_1 = quad
 	parent.add_child(p)
+	_track_particle_system(p)
 	return p
 
 
@@ -1386,6 +1423,9 @@ static func _burst(parent: Node, pos: Vector3, amount: int, lifetime: float,
 	holder.global_position = pos
 	var p := _emitter(holder, "Burst", amount, lifetime, color, tex,
 			speed_min, speed_max, gravity, size_min, size_max, additive)
+	if p == null:
+		holder.queue_free()
+		return
 	p.one_shot = true
 	p.explosiveness = 1.0
 	var timer := Timer.new()

@@ -504,8 +504,9 @@ func _on_preview_resized() -> void:
 	var target := _preview_container.size
 	if target.x < 16.0 or target.y < 16.0:
 		return
-	_preview.size = Vector2i(clampi(int(target.x), 64, 1600),
-			clampi(int(target.y), 64, 1000))
+	if not _preview_container.stretch:
+		_preview.size = Vector2i(clampi(int(target.x), 64, 1600),
+				clampi(int(target.y), 64, 1000))
 	_fit_preview_camera()
 
 

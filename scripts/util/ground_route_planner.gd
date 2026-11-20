@@ -25,6 +25,8 @@ var _size := 0
 var _limit := 420.0
 var _blocked: Array[bool] = []
 var _cache: Dictionary = {}
+var _sphere_shape: SphereShape3D = null
+var _shape_query: PhysicsShapeQueryParameters3D = null
 ## Hard wall-clock budget.  A route is a nice-to-have, never a reason to
 ## freeze the level load on a slow phone.
 var _deadline := 0
@@ -50,6 +52,11 @@ func _setup(level: Node, clearance: float, arena_limit: float) -> void:
 	var world: World3D = level.get_world_3d()
 	_space = world.direct_space_state if world != null else null
 	_exclude.clear()
+	_sphere_shape = SphereShape3D.new()
+	_sphere_shape.radius = _radius
+	_shape_query = PhysicsShapeQueryParameters3D.new()
+	_shape_query.shape = _sphere_shape
+	_shape_query.collision_mask = 1
 	var tree := level.get_tree()
 	if tree != null:
 		var drone := level.get_node_or_null("Drone")
@@ -58,6 +65,7 @@ func _setup(level: Node, clearance: float, arena_limit: float) -> void:
 		for node in tree.get_nodes_in_group("vehicle"):
 			if node is CollisionObject3D:
 				_exclude.append((node as CollisionObject3D).get_rid())
+	_shape_query.exclude = _exclude
 
 
 func _plan(level: Node, from: Vector3, to: Vector3,
@@ -105,17 +113,11 @@ func _point_clear(p: Vector3) -> bool:
 	var key := Vector2i(int(round(p.x / 2.0)), int(round(p.z / 2.0)))
 	if _cache.has(key):
 		return bool(_cache[key])
-	var query := PhysicsShapeQueryParameters3D.new()
-	var sphere := SphereShape3D.new()
-	sphere.radius = _radius
-	query.shape = sphere
-	query.transform = Transform3D(Basis(), Vector3(p.x, 1.6, p.z))
-	query.collision_mask = 1
-	query.exclude = _exclude
+	_shape_query.transform = Transform3D(Basis(), Vector3(p.x, 1.6, p.z))
 	# Ask for several hits: the flat tarmac is always in range and must not
 	# hide a wall or a crate that overlaps the same sphere.
 	# max_results is an argument of intersect_shape(), not a parameter property.
-	var hits := _space.intersect_shape(query, 8)
+	var hits := _space.intersect_shape(_shape_query, 8)
 	var clear := true
 	for hit in hits:
 		if not _is_flat(hit.get("collider")):

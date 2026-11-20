@@ -21,7 +21,8 @@ foreach ($map in $Maps) {
             Tee-Object -FilePath $log | Out-Null
         $code = $LASTEXITCODE
         $text = Get-Content $log -Raw
-        $clean = ($text -match 'failures=0') -and ($text -notmatch '\[MAP-QA:[^\]]+\] FAIL|\[MOB-QA:[^\]]+\] FAIL')
+        $hasError = $text -match 'SCRIPT ERROR|USER ERROR|Parse Error'
+        $clean = ($text -match 'failures=0') -and ($text -notmatch '\[MAP-QA:[^\]]+\] FAIL|\[MOB-QA:[^\]]+\] FAIL') -and (-not $hasError)
         if ($code -ne 0 -or -not $clean) {
             $failed += $tag
             Write-Host "    FAIL (exit $code) -- see $log" -ForegroundColor Red

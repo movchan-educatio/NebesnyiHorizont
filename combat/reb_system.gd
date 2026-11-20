@@ -59,6 +59,8 @@ var _radio: Node = null
 var _below_timer := 0.0
 var _rng := RandomNumberGenerator.new()
 var _masts: Array[Node3D] = []
+var _los_timer := 0.0
+var _cached_los := true
 
 
 func _ready() -> void:
@@ -150,13 +152,23 @@ func _physics_process(delta: float) -> void:
 	if not limits_enabled:
 		_apply_unlimited_link()
 		return
+	var global_node := get_node_or_null("/root/Global")
+	if global_node != null:
+		var ms = global_node.get("menu_settings")
+		if ms is Dictionary and bool((ms as Dictionary).get("fiber_optic_mode", false)):
+			_apply_unlimited_link()
+			return
 
 	# 1. Free-space distance loss.
 	var distance_lq := clampf(1.0 - distance_m / maxf(base_range_m, 1.0), 0.0, 1.0)
 
 	# 2. Terrain / tree-line occlusion.  The ray goes from the pilot antenna
 	# to the drone; a hit means the picture is behind a hill or a tree line.
-	var los := _line_of_sight(home_position + Vector3.UP * antenna_height, drone_pos)
+	_los_timer -= delta
+	if _los_timer <= 0.0:
+		_los_timer = 0.10
+		_cached_los = _line_of_sight(home_position + Vector3.UP * antenna_height, drone_pos)
+	var los := _cached_los
 	var occlusion := 0.0
 	if not los:
 		occlusion = occlusion_loss * clampf(distance_m / 120.0, 0.25, 1.0)
@@ -218,7 +230,8 @@ func _physics_process(delta: float) -> void:
 			failsafe_changed.emit(false)
 
 	if _radio != null:
-		_radio.set("input_latency_frames", int(clampf(latency_ms / 16.0, 0.0, 14.0)))
+		var tick_ms := 1000.0 / float(maxi(Engine.physics_ticks_per_second, 30))
+		_radio.set("input_latency_frames", int(clampf(latency_ms / tick_ms, 0.0, 28.0)))
 	emit_signal("link_updated", link_quality)
 
 
@@ -273,7 +286,7 @@ func _apply_unlimited_link() -> void:
 func _line_of_sight(from: Vector3, to: Vector3) -> bool:
 	var space := get_world_3d().direct_space_state
 	var query := PhysicsRayQueryParameters3D.create(from, to)
-	query.collision_mask = 0xFFFFFFFF
+	query.collision_mask = 1
 	query.collide_with_areas = false
 	if _drone is CollisionObject3D:
 		query.exclude = [(_drone as CollisionObject3D).get_rid()]

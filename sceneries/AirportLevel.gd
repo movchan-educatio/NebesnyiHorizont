@@ -36,6 +36,8 @@ func _ready() -> void:
 	MAP_GROUND_SAFE = 430.0
 	MAP_FLIGHT_BOUND = 470.0
 	MAP_AIR_SAFE = 450.0
+	_ground_y = 0.12
+	set_meta("disable_procedural_grass", true)
 	super._ready()
 	_force_touch_mode()
 	var radio := get_node_or_null("RadioController")
@@ -48,12 +50,14 @@ func _ready() -> void:
 	_hide_procedural_grass()
 	_replace_trees()
 	_spawn_detailed_props()
+	_build_airport_historical_landmarks()
 
 
 ## Стартовий баррель BigLevel стоїть біля початку координат і ставить дрон
 ## нижче рівня нашого GLB-ґрунту. Для аеропорту використовуємо власну безпечну
 ## точку в повітрі над льотним полем.
 func _place_drone_over_ground() -> void:
+	_ground_y = 0.12
 	var d := get_node_or_null("Drone") as Drone
 	if d == null:
 		return
@@ -66,11 +70,16 @@ func _place_drone_over_ground() -> void:
 		d.flight_controller.reset()
 	d.freeze = true
 	DroneCatalog.apply_to_drone(d, Global.drone_preset)
-	# Ми перевизначили _place_drone_over_ground, тому батьківський обробник ARM
-	# не підключається — робимо це самі, інакше дрон лишається замороженим.
+	# Ми перевизначили _place_drone_over_ground, тому батьківський обробник ARM/respawn
+	# підключаємо тут самі, інакше дрон лишається замороженим і респавн не скидає БК/ліміти.
 	var fc = d.flight_controller
-	if fc != null and not fc.armed.is_connected(_on_airport_armed):
-		fc.armed.connect(_on_airport_armed)
+	if fc != null:
+		if not fc.armed.is_connected(_on_airport_armed):
+			fc.armed.connect(_on_airport_armed)
+		if not fc.arm_failed.is_connected(_on_arm_failed):
+			fc.arm_failed.connect(_on_arm_failed)
+	if not d.respawned.is_connected(_on_respawned):
+		d.respawned.connect(_on_respawned)
 
 
 ## Обробник ARM без примусової зміни режиму: BigLevel викликає
@@ -191,23 +200,139 @@ func _replace_trees() -> void:
 		return
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 4242
-	for i in range(150):
-		var packed := pine if (i % 3 == 0 and pine != null) else oak
-		if packed == null:
-			packed = pine if pine != null else oak
+	var oak_xforms: Array[Transform3D] = []
+	var pine_xforms: Array[Transform3D] = []
+	var q := QualityManagerScript.get_active_level()
+	var tree_count := 72 if q == QualityManagerScript.Level.LOW else (110 if q == QualityManagerScript.Level.MEDIUM else 150)
+	for i in range(tree_count):
+		var use_pine := ((i % 3 != 0) if q == QualityManagerScript.Level.LOW else (i % 3 == 0)) and pine != null
+		if oak == null:
+			use_pine = pine != null
 		var a := rng.randf_range(0.0, TAU)
 		var r := rng.randf_range(220.0, 560.0)
 		var x := cos(a) * r
 		var z := sin(a) * r
+		var yaw := rng.randf_range(0.0, TAU)
+		var s := rng.randf_range(0.85, 1.35)
 		if _is_in_reserved_corridor(x, z):
 			continue
-		var tree := packed.instantiate()
-		tree.name = "AirportTree%d" % i
-		add_child(tree)
-		tree.global_position = Vector3(x, 0.05, z)
-		tree.global_rotation.y = rng.randf_range(0.0, TAU)
-		var s := rng.randf_range(0.85, 1.35)
-		tree.scale = Vector3(s, s, s)
+		var xf := Transform3D(Basis(Vector3.UP, yaw).scaled(Vector3(s, s, s)), Vector3(x, 0.05, z))
+		if use_pine:
+			pine_xforms.append(xf)
+		else:
+			oak_xforms.append(xf)
+	var veg_range := float(QualityManagerScript.get_value("veg_range", 560.0))
+	var tree_shadows := QualityManagerScript.get_active_level() >= QualityManagerScript.Level.HIGH
+	_batch_tree_group(oak, "AirportOak", oak_xforms, tree_shadows, veg_range)
+	_batch_tree_group(pine, "AirportPine", pine_xforms, tree_shadows, veg_range)
+	var all_trees: Array[Transform3D] = []
+	all_trees.append_array(oak_xforms)
+	all_trees.append_array(pine_xforms)
+	_add_airport_tree_colliders(all_trees)
+
+
+func _batch_tree_group(packed: PackedScene, label: String,
+		xforms: Array[Transform3D], cast_shadows: bool, veg_range: float) -> void:
+	if packed == null or xforms.is_empty():
+		return
+	var tmpl := packed.instantiate() as Node3D
+	if tmpl == null:
+		return
+	var parts: Array[Dictionary] = []
+	_collect_tree_visual_parts(tmpl, Transform3D.IDENTITY, parts)
+	for p_idx in range(parts.size()):
+		var part: Dictionary = parts[p_idx]
+		var mesh := part["mesh"] as Mesh
+		var rel_xf: Transform3D = part["rel_xf"]
+		var mat := part.get("mat") as Material
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = mesh
+		mm.instance_count = xforms.size()
+		for i in range(xforms.size()):
+			mm.set_instance_transform(i, xforms[i] * rel_xf)
+		var mmi := MultiMeshInstance3D.new()
+		mmi.name = "%s_MM_%d" % [label, p_idx]
+		mmi.multimesh = mm
+		if mat != null:
+			mmi.material_override = mat
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if cast_shadows \
+				else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mmi.visibility_range_end = veg_range
+		mmi.visibility_range_end_margin = 60.0
+		add_child(mmi)
+	tmpl.free()
+
+
+func _collect_tree_visual_parts(node: Node, parent_xf: Transform3D,
+		out: Array[Dictionary]) -> void:
+	if node == null or node is StaticBody3D:
+		return
+	var cur_xf := parent_xf * (node as Node3D).transform if node is Node3D else parent_xf
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		var lname := String(mi.name).to_lower()
+		if mi.mesh != null and not lname.contains("-col") and not lname.contains("-convcol"):
+			var mesh_copy := mi.mesh.duplicate() as Mesh
+			for s in range(mi.mesh.get_surface_count()):
+				var surf_mat := mi.get_surface_override_material(s)
+				if surf_mat != null:
+					mesh_copy.surface_set_material(s, surf_mat)
+			out.append({
+				"mesh": mesh_copy,
+				"rel_xf": cur_xf,
+				"mat": mi.material_override,
+			})
+	for c in node.get_children():
+		_collect_tree_visual_parts(c, cur_xf, out)
+
+
+func _add_airport_tree_colliders(xforms: Array[Transform3D]) -> void:
+	var cells: Dictionary = {}
+	for xf in xforms:
+		var s := xf.basis.get_scale().x
+		var cell := Vector2i(int(floor(xf.origin.x / 128.0)), int(floor(xf.origin.z / 128.0)))
+		if not cells.has(cell):
+			cells[cell] = [] as Array[Vector3]
+		var faces: Array[Vector3] = cells[cell]
+		var centre := xf.origin + Vector3(0.0, 2.5 * s, 0.0)
+		var half := Vector3(0.38 * s, 2.5 * s, 0.38 * s)
+		_append_box_faces(faces, centre, half)
+	for cell in cells.keys():
+		var faces: Array[Vector3] = cells[cell]
+		if faces.is_empty():
+			continue
+		var shape := ConcavePolygonShape3D.new()
+		shape.set_faces(PackedVector3Array(faces))
+		var body := StaticBody3D.new()
+		body.name = "AirportTreeCol_%d_%d" % [cell.x, cell.y]
+		body.collision_layer = 1
+		body.collision_mask = 1
+		var cs := CollisionShape3D.new()
+		cs.shape = shape
+		body.add_child(cs)
+		add_child(body)
+
+
+func _append_box_faces(faces: Array[Vector3], centre: Vector3, half: Vector3) -> void:
+	var p := [
+		centre + Vector3(-half.x, -half.y, -half.z),
+		centre + Vector3(half.x, -half.y, -half.z),
+		centre + Vector3(half.x, half.y, -half.z),
+		centre + Vector3(-half.x, half.y, -half.z),
+		centre + Vector3(-half.x, -half.y, half.z),
+		centre + Vector3(half.x, -half.y, half.z),
+		centre + Vector3(half.x, half.y, half.z),
+		centre + Vector3(-half.x, half.y, half.z),
+	]
+	for tri in [
+		[0, 1, 2], [0, 2, 3], [5, 4, 7], [5, 7, 6],
+		[4, 0, 3], [4, 3, 7], [1, 5, 6], [1, 6, 2],
+		[3, 2, 6], [3, 6, 7], [4, 5, 1], [4, 1, 0],
+	]:
+		faces.append(p[tri[0]])
+		faces.append(p[tri[1]])
+		faces.append(p[tri[2]])
 
 
 ## Деталізовані пропси з бібліотеки основного проєкту замість наших
@@ -222,7 +347,8 @@ func _spawn_detailed_props() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7777
 	var spawned := 0
-	for i in range(96):
+	var prop_count := 64 if QualityManagerScript.get_active_level() == QualityManagerScript.Level.LOW else 96
+	for i in range(prop_count):
 		var nm: String = str(names[i % names.size()])
 		var a := rng.randf_range(0.0, TAU)
 		var r := rng.randf_range(25.0, 390.0)
@@ -333,17 +459,26 @@ func _apply_airport_grade() -> void:
 
 
 func _build_airport_collision() -> void:
+	var t0 := Time.get_ticks_usec()
 	var meshes: Array[MeshInstance3D] = []
 	_collect_meshes(get_node_or_null("MapRoot"), meshes)
-	var built := 0
+	var flat_dec := ["DEC__M_Marking", "DEC__M_Oil", "DEC__M_Yellow",
+		"DEC__M_Glass", "DEC__M_Paint", "DEC__M_FarConc"]
+	var flat_floor_names := ["COL__M_Ground", "COL__M_Tarmac", "DEC__M_Tarmac"]
+	var flat_surface_names := ["COL__M_Paint", "COL__M_Yellow", "COL__M_Glass"]
+	var solid_cells: Dictionary = {}
+	var flat_cells: Dictionary = {}
+	var has_floor := false
 	for mi in meshes:
 		if mi.name in ["DEC__M_Hill", "DEC__M_FarHill", "DEC__M_FarConc",
 			"DEC__M_Green", "DEC__M_Ground"]:
 			mi.cast_shadow = MeshInstance3D.SHADOW_CASTING_SETTING_OFF
-		var flat_dec := ["DEC__M_Marking", "DEC__M_Oil", "DEC__M_Yellow", "DEC__M_Glass"]
 		if mi.name.begins_with("DEC__") and (mi.name in HIDDEN_DEC or mi.name in flat_dec):
 			continue
 		if not mi.name.begins_with("COL__") and not mi.name.begins_with("DEC__"):
+			continue
+		if mi.name in flat_floor_names:
+			has_floor = true
 			continue
 		var mesh: Mesh = mi.mesh
 		if mesh == null:
@@ -351,19 +486,62 @@ func _build_airport_collision() -> void:
 		var faces := mesh.get_faces()
 		if faces.is_empty():
 			continue
+		var xf := mi.global_transform
+		var target_cells := flat_cells if mi.name in flat_surface_names else solid_cells
+		var tri_count := faces.size() / 3
+		for t in range(tri_count):
+			var idx := t * 3
+			var v0 := xf * faces[idx]
+			var v1 := xf * faces[idx + 1]
+			var v2 := xf * faces[idx + 2]
+			var cx := (v0.x + v1.x + v2.x) / 3.0
+			var cz := (v0.z + v1.z + v2.z) / 3.0
+			var cell := Vector2i(int(floor(cx / 128.0)), int(floor(cz / 128.0)))
+			if not target_cells.has(cell):
+				target_cells[cell] = PackedVector3Array()
+			var bucket: PackedVector3Array = target_cells[cell]
+			bucket.append(v0)
+			bucket.append(v1)
+			bucket.append(v2)
+			target_cells[cell] = bucket
+	var built := 0
+	if has_floor:
+		var floor_body := StaticBody3D.new()
+		floor_body.name = "Collision_COL__M_Tarmac"
+		floor_body.collision_layer = 1
+		floor_body.collision_mask = 1
+		var box := BoxShape3D.new()
+		box.size = Vector3(2200.0, 2.0, 2200.0)
+		var fcs := CollisionShape3D.new()
+		fcs.shape = box
+		floor_body.add_child(fcs)
+		add_child(floor_body)
+		floor_body.global_position = Vector3(0.0, -0.88, 0.0)
+		built += 1
+	built += _emit_collision_cells(solid_cells, "Collision_AirportCell")
+	built += _emit_collision_cells(flat_cells, "Collision_COL__M_Paint_Cell")
+	print("[Airport] collision bodies: ", built, " (",
+			"%.1f ms)" % [(Time.get_ticks_usec() - t0) / 1000.0])
+
+
+func _emit_collision_cells(cells: Dictionary, prefix: String) -> int:
+	var count := 0
+	for cell in cells.keys():
+		var faces: PackedVector3Array = cells[cell]
+		if faces.is_empty():
+			continue
 		var shape := ConcavePolygonShape3D.new()
 		shape.set_faces(faces)
 		var body := StaticBody3D.new()
-		body.name = "Collision_" + mi.name
+		body.name = "%s_%d_%d" % [prefix, cell.x, cell.y]
 		body.collision_layer = 1
 		body.collision_mask = 1
 		var cs := CollisionShape3D.new()
 		cs.shape = shape
 		body.add_child(cs)
 		add_child(body)
-		body.global_transform = mi.global_transform
-		built += 1
-	print("[Airport] collision bodies: ", built)
+		count += 1
+	return count
 
 
 func _collect_meshes(node: Node, out: Array[MeshInstance3D]) -> void:
@@ -394,3 +572,373 @@ func _spawn_airport_gates() -> void:
 		add_child(gate)
 		gate.global_position = gates[i][0]
 		gate.global_rotation.y = float(gates[i][1])
+
+
+var _landmark_box_mesh: BoxMesh = null
+var _landmark_cyl_mesh: CylinderMesh = null
+
+
+func _get_landmark_box_mesh() -> BoxMesh:
+	if _landmark_box_mesh == null:
+		_landmark_box_mesh = BoxMesh.new()
+		_landmark_box_mesh.size = Vector3.ONE
+	return _landmark_box_mesh
+
+
+func _get_landmark_cyl_mesh() -> CylinderMesh:
+	if _landmark_cyl_mesh == null:
+		_landmark_cyl_mesh = CylinderMesh.new()
+		_landmark_cyl_mesh.top_radius = 1.0
+		_landmark_cyl_mesh.bottom_radius = 1.0
+		_landmark_cyl_mesh.height = 1.0
+		_landmark_cyl_mesh.radial_segments = 12
+		_landmark_cyl_mesh.rings = 1
+	return _landmark_cyl_mesh
+
+
+func _append_box_to_st(st: SurfaceTool, center: Vector3, size: Vector3,
+		rot: Vector3 = Vector3.ZERO) -> void:
+	var xf := Transform3D(Basis.from_euler(rot).scaled(size), center)
+	st.append_from(_get_landmark_box_mesh(), 0, xf)
+
+
+func _append_cyl_to_st(st: SurfaceTool, center: Vector3, radius: float,
+		height: float, rot: Vector3 = Vector3.ZERO) -> void:
+	var xf := Transform3D(Basis.from_euler(rot).scaled(Vector3(radius, height, radius)), center)
+	st.append_from(_get_landmark_cyl_mesh(), 0, xf)
+
+
+func _commit_st_mesh(parent: Node3D, node_name: String, st: SurfaceTool,
+		mat: Material, cast_shadows: bool = true) -> MeshInstance3D:
+	var mesh := st.commit()
+	if mesh == null:
+		return null
+	mesh.surface_set_material(0, mat)
+	var mi := MeshInstance3D.new()
+	mi.name = node_name
+	mi.mesh = mesh
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if cast_shadows \
+			else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.visibility_range_end = 1100.0
+	mi.visibility_range_end_margin = 80.0
+	mi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+	parent.add_child(mi)
+	return mi
+
+
+func _tag_airport_landmark(node: Node3D, id: String) -> void:
+	if node == null:
+		return
+	node.add_to_group("map_signature_landmark")
+	node.set_meta("landmark_id", id)
+
+
+func _pick_clear_airport_landmark_pos(base: Vector2, radius: float) -> Vector3:
+	var space := get_world_3d().direct_space_state if get_world_3d() != null else null
+	var units: Array[Vector2] = []
+	for gname in ["enemies", "friendly_convoy"]:
+		for u in get_tree().get_nodes_in_group(gname):
+			if u is Node3D:
+				var up := (u as Node3D).global_position
+				units.append(Vector2(up.x, up.z))
+	for ring in range(0, 8):
+		var r := float(ring) * 26.0
+		var steps := 1 if ring == 0 else 12
+		for i in range(steps):
+			var ang := TAU * float(i) / float(steps) + float(ring) * 0.35
+			var cand := base + Vector2(cos(ang), sin(ang)) * r
+			if absf(cand.x) > 375.0 or absf(cand.y) > 345.0:
+				continue
+			if cand.distance_to(Vector2(0.0, 255.0)) < 54.0:
+				continue
+			if _is_in_reserved_corridor(cand.x, cand.y, radius + 8.0):
+				continue
+			var unit_conflict := false
+			for up2 in units:
+				if cand.distance_to(up2) < radius + 16.0:
+					unit_conflict = true
+					break
+			if unit_conflict:
+				continue
+			if space != null:
+				var q := PhysicsRayQueryParameters3D.create(
+						Vector3(cand.x, 45.0, cand.y), Vector3(cand.x, 0.8, cand.y))
+				q.collision_mask = 1
+				var hit := space.intersect_ray(q)
+				if not hit.is_empty():
+					continue
+			return Vector3(cand.x, _ground_y, cand.y)
+	return Vector3(base.x, _ground_y, base.y)
+
+
+func _make_airport_mat(albedo: Color, rough: float = 0.86,
+		metal: float = 0.08, unshaded: bool = false) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = albedo
+	m.roughness = rough
+	m.metallic = metal
+	m.metallic_specular = 0.25
+	if unshaded:
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	return m
+
+
+## 5 фірмових історичних орієнтирів аеропорту (ЗПС з розміткою, руїни диспетчерської
+## вежі, паливний термінал, вантажний контейнерний двір, зруйнований ангар з літаками).
+## Усі геометрії змерджені через SurfaceTool / MultiMeshInstance3D (лише ~12 draw calls
+## та ~1500 трикутників сумарно), що зберігає бюджет LOW preset на iPhone 11.
+func _build_airport_historical_landmarks() -> void:
+	if get_node_or_null("AirportLandmark_RunwayStrip") != null:
+		return
+	var mat_white := _make_airport_mat(Color(0.84, 0.83, 0.78), 0.92, 0.0)
+	var mat_yellow := _make_airport_mat(Color(0.86, 0.68, 0.18), 0.90, 0.0)
+	var mat_concrete := _make_airport_mat(Color(0.54, 0.53, 0.49), 0.90, 0.04)
+	var mat_charred := _make_airport_mat(Color(0.24, 0.23, 0.22), 0.94, 0.05)
+	var mat_rust := _make_airport_mat(Color(0.46, 0.29, 0.19), 0.82, 0.28)
+	var mat_steel := _make_airport_mat(Color(0.44, 0.47, 0.50), 0.72, 0.42)
+	var mat_alloy := _make_airport_mat(Color(0.62, 0.65, 0.67), 0.68, 0.35)
+
+	# 1. Злітно-посадкова смуга 09/27 + руліжні доріжки + вертолітні майданчики перону
+	var runway := Node3D.new()
+	runway.name = "AirportLandmark_RunwayStrip"
+	runway.position = Vector3(0.0, _ground_y + 0.025, -180.0)
+	add_child(runway)
+	_tag_airport_landmark(runway, "airport_runway_strip")
+
+	var st_white := SurfaceTool.new()
+	st_white.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for side in [-1.0, 1.0]:
+		var tx: float = side * 325.0
+		for b in range(-4, 4):
+			var tz := (float(b) + 0.5) * 3.4
+			_append_box_to_st(st_white, Vector3(tx, 0.01, tz), Vector3(22.0, 0.02, 1.6))
+		for aim_s in [-1.0, 1.0]:
+			_append_box_to_st(st_white, Vector3(side * 245.0, 0.01, aim_s * 8.5),
+					Vector3(34.0, 0.02, 4.0))
+	for d in range(-10, 11):
+		_append_box_to_st(st_white, Vector3(float(d) * 20.0, 0.01, 0.0),
+				Vector3(11.0, 0.02, 0.85))
+	_commit_st_mesh(runway, "RunwayMarkingsWhite", st_white, mat_white, false)
+
+	var st_yellow := SurfaceTool.new()
+	st_yellow.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_append_box_to_st(st_yellow, Vector3(0.0, 0.01, 82.0), Vector3(520.0, 0.02, 0.45))
+	for turn_x in [-180.0, 0.0, 180.0]:
+		_append_box_to_st(st_yellow, Vector3(turn_x, 0.01, 41.0),
+				Vector3(0.45, 0.02, 82.0), Vector3(0.0, 0.22, 0.0))
+	for h_x in [-130.0, 0.0, 130.0]:
+		var hz := 118.0
+		_append_box_to_st(st_yellow, Vector3(h_x - 3.2, 0.01, hz), Vector3(0.9, 0.02, 7.6))
+		_append_box_to_st(st_yellow, Vector3(h_x + 3.2, 0.01, hz), Vector3(0.9, 0.02, 7.6))
+		_append_box_to_st(st_yellow, Vector3(h_x, 0.01, hz), Vector3(5.6, 0.02, 0.9))
+	_commit_st_mesh(runway, "TaxiwayApronYellow", st_yellow, mat_yellow, false)
+
+	var edge_mm := MultiMesh.new()
+	edge_mm.transform_format = MultiMesh.TRANSFORM_3D
+	var light_box := BoxMesh.new()
+	light_box.size = Vector3(0.35, 0.42, 0.35)
+	edge_mm.mesh = light_box
+	var light_xfs: Array[Transform3D] = []
+	for side_z in [-21.0, 21.0]:
+		for i in range(-9, 10):
+			light_xfs.append(Transform3D(Basis.IDENTITY,
+					Vector3(float(i) * 34.0, 0.21, side_z)))
+	edge_mm.instance_count = light_xfs.size()
+	for i in range(light_xfs.size()):
+		edge_mm.set_instance_transform(i, light_xfs[i])
+	var edge_mmi := MultiMeshInstance3D.new()
+	edge_mmi.name = "RunwayEdgeLights_MM"
+	edge_mmi.multimesh = edge_mm
+	edge_mmi.material_override = mat_yellow
+	edge_mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	edge_mmi.visibility_range_end = 700.0
+	runway.add_child(edge_mmi)
+
+	# 2. Руїни диспетчерської вежі (Control Tower Ruins)
+	var tower_pos := _pick_clear_airport_landmark_pos(Vector2(-285.0, 175.0), 14.0)
+	var tower := Node3D.new()
+	tower.name = "AirportLandmark_ControlTowerRuins"
+	tower.position = tower_pos
+	add_child(tower)
+	_tag_airport_landmark(tower, "airport_control_tower_ruins")
+
+	var st_tw_conc := SurfaceTool.new()
+	st_tw_conc.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_append_box_to_st(st_tw_conc, Vector3(0.0, 3.8, 0.0), Vector3(9.4, 7.6, 9.4))
+	_append_box_to_st(st_tw_conc, Vector3(0.0, 12.8, 0.0), Vector3(6.4, 11.2, 6.4))
+	_append_box_to_st(st_tw_conc, Vector3(0.0, 18.8, 0.0), Vector3(10.2, 0.85, 10.2))
+	_append_box_to_st(st_tw_conc, Vector3(0.2, 22.6, -0.1),
+			Vector3(9.6, 0.65, 9.6), Vector3(0.06, 0.0, -0.05))
+	for r_i in range(6):
+		var ang := TAU * float(r_i) / 6.0
+		_append_box_to_st(st_tw_conc,
+				Vector3(cos(ang) * 5.8, 0.65, sin(ang) * 5.8),
+				Vector3(2.8, 1.3, 2.2), Vector3(0.18, ang, -0.14))
+	_commit_st_mesh(tower, "TowerConcrete", st_tw_conc, mat_concrete, true)
+
+	var st_tw_steel := SurfaceTool.new()
+	st_tw_steel.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for sx in [-4.2, 4.2]:
+		for sz in [-4.2, 4.2]:
+			_append_box_to_st(st_tw_steel, Vector3(sx, 20.7, sz), Vector3(0.38, 3.4, 0.38))
+	_append_cyl_to_st(st_tw_steel, Vector3(0.0, 24.8, 0.0), 0.35, 3.8)
+	_append_box_to_st(st_tw_steel, Vector3(0.0, 26.5, 0.0),
+			Vector3(5.4, 0.75, 0.55), Vector3(0.0, 0.45, 0.08))
+	_commit_st_mesh(tower, "TowerSteelFrame", st_tw_steel, mat_rust, true)
+	_add_airport_landmark_collider(tower, Vector3(0.0, 12.0, 0.0), Vector3(9.6, 24.0, 9.6))
+	FrontlineTerrainScript.register_structure_exclusion(
+			Vector2(tower_pos.x, tower_pos.z), Vector2(6.5, 6.5), 27.0)
+
+	# 3. Паливний термінал ПММ (Aviation Fuel Depot)
+	var depot_pos := _pick_clear_airport_landmark_pos(Vector2(295.0, 165.0), 16.0)
+	var depot := Node3D.new()
+	depot.name = "AirportLandmark_FuelDepot"
+	depot.position = depot_pos
+	add_child(depot)
+	_tag_airport_landmark(depot, "airport_fuel_depot")
+
+	var st_fd_conc := SurfaceTool.new()
+	st_fd_conc.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_append_box_to_st(st_fd_conc, Vector3(0.0, 0.2, 0.0), Vector3(24.0, 0.4, 16.0))
+	_append_box_to_st(st_fd_conc, Vector3(0.0, 0.8, -7.7), Vector3(24.0, 1.2, 0.6))
+	_append_box_to_st(st_fd_conc, Vector3(0.0, 0.8, 7.7), Vector3(24.0, 1.2, 0.6))
+	_append_box_to_st(st_fd_conc, Vector3(-11.7, 0.8, 0.0), Vector3(0.6, 1.2, 15.0))
+	_append_box_to_st(st_fd_conc, Vector3(11.7, 0.8, 0.0), Vector3(0.6, 1.2, 15.0))
+	_commit_st_mesh(depot, "FuelDepotBund", st_fd_conc, mat_concrete, true)
+
+	var st_fd_tanks := SurfaceTool.new()
+	st_fd_tanks.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for tx in [-5.6, 5.6]:
+		for tz in [-3.4, 3.4]:
+			_append_cyl_to_st(st_fd_tanks, Vector3(tx, 2.5, tz),
+					1.95, 9.6, Vector3(0.0, 0.0, PI * 0.5))
+	_append_box_to_st(st_fd_tanks, Vector3(0.0, 4.7, 0.0), Vector3(20.0, 0.35, 0.9))
+	_append_cyl_to_st(st_fd_tanks, Vector3(0.0, 1.8, 0.0),
+			0.28, 13.0, Vector3(PI * 0.5, 0.0, 0.0))
+	_commit_st_mesh(depot, "FuelDepotCisterns", st_fd_tanks, mat_rust, true)
+	_add_airport_landmark_collider(depot, Vector3(0.0, 2.5, 0.0), Vector3(24.0, 5.0, 16.0))
+	FrontlineTerrainScript.register_structure_exclusion(
+			Vector2(depot_pos.x, depot_pos.z), Vector2(13.0, 9.0), 6.0)
+
+	# 4. Вантажний контейнерний двір (Cargo Container Yard з каньйоном для прольоту)
+	var yard_pos := _pick_clear_airport_landmark_pos(Vector2(-290.0, -145.0), 18.0)
+	var yard := Node3D.new()
+	yard.name = "AirportLandmark_CargoContainerYard"
+	yard.position = yard_pos
+	add_child(yard)
+	_tag_airport_landmark(yard, "airport_cargo_containers")
+
+	var st_yd_pad := SurfaceTool.new()
+	st_yd_pad.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_append_box_to_st(st_yd_pad, Vector3(0.0, 0.16, 0.0), Vector3(26.0, 0.32, 22.0))
+	_commit_st_mesh(yard, "ContainerYardPad", st_yd_pad, mat_concrete, false)
+
+	var cont_box := BoxMesh.new()
+	cont_box.size = Vector3(6.2, 2.6, 2.5)
+	var cont_mat := _make_airport_mat(Color.WHITE, 0.80, 0.22)
+	cont_mat.vertex_color_use_as_albedo = true
+	var palette: Array[Color] = [
+		Color(0.27, 0.34, 0.24),
+		Color(0.52, 0.23, 0.17),
+		Color(0.22, 0.34, 0.46),
+		Color(0.58, 0.47, 0.22),
+	]
+	var cont_xfs: Array[Transform3D] = []
+	var cont_cols: Array[Color] = []
+	for side_z in [-6.5, 6.5]:
+		for slot_x in [-6.8, 0.0, 6.8]:
+			var tiers := 2 if absf(slot_x) < 1.0 or side_z < 0.0 else 1
+			for tier in range(tiers):
+				var yaw := 0.04 * float(tier) * signf(side_z)
+				var pos := Vector3(slot_x, 0.32 + 1.3 + float(tier) * 2.62, side_z)
+				cont_xfs.append(Transform3D(Basis(Vector3.UP, yaw), pos))
+				cont_cols.append(palette[(cont_xfs.size() + tier) % palette.size()])
+	var cont_mm := MultiMesh.new()
+	cont_mm.transform_format = MultiMesh.TRANSFORM_3D
+	cont_mm.use_colors = true
+	cont_mm.mesh = cont_box
+	cont_mm.instance_count = cont_xfs.size()
+	for i in range(cont_xfs.size()):
+		cont_mm.set_instance_transform(i, cont_xfs[i])
+		cont_mm.set_instance_color(i, cont_cols[i])
+	var cont_mmi := MultiMeshInstance3D.new()
+	cont_mmi.name = "CargoContainers_MM"
+	cont_mmi.multimesh = cont_mm
+	cont_mmi.material_override = cont_mat
+	cont_mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	cont_mmi.visibility_range_end = 950.0
+	yard.add_child(cont_mmi)
+	_add_airport_landmark_collider(yard, Vector3(0.0, 2.8, -6.5), Vector3(20.5, 5.4, 3.0))
+	_add_airport_landmark_collider(yard, Vector3(0.0, 2.8, 6.5), Vector3(20.5, 5.4, 3.0))
+	FrontlineTerrainScript.register_structure_exclusion(
+			Vector2(yard_pos.x, yard_pos.z), Vector2(12.5, 10.0), 6.0)
+
+	# 5. Зруйнований ангар та остови транспортних літаків (Hangar & Aircraft Wrecks)
+	var wrecks_pos := _pick_clear_airport_landmark_pos(Vector2(285.0, -145.0), 22.0)
+	var wrecks := Node3D.new()
+	wrecks.name = "AirportLandmark_HangarAircraftWrecks"
+	wrecks.position = wrecks_pos
+	add_child(wrecks)
+	_tag_airport_landmark(wrecks, "airport_hangar_aircraft_wrecks")
+
+	var st_hangar := SurfaceTool.new()
+	st_hangar.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for arch_z in [-12.0, -4.0, 4.0, 12.0]:
+		for side_x in [-14.0, 14.0]:
+			_append_box_to_st(st_hangar, Vector3(side_x, 5.2, arch_z), Vector3(0.65, 10.4, 0.65))
+		_append_box_to_st(st_hangar, Vector3(-7.2, 11.2, arch_z),
+				Vector3(14.8, 0.55, 0.55), Vector3(0.0, 0.0, 0.16))
+		_append_box_to_st(st_hangar, Vector3(7.2, 11.2, arch_z),
+				Vector3(14.8, 0.55, 0.55), Vector3(0.0, 0.0, -0.16))
+	for purlin_x in [-11.0, -5.5, 5.5, 11.0]:
+		_append_box_to_st(st_hangar, Vector3(purlin_x, 10.9, 0.0), Vector3(0.35, 0.35, 25.0))
+	_commit_st_mesh(wrecks, "RuinedHangarFrame", st_hangar, mat_steel, true)
+
+	var st_planes := SurfaceTool.new()
+	st_planes.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var st_char := SurfaceTool.new()
+	st_char.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for p_spec in [
+		[Vector3(-5.5, 0.0, -3.5), 0.18],
+		[Vector3(6.2, 0.0, 4.5), -0.28],
+	]:
+		var p_off: Vector3 = p_spec[0]
+		var yaw: float = float(p_spec[1])
+		var b := Basis(Vector3.UP, yaw)
+		_append_cyl_to_st(st_planes, p_off + Vector3(0.0, 1.9, 0.0),
+				1.55, 16.5, Vector3(PI * 0.5, yaw, 0.06))
+		_append_box_to_st(st_planes, p_off + b * Vector3(0.0, 2.1, -0.5),
+				Vector3(19.5, 0.32, 2.8), Vector3(0.04, yaw, -0.05))
+		_append_box_to_st(st_char, p_off + b * Vector3(0.0, 4.4, -7.2),
+				Vector3(0.36, 4.4, 2.6), Vector3(0.0, yaw, 0.04))
+		_append_box_to_st(st_char, p_off + b * Vector3(0.0, 3.1, -7.4),
+				Vector3(6.8, 0.26, 1.6), Vector3(0.0, yaw, 0.0))
+		for eng_x in [-4.6, 4.6]:
+			_append_cyl_to_st(st_char, p_off + b * Vector3(eng_x, 1.45, 0.4),
+					0.62, 2.4, Vector3(PI * 0.5, yaw, 0.0))
+	for rub_i in range(8):
+		var rang := TAU * float(rub_i) / 8.0
+		_append_box_to_st(st_char,
+				Vector3(cos(rang) * 11.0, 0.45, sin(rang) * 8.5),
+				Vector3(2.2, 0.9, 1.6), Vector3(0.1, rang, -0.12))
+	_commit_st_mesh(wrecks, "RuinedAircraftBodies", st_planes, mat_alloy, true)
+	_commit_st_mesh(wrecks, "RuinedAircraftCharred", st_char, mat_charred, true)
+	_add_airport_landmark_collider(wrecks, Vector3(-5.5, 2.2, -3.5), Vector3(8.0, 4.4, 16.5))
+	_add_airport_landmark_collider(wrecks, Vector3(6.2, 2.2, 4.5), Vector3(8.0, 4.4, 16.5))
+	FrontlineTerrainScript.register_structure_exclusion(
+			Vector2(wrecks_pos.x, wrecks_pos.z), Vector2(15.5, 13.5), 12.5)
+
+
+func _add_airport_landmark_collider(parent: Node3D, local_pos: Vector3,
+		box_size: Vector3) -> void:
+	var body := StaticBody3D.new()
+	body.name = "LandmarkCol"
+	body.position = local_pos
+	body.collision_layer = 1
+	body.collision_mask = 1
+	var cs := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = box_size
+	cs.shape = shape
+	body.add_child(cs)
+	parent.add_child(body)

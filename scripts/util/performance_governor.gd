@@ -70,9 +70,16 @@ func configure(preset: Dictionary) -> void:
 func _process(delta: float) -> void:
 	if not adaptive:
 		return
-	_cooldown = maxf(0.0, _cooldown - delta)
-	_warmup = maxf(0.0, _warmup - delta)
-	_acc_time += delta
+	var dt := minf(delta, 0.25)
+	_cooldown = maxf(0.0, _cooldown - dt)
+	_warmup = maxf(0.0, _warmup - dt)
+	# Loading, shader compilation and post-cooldown transitions must not
+	# pollute the active measurement window.
+	if _warmup > 0.0 or _cooldown > 0.0:
+		_acc_time = 0.0
+		_acc_frames = 0
+		return
+	_acc_time += dt
 	_acc_frames += 1
 	if _acc_time < _sample_time:
 		return
@@ -80,12 +87,14 @@ func _process(delta: float) -> void:
 	var fps := float(_acc_frames) / maxf(_acc_time, 0.0001)
 	_acc_time = 0.0
 	_acc_frames = 0
-	# Loading, shader compilation and the first terrain frame produce 4 FPS
-	# spikes.  Never let those transient frames collapse the internal scale.
-	if _warmup > 0.0 or _cooldown > 0.0:
-		return
 
 	var goal := _effective_target()
+	var refresh := DisplayServer.screen_get_refresh_rate()
+	var max_fps_capped := Engine.max_fps > 0 and goal >= float(Engine.max_fps) - 2.5
+	var capped := (refresh > 1.0 and goal >= refresh - 2.5) or max_fps_capped
+	var up_threshold := goal * (0.985 if capped else 1.02)
+	var need_good := 3 if capped else 2
+	var up_cooldown := 1.4 if capped else 1.0
 	if fps < goal * 0.93:
 		_good_samples = 0
 		_bad_samples += 1
@@ -93,12 +102,12 @@ func _process(delta: float) -> void:
 			_set_scale(maxf(min_scale, _scale - _down_step))
 			_cooldown = _down_cooldown
 			_bad_samples = 0
-	elif fps > goal * 1.02:
+	elif fps >= up_threshold:
 		_bad_samples = 0
 		_good_samples += 1
-		if _good_samples >= 2 and _scale < max_scale - 0.001:
+		if _good_samples >= need_good and _scale < max_scale - 0.001:
 			_set_scale(minf(max_scale, _scale + _up_step))
-			_cooldown = 1.0
+			_cooldown = up_cooldown
 			_good_samples = 0
 	else:
 		_good_samples = 0

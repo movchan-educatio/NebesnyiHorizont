@@ -27,6 +27,7 @@ var hud_right_stick := Vector2.ZERO
 var hud_rpm := [0, 0, 0, 0]
 var is_first := false
 var first_angles := Vector3.ZERO
+var _cinematic_rect: ColorRect = null
 
 
 func _ready() -> void:
@@ -38,10 +39,24 @@ func _ready() -> void:
 		stick_right.visible = false
 	reset_data()
 	update_data(hud_delta, hud_position, hud_angles, hud_velocity, hud_left_stick, hud_right_stick, hud_rpm)
-	# Light cinematic grade behind the HUD widgets.  The old 0.30 vignette +
-	# warm leak made the maps read as dusk; keep a hint of film without
-	# darkening the playfield.
-	CinematicOverlay.attach(self, 0.14, 0.010, 0.002, 0.0, 0.09, 1.04, 1.06, 0.03)
+	# Light cinematic grade behind the HUD widgets on MEDIUM/HIGH.  On LOW we keep
+	# 0 full-screen post-processing passes (pure forward).
+	_cinematic_rect = CinematicOverlay.attach(self, 0.14, 0.010, 0.002, 0.0, 0.09, 1.04, 1.06, 0.03)
+	var gfx := get_node_or_null("/root/Graphics")
+	if gfx != null and gfx.has_signal("quality_changed") and not gfx.is_connected("quality_changed", Callable(self, "_sync_cinematic_for_quality")):
+		gfx.connect("quality_changed", Callable(self, "_sync_cinematic_for_quality"))
+	_sync_cinematic_for_quality(QualityManager.get_active_level())
+
+
+func _exit_tree() -> void:
+	var gfx := get_node_or_null("/root/Graphics")
+	if gfx != null and gfx.has_signal("quality_changed") and gfx.is_connected("quality_changed", Callable(self, "_sync_cinematic_for_quality")):
+		gfx.disconnect("quality_changed", Callable(self, "_sync_cinematic_for_quality"))
+
+
+func _sync_cinematic_for_quality(lvl: int) -> void:
+	if _cinematic_rect != null and is_instance_valid(_cinematic_rect):
+		_cinematic_rect.visible = (lvl > QualityManager.Level.LOW)
 
 
 func _process(_delta: float) -> void:

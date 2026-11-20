@@ -10,6 +10,7 @@ extends Control
 ## Keys: T — thermal camera (white-hot).
 
 const Ballistics = preload("res://combat/ballistics.gd")
+const SOLVE_INTERVAL := 1.0 / 30.0
 
 var level: Node = null
 var drone: Node3D = null
@@ -21,12 +22,11 @@ var thermal := false
 var _solution: Dictionary = {}
 var _aim_point := Vector3.ZERO
 var _aim_valid := false
-## The sight now solves on every rendered frame (coarse 0.05 s ballistic step)
-## and extrapolates between frames, so the pipper keeps up with a turning drone.
 var _tick := 0.0
 var _solve_elapsed := 0.0
 var _display_impact := Vector3.ZERO
 var _font: Font = null
+var _ray_query: PhysicsRayQueryParameters3D = null
 
 
 func _ready() -> void:
@@ -53,17 +53,19 @@ func _process(delta: float) -> void:
 	if not visible:
 		return
 	_solve_elapsed += delta
-	# Solve on every rendered frame: the ballistic loop is a few dozen cheap
-	# iterations and a 20 Hz tick made the pipper visibly trail a turning drone.
-	_recompute()
-	_update_pipper()
+	_tick += delta
+	if _solution.is_empty() or _tick >= SOLVE_INTERVAL:
+		_tick = fmod(_tick, SOLVE_INTERVAL) if _tick >= SOLVE_INTERVAL else 0.0
+		_recompute()
+		_update_aim_ray()
+	_extrapolate_pipper()
 	queue_redraw()
 
 
 ## Cheap, every-frame follow-up: extrapolate the last solved impact with the
-## drone's horizontal velocity and re-cast the centre-of-screen aim ray.  This
-## removes the visible 9 Hz stepping without paying for a solve each frame.
-func _update_pipper() -> void:
+## drone's horizontal velocity without paying for a ballistic solve or raycast
+## on intermediate frames above 30 Hz.
+func _extrapolate_pipper() -> void:
 	if _solution.is_empty():
 		return
 	var solved: Vector3 = _solution.get("impact", Vector3.ZERO)
@@ -71,18 +73,32 @@ func _update_pipper() -> void:
 	if drone != null and is_instance_valid(drone):
 		vel = drone.linear_velocity
 	vel.y = 0.0
-	_display_impact = solved + vel * minf(_solve_elapsed, 0.2)
+	_display_impact = solved + vel * minf(_solve_elapsed, 0.15)
+
+
+func _update_aim_ray() -> void:
 	camera = get_viewport().get_camera_3d()
 	if camera == null:
 		return
 	var from := camera.global_position
 	var to := from - camera.global_transform.basis.z * 3000.0
-	var space := camera.get_world_3d().direct_space_state
-	var q := PhysicsRayQueryParameters3D.create(from, to)
-	q.collision_mask = 1
+	var world := camera.get_world_3d()
+	if world == null:
+		return
+	var space := world.direct_space_state
+	if space == null:
+		return
+	if _ray_query == null:
+		_ray_query = PhysicsRayQueryParameters3D.create(from, to)
+		_ray_query.collision_mask = 1
+	else:
+		_ray_query.from = from
+		_ray_query.to = to
 	if drone is CollisionObject3D:
-		q.exclude = [(drone as CollisionObject3D).get_rid()]
-	var hit := space.intersect_ray(q)
+		_ray_query.exclude = [(drone as CollisionObject3D).get_rid()]
+	else:
+		_ray_query.exclude = []
+	var hit := space.intersect_ray(_ray_query)
 	_aim_valid = not hit.is_empty()
 	_aim_point = hit.get("position", Vector3.ZERO)
 

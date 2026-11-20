@@ -180,16 +180,21 @@ func _ensure_audio_buses() -> void:
 		AudioServer.set_bus_volume_db(index, 0.0)
 
 
-func set_subbus_volume_linear(bus_name: String, linear: float) -> void:
+func set_subbus_volume_linear(bus_name: String, linear: float, persist: bool = true) -> void:
 	_ensure_audio_buses()
 	var clamped := clampf(linear, 0.0, 1.5)
 	_subbus_volumes[bus_name] = clamped
 	var idx := AudioServer.get_bus_index(bus_name)
-	if idx < 0:
-		return
-	var muted := clamped <= 0.001
-	AudioServer.set_bus_mute(idx, muted)
-	AudioServer.set_bus_volume_db(idx, -80.0 if muted else linear_to_db(clamped))
+	if idx >= 0:
+		var muted := clamped <= 0.001
+		AudioServer.set_bus_mute(idx, muted)
+		AudioServer.set_bus_volume_db(idx, -80.0 if muted else linear_to_db(clamped))
+	if persist:
+		save_audio_settings()
+
+
+func is_radio_playing() -> bool:
+	return _radio_player != null and is_instance_valid(_radio_player) and _radio_player.playing
 
 
 func get_subbus_volume_linear(bus_name: String) -> float:
@@ -628,6 +633,8 @@ func load_audio_settings() -> String:
 		for key in audio_settings.keys():
 			if config.has_section_key("audio", key):
 				audio_settings[key] = config.get_value("audio", key)
+		for bus_name in SUB_BUSES:
+			set_subbus_volume_linear(bus_name, float(config.get_value("subbuses", bus_name, 1.0)), false)
 		update_master_volume()
 		if _music != null and _music.playing:
 			_music.volume_db = linear_to_db(maxf(0.001, float(audio_settings["music_volume"])))
@@ -648,6 +655,8 @@ func save_audio_settings() -> void:
 	if err == OK or err == ERR_FILE_NOT_FOUND or err == ERR_PARSE_ERROR:
 		for key in audio_settings.keys():
 			config.set_value("audio", key, audio_settings[key])
+		for bus_name in SUB_BUSES:
+			config.set_value("subbuses", bus_name, float(_subbus_volumes.get(bus_name, 1.0)))
 		err = config.save(audio_settings_path)
 	if err != OK and err != ERR_FILE_NOT_FOUND:
 		Global.log_error(err, "Error while saving audio settings.")

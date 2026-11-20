@@ -84,6 +84,14 @@ func _dispose(level: Node) -> void:
 	await get_tree().create_timer(0.15).timeout
 
 
+func _count_primary_targets(level: Node) -> int:
+	var n := 0
+	for node in get_tree().get_nodes_in_group("primary_combat_target"):
+		if is_instance_valid(node) and level.is_ancestor_of(node):
+			n += 1
+	return n
+
+
 func _test_special(mission_id: int) -> void:
 	var level := await _spawn_level(mission_id, 1)
 	var total := int(level.get("_mission_targets_total"))
@@ -96,7 +104,10 @@ func _test_special(mission_id: int) -> void:
 		await _test_zone_mission(level, mission_id, label)
 	else:
 		_check(total > 0, "%s: targets spawned (%d)" % [label, total])
-		_finish_by_targets(level, label)
+		var primary_count := _count_primary_targets(level)
+		_check(primary_count == total,
+				"%s: primary target group matches total (%d == %d)" % [label, primary_count, total])
+		await _finish_by_targets(level, label)
 	await _dispose(level)
 
 
@@ -104,9 +115,29 @@ func _test_campaign(mission_id: int) -> void:
 	var level := await _spawn_level(0, mission_id)
 	var total := int(level.get("_mission_targets_total"))
 	_check(total > 0, "campaign %d: targets spawned (%d)" % [mission_id, total])
+	var primary_count := _count_primary_targets(level)
+	_check(primary_count == total,
+			"campaign %d: primary target group matches total (%d == %d)" % [
+				mission_id, primary_count, total])
 	if mission_id == 4:
 		await _check_shaheds(level)
-	_finish_by_targets(level, "campaign %d" % mission_id)
+	if mission_id == 1:
+		var kc = level.get("_kill_cam")
+		if kc != null and is_instance_valid(kc) and kc.has_method("trigger") and kc.has_method("cancel"):
+			level.call("_start_mission")
+			var drone_kc := level.get_node_or_null("Drone") as Node3D
+			var d_pos := drone_kc.global_position if drone_kc != null else Vector3(0.0, 12.0, 20.0)
+			kc.call("trigger", level, Vector3.ZERO, d_pos, null, Callable(level, "_on_kill_cam_finished"))
+			level.set("_mission_targets_destroyed", total)
+			level.call("_advance_phase_after_kill", true, true)
+			_check(bool(level.get("_pending_combat_complete")) and not bool(level.get("_mission_finished")),
+					"campaign 1: kill-cam defers completion while active")
+			kc.call("cancel")
+			await get_tree().create_timer(1.1).timeout
+			_check(bool(level.get("_mission_finished")) and not bool(level.get("_mission_failed")),
+					"campaign 1: kill-cam finish flushes _pending_combat_complete")
+	else:
+		await _finish_by_targets(level, "campaign %d" % mission_id)
 	await _dispose(level)
 
 

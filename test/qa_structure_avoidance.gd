@@ -63,10 +63,12 @@ func _ready() -> void:
 			Vector3(-120.0, 0.0, 68.0), 10.0, 0.0)
 
 	var violations := {"heli": 0, "shahed": 0, "bmp": 0}
+	var heli_over_hall_samples := 0
 	var min_heli_y_over_hall := 1.0e9
 	for i in range(900):
 		await get_tree().physics_frame
 		if _inside(heli.global_position, hall):
+			heli_over_hall_samples += 1
 			min_heli_y_over_hall = minf(min_heli_y_over_hall,
 					heli.global_position.y)
 		for e in exclusions:
@@ -83,6 +85,7 @@ func _ready() -> void:
 		_check(int(violations[key]) == 0, "%s never enters hall (%d frames)" % [key, violations[key]])
 
 	# Over the hall the helicopter must climb above the arched roof.
+	_check(heli_over_hall_samples > 0, "heli crossed over hall (%d frames)" % heli_over_hall_samples)
 	_check(min_heli_y_over_hall >= float(hall.get("top", 0.0)) + 8.0,
 			"heli climbs above arched roof (min y=%.1f, roof=%.1f)" % [
 			min_heli_y_over_hall, float(hall.get("top", 0.0))])
@@ -92,5 +95,8 @@ func _ready() -> void:
 	_check(shahed.global_position.x > -40.0, "shahed keeps moving past hall (x=%.1f)" % shahed.global_position.x)
 	_check(bmp.global_position.x > -60.0, "bmp keeps moving past hall (x=%.1f)" % bmp.global_position.x)
 
+	if is_instance_valid(level):
+		level.queue_free()
+		await get_tree().process_frame
 	print("[STRUCT] failures=", _failures)
 	get_tree().quit(0 if _failures == 0 else 1)

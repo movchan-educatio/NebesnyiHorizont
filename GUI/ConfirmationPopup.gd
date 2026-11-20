@@ -18,7 +18,12 @@ func _ready() -> void:
 
 func _on_resized() -> void:
 	size = $PanelContainer.size
-	position = (get_parent().size - size) / 2
+	if get_parent() is Control:
+		position = ((get_parent() as Control).size - size) / 2
+
+
+func show_modal(_exclusive: bool = true) -> void:
+	visible = true
 
 
 func _on_button_pressed(choice: int) -> void:

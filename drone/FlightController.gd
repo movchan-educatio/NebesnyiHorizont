@@ -832,7 +832,7 @@ func update_command() -> Array:
 		
 		var xform := Transform3D(attitude, pos)
 		target = get_tracking_target()
-		var delta_pos: Vector3 = xform * target
+		var delta_pos: Vector3 = xform.affine_inverse() * target
 		var target_vel := (target - target_prev) / dt
 		
 		var bank_limit := deg_to_rad(35)

@@ -12,6 +12,7 @@ const TEST := "DVR_QA"
 var _failures := 0
 var _had_no_record := false
 var _saved_no_record := ""
+var _level: Node3D = null
 
 
 func _ready() -> void:
@@ -33,6 +34,7 @@ func _run() -> void:
 	Global.combat_mission = 1
 	Global.drone_preset = 0
 	var level := LevelScene.instantiate() as Node3D
+	_level = level
 	get_tree().root.add_child(level)
 	get_tree().current_scene = level
 	await get_tree().create_timer(6.0).timeout
@@ -113,6 +115,13 @@ func _run() -> void:
 
 
 func _finish() -> void:
+	if _level != null and is_instance_valid(_level):
+		if get_tree().current_scene == _level:
+			get_tree().current_scene = null
+		get_tree().paused = false
+		_level.queue_free()
+		_level = null
+		await get_tree().process_frame
 	if _had_no_record:
 		OS.set_environment("DRONE_NO_RECORD", _saved_no_record)
 	else:

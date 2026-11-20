@@ -53,6 +53,8 @@ func _ready() -> void:
 func _needs_clean_sharpen() -> bool:
 	if DisplayServer.get_name() == "headless" or OS.has_environment("DRONE_NO_SHARPEN"):
 		return false
+	if QualityManager.get_active_level() == QualityManager.Level.LOW:
+		return false
 	var vp := get_viewport()
 	var s3d := clampf(vp.scaling_3d_scale, 0.25, 1.0) if vp != null else 1.0
 	return s3d < 0.95
