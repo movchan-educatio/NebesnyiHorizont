@@ -9549,6 +9549,43 @@ func _refresh_model_visibility() -> void:
 		if pivot is Node3D:
 			(pivot as Node3D).visible = third_person or bool(
 					preset_now.get("fpv_show_airframe", false))
+	# 3" cinewhoop: у FPV ховаємо центральний корпус — лишаємо дути,
+	# передні мотори й пофарбовані лопаті (корпус закривав би кадр).
+	if not third_person and bool(preset_now.get("fpv_hide_chassis", false)):
+		_uman_hide_chassis()
+
+
+## Для 3" cinewhoop лишаємо в FPV тільки передні дути/мотори/гвинти.
+func _uman_hide_chassis() -> void:
+	var root := _model_root
+	if root == null or not is_instance_valid(root):
+		return
+	var keep_nodes: Array[Node] = []
+	for p in get_tree().get_nodes_in_group("drone_prop_pivot"):
+		if p is Node3D and root.is_ancestor_of(p):
+			var nm := String(p.name)
+			if nm.contains("FL") or nm.contains("FR"):
+				keep_nodes.append(p)
+	for mi in _uman_all_meshes(root):
+		var keep := false
+		var mn := String(mi.name).to_lower()
+		if mn.contains("_duct"):
+			keep = true
+		for kp in keep_nodes:
+			if kp.is_ancestor_of(mi):
+				keep = true
+				break
+		if not keep:
+			mi.visible = false
+
+
+func _uman_all_meshes(node: Node) -> Array:
+	var out: Array = []
+	if node is MeshInstance3D:
+		out.append(node)
+	for c in node.get_children():
+		out.append_array(_uman_all_meshes(c))
+	return out
 
 
 ## The mobile HUD is customized and persisted by the player. Loading a level

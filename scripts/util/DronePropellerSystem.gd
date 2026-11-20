@@ -77,6 +77,9 @@ static func setup_propellers(model: Node3D, preset_index: int, prop_d: float = 5
 				return res
 
 	var pivots: Array[Node3D] = []
+	# Уманські фрістайл-дрони мають власні деталізовані гвинти з хрестиком —
+	# не підміняємо їх загальними prop_pN з drone_parts.glb.
+	var keep_native := bool(DroneCatalog.preset(preset_index).get("keep_native_props", false))
 
 	var p := DroneCatalog.preset(preset_index)
 
@@ -151,13 +154,19 @@ static func setup_propellers(model: Node3D, preset_index: int, prop_d: float = 5
 		var spin_rot := Vector3.ZERO
 		if prop_node != null:
 			spin_rot = _flat_rotation(prop_node)
-			if _parts_available():
+			if keep_native:
+				# Рідні гвинти вже в метрах/Y-up — лише легка нормалізація розміру.
+				_normalise_prop_size(prop_node, prop_d)
+				_apply_prop_tint(prop_node, preset_index)
+			elif _parts_available():
 				_replace_prop(prop_node, preset_index, prop_d, blades, spin_rot)
 			else:
 				_normalise_prop_size(prop_node, prop_d)
 				_apply_prop_tint(prop_node, preset_index)
 		if motor_node != null:
-			if _parts_available():
+			if keep_native:
+				_apply_motor_tint(motor_node, prop_node, preset_index)
+			elif _parts_available():
 				_replace_motor(motor_node, prop_node, preset_index, spin_rot)
 			else:
 				_apply_motor_tint(motor_node, prop_node, preset_index)
@@ -401,7 +410,13 @@ static func _normalise_prop_size(prop_node: Node3D, prop_d: float) -> void:
 	var box := AABB()
 	var first := true
 	for mi in _prop_meshes(prop_node):
-		var xf := prop_node.global_transform.affine_inverse() * mi.global_transform
+		# Прев'ю-моделі можуть ще не бути в дереві — global_transform тоді
+		# повертає матрицю за замовчуванням і Godot друкує помилку.
+		var xf: Transform3D
+		if prop_node.is_inside_tree() and mi.is_inside_tree():
+			xf = prop_node.global_transform.affine_inverse() * mi.global_transform
+		else:
+			xf = prop_node.transform.affine_inverse() * mi.transform
 		var b: AABB = xf * mi.get_aabb()
 		box = b if first else box.merge(b)
 		first = false

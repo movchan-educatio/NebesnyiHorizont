@@ -11,7 +11,7 @@ func _ready() -> void:
 	
 	var vp := get_viewport()
 	
-	for idx in range(10): # 0 to 9
+	for idx in range(DroneCatalog.count()): # 0 to N
 		Global.drone_preset = idx
 		main_menu._selected_drone = idx
 		main_menu._load_drone_model()

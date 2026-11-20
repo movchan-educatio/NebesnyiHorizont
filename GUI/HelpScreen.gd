@@ -119,7 +119,7 @@ const MODES_TEXT := """[b]БОЙОВІ МІСІЇ (КАМПАНІЯ 1–4)[/b]
 Асистент підказує перегазовку, втрату горизонту, VRS і бічний знос.
 Пульт: B — повторити модуль, Start — довідка.
 
-[b]ТРЕНУВАННЯ / ВІЛЬНИЙ ПОЛІТ[/b]
+[b]ФРІСТАЙЛ / ВІЛЬНИЙ ПОЛІТ[/b]
 4 карти без супротивника: село, промзона, степ, плавні. Практика стіків, воріт, низьких прольотів і посадок.
 
 [b]ЗЛІТ[/b]
@@ -346,10 +346,10 @@ func _launch_tutorial() -> void:
 	# Same persistent loading card as the main menu, including the authored
 	# battlefield photograph, so the tutorial does not flash a black screen.
 	var overlay: Dictionary = LoadingScreen.build(Global.PlayMode.TUTORIAL, 0,
-			"village", Global.get_difficulty_name(), false)
+			"industrial", Global.get_difficulty_name(), false)
 	get_tree().root.add_child.call_deferred(overlay["layer"])
 	await get_tree().process_frame
-	get_tree().change_scene_to_file("res://sceneries/VillageLevel.tscn")
+	get_tree().change_scene_to_file("res://sceneries/IndustrialLevel.tscn")
 
 
 func _go_back() -> void:

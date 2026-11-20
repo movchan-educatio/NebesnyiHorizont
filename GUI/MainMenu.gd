@@ -8,16 +8,14 @@ extends Control
 const LEVEL := "res://sceneries/BigLevel.tscn"
 const FRONTLINE_LEVELS := {
 	"valley": "res://sceneries/BigLevel.tscn",
-	"steppe": "res://sceneries/SteppeLevel.tscn",
-	"village": "res://sceneries/VillageLevel.tscn",
 	"industrial": "res://sceneries/IndustrialLevel.tscn",
 	"wetlands": "res://sceneries/WetlandsLevel.tscn",
 	"airport": "res://sceneries/AirportLevel.tscn",
+	"uman": "res://sceneries/UmanLevel.tscn",
 }
-## The old valley/BigLevel scene is the legacy test range.  It stays in
-## FRONTLINE_LEVELS because TAC-05 (the naval mission) still uses it, but it is
-## never offered as a normal map: only the four finished frontline maps are.
-const SELECTABLE_MAPS := ["steppe", "village", "industrial", "wetlands", "airport"]
+## Steppe і Village видалені з гри. Умань — фрістайл-карта, доступна тільки
+## з трьома власними дронами (див. DroneCatalog.allowed_for_map).
+const SELECTABLE_MAPS := ["uman", "industrial", "wetlands", "airport"]
 const SPECIAL_MISSIONS := [
 	{"id": 1, "code": "REC-01", "name": "Розвідка", "name_en": "Reconnaissance", "desc": "Пройти 3 зони спостереження", "desc_en": "Survey all three observation zones.", "diff": "Легка", "diff_en": "Easy", "col": Color("79a58a")},
 	{"id": 2, "code": "ESC-02", "name": "Супровід", "name_en": "Convoy Escort", "desc": "Провести дружню колону", "desc_en": "Escort the friendly convoy to its destination.", "diff": "Середня", "diff_en": "Medium", "col": Color("e2c276")},
@@ -47,7 +45,7 @@ const LocScript = preload("res://scripts/util/localization_manager.gd")
 # Selection state
 var _selected_mode: int = Global.PlayMode.TUTORIAL
 var _selected_mission: int = 1
-var _selected_map := "village"
+var _selected_map := "uman"
 
 # UI Element references for live updates
 var _mode_buttons: Dictionary = {}
@@ -55,6 +53,8 @@ var _map_buttons: Dictionary = {}
 var _mission_buttons: Dictionary = {}
 var _mission_code_labels: Dictionary = {}
 var _special_mission_btns: Dictionary = {}
+var _combat_section: Control = null
+var _special_section: Control = null
 var _selected_special := 0
 var _quick_diff_btns: Dictionary = {}
 var _quick_diff_lbl: Label = null
@@ -502,9 +502,9 @@ func _ready() -> void:
 			int(Global.menu_settings.get("selected_mode", Global.play_mode)))
 	Global.play_mode = _selected_mode
 	_selected_mission = clampi(int(Global.menu_settings.get("selected_mission", 1)), 1, 5)
-	_selected_map = str(Global.menu_settings.get("selected_map", "village"))
+	_selected_map = str(Global.menu_settings.get("selected_map", "uman"))
 	if not SELECTABLE_MAPS.has(_selected_map):
-		_selected_map = "village"
+		_selected_map = "uman"
 	_selected_special = int(Global.menu_settings.get("selected_special", 0))
 	if _selected_special < 1 or _selected_special > SPECIAL_MISSIONS.size():
 		_selected_special = 0
@@ -526,6 +526,17 @@ func _ready() -> void:
 	if _selected_mode == Global.PlayMode.COMBAT and not OS.has_environment("DRONE_COMBAT_MISSION"):
 		_selected_mission = mini(_selected_mission, Global.campaign_unlocked_mission())
 	_selected_mission = clampi(_selected_mission, 1, 4)
+	# Фінальна охорона: Умань не може відкритися в бойовому режимі або зі звичайним дроном.
+	if _selected_map == "uman":
+		_selected_mode = Global.PlayMode.TRAINING
+		Global.play_mode = Global.PlayMode.TRAINING
+		Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
+		_selected_special = 0
+		Global.special_mission = 0
+		if not DroneCatalog.is_uman(Global.drone_preset):
+			DroneCatalog.apply(DroneCatalog.first_for_map("uman"))
+	elif DroneCatalog.is_uman(Global.drone_preset):
+		DroneCatalog.apply(0)
 	_build()
 	_update_selection_ui()
 	MenuUI.localize_tree(self)
@@ -537,7 +548,7 @@ func _ready() -> void:
 
 func _qa_loading_test() -> void:
 	await get_tree().create_timer(1.0).timeout
-	_begin_loading("res://sceneries/VillageLevel.tscn")
+	_begin_loading("res://sceneries/IndustrialLevel.tscn")
 
 
 func _qa_cycle_to_preset() -> void:
@@ -608,7 +619,7 @@ func _build() -> void:
 
 	var tut_star: String = " ★" if Global.is_tutorial_completed() else ""
 	var tut_btn := _build_mode_btn("🎓 Туторіал" + tut_star, "🎓 Tutorial" + tut_star, "10 модулів", "10 modules", Global.PlayMode.TUTORIAL)
-	var train_btn := _build_mode_btn("🌲 Тренування", "🌲 Training", "Полігон + траса", "Range + course", Global.PlayMode.TRAINING)
+	var train_btn := _build_mode_btn("🌲 Фрістайл", "🌲 Freestyle", "Полігон + траса", "Range + course", Global.PlayMode.TRAINING)
 	var combat_mode_btn := _build_mode_btn("⚔️ Бойовий", "⚔️ Combat", "4 місії + 9 СО", "4 missions + 9 ops", Global.PlayMode.COMBAT)
 	mode_grid.add_child(tut_btn)
 	mode_grid.add_child(train_btn)
@@ -627,8 +638,7 @@ func _build() -> void:
 	map_row.add_theme_constant_override("separation", 4)
 	left_box.add_child(map_row)
 	var map_defs := [
-		{"id": "steppe", "uk": "Посадки", "en": "Steppe"},
-		{"id": "village", "uk": "Село", "en": "Village"},
+		{"id": "uman", "uk": "Умань", "en": "Uman"},
 		{"id": "industrial", "uk": "Промзона", "en": "Industry"},
 		{"id": "wetlands", "uk": "Плавні", "en": "Wetlands"},
 		{"id": "airport", "uk": "Аеропорт", "en": "Airport"},
@@ -646,7 +656,8 @@ func _build() -> void:
 		_map_buttons[str(md["id"])] = map_btn
 
 	# Combat missions
-	left_box.add_child(MenuUI.feel_section("Бойові завдання"))
+	_combat_section = MenuUI.feel_section("Бойові завдання")
+	left_box.add_child(_combat_section)
 	var m_defs := [
 		{"id": 1, "code": "TAC-01", "name": "1. Піхота в окопах", "desc": "Виявлення та ліквідація живої сили", "diff": "Легка", "col": MenuUI.FPV_GREEN},
 		{"id": 2, "code": "TAC-02", "name": "2. Колона бронетехніки", "desc": "Ураження танка Т-72Б та БТР-82А", "diff": "Середня", "col": MenuUI.FPV_AMBER},
@@ -660,7 +671,8 @@ func _build() -> void:
 
 	# Standalone special operations.  They reuse the combat sandbox but have
 	# their own objectives and do not touch campaign stars/records.
-	left_box.add_child(MenuUI.feel_section("Спецоперації"))
+	_special_section = MenuUI.feel_section("Спецоперації")
+	left_box.add_child(_special_section)
 	var special_hint := MenuUI.body(
 			"Окремі вильоти поза кампанією: розвідка, супровід, евакуація, доставка, нічний удар, прорив РЕБ, тилова колона, «Орешник» і глибокий тил.",
 			11, MenuUI.FPV_MUTED)
@@ -1093,6 +1105,9 @@ func _special_mission_def(mission_id: int) -> Dictionary:
 
 func _select_mode(mode: int) -> void:
 	mode = Global.sanitize_play_mode(mode)
+	# Умань — виключно фрістайл: бойові режими й туторіал тут недоступні.
+	if _selected_map == "uman" and mode != Global.PlayMode.TRAINING:
+		mode = Global.PlayMode.TRAINING
 	_selected_mode = mode
 	Global.play_mode = mode
 	_selected_special = 0
@@ -1106,6 +1121,8 @@ func _select_mode(mode: int) -> void:
 
 
 func _select_mission(m_id: int) -> void:
+	if _selected_map == "uman":
+		return
 	m_id = clampi(m_id, 1, 4)
 	if not Global.is_mission_unlocked(m_id):
 		_update_selection_ui()
@@ -1123,6 +1140,8 @@ func _select_mission(m_id: int) -> void:
 
 
 func _select_special_mission(mission_id: int) -> void:
+	if _selected_map == "uman":
+		return
 	if mission_id < 1 or mission_id > SPECIAL_MISSIONS.size():
 		return
 	_selected_mode = Global.PlayMode.COMBAT
@@ -1140,6 +1159,8 @@ func _select_special_mission(mission_id: int) -> void:
 
 
 func _continue_campaign() -> void:
+	if _selected_map == "uman":
+		return
 	# Continue at the first incomplete mission.  The briefing opens first, so
 	# the player still chooses difficulty and sees the objectives.
 	_selected_mode = Global.PlayMode.COMBAT
@@ -1162,6 +1183,19 @@ func _select_map(map_id: String) -> void:
 		return
 	_selected_map = map_id
 	Global.menu_settings["selected_map"] = map_id
+	# Умань — тільки фрістайл і тільки власні дрони; інші карти — навпаки.
+	if map_id == "uman":
+		_selected_mode = Global.PlayMode.TRAINING
+		Global.play_mode = Global.PlayMode.TRAINING
+		Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
+		Global.special_mission = 0
+		Global.menu_settings["selected_special"] = 0
+		if not DroneCatalog.is_uman(Global.drone_preset):
+			DroneCatalog.apply(DroneCatalog.first_for_map("uman"))
+			_load_drone_model()
+	elif DroneCatalog.is_uman(Global.drone_preset):
+		DroneCatalog.apply(0)
+		_load_drone_model()
 	Global.save_menu_settings()
 	for key in _map_buttons.keys():
 		var b: Button = _map_buttons[key]
@@ -1303,10 +1337,10 @@ func _update_selection_ui() -> void:
 		if bool(trec.get("completed", false)):
 			var s_str := "★".repeat(int(trec.get("stars", 1)))
 			rank_info = ("  •  COURSE BEST: %.1fs %s [%s]" if is_en else "  •  РЕКОРД ТРАСИ: %.1f с %s [%s]") % [float(trec.get("best_time", 0.0)), s_str, str(trec.get("rank", trec.get("best_rank", "B")))]
-		_map_title_lbl.text = "TRAINING · PROVING GROUND & COURSE" if is_en else "ТРЕНУВАННЯ · ПОЛІГОН ТА ТРАСА"
-		_map_obj_lbl.text = "Free flight training, stick calibration, checkpoint course timer and Ghost replay." if is_en else "Вільний політ, калібрування стіків, тренувальна траса на час і політ із Привидом."
+		_map_title_lbl.text = ("UMAN · FREESTYLE" if is_en else "УМАНЬ · ФРІСТАЙЛ") if _selected_map == "uman" else ("FREESTYLE · PROVING GROUND & COURSE" if is_en else "ФРІСТАЙЛ · ПОЛІГОН ТА ТРАСА")
+		_map_obj_lbl.text = ("Freestyle flight over Sofiyivka and the waterfront, three dedicated drones, no combat." if is_en else "Фрістайл над Софіївкою та набережною, три власні дрони, без бою.") if _selected_map == "uman" else ("Free freestyle flight, stick calibration, checkpoint course timer and Ghost replay." if is_en else "Вільний фрістайл, калібрування стіків, тренувальна траса на час і політ із Привидом.")
 		_map_stats_lbl.text = ("TIME LIMIT: UNLIMITED  •  DAMAGE: DISABLED" if is_en else "ЧАС: БЕЗЛІМІТ  •  ПОШКОДЖЕННЯ: ВИМКНЕНО") + rank_info
-		_launch_btn.text = "▶  START TRAINING" if is_en else "▶  ПОЧАТИ ТРЕНУВАННЯ"
+		_launch_btn.text = "▶  START FREESTYLE" if is_en else "▶  ПОЧАТИ ФРІСТАЙЛ"
 	elif _selected_special > 0:
 		var sdef := _special_mission_def(_selected_special)
 		var s_name := str(sdef.get("name", "СПЕЦОПЕРАЦІЯ"))
@@ -1347,7 +1381,7 @@ func _update_selection_ui() -> void:
 			Global.PlayMode.TUTORIAL:
 				_launch_btn.text = "▶  START TUTORIAL" if is_en else "▶  ПОЧАТИ ТУТОРІАЛ"
 			Global.PlayMode.TRAINING:
-				_launch_btn.text = "▶  START TRAINING" if is_en else "▶  ПОЧАТИ ТРЕНУВАННЯ"
+				_launch_btn.text = "▶  START FREESTYLE" if is_en else "▶  ПОЧАТИ ФРІСТАЙЛ"
 			_:
 				if _selected_special > 0:
 					_launch_btn.text = ("▶  START SPECIAL OP: %s" if is_en else "▶  ПОЧАТИ СПЕЦОПЕРАЦІЮ: %s") \
@@ -1379,6 +1413,22 @@ func _update_selection_ui() -> void:
 	if _foot_status_lbl != null:
 		_foot_status_lbl.text = "NEBESNYI HORIZONT · TACTICAL FPV SIMULATOR · v1.19.0" if is_en else "НЕБЕСНИЙ ГОРИЗОНТ · ТАКТИЧНИЙ FPV-СИМУЛЯТОР · v1.19.0"
 
+	# На фрістайл-карті Умань бойових місій і спецоперацій не існує.
+	var hide_combat_ui := _selected_map == "uman"
+	if _combat_section != null:
+		_combat_section.visible = not hide_combat_ui
+	if _special_section != null:
+		_special_section.visible = not hide_combat_ui
+	for b in _mission_buttons.values():
+		if b is Control:
+			(b as Control).visible = not hide_combat_ui
+	for b in _special_mission_btns.values():
+		if b is Control:
+			(b as Control).visible = not hide_combat_ui
+	for mode_key in [_mode_buttons, _ribbon_buttons]:
+		var combat_btn: Variant = mode_key.get(Global.PlayMode.COMBAT)
+		if combat_btn is Control:
+			(combat_btn as Control).visible = not hide_combat_ui
 	if _quick_diff_container != null:
 		_quick_diff_container.visible = (_selected_mode == Global.PlayMode.COMBAT)
 	if _briefing_btn != null:
@@ -1643,13 +1693,20 @@ func _update_diff_buttons() -> void:
 
 func _launch_current_selection(combat_training: bool = false) -> void:
 	Global.combat_training = combat_training
+	# Умань — тільки фрістайл на трьох власних дронах.
+	if _selected_map == "uman":
+		_selected_mode = Global.PlayMode.TRAINING
+		Global.special_mission = 0
+		Global.combat_training = false
+		if not DroneCatalog.is_uman(Global.drone_preset):
+			DroneCatalog.apply(DroneCatalog.first_for_map("uman"))
 	Global.play_mode = _selected_mode
-	if combat_training:
-		# Three-step first-strike training: village north field, combat-ready
+	if combat_training and _selected_map != "uman":
+		# Three-step first-strike training: industrial proving ground, combat-ready
 		# dropper, no campaign records and no freestyle ring course.
 		Global.play_mode = Global.PlayMode.TRAINING
 		_selected_mode = Global.PlayMode.TRAINING
-		_selected_map = "village"
+		_selected_map = "industrial"
 		Global.special_mission = 0
 		QuadSettings.custom_rates = false
 		DroneCatalog.apply(1)
@@ -1676,7 +1733,7 @@ func _launch_current_selection(combat_training: bool = false) -> void:
 	# village map; the selected combat map must not move the course into water
 	# or a forest.  The combat map choice itself is left untouched.
 	if _selected_mode == Global.PlayMode.TUTORIAL and map_id != "airport":
-		scene_path = FRONTLINE_LEVELS["village"]
+		scene_path = FRONTLINE_LEVELS["industrial"]
 	Global.menu_settings["selected_map"] = map_id
 	Global.menu_settings["selected_mode"] = _selected_mode
 	Global.menu_settings["selected_mission"] = _selected_mission
@@ -2045,10 +2102,14 @@ func _build_drone_intel_card() -> Control:
 
 
 func _cycle_drone(dir: int) -> void:
-	var total := DroneCatalog.count()
-	if total <= 0:
+	var allowed := DroneCatalog.allowed_for_map(_selected_map)
+	if allowed.is_empty():
 		return
-	var new_idx := (Global.drone_preset + dir + total) % total
+	var pos := allowed.find(Global.drone_preset)
+	if pos < 0:
+		pos = 0
+		DroneCatalog.apply(allowed[0])
+	var new_idx := allowed[(pos + dir + allowed.size()) % allowed.size()]
 	if _selected_mode == Global.PlayMode.COMBAT \
 			and not DroneCatalog.is_combat(new_idx):
 		_selected_mode = Global.PlayMode.TRAINING
@@ -2504,7 +2565,7 @@ func _build_ufds_ribbon() -> Control:
 
 	var tabs := [
 		{"key": Global.PlayMode.TUTORIAL, "icon": "🎓", "title": "Туторіал", "en": "Tutorial", "action": func(): _select_mode(Global.PlayMode.TUTORIAL)},
-		{"key": Global.PlayMode.TRAINING, "icon": "🌲", "title": "Тренування", "en": "Training", "action": func(): _select_mode(Global.PlayMode.TRAINING)},
+		{"key": Global.PlayMode.TRAINING, "icon": "🌲", "title": "Фрістайл", "en": "Freestyle", "action": func(): _select_mode(Global.PlayMode.TRAINING)},
 		{"key": Global.PlayMode.COMBAT, "icon": "⚔️", "title": "Бойовий", "en": "Combat", "action": func(): _select_mode(Global.PlayMode.COMBAT)},
 		{"key": "hangar", "icon": "🛸", "title": "Ангар", "en": "Fleet Hangar", "action": func(): _go(DRONE_SCREEN)},
 		{"key": "calibration", "icon": "🕹️", "title": "Калібрування", "en": "RC Calibration", "action": func(): _go(CALIBRATION_SCREEN)},
@@ -2632,7 +2693,7 @@ func _begin_loading(path: String) -> void:
 	_loading_done = false
 	Audio.stop_menu_music(0.6)
 	var overlay: Dictionary = LoadingScreen.build(_selected_mode, _selected_mission,
-			str(Global.menu_settings.get("selected_map", "steppe")),
+			str(Global.menu_settings.get("selected_map", "uman")),
 			Global.get_difficulty_name(), true)
 	_loading_layer = overlay["layer"] as CanvasLayer
 	_loading_bar = overlay["bar"] as ProgressBar

@@ -30,7 +30,7 @@ func _ready() -> void:
 	
 	var vp := get_viewport()
 	
-	for idx in range(10): # Presets 0 through 9
+	for idx in range(DroneCatalog.count()): # Presets 0 through N
 		var p_info = DroneCatalog.preset(idx)
 		var p_name = str(p_info.get("name", "drone"))
 		print("Rendering preset %d: %s" % [idx, p_name])

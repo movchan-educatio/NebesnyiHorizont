@@ -333,6 +333,88 @@ const PRESETS := [
 		"model_size": 1.65, "model_fit": false,
 		"fpv_cam_pos": Vector3(0.0, 0.06, -0.78), "fpv_cam_pitch": -5.0,
 	},
+	# --- Фрістайл-дрони ТІЛЬКИ для карти Умань ---------------------------------
+	# Моделі з Assets/UmanFPV (оригінальні, CC0-безпечні для App Store).
+	# combat:false + uman_only:true — жодних бойових режимів і місій.
+	# fpv_show_airframe:true + зсув камери назад — у польоті видно обертові гвинти.
+	{
+		"id": "freestyle_3", "parts_profile": 0, "audio_kind": 0,
+		"prop_tint": Color(0.07, 0.09, 0.09),
+		"motor_tint": Color(0.12, 0.14, 0.16),
+		"body_prop_tint": Color(0.10, 0.12, 0.12),
+		"name": "«ДЖМІЛЬ-3»", "name_en": "BUMBLE-3",
+		"tag": "ФРІСТАЙЛ 3\" CINEWHOOP", "tag_en": "FREESTYLE 3\" CINEWHOOP",
+		"desc": "Компактний 3\" cinewhoop з захисними кільцями",
+		"desc_en": "Compact 3\" cinewhoop with ducted prop guards",
+		"info": "Малий захищений квадрокоптер для польотів у паркових зонах Умані. Легкий, тихий і маневрений; передні гвинти видно в камері завдяки зміщеній рамі.",
+		"info_en": "Small ducted quad for flying through Uman's park areas. Light, quiet and agile; front propellers stay visible in the FPV view.",
+		"dry": 0.18, "batt": 0.10, "kv": 14000, "torque": 420.0, "rpm": 42000.0,
+		"prop_d": 3.0, "prop_p": 3.0, "blades": 3, "rate": 1000, "motor_size": 1104,
+		"payload": 0, "payload_mass": 0.0, "combat": false, "has_drop": false,
+		"kamikaze": false, "twr": 7.0,
+		"battery_chemistry": 1, "battery_mah": 1300.0,
+		"battery_resistance": 0.045, "battery_max_current": 60.0,
+		"cog_offset": Vector3(0.0, 0.005, 0.0),
+		"dimensions": Vector3(0.147, 0.06, 0.147),
+		"drag_area": Vector3(0.008, 0.009, 0.005),
+		"model": "res://Assets/UmanFPV/drones/Uman_Freestyle_3.glb",
+		"model_size": 0.147, "model_fit": false,
+		"fpv_cam_pos": Vector3(0.0, 0.11, -0.02), "fpv_cam_pitch": -16.0,
+		"fpv_show_airframe": true, "fpv_hide_chassis": true,
+		"keep_native_props": true, "uman_only": true,
+	},
+	{
+		"id": "freestyle_5", "parts_profile": 9, "audio_kind": 0,
+		"prop_tint": Color(0.10, 0.48, 0.24),
+		"motor_tint": Color(0.10, 0.18, 0.12),
+		"body_prop_tint": Color(0.20, 0.22, 0.24),
+		"name": "«СОКІЛ-5»", "name_en": "FALCON-5",
+		"tag": "ФРІСТАЙЛ 5\"", "tag_en": "FREESTYLE 5\"",
+		"desc": "Класичний 5\" freestyle, клітка камери",
+		"desc_en": "Classic 5\" freestyle quad with a camera cage",
+		"info": "Універсальний фрістайл-квадрокоптер із відкритими гвинтами. Оптимальний для трюків на набережній і в парку: чутливі стіки, виразний шум моторів і видимі обертові пропелери.",
+		"info_en": "Versatile freestyle quad with exposed props. Ideal for tricks along the waterfront and in the park: crisp sticks, strong motor sound and clearly visible spinning propellers.",
+		"dry": 0.38, "batt": 0.24, "kv": 2450, "torque": 1450.0, "rpm": 34000.0,
+		"prop_d": 5.0, "prop_p": 4.5, "blades": 4, "rate": 850, "motor_size": 2207,
+		"payload": 0, "payload_mass": 0.0, "combat": false, "has_drop": false,
+		"kamikaze": false, "twr": 6.5,
+		"battery_chemistry": 1, "battery_mah": 1500.0,
+		"battery_resistance": 0.035, "battery_max_current": 100.0,
+		"cog_offset": Vector3(0.0, 0.008, 0.0),
+		"dimensions": Vector3(0.22, 0.09, 0.22),
+		"drag_area": Vector3(0.012, 0.014, 0.006),
+		"model": "res://Assets/UmanFPV/drones/Uman_Freestyle_5.glb",
+		"model_size": 0.22, "model_fit": false,
+		"fpv_cam_pos": Vector3(0.0, 0.12, -0.03), "fpv_cam_pitch": -16.0,
+		"fpv_show_airframe": true,
+		"keep_native_props": true, "uman_only": true,
+	},
+	{
+		"id": "freestyle_7", "parts_profile": 6, "audio_kind": 0,
+		"prop_tint": Color(0.17, 0.18, 0.20),
+		"motor_tint": Color(0.14, 0.15, 0.17),
+		"body_prop_tint": Color(0.22, 0.24, 0.26),
+		"name": "«БУРЕВІЙ-7»", "name_en": "TEMPEST-7",
+		"tag": "ФРІСТАЙЛ 7\" LONG RANGE", "tag_en": "FREESTYLE 7\" LONG RANGE",
+		"desc": "Розтягнутий 7\" long-range freestyle",
+		"desc_en": "Stretched 7\" long-range freestyle quad",
+		"info": "Далекобійний фрістайл-квад із розтягнутою рамою. Стабільний на швидкості, добре тримає траєкторію навколо фонтанів і мостів; гвинти залишаються в полі зору камери.",
+		"info_en": "Long-range stretched freestyle quad. Stable at speed and precise around the fountains and bridges; propellers remain visible in the camera view.",
+		"dry": 0.75, "batt": 0.40, "kv": 1750, "torque": 2400.0, "rpm": 28000.0,
+		"prop_d": 7.0, "prop_p": 5.0, "blades": 3, "rate": 650, "motor_size": 2806,
+		"payload": 0, "payload_mass": 0.0, "combat": false, "has_drop": false,
+		"kamikaze": false, "twr": 5.0,
+		"battery_chemistry": 1, "battery_mah": 3000.0,
+		"battery_resistance": 0.028, "battery_max_current": 120.0,
+		"cog_offset": Vector3(0.0, 0.01, 0.0),
+		"dimensions": Vector3(0.31, 0.10, 0.34),
+		"drag_area": Vector3(0.018, 0.020, 0.009),
+		"model": "res://Assets/UmanFPV/drones/Uman_Freestyle_7.glb",
+		"model_size": 0.31, "model_fit": false,
+		"fpv_cam_pos": Vector3(0.0, 0.17, -0.042), "fpv_cam_pitch": -16.0,
+		"fpv_show_airframe": true,
+		"keep_native_props": true, "uman_only": true,
+	},
 ]
 
 
@@ -409,6 +491,29 @@ func get_drone_drop_name(index: int) -> String:
 func is_combat(index: int) -> bool:
 	var p := preset(index)
 	return bool(p.get("combat", false))
+
+
+## Фрістайл-дрони, які існують ТІЛЬКИ для карти Умань.
+func is_uman(index: int) -> bool:
+	var p := preset(index)
+	return bool(p.get("uman_only", false))
+
+
+## Список індексів, доступних для конкретної карти.
+## На Умані — тільки три фрістайл-дрони; на інших картах — усі звичайні.
+func allowed_for_map(map_id: String) -> Array[int]:
+	var out: Array[int] = []
+	var uman := map_id == "uman"
+	for i in range(count()):
+		if is_uman(i) == uman:
+			out.append(i)
+	return out
+
+
+## Перший дрон, дозволений на карті (використовується при зміні карти).
+func first_for_map(map_id: String) -> int:
+	var ids := allowed_for_map(map_id)
+	return ids[0] if not ids.is_empty() else 0
 
 
 ## Combat-ready payload activation: detachable stores and integrated kamikaze

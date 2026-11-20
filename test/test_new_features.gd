@@ -50,11 +50,13 @@ func _ready() -> void:
 		lm.take_damage(999999.0, (lm as Node3D).global_position)
 		await get_tree().process_frame
 		print("[NEW] landmark_destroyed=", lm.get("is_destroyed") == true)
-	var all_combat := DroneCatalog.count() == 10
-	for ci in range(DroneCatalog.count()):
+	var all_combat := DroneCatalog.count() >= 13
+	for ci in range(10):
 		all_combat = all_combat and DroneCatalog.is_combat(ci)
+	for ci in range(10, DroneCatalog.count()):
+		all_combat = all_combat and DroneCatalog.is_uman(ci) and not DroneCatalog.is_combat(ci)
 	assert(all_combat and DroneCatalog.first_combat_index() == 0,
-			"Fleet must contain exclusively 10 combat FPV drones")
+			"Fleet must contain 10 combat FPV drones + 3 Uman freestyle drones")
 	print("[NEW] combat_filter count=", DroneCatalog.count(),
 			" all_combat=", all_combat, " first=", DroneCatalog.first_combat_index())
 	get_tree().quit()

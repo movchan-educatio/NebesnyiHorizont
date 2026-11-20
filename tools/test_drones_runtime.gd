@@ -5,7 +5,7 @@ func _ready() -> void:
 	print("TESTING GODOT RUNTIME PROPELLERS FOR ALL PRESETS")
 	print("=================================================================")
 	
-	for idx in range(10): # 0 to 9
+	for idx in range(DroneCatalog.count()): # 0 to N
 		var p_info = DroneCatalog.preset(idx)
 		var d_name = str(p_info.get("name", "Unknown"))
 		var model_path = str(p_info.get("model", ""))

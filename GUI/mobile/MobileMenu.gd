@@ -34,15 +34,14 @@ var _bg_tex: Texture2D
 var _bg_blur_tex: Texture2D
 var _knob_tex: Texture2D
 const MAP_META := [
-	{"id": "steppe", "name": "СТЕП", "name_en": "STEPPE", "tag": "ВІДКРИТА МІСЦЕВІСТЬ", "tag_en": "OPEN TERRAIN", "diff": "ЛЕГКА", "diff_en": "EASY", "col": "79a58a"},
-	{"id": "village", "name": "СЕЛО", "name_en": "VILLAGE", "tag": "МІСЬКА ЗАБУДОВА", "tag_en": "BUILT-UP AREA", "diff": "СЕРЕДНЯ", "diff_en": "MEDIUM", "col": "e2c276"},
+	{"id": "uman", "name": "УМАНЬ", "name_en": "UMAN", "tag": "ФРІСТАЙЛ", "tag_en": "FREESTYLE", "diff": "ЛЕГКА", "diff_en": "EASY", "col": "79a58a"},
 	{"id": "industrial", "name": "ПРОМЗОНА", "name_en": "INDUSTRIAL ZONE", "tag": "ЗАВОДИ Й ТРУБИ", "tag_en": "FACTORY COMPLEX", "diff": "СКЛАДНА", "diff_en": "HARD", "col": "c96f67"},
 	{"id": "wetlands", "name": "БОЛОТА", "name_en": "WETLANDS", "tag": "ВОДА Й ОЧЕРЕТ", "tag_en": "WATER & REEDS", "diff": "СКЛАДНА", "diff_en": "HARD", "col": "79a58a"},
 	{"id": "airport", "name": "АЕРОПОРТ", "name_en": "AIRPORT", "tag": "ФРІСТАЙЛ", "tag_en": "FREESTYLE", "diff": "СЕРЕДНЯ", "diff_en": "MEDIUM", "col": "e2c276"},
 ]
 const MODE_META := [
 	{"id": 3, "name": "ТУТОРІАЛ", "name_en": "TUTORIAL"},
-	{"id": 0, "name": "ТРЕНУВАННЯ", "name_en": "TRAINING"},
+	{"id": 0, "name": "ФРІСТАЙЛ", "name_en": "FREESTYLE"},
 	{"id": 1, "name": "БОЙОВИЙ", "name_en": "COMBAT"},
 ]
 const RATE_AXES := [
@@ -93,12 +92,13 @@ var _hero_perf_bars: Dictionary = {}
 var _is_dragging_hero := false
 
 # --- Sortie Setup (Play) ---
-var _selected_map := "village"
+var _selected_map := "uman"
 var _selected_mode := Global.PlayMode.TUTORIAL
 var _selected_mission := 1
 var _selected_special := 0
 var _map_cards: Dictionary = {}
 var _maps_row: HBoxContainer = null
+var _play_modes_row: HBoxContainer = null
 var _mission_row: HBoxContainer = null
 var _mission_bar: ScrollContainer = null
 var _mission_buttons: Dictionary = {}
@@ -379,6 +379,24 @@ func _ready() -> void:
 		_selected_mode = Global.sanitize_play_mode(int(Global.menu_settings["selected_mode"]))
 	else:
 		_selected_mode = Global.sanitize_play_mode(Global.play_mode)
+	# Видалені карти (steppe/village) не можуть лишатися в старих конфігах.
+	var map_valid := false
+	for mp in MAP_META:
+		if str(mp["id"]) == _selected_map:
+			map_valid = true
+			break
+	if not map_valid:
+		_selected_map = "uman"
+	# Умань — тільки фрістайл і тільки три власні дрони.
+	if _selected_map == "uman":
+		_selected_mode = Global.PlayMode.TRAINING
+		Global.combat_training = false
+		_selected_special = 0
+		Global.special_mission = 0
+		if not DroneCatalog.is_uman(Global.drone_preset):
+			DroneCatalog.apply(DroneCatalog.first_for_map("uman"))
+	elif DroneCatalog.is_uman(Global.drone_preset):
+		DroneCatalog.apply(0)
 	if Global.menu_settings.has("selected_mission"):
 		_selected_mission = clampi(int(Global.menu_settings["selected_mission"]), 1, 4)
 	if Global.menu_settings.has("selected_special"):
@@ -1198,7 +1216,7 @@ func _build_main() -> void:
 				"ШВИДКИЙ СТАРТ: ТУТОРІАЛ" if not MenuUI.is_english() else "QUICK START: TUTORIAL",
 				true, func():
 					_selected_mode = Global.PlayMode.TUTORIAL
-					_selected_map = "village"
+					_selected_map = "industrial"
 					_launch()
 		)
 		left.add_child(quick_btn)
@@ -1214,7 +1232,7 @@ func _build_main() -> void:
 	left.add_child(_nav_button(MenuIcons.icon_trophy(MenuUI.WARN_AMBER),
 			ct_text, false, func():
 				_selected_mode = Global.PlayMode.TRAINING
-				_selected_map = "village"
+				_selected_map = "industrial"
 				_launch(true)
 	))
 
@@ -1578,27 +1596,28 @@ func _update_hero_drone_info(preset_idx: int) -> void:
 
 
 func _select_next_drone() -> void:
-	var total := DroneCatalog.count()
-	var next_idx := (Global.drone_preset + 1) % total
-	Global.drone_preset = next_idx
-	Global.menu_settings["drone_preset"] = next_idx
-	Global.save_menu_settings()
-	DroneCatalog.apply(next_idx)
-	DroneCatalog.prefetch_model((next_idx + 1) % total)
-	DroneCatalog.prefetch_model((next_idx - 1 + total) % total)
-	_load_hero_model(next_idx)
+	_uman_cycle_hero(1)
 
 
 func _select_prev_drone() -> void:
-	var total := DroneCatalog.count()
-	var prev_idx := (Global.drone_preset - 1 + total) % total
-	Global.drone_preset = prev_idx
-	Global.menu_settings["drone_preset"] = prev_idx
+	_uman_cycle_hero(-1)
+
+
+## Карусель на головному екрані показує тільки дрони, дозволені на поточній карті.
+func _uman_cycle_hero(dir: int) -> void:
+	var list := DroneCatalog.allowed_for_map(_selected_map)
+	if list.is_empty():
+		return
+	var total := list.size()
+	var pos := maxi(list.find(Global.drone_preset), 0)
+	var new_idx := list[(pos + dir + total) % total]
+	Global.drone_preset = new_idx
+	Global.menu_settings["drone_preset"] = new_idx
 	Global.save_menu_settings()
-	DroneCatalog.apply(prev_idx)
-	DroneCatalog.prefetch_model((prev_idx + 1) % total)
-	DroneCatalog.prefetch_model((prev_idx - 1 + total) % total)
-	_load_hero_model(prev_idx)
+	DroneCatalog.apply(new_idx)
+	DroneCatalog.prefetch_model(list[(pos + 1) % total])
+	DroneCatalog.prefetch_model(list[(pos - 1 + total) % total])
+	_load_hero_model(new_idx)
 
 
 func _on_hero_gui_input(event: InputEvent) -> void:
@@ -2174,7 +2193,7 @@ func _build_rates() -> void:
 	right_v.add_child(preset_row)
 
 	var presets: Array[Dictionary] = [
-		{"name": "🎓 ТРЕНУВАННЯ", "rate": 450.0, "expo": 0.30},
+		{"name": "🎓 ФРІСТАЙЛ", "rate": 450.0, "expo": 0.30},
 		{"name": "⚡ ФРІСТАЙЛ", "rate": 667.0, "expo": 0.20},
 		{"name": "🏁 ГОНКИ", "rate": 850.0, "expo": 0.15},
 		{"name": "🎬 КІНОДРОН", "rate": 350.0, "expo": 0.40},
@@ -2228,6 +2247,7 @@ func _build_play() -> void:
 	var modes_row := HBoxContainer.new()
 	modes_row.add_theme_constant_override("separation", _gap(8))
 	v.add_child(modes_row)
+	_play_modes_row = modes_row
 
 	var is_en := MenuUI.is_english()
 	for m in MODE_META:
@@ -2239,6 +2259,7 @@ func _build_play() -> void:
 		)
 		btn.set_meta("mode_id", int(m["id"]))
 		modes_row.add_child(btn)
+	_update_play_modes(modes_row)
 
 	var modes_spacer := Control.new()
 	modes_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -2398,10 +2419,23 @@ func _build_play() -> void:
 func _select_map(card_id: String, row: HBoxContainer = null) -> void:
 	_selected_map = card_id
 	Global.menu_settings["selected_map"] = _selected_map
+	# Умань — тільки фрістайл і тільки власні дрони; інші карти — звичайні.
+	if card_id == "uman":
+		_selected_mode = Global.PlayMode.TRAINING
+		Global.play_mode = Global.PlayMode.TRAINING
+		Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
+		_selected_special = 0
+		Global.special_mission = 0
+		if not DroneCatalog.is_uman(Global.drone_preset):
+			DroneCatalog.apply(DroneCatalog.first_for_map("uman"))
+	elif DroneCatalog.is_uman(Global.drone_preset):
+		DroneCatalog.apply(0)
 	Global.save_menu_settings()
 	var target_row: HBoxContainer = row if row != null else _maps_row
 	if target_row != null:
 		_update_map_cards(target_row)
+	if _play_modes_row != null:
+		_update_play_modes(_play_modes_row)
 
 
 func _apply_button_primary_style(btn: Button, primary: bool) -> void:
@@ -2874,6 +2908,11 @@ func _update_play_modes(row: HBoxContainer) -> void:
 	for c in row.get_children():
 		if c is Button and c.has_meta("mode_id"):
 			var mid := int(c.get_meta("mode_id", -1))
+			# На Умані доступний тільки фрістайл — бойовий/туторіал ховаємо.
+			if _selected_map == "uman":
+				c.visible = (mid == Global.PlayMode.TRAINING)
+			else:
+				c.visible = true
 			_apply_button_primary_style(c, mid == _selected_mode)
 	_refresh_mobile_mission_strip()
 	_update_play_caption()
@@ -2906,15 +2945,23 @@ func _update_map_cards(row: HBoxContainer) -> void:
 
 func _launch(combat_training: bool = false) -> void:
 	Global.combat_training = combat_training
-	if combat_training:
-		# Village north field + GRIM-7M (a combat airframe with a real payload
-		# release).  The guide replaces the freestyle ring course in BigLevel.
+	if combat_training and _selected_map != "uman":
+		# Industrial proving ground + GRIM-7M (a combat airframe with a real
+		# payload release).  The guide replaces the freestyle ring course.
 		_selected_mode = Global.PlayMode.TRAINING
-		_selected_map = "village"
+		_selected_map = "industrial"
 		_selected_special = 0
 		Global.special_mission = 0
 		QuadSettings.custom_rates = false
 		DroneCatalog.apply(1)
+	# Умань — тільки фрістайл і тільки три власні дрони.
+	if _selected_map == "uman":
+		_selected_mode = Global.PlayMode.TRAINING
+		Global.combat_training = false
+		_selected_special = 0
+		Global.special_mission = 0
+		if not DroneCatalog.is_uman(Global.drone_preset):
+			DroneCatalog.apply(DroneCatalog.first_for_map("uman"))
 	_selected_mode = Global.sanitize_play_mode(_selected_mode)
 	Global.play_mode = _selected_mode
 	if _selected_mode == Global.PlayMode.COMBAT:
@@ -2934,14 +2981,13 @@ func _launch(combat_training: bool = false) -> void:
 	Global.menu_settings["drone_preset"] = Global.drone_preset
 	Global.save_menu_settings()
 	var scenes := {
-		"steppe": "res://sceneries/SteppeLevel.tscn",
-		"village": "res://sceneries/VillageLevel.tscn",
 		"industrial": "res://sceneries/IndustrialLevel.tscn",
 		"wetlands": "res://sceneries/WetlandsLevel.tscn",
 		"airport": "res://sceneries/AirportLevel.tscn",
+		"uman": "res://sceneries/UmanLevel.tscn",
 	}
-	var launch_map := "village" if (_selected_mode == Global.PlayMode.TUTORIAL and _selected_map != "airport") else _selected_map
-	var path: String = scenes.get(launch_map, "res://sceneries/VillageLevel.tscn")
+	var launch_map := "industrial" if (_selected_mode == Global.PlayMode.TUTORIAL and _selected_map != "airport") else _selected_map
+	var path: String = scenes.get(launch_map, "res://sceneries/IndustrialLevel.tscn")
 
 	# Stop menu ambient / music
 	Audio.stop_menu_music(0.5)
@@ -3010,9 +3056,14 @@ func _build_drone() -> void:
 	_hangar_list_container.add_theme_constant_override("separation", _gap(6))
 	scroll.add_child(_hangar_list_container)
 
+	var allowed := DroneCatalog.allowed_for_map(_selected_map)
+	if allowed.is_empty():
+		allowed.append(0)
+	if allowed.find(Global.drone_preset) < 0:
+		DroneCatalog.apply(allowed[0])
 	_hangar_preview_idx = Global.drone_preset
 
-	for i in range(DroneCatalog.count()):
+	for i in allowed:
 		var btn := Button.new()
 		btn.custom_minimum_size = Vector2(0, _fs(58))
 		btn.focus_mode = Control.FOCUS_NONE
@@ -3052,9 +3103,11 @@ func _build_drone() -> void:
 			if _hangar_scroll_drag_dist > 12.0:
 				return
 			_hangar_preview_idx = cur_i
-			var total := DroneCatalog.count()
-			DroneCatalog.prefetch_model((cur_i + 1) % total)
-			DroneCatalog.prefetch_model((cur_i - 1 + total) % total)
+			var list := DroneCatalog.allowed_for_map(_selected_map)
+			var total := list.size()
+			var pos: int = maxi(list.find(cur_i), 0)
+			DroneCatalog.prefetch_model(list[(pos + 1) % total])
+			DroneCatalog.prefetch_model(list[(pos - 1 + total) % total])
 			_load_hangar_model(cur_i)
 			_update_hangar_list_styles()
 		)

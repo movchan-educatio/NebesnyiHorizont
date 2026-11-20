@@ -959,7 +959,7 @@ func _layout() -> void:
 	_drop_button.add_theme_stylebox_override("hover", drop_style)
 	_drop_button.add_theme_stylebox_override("pressed", drop_pressed)
 	_drop_button.visible = enabled and (touch_mode or _layout_editing) \
-			and (not _preview or _layout_editing)
+			and (not _preview or _layout_editing) and _payload_available()
 	if _drop_button_right != null:
 		var drop_r_default := Vector2(_right_anchor.x - _radius - 24.0 * scale - drop_size * 0.5,
 				_right_anchor.y - drop_size * 0.65)
@@ -1075,7 +1075,7 @@ func _update_mode_button() -> void:
 		_style_more_panel_buttons()
 	if _drop_button != null:
 		_drop_button.visible = enabled and (touch_mode or _layout_editing) \
-				and (not _preview or _layout_editing)
+				and (not _preview or _layout_editing) and _payload_available()
 		var action := _touch_payload_action()
 		var lbl_txt := _tx("БЧ", "WARHEAD") if action == "activate_payload" \
 				else _tx("СКИД", "DROP")
@@ -1164,21 +1164,24 @@ func _touch_payload_action() -> String:
 
 
 func _payload_available(action: String = "deploy_payload") -> bool:
+	# Фрістайл-дрони Умані не мають підвісу/БЧ — кнопка «СКИД» не потрібна.
+	if DroneCatalog.is_uman(Global.drone_preset):
+		return false
 	var scene := get_tree().current_scene
 	if scene == null:
 		return true
-	if bool(scene.get("_payload_dropped")):
+	if scene.get("_payload_dropped") == true:
 		return false
 	# Kamikaze/warhead drones carry an integrated charge rather than a
 	# detachable ammo count, so they must not be rejected by the drop-ammo HUD.
 	if action == "activate_payload":
 		var payload_enabled = scene.get("_payload_enabled")
-		return payload_enabled == null or bool(payload_enabled)
+		return payload_enabled == null or payload_enabled == true
 	if scene.has_method("_ammo_count"):
 		if int(scene.call("_ammo_count")) <= 0:
 			return false
 	var enabled = scene.get("_payload_enabled")
-	if enabled is bool and not bool(enabled):
+	if enabled == false:
 		return false
 	return true
 

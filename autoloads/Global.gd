@@ -93,7 +93,7 @@ const COMBAT_TIME_LIMIT := 1200.0
 ## Small set of menu-only preferences (haptics, defaults, ...).
 var menu_settings := {"haptics_enabled": true, "drone_preset": 0,
 		"selected_mode": PlayMode.TUTORIAL, "selected_mission": 1, "selected_special": 0,
-		"selected_map": "village", "difficulty": 1,
+		"selected_map": "uman", "difficulty": 1,
 		"radio_chatter_mode": 2,
 		"touch_floating_sticks": false, "touch_left_spring": false,
 		"touch_input_mode": "auto",
@@ -575,26 +575,15 @@ func get_daily_challenge() -> Dictionary:
 	var seed_idx := absi(y * 372 + m * 31 + day)
 	var pool := [
 		{
-			"id": "daily_steppe_course",
-			"map": "steppe",
+			"id": "daily_uman_freestyle",
+			"map": "uman",
 			"mode": PlayMode.TRAINING,
 			"mission": 1,
-			"bonus_score": 300,
-			"title_ua": "СТЕПОВИЙ СЛАЛОМ",
-			"title_en": "STEPPE SLALOM",
-			"desc_ua": "Пройдіть тренувальний маршрут у степу з рангом A або S",
-			"desc_en": "Complete the Steppe training circuit with Rank A or S",
-		},
-		{
-			"id": "daily_village_precision",
-			"map": "village",
-			"mode": PlayMode.COMBAT,
-			"mission": 1,
-			"bonus_score": 400,
-			"title_ua": "МІСЬКА ТОЧНІСТЬ",
-			"title_en": "URBAN PRECISION",
-			"desc_ua": "Виконайте тактичний виліт у забудові з високою точністю",
-			"desc_en": "Complete a tactical range sortie in the village sector",
+			"bonus_score": 350,
+			"title_ua": "УМАНСЬКИЙ ФРІСТАЙЛ",
+			"title_en": "UMAN FREESTYLE",
+			"desc_ua": "Пройдіть фрістайл-маршрут Умані з рангом A або S",
+			"desc_en": "Complete the Uman freestyle course with Rank A or S",
 		},
 		{
 			"id": "daily_industrial_gates",
@@ -734,7 +723,7 @@ func get_leaderboard_summary(is_en: bool = false) -> String:
 	var stars := campaign_stars_total()
 	for m_id in range(1, 5):
 		best_score = maxi(best_score, int(get_mission_record(m_id).get("best_score", 0)))
-	for map_id in ["steppe", "village", "industrial", "wetlands", "airport"]:
+	for map_id in ["uman", "industrial", "wetlands", "airport"]:
 		best_score = maxi(best_score, int(get_training_record(map_id).get("best_score", 0)))
 	var daily_streak := int(campaign_records.get("daily_challenge", {}).get("streak", 0))
 	if is_en:
@@ -791,7 +780,7 @@ func get_records_report(is_en: bool = false) -> String:
 		lines.append("  • —")
 	lines.append("")
 	lines.append("TRAINING & TIME TRIAL:" if is_en else "ТРЕНУВАННЯ ТА ПОЛІТ НА ЧАС:")
-	for map_id in ["course", "steppe", "village", "industrial", "wetlands", "airport"]:
+	for map_id in ["course", "uman", "industrial", "wetlands", "airport"]:
 		var trec := get_training_record(map_id)
 		if bool(trec.get("completed", false)):
 			lines.append("  • %s: %.1fs · %s [%s] · %d" % [

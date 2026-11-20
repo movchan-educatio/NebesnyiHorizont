@@ -69,7 +69,10 @@ func _build() -> void:
 	var title := MenuUI.title("ОБРАТИ ДРОН", 26 if short_screen else 30)
 	box.add_child(title)
 	if not short_screen:
-		box.add_child(MenuUI.subtitle("Готові моделі для тренування та бойових місій"))
+		var is_uman_map := str(Global.menu_settings.get("selected_map", "uman")) == "uman"
+		box.add_child(MenuUI.subtitle(
+				"Три фрістайл-дрони для карти Умань" if is_uman_map
+				else "Готові моделі для тренування та бойових місій"))
 
 	var columns := HBoxContainer.new()
 	columns.add_theme_constant_override("separation", 20)
@@ -89,7 +92,8 @@ func _build() -> void:
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	list.add_theme_constant_override("separation", 8)
 	list_scroll.add_child(list)
-	for i in range(DroneCatalog.count()):
+	# Ангар показує тільки ті дрони, які дозволені на поточній карті.
+	for i in DroneCatalog.allowed_for_map(str(Global.menu_settings.get("selected_map", "uman"))):
 		list.add_child(_make_row(i))
 
 	# right: 3D preview + caption
@@ -421,6 +425,15 @@ func _select_preview(index: int) -> void:
 
 
 func _apply_pending() -> void:
+	var map_id := str(Global.menu_settings.get("selected_map", "uman"))
+	# Фрістайл-дрони існують тільки на Умані — назад і вперед блокуємо вибір.
+	if DroneCatalog.is_uman(_pending) != (map_id == "uman"):
+		return
+	if DroneCatalog.is_uman(_pending):
+		Global.menu_settings["selected_map"] = "uman"
+		Global.play_mode = Global.PlayMode.TRAINING
+		Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
+		Global.special_mission = 0
 	var was_combat_locked := _combat_locked(_pending)
 	# A civilian/recon airframe cannot fly an armed combat sortie.  Instead of
 	# rejecting the click, select the drone and switch the pending sortie to

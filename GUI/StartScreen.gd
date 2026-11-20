@@ -297,7 +297,7 @@ func _build_home_mode_bar() -> void:
 
 	var modes := [
 		{"id": Global.PlayMode.TUTORIAL, "title": "ТУТОРІАЛ", "en": "TUTORIAL"},
-		{"id": Global.PlayMode.TRAINING, "title": "ТРЕНУВАННЯ", "en": "TRAINING"},
+		{"id": Global.PlayMode.TRAINING, "title": "ФРІСТАЙЛ", "en": "FREESTYLE"},
 		{"id": Global.PlayMode.COMBAT, "title": "БОЙОВИЙ РЕЖИМ", "en": "COMBAT MODE"}
 	]
 	_mode_buttons.clear()
@@ -360,7 +360,7 @@ func _refresh_home_mode() -> void:
 			var best_suffix := ""
 			if bool(rec.get("completed", false)):
 				best_suffix = ("  · Best: %.1fs (Rank %s)" if is_en else "  · Рекорд: %.1f с (Ранг %s)") % [float(rec.get("best_time", 0.0)), str(rec.get("best_rank", "B"))]
-			description = ("Free flight, stick calibration, and timed checkpoint course with Ghost replay." if is_en else "Вільний політ, калібрування та тренувальна траса на час із записом Привида.") + best_suffix
+			description = ("Freestyle flight, stick calibration, and timed checkpoint course with Ghost replay." if is_en else "Вільний фрістайл, калібрування, траса на час із записом Привида.") + best_suffix
 		_:
 			description = "Select a tactical scenario, configure drone loadout, and prepare for launch." if is_en else "Оберіть тактичний сценарій та підготуйте дрон до вильоту."
 	_mode_summary.text = description
@@ -581,7 +581,7 @@ func _refresh_home_language() -> void:
 	if _lang_btn != null:
 		_lang_btn.text = "🌐 EN → UA" if is_en else "🌐 UA → EN"
 	if _mode_bar_heading != null:
-		_mode_bar_heading.text = "FLIGHT MODE (ORDER: TUTORIAL → TRAINING → COMBAT)" if is_en else "РЕЖИМ ПОЛЬОТУ"
+		_mode_bar_heading.text = "FLIGHT MODE (ORDER: TUTORIAL → FREESTYLE → COMBAT)" if is_en else "РЕЖИМ ПОЛЬОТУ"
 	for entry in _nav_entries:
 		(entry["title"] as Label).text = str(entry["en_title"] if is_en else entry["uk_title"])
 		(entry["detail"] as Label).text = str(entry["en_desc"] if is_en else entry["uk_desc"])
@@ -597,7 +597,7 @@ func _refresh_home_language() -> void:
 			dc_done, dc_title, int(dc.get("bonus_score", 500))]
 	var news_lines_uk := [
 		"• Рекомендований старт: Туторіал (10 модулів + м'яка стабілізація Angle для першого вильоту).",
-		"• Тренування: вільний політ, запис Привида на трасі, рейтинги ★ / S–B та калібрування стіків.",
+		"• Фрістайл: вільний політ, запис Привида на трасі, рейтинги ★ / S–B та калібрування стіків.",
 		"• Тактична кампанія 1–4: послідовне відкриття місій, брифінг → виліт → дебрифінг.",
 		"• Ангар FPV: українські та спортивні дрони, інтерактивний 3D-огляд і швидке налаштування кривих.",
 		"• Повна підтримка української й англійської мов, геймпадів, USB-C ELRS та сенсорного керування.",
@@ -639,7 +639,7 @@ func _on_quick_tutorial_pressed() -> void:
 	Global.menu_settings["selected_mode"] = Global.PlayMode.TUTORIAL
 	Global.save_menu_settings()
 	Audio.stop_menu_music(0.35)
-	get_tree().change_scene_to_file("res://sceneries/VillageLevel.tscn")
+	get_tree().change_scene_to_file("res://sceneries/IndustrialLevel.tscn")
 
 
 func _on_quick_combat_training_pressed() -> void:
@@ -648,14 +648,14 @@ func _on_quick_combat_training_pressed() -> void:
 	Global.set_play_mode(Global.PlayMode.TRAINING)
 	Global.special_mission = 0
 	Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
-	Global.menu_settings["selected_map"] = "village"
+	Global.menu_settings["selected_map"] = "industrial"
 	QuadSettings.custom_rates = false
 	# GRIM-7M: combat airframe with a physical payload release, ideal for the
 	# first "find, hover, drop" lesson.
 	DroneCatalog.apply(1)
 	Global.save_menu_settings()
 	Audio.stop_menu_music(0.35)
-	get_tree().change_scene_to_file("res://sceneries/VillageLevel.tscn")
+	get_tree().change_scene_to_file("res://sceneries/IndustrialLevel.tscn")
 
 
 func _place(control: Control, rect: Rect2) -> void:

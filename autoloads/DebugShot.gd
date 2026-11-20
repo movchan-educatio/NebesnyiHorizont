@@ -324,7 +324,7 @@ func _run_fps_bench() -> void:
 ## state and saves a screenshot.  Reproduces the "HUD disappears after coming
 ## back from the menu" report.  DRONE_REENTRY_TEST=1.
 func _run_reentry_test() -> void:
-	var level := "res://sceneries/VillageLevel.tscn"
+	var level := "res://sceneries/IndustrialLevel.tscn"
 	get_tree().change_scene_to_file(level)
 	await get_tree().create_timer(3.0).timeout
 	_report_hud("first")
