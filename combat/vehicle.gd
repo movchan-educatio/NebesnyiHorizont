@@ -178,6 +178,18 @@ var _damage_speed_mult := 1.0
 var _smoke_started := false
 var _fire_started := false
 var _avoid_yaw := 0.0
+## Persistent water detour: without it a ground unit turns back toward its
+## waypoint on the very next tick and oscillates on the pond edge forever.
+var _water_detour_left := 0.0
+var _water_detour_yaw := 0.0
+## Predictive corridor steering.  The old whisker rays only saw 2-3 m ahead,
+## so vehicles reacted when they were already touching an obstacle and the
+## watchdogs had to teleport them out.  These fields cache a look-ahead of
+## several tens of metres, refreshed a few times per second.
+var _corridor_yaw := 0.0
+var _corridor_speed := 1.0
+var _corridor_cd := 0.0
+var _corridor_box: BoxShape3D = BoxShape3D.new()
 var _flash_mesh: Array[MeshInstance3D] = []
 var _flash_material: StandardMaterial3D = null
 var _flash_token := 0
@@ -1469,6 +1481,18 @@ func _move_along_route(delta: float) -> void:
 				if inward.length_squared() > 0.01:
 					desired_yaw = lerp_angle(desired_yaw, atan2(-inward.x, -inward.z), 0.72)
 
+	# Look tens of metres ahead instead of reacting at bumper distance.  The
+	# corridor score favours headings that keep the target in front while
+	# staying clear of walls, gates and scattered wreckage.  Only the airport
+	# needs this: frontline maps already have an analytic height field and a
+	# tuned nav mesh, and their terrain mesh is not a flat-surface collider.
+	if _frontline_map() == "airport":
+		_update_predictive_corridor(delta, desired_yaw, move_speed,
+				flat.normalized(), is_escort)
+		desired_yaw = _corridor_yaw
+	if _water_detour_left > 0.0:
+		_water_detour_left = maxf(0.0, _water_detour_left - delta)
+		desired_yaw = _water_detour_yaw
 	var prev_yaw := rotation.y
 	var yaw_diff := angle_difference(rotation.y, desired_yaw)
 	if _reverse_left <= 0.0:
@@ -1477,7 +1501,8 @@ func _move_along_route(delta: float) -> void:
 	_steer_angle = clampf(yaw_diff * 0.65, -0.46, 0.46)
 
 	# Distinct speed modulation by unit type:
-	var effective_speed := move_speed * _damage_speed_mult * effective_speed_boost * sep_speed_mult
+	var effective_speed := move_speed * _damage_speed_mult * effective_speed_boost \
+			* sep_speed_mult * _corridor_speed
 	if kind == Kind.TRUCK and hostile and _drone != null and is_instance_valid(_drone):
 		# Reconnaissance/supply Tigr accelerates when an armed drone approaches!
 		var d_dist := global_position.distance_to(_drone.global_position)
@@ -1512,6 +1537,8 @@ func _move_along_route(delta: float) -> void:
 	if kind != Kind.HELI and kind != Kind.SHAHED and _reverse_left <= 0.0 \
 			and not (is_escort and _escort_goal_seek):
 		var look_ahead := _step + (3.4 if is_escort else 2.2)
+		if _frontline_map() == "airport":
+			look_ahead = maxf(look_ahead, clampf(move_speed * 1.6, 20.0, 42.0))
 		blocked = _is_path_blocked(forward, look_ahead)
 		if blocked:
 			# Try whisker steering angles around the obstacle before halting.
@@ -1534,17 +1561,12 @@ func _move_along_route(delta: float) -> void:
 				if _stuck_time > 1.1:
 					_stuck_time = 0.0
 					if is_escort:
-						# Never wrap an escort convoy back to index 0; sidestep around the blocker toward the goal.
-						var to_goal: Vector3 = (_waypoints[_wp_index] - global_position)
-						to_goal.y = 0.0
-						var perp: Vector3 = Vector3(-to_goal.z, 0.0, to_goal.x).normalized() if to_goal.length_squared() > 0.01 else Vector3.RIGHT
-						for side_s in [1.0, -1.0]:
-							var bypass: Vector3 = global_position + perp * (float(side_s) * 6.5) + to_goal.normalized() * 3.5
-							if not _is_water_hazard(bypass.x, bypass.z):
-								global_position.x = bypass.x
-								global_position.z = bypass.z
-								rotation.y = atan2(-to_goal.x, -to_goal.z)
-								break
+						# No instant 6.5 m sidestep: that was one source of the
+						# "popping across the map" look.  The predictive
+						# corridor steers early now; on a genuine dead end we
+						# switch to the goal approach and let the level's
+						# watchdog re-plan instead of teleporting.
+						_escort_goal_seek = true
 					else:
 						_wp_index = (_wp_index + 1) % max(_waypoints.size(), 1)
 						if _last_obstacle_normal != Vector3.ZERO:
@@ -1574,10 +1596,53 @@ func _move_along_route(delta: float) -> void:
 			# never becomes a dead end.
 			global_position = _air_route_step(forward, _step, true)
 		else:
-			_step = 0.0
-			rotation.y += clampf(delta * 2.5, 0.05, 0.35)
-			if _waypoints.size() > 1:
-				_wp_index = (_wp_index + 1) % _waypoints.size()
+			# Water ahead: steering toward a dry heading is far better than the
+			# old hard stop + waypoint wrap, which made the village escort sit
+			# in a shallow pond forever (and could wrap an escort back to wp 0).
+			var rescued := false
+			var best_dir := Vector3.ZERO
+			var best_diff := 1.0e9
+			for ang_deg in [28.0, -28.0, 58.0, -58.0, 90.0, -90.0, 130.0, -130.0]:
+				var test_dir := forward.rotated(Vector3.UP, deg_to_rad(float(ang_deg))).normalized()
+				var probe := global_position + test_dir * maxf(_step + 5.0, 7.0)
+				if _is_water_hazard(probe.x, probe.z):
+					continue
+				var test_yaw := atan2(-test_dir.x, -test_dir.z)
+				var diff := absf(angle_difference(desired_yaw, test_yaw))
+				if diff < best_diff:
+					best_diff = diff
+					best_dir = test_dir
+			if best_dir != Vector3.ZERO:
+				# Keep this heading for a moment so the truck clears the pond
+				# instead of turning back toward the goal every single frame.
+				if _water_detour_left <= 0.0:
+					_water_detour_yaw = atan2(-best_dir.x, -best_dir.z)
+					_water_detour_left = 1.2
+				rotation.y = lerp_angle(rotation.y, _water_detour_yaw,
+						clampf(delta * (_turn_rate * 2.4 + 1.6), 0.0, 1.0))
+				forward = best_dir
+				_step = effective_speed * 0.65 * delta
+				rescued = true
+			if not rescued:
+				var level := _find_level_scene()
+				if level != null and level.has_method("_find_dry_spot"):
+					var dry: Vector2 = level.call("_find_dry_spot",
+							global_position.x, global_position.z)
+					var to_dry := Vector3(dry.x - global_position.x, 0.0,
+							dry.y - global_position.z)
+					if to_dry.length_squared() > 0.01:
+						forward = to_dry.normalized()
+						_water_detour_yaw = atan2(-forward.x, -forward.z)
+						_water_detour_left = 1.2
+						rotation.y = _water_detour_yaw
+						_step = effective_speed * 0.5 * delta
+						rescued = true
+			if not rescued:
+				_step = 0.0
+				rotation.y += clampf(delta * 2.5, 0.05, 0.35)
+			else:
+				# Choosing a dry heading/step only helps if we actually apply it.
+				global_position = _air_route_step(forward, _step, true)
 	_enforce_map_bounds()
 
 
@@ -1650,11 +1715,14 @@ func _nudge_toward_route() -> void:
 		return
 	var dir := flat.normalized()
 	var lim := _arena_limit() - 2.0
-	for dist in [8.0, 5.0, 3.0]:
+	# Tiny crawl steps only — the old 8/5/3 m placement looked like a teleport.
+	for dist in [2.0, 1.2]:
 		var cand := global_position + dir * float(dist)
 		cand.x = clampf(cand.x, -lim, lim)
 		cand.z = clampf(cand.z, -lim, lim)
 		if _is_water_hazard(cand.x, cand.z):
+			continue
+		if not _is_air() and _is_path_blocked(dir, float(dist) + 1.0):
 			continue
 		var info := _sample_ground(cand.x, cand.z)
 		global_position = _avoid_structures(
@@ -1921,9 +1989,98 @@ func _structure_ceiling(pos: Vector3) -> float:
 	return best
 
 
+func _is_flat_collider(collider: Object) -> bool:
+	if collider == null or not (collider is CollisionObject3D):
+		return false
+	var nm := String((collider as Node).name) if collider is Node else ""
+	for suffix in ["COL__M_Ground", "COL__M_Tarmac", "DEC__M_Tarmac",
+			"DEC__M_FarConc", "COL__M_Paint", "DEC__M_Paint",
+			"COL__M_Yellow", "COL__M_Glass"]:
+		if nm.contains(suffix):
+			return true
+	return false
+
+
+func _corridor_exclusions() -> Array[RID]:
+	var out: Array[RID] = [get_rid()]
+	if _drone is CollisionObject3D:
+		out.append((_drone as CollisionObject3D).get_rid())
+	var tree := get_tree()
+	if tree != null:
+		for node in tree.get_nodes_in_group("vehicle"):
+			if node is CollisionObject3D and node != self:
+				out.append((node as CollisionObject3D).get_rid())
+	return out
+
+
+## Fraction of the look-ahead corridor that is free (1.0 = completely clear).
+## One oriented box query per candidate heading is enough to "see" walls and
+## debris tens of metres before the chassis reaches them.
+func _corridor_clearance(dir: Vector3, distance: float) -> float:
+	var world := get_world_3d()
+	if world == null or world.direct_space_state == null \
+			or dir.length_squared() < 0.01:
+		return 1.0
+	var half_w := maxf(_model_box().x * 0.5, 1.2) + 1.5
+	_corridor_box.size = Vector3(half_w * 2.0, 3.2, distance)
+	var yaw := atan2(-dir.x, -dir.z)
+	var y_off := 1.4 if not _is_air() else 0.0
+	var center := global_position + dir * (distance * 0.5) + Vector3.UP * y_off
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = _corridor_box
+	query.transform = Transform3D(Basis(Vector3.UP, yaw), center)
+	query.collision_mask = 1
+	query.exclude = _corridor_exclusions()
+	# max_results is an argument of intersect_shape(), not a parameter property.
+	var hits := world.direct_space_state.intersect_shape(query, 4)
+	var clear := 1.0
+	for hit in hits:
+		if _is_flat_collider(hit.get("collider")):
+			continue
+		var hp: Vector3 = hit.get("position", global_position)
+		var along := (hp - global_position).dot(dir)
+		clear = minf(clear, clampf(along / maxf(distance, 0.01), 0.0, 1.0))
+	return clear
+
+
+func _update_predictive_corridor(delta: float, desired_yaw: float, speed: float,
+		goal_dir: Vector3, is_escort: bool) -> void:
+	_corridor_cd -= delta
+	if _corridor_cd > 0.0 or speed < 1.0:
+		return
+	# Hard budget for low-spec phones: three headings three times a second,
+	# five headings four times a second on desktop.  The old 9-query version
+	# could stall a frame when a dozen units were driving at once.
+	var mobile := _is_mobile_target_platform()
+	_corridor_cd = 0.34 if mobile else 0.25
+	var look := clampf(speed * (2.4 if is_escort else 1.9), 28.0, 70.0)
+	var offsets := [0.0, 0.45, -0.45] if mobile \
+			else [0.0, 0.32, -0.32, 0.68, -0.68]
+	var best_yaw := desired_yaw
+	var best_score := -1.0e9
+	var best_clear := 1.0
+	for off in offsets:
+		var yaw := desired_yaw + float(off)
+		var dir := Vector3(-sin(yaw), 0.0, -cos(yaw))
+		var clear := _corridor_clearance(dir, look)
+		var score := clear * 2.8 + dir.dot(goal_dir) * 1.0 - absf(float(off)) * 0.6
+		if score > best_score:
+			best_score = score
+			best_yaw = yaw
+			best_clear = clear
+	_corridor_yaw = best_yaw
+	_corridor_speed = clampf(best_clear * 1.35, 0.35, 1.0)
+
+
 func _is_path_blocked(forward: Vector3, dist: float) -> bool:
 	# Cast past the front bumper rather than only from the center of the chassis.
 	var probe_dist := maxf(dist, _half_len + 2.2)
+	# Treat open water the same as a wall so whisker steering turns away before
+	# the chassis reaches it.  The old code only checked the *next* step.
+	if not _is_air() and _is_water_hazard(
+			global_position.x + forward.x * probe_dist,
+			global_position.z + forward.z * probe_dist):
+		return true
 	# Hero Hall bounding box hard avoidance: vehicles must NEVER drive through or clip factory hall walls
 	var map := _frontline_map()
 	if map != "":
@@ -2466,6 +2623,11 @@ func _arena_limit() -> float:
 func _is_water_hazard(x: float, z: float) -> bool:
 	if _is_air():
 		return false
+	if is_in_group("escort_convoy"):
+		# The friendly escort truck is a heavy vehicle: shallow flood water is
+		# just a puddle for it.  Treating water as solid used to freeze the
+		# mission on village/wetlands, where dry corridors barely exist.
+		return false
 	var fmap := _frontline_map()
 	if fmap.is_empty() or fmap == "airport":
 		return false
@@ -2510,7 +2672,18 @@ func _frontline_map() -> String:
 ## ground units; only fall back to raycasts on the legacy GLB maps.
 func _terrain_ground(x: float, z: float) -> Dictionary:
 	var map := _frontline_map()
-	if map.is_empty() or map == "airport":
+	if map == "airport":
+		# The airport GLB merges every material into a few huge concave
+		# colliders.  A downward ray therefore alternates between tarmac,
+		# paint, wreckage and roof faces as the vehicle drives, which made
+		# every unit bob up and down like a pogo stick.  The map already has a
+		# single authoritative apron height — use it instead of raycasts.
+		var level := _find_level_scene()
+		var gy := 0.12
+		if level != null and level.has_method("_find_ground_y"):
+			gy = float(level.call("_find_ground_y", x, z))
+		return {"y": gy, "normal": Vector3.UP}
+	if map.is_empty():
 		return {}
 	var y := FrontlineTerrainScript.height_at(map, x, z)
 	var dx := FrontlineTerrainScript.height_at(map, x + 1.5, z) \

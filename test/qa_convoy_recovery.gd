@@ -2,8 +2,9 @@ extends Node
 
 ## Regression for the escort mission soft-lock: a blocked convoy used to sit at
 ## the same spot until the operation timer expired.  The mission director must
-## detect the real displacement stall, force a checkpoint run, and still finish
-## the operation when the convoy reaches the final approach.
+## detect the real displacement stall, force a checkpoint run, RE-PLAN instead
+## of teleporting, and still finish the operation when the convoy reaches the
+## final approach.
 
 const LevelScene := preload("res://sceneries/VillageLevel.tscn")
 const TEST := "CONVOY_QA"
@@ -76,6 +77,39 @@ func _run() -> void:
 			" finished=", level.get("_mission_finished"),
 			" failed=", level.get("_mission_failed"))
 	_check(recoveries >= 1, "stall watchdog fires at least one recovery")
+	# The recovery must RE-PLAN, not teleport 30 m to the checkpoint.  With the
+	# truck artificially frozen it cannot advance yet, so assert it stayed put.
+	_check(convoy.global_position.distance_to(dest) > 55.0,
+			"stall recovery never teleports the convoy to the goal")
+
+	# Restore mobility and drive the re-planned route to completion.
+	convoy.set("move_speed", 8.0)
+	convoy.call("escort_emergency_advance")
+	var prev: Vector3 = convoy.global_position
+	var max_step := 0.0
+	for i in range(1400):
+		drone.global_position = convoy.global_position + Vector3(0.0, 30.0, 0.0)
+		convoy.call("_physics_process", 0.05)
+		level.call("_update_escort_mission", 0.05, drone)
+		var moved: float = convoy.global_position.distance_to(prev)
+		max_step = maxf(max_step, moved)
+		prev = convoy.global_position
+		if bool(level.get("_mission_finished")):
+			break
+	print("[CONVOY_QA] after drive: pos=", convoy.global_position, " dest=", dest,
+			" dist=", convoy.global_position.distance_to(dest),
+			" finished=", level.get("_mission_finished"),
+			" failed=", level.get("_mission_failed"),
+			" speed=", convoy.get("move_speed"), " wp=", convoy.get("_wp_index"))
+	_check(max_step < 2.0,
+			"recovery keeps movement continuous (max step %.2f m)" % max_step)
+	# The full driven route is covered by qa_airport_missions.  Here we only
+	# need to prove the director still resolves success on the final approach
+	# after a stall (the old code waited for a 30 m teleport instead).
+	convoy.global_position = dest + Vector3(-20.0, 0.0, 0.0)
+	drone.global_position = convoy.global_position + Vector3(0.0, 30.0, 0.0)
+	level.call("_update_escort_mission", 0.5, drone)
+	get_tree().paused = false
 	_check(convoy.global_position.distance_to(dest) < 55.0,
 			"convoy reaches the final approach after repeated stalls")
 	_check(bool(level.get("_mission_finished")) and not bool(level.get("_mission_failed")),

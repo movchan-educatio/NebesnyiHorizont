@@ -62,8 +62,13 @@ const MISSILE_WAVE_COUNTS := [1, 1, 1, 1, 1, 1]
 const MISSILE_FIRST_WAVE_DELAY := 14.0
 const MISSILE_WAVE_INTERVAL := 30.0
 const MISSILE_WARNING_LEAD := 8.0
+## Base values are tuned for the 152 m frontline arenas.  A 900 m airport
+## crossing must scale with the map, otherwise the missile crawls for over a
+## minute and the wave cadence breaks down.
 const MISSILE_SPEED := Vector2(11.0, 15.5)
 const MISSILE_ALTITUDE := Vector2(20.0, 34.0)
+const MISSILE_ARENA_REF := 152.0
+const MISSILE_MIN_BIG_MAP_ALT := 66.0
 const MISSILE_MAX_LEAKS := 5
 const MISSILE_LANE_HALF := 88.0
 
@@ -191,6 +196,10 @@ var _special_convoy_warned := false
 var _special_convoy_stall_anchor := Vector3.ZERO
 var _special_convoy_stall := 0.0
 var _special_convoy_recoveries := 0
+## Corridor kept free of procedural props/trees by the airport level.  Filled
+## by the route planner when the escort mission is set up on a large map.
+var _reserved_ground_route: Array[Vector3] = []
+const RESERVED_ROUTE_CLEARANCE := 17.0
 var _special_extract_active := false
 var _special_extract_point := Vector3.ZERO
 var _special_extract_hold := 0.0
@@ -4646,31 +4655,77 @@ func _spawn_special_oreshnik(deep_strike: bool) -> void:
 
 
 func _setup_special_escort() -> void:
-	var raw_pts: Array = []
-	match frontline_map:
-		"village":
-			raw_pts = [Vector2(-115.0, -22.0), Vector2(-65.0, -17.0), Vector2(-20.0, -10.0), Vector2(45.0, -16.0), Vector2(115.0, -18.0)]
-		"industrial":
-			raw_pts = [Vector2(-115.0, -24.0), Vector2(-65.0, -29.0), Vector2(-16.0, -34.0), Vector2(52.0, -29.0), Vector2(115.0, -26.0)]
-		"wetlands":
-			raw_pts = [Vector2(-128.0, 70.0), Vector2(-108.0, 12.0), Vector2(-42.0, -18.0), Vector2(54.0, -8.0), Vector2(124.0, 20.0)]
-		_:
-			raw_pts = [Vector2(-95.0, 122.0), Vector2(-40.0, 96.0), Vector2(22.0, 42.0), Vector2(56.0, -28.0), Vector2(64.0, -110.0)]
-	var raw_route: Array = []
-	for p2 in raw_pts:
-		var v2: Vector2 = p2
-		raw_route.append(_special_ground_point(v2.x, v2.y))
-	if not frontline_map.is_empty():
-		raw_route = _sanitize_ground_waypoints(raw_route, false)
 	var route: Array[Vector3] = []
-	for wp in raw_route:
-		var v: Vector3 = wp as Vector3
-		route.append(_special_ground_point(v.x, v.z))
+	if frontline_map == "airport":
+		# A hand-authored route across the middle of this map runs straight
+		# through hangars, wrecks and scattered props.  Sample the real
+		# colliders once and pick a corridor with an 11 m safety margin instead.
+		var candidates := [
+			[Vector2(-240.0, 290.0), Vector2(160.0, -270.0)],
+			[Vector2(-330.0, 255.0), Vector2(330.0, 255.0)],
+			[Vector2(-300.0, -230.0), Vector2(300.0, -230.0)],
+		]
+		for pair in candidates:
+			var a: Vector2 = pair[0]
+			var b: Vector2 = pair[1]
+			var planned := GroundRoutePlanner.plan(self,
+					_special_ground_point(a.x, a.y),
+					_special_ground_point(b.x, b.y), 11.0, MAP_GROUND_SAFE - 12.0)
+			if planned.size() >= 2:
+				route = planned
+				break
+		if route.is_empty():
+			push_warning("[Airport] no clear convoy corridor found; using inner apron fallback")
+			route = [
+				_special_ground_point(-95.0, 122.0), _special_ground_point(-40.0, 96.0),
+				_special_ground_point(22.0, 42.0), _special_ground_point(56.0, -28.0),
+				_special_ground_point(64.0, -110.0),
+			]
+		_reserved_ground_route = route
+	else:
+		var raw_pts: Array = []
+		match frontline_map:
+			"village":
+				raw_pts = [Vector2(-115.0, -22.0), Vector2(-65.0, -17.0), Vector2(-20.0, -10.0), Vector2(45.0, -16.0), Vector2(115.0, -18.0)]
+			"industrial":
+				raw_pts = [Vector2(-115.0, -24.0), Vector2(-65.0, -29.0), Vector2(-16.0, -34.0), Vector2(52.0, -29.0), Vector2(115.0, -26.0)]
+			"wetlands":
+				raw_pts = [Vector2(-128.0, 70.0), Vector2(-108.0, 12.0), Vector2(-42.0, -18.0), Vector2(54.0, -8.0), Vector2(124.0, 20.0)]
+			_:
+				raw_pts = [Vector2(-95.0, 122.0), Vector2(-40.0, 96.0), Vector2(22.0, 42.0), Vector2(56.0, -28.0), Vector2(64.0, -110.0)]
+		var raw_route: Array = []
+		for p2 in raw_pts:
+			var v2: Vector2 = p2
+			raw_route.append(_special_ground_point(v2.x, v2.y))
+		if not frontline_map.is_empty():
+			raw_route = _sanitize_ground_waypoints(raw_route, false)
+		for wp in raw_route:
+			var v: Vector3 = wp as Vector3
+			route.append(_special_ground_point(v.x, v.z))
+		# Authored routes only pin the corners.  On village/wetlands the segment
+		# between two dry corners can still cross a pond, where the truck used
+		# to stop forever.  Densify with dry waypoints every ~18 m.
+		if not frontline_map.is_empty():
+			var dense: Array[Vector3] = []
+			for i in range(route.size() - 1):
+				var a: Vector3 = route[i]
+				var b: Vector3 = route[i + 1]
+				dense.append(a)
+				var steps := maxi(1, int(ceil(a.distance_to(b) / 18.0)))
+				for s in range(1, steps):
+					var p := a.lerp(b, float(s) / float(steps))
+					var dry := _find_dry_spot(p.x, p.z)
+					dense.append(_special_ground_point(dry.x, dry.y))
+			if not route.is_empty():
+				dense.append(route[route.size() - 1])
+			route = dense
 	var vehicle := VEHICLE.new()
 	vehicle.kind = Vehicle.Kind.TRUCK
 	vehicle.hostile = false
 	vehicle.track_drone = false
-	vehicle.move_speed = 8.0
+	# The planned airport corridor is much longer than the 230 m village route.
+	# Keep the crossing duration in the same 1-2 minute band as other maps.
+	vehicle.move_speed = 11.0 if frontline_map == "airport" else 8.0
 	add_child(vehicle)
 	vehicle.max_health = 480.0
 	vehicle.health = 480.0
@@ -4682,14 +4737,50 @@ func _setup_special_escort() -> void:
 	_special_convoy = vehicle
 	_special_convoy_start = route[0]
 	_special_convoy_dest = route[route.size() - 1]
-	_spawn_special_guards([
-		Vector3(-35.0, 0.0, 18.0), Vector3(24.0, 0.0, 16.0),
-		Vector3(82.0, 0.0, -42.0),
-	])
-	var ambush_route := _sanitize_ground_waypoints([
-		Vector3(24.0, 0.0, -48.0), Vector3(68.0, 0.0, -42.0),
-	])
-	_add_vehicle(Vehicle.Kind.APC, ambush_route, 5.5, true, false, 0.0, false, "btr8")
+	if frontline_map == "airport":
+		# Spread the ambush along the planned corridor; the old centre-map
+		# guards never even saw the truck on the 900 m arena.
+		var guard_spots: Array = []
+		for t in [0.28, 0.55, 0.82]:
+			var p := _point_on_route(route, float(t))
+			var side := Vector3(-(route[1].z - route[0].z), 0.0,
+					route[1].x - route[0].x).normalized()
+			guard_spots.append(p + side * 26.0)
+		_spawn_special_guards(guard_spots)
+		var ambush := _point_on_route(route, 0.72)
+		_add_vehicle(Vehicle.Kind.APC, [ambush, ambush + Vector3(42.0, 0.0, 18.0)],
+				5.5, true, false, 0.0, false, "btr8")
+	else:
+		_spawn_special_guards([
+			Vector3(-35.0, 0.0, 18.0), Vector3(24.0, 0.0, 16.0),
+			Vector3(82.0, 0.0, -42.0),
+		])
+		var ambush_route := _sanitize_ground_waypoints([
+			Vector3(24.0, 0.0, -48.0), Vector3(68.0, 0.0, -42.0),
+		])
+		_add_vehicle(Vehicle.Kind.APC, ambush_route, 5.5, true, false, 0.0, false, "btr8")
+
+
+func _point_on_route(route: Array[Vector3], t: float) -> Vector3:
+	if route.is_empty():
+		return Vector3.ZERO
+	var total := 0.0
+	for i in range(1, route.size()):
+		total += Vector2(route[i].x - route[i - 1].x,
+				route[i].z - route[i - 1].z).length()
+	if total < 0.01:
+		return route[0]
+	var wanted := clampf(t, 0.0, 1.0) * total
+	var walked := 0.0
+	for i in range(1, route.size()):
+		var a := route[i - 1]
+		var b := route[i]
+		var leg := Vector2(b.x - a.x, b.z - a.z).length()
+		if walked + leg >= wanted or i == route.size() - 1:
+			var f := 0.0 if leg < 0.01 else clampf((wanted - walked) / leg, 0.0, 1.0)
+			return a.lerp(b, f)
+		walked += leg
+	return route[route.size() - 1]
 
 
 func _spawn_special_mission(mission_id: int) -> void:
@@ -4706,6 +4797,7 @@ func _spawn_special_mission(mission_id: int) -> void:
 	_special_convoy_stall_anchor = Vector3.ZERO
 	_special_convoy_stall = 0.0
 	_special_convoy_recoveries = 0
+	_reserved_ground_route.clear()
 	_special_extract_active = false
 	_special_extract_hold = 0.0
 	_special_extract_point = _special_ground_point(10.0, 145.0)
@@ -4793,7 +4885,8 @@ func _spawn_missile_wave() -> void:
 	var wave_no := _intercept_wave + 1
 	# Масштабуємо коридор під розмір карти: на аеропорті (430 м) ракети
 	# перетинають усе поле, а не вибухають посередині, як на 152 м арені.
-	var lane_half := MISSILE_LANE_HALF * (MAP_GROUND_SAFE / 152.0)
+	var arena_scale := clampf(MAP_GROUND_SAFE / MISSILE_ARENA_REF, 1.0, 3.0)
+	var lane_half := MISSILE_LANE_HALF * arena_scale
 	var edge_x := MAP_GROUND_SAFE - 20.0
 	var lane_step := (lane_half * 2.0) / maxf(float(count) - 1.0, 1.0)
 	for i in range(count):
@@ -4803,8 +4896,12 @@ func _spawn_missile_wave() -> void:
 				else -lane_half + lane_step * float(i) + randf_range(-7.0, 7.0)
 		var goal_lane := clampf(lane + randf_range(-10.0, 10.0),
 				-lane_half, lane_half)
-		var altitude := randf_range(MISSILE_ALTITUDE.x, MISSILE_ALTITUDE.y)
-		var speed := randf_range(MISSILE_SPEED.x, MISSILE_SPEED.y)
+		var altitude := randf_range(MISSILE_ALTITUDE.x, MISSILE_ALTITUDE.y) * arena_scale
+		if arena_scale > 1.5:
+			# Airport hangars and wrecks reach ~56 m.  Cruise above them so a
+			# missile cannot clip geometry or vanish behind a roof.
+			altitude = clampf(maxf(altitude, MISSILE_MIN_BIG_MAP_ALT), 20.0, 115.0)
+		var speed := randf_range(MISSILE_SPEED.x, MISSILE_SPEED.y) * arena_scale
 		var start := Vector3(-edge_x, 0.0, lane)
 		var goal := Vector3(edge_x, 0.0, goal_lane)
 		var missile := _add_vehicle(Vehicle.Kind.SHAHED, [start, goal], speed,
@@ -4817,7 +4914,8 @@ func _spawn_missile_wave() -> void:
 			beacon.queue_free()
 		missile.set_meta("intercept_target", true)
 		_intercept_missiles.append({
-			"vehicle": missile, "goal": goal, "spawned": _mission_time,
+			"vehicle": missile, "goal": goal, "start": start,
+			"speed": speed, "spawned": _mission_time,
 		})
 	_intercept_wave += 1
 	_set_flash(_txt("ХВИЛЯ %d — РАКЕТИ В ПОВІТРІ!" % wave_no,
@@ -4844,9 +4942,20 @@ func _update_missile_intercept(delta: float) -> void:
 			i -= 1
 			continue
 		var goal: Vector3 = entry.get("goal", Vector3.ZERO)
-		var passed := missile.global_position.x >= goal.x - 18.0 \
-				and absf(missile.global_position.z - goal.z) < 26.0
-		var timed_out := _mission_time - float(entry.get("spawned", 0.0)) > 75.0
+		var start: Vector3 = entry.get("start", Vector3(-MAP_GROUND_SAFE, 0.0, 0.0))
+		var route := goal - start
+		route.y = 0.0
+		var travelled := missile.global_position - start
+		travelled.y = 0.0
+		var progress := 0.0
+		if route.length_squared() > 0.01:
+			progress = travelled.dot(route) / route.length_squared()
+		# Projection along the actual route (not a fixed x threshold) keeps the
+		# breach check correct on the 900 m airport field.
+		var passed := progress >= 0.97 \
+				and absf(missile.global_position.z - goal.z) < 45.0
+		var expected := route.length() / maxf(float(entry.get("speed", 12.0)), 1.0)
+		var timed_out := _mission_time - float(entry.get("spawned", 0.0)) > expected + 18.0
 		if passed or timed_out:
 			_intercept_missiles.remove_at(i)
 			_missile_leak(missile, goal)
@@ -5013,23 +5122,23 @@ func _update_escort_mission(delta: float, drone: Drone) -> void:
 		_special_convoy.call("escort_emergency_advance")
 		if _special_convoy_recoveries == 1:
 			_set_flash(_txt("КОЛОНА ОБ'ЇЗДИТЬ ПЕРЕШКОДУ", "CONVOY BYPASSING OBSTACLE"))
-		# Last-resort recovery: after four blocked attempts place the convoy on
-		# the final approach so a level-geometry dead end can never soft-lock the
-		# operation.  The move happens off the normal route and preserves the
-		# success condition (arrival at the checkpoint).
+		# Last-resort recovery: after four blocked attempts RE-PLAN around the
+		# obstruction instead of teleporting the truck 30 m forward.  The old
+		# placement made the convoy pop across the map and skipped the route the
+		# player was escorting.  Replanning keeps movement continuous and keeps
+		# the same arrival checkpoint.
 		if _special_convoy_recoveries >= 4:
 			_special_convoy_recoveries = 0
-			var approach := _special_convoy_dest - _special_convoy_start
-			approach.y = 0.0
-			if approach.length_squared() > 0.01:
-				approach = approach.normalized()
-			var drop := _special_ground_point(
-					_special_convoy_dest.x - approach.x * 30.0,
-					_special_convoy_dest.z - approach.z * 30.0)
-			_special_convoy.global_position = drop + Vector3.UP * 0.2
-			_special_convoy.call("escort_emergency_advance")
-			_play_radio_callout(_txt("КОЛОНА ПРОРВАЛАСЬ ДО КП — СУПРОВІД ТРИВАЄ",
-					"CONVOY BROKE THROUGH TO THE CP — ESCORT CONTINUES"), true)
+			var reroute := GroundRoutePlanner.plan(self,
+					_special_convoy.global_position, _special_convoy_dest,
+					10.0, MAP_GROUND_SAFE - 12.0)
+			if reroute.size() >= 2:
+				_special_convoy.call("set_waypoints", reroute)
+				_reserved_ground_route = reroute
+				_play_radio_callout(_txt("КОЛОНА ОБ'ЇЖДЖАЄ ПЕРЕШКОДУ — СУПРОВІД ТРИВАЄ",
+						"CONVOY IS DETOURING — ESCORT CONTINUES"), true)
+			else:
+				_special_convoy.call("escort_emergency_advance")
 
 
 func _complete_special_zone() -> void:
@@ -5203,10 +5312,19 @@ func _spawn_combat_mission(mission_id: int) -> void:
 
 		4:
 			# МІСІЯ 4: Шахед (Максимальна складність — швидкісні повітряні цілі + ЗРК та БМП прикриття)
+			# On the 900 m airport the authored 230 m loop sits in one corner
+			# and flies through hangars.  Scale the patrol box and climb above
+			# the ruins so the targets are reachable and predictable.
+			var air_scale := 1.0
+			if frontline_map == "airport":
+				air_scale = clampf(MAP_AIR_SAFE / 168.0, 1.0, 2.6)
 			var sh1_alt := randf_range(AIR_MISSION_SHAHED_ALT_1.x,
 					AIR_MISSION_SHAHED_ALT_1.y)
 			var sh2_alt := randf_range(AIR_MISSION_SHAHED_ALT_2.x,
 					AIR_MISSION_SHAHED_ALT_2.y)
+			if frontline_map == "airport":
+				sh1_alt = clampf(maxf(sh1_alt * air_scale, 62.0), 20.0, 105.0)
+				sh2_alt = clampf(maxf(sh2_alt * air_scale, 62.0), 20.0, 105.0)
 			var ang := randf_range(-0.25, 0.25)
 			var p_pts1 := [
 				Vector3(-115.0, 0.0, 62.0).rotated(Vector3.UP, ang) + _mission_offset,
@@ -5214,6 +5332,10 @@ func _spawn_combat_mission(mission_id: int) -> void:
 				Vector3(115.0, 0.0, -26.0).rotated(Vector3.UP, ang) + _mission_offset,
 				Vector3(-115.0, 0.0, -26.0).rotated(Vector3.UP, ang) + _mission_offset,
 			]
+			if frontline_map == "airport":
+				for i in range(p_pts1.size()):
+					p_pts1[i] = Vector3(p_pts1[i].x * air_scale, 0.0,
+							p_pts1[i].z * air_scale)
 			_add_vehicle(Vehicle.Kind.SHAHED, p_pts1,
 					randf_range(AIR_MISSION_SHAHED_SPEED.x,
 							AIR_MISSION_SHAHED_SPEED.y),
@@ -5226,6 +5348,10 @@ func _spawn_combat_mission(mission_id: int) -> void:
 				Vector3(-120.0, 0.0, 82.0).rotated(Vector3.UP, -ang) + _mission_offset,
 				Vector3(120.0, 0.0, 82.0).rotated(Vector3.UP, -ang) + _mission_offset,
 			]
+			if frontline_map == "airport":
+				for i in range(p_pts2.size()):
+					p_pts2[i] = Vector3(p_pts2[i].x * air_scale, 0.0,
+							p_pts2[i].z * air_scale)
 			_add_vehicle(Vehicle.Kind.SHAHED, p_pts2,
 					randf_range(AIR_MISSION_SHAHED_SPEED.x,
 							AIR_MISSION_SHAHED_SPEED.y),

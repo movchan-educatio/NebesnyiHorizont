@@ -199,6 +199,8 @@ func _replace_trees() -> void:
 		var r := rng.randf_range(220.0, 560.0)
 		var x := cos(a) * r
 		var z := sin(a) * r
+		if _is_in_reserved_corridor(x, z):
+			continue
 		var tree := packed.instantiate()
 		tree.name = "AirportTree%d" % i
 		add_child(tree)
@@ -228,6 +230,8 @@ func _spawn_detailed_props() -> void:
 		var z := sin(a) * r
 		if Vector2(x, z).distance_to(Vector2(0.0, 255.0)) < 45.0:
 			continue
+		if _is_in_reserved_corridor(x, z, 4.0):
+			continue
 		var prop = assets.spawn_prop(self, nm, Vector3(x, 0.12, z),
 				rng.randf_range(0.0, TAU), rng.randf_range(0.85, 1.25))
 		if prop != null:
@@ -240,6 +244,25 @@ func _spawn_detailed_props() -> void:
 						c.queue_free()
 			spawned += 1
 	print("[Airport] detailed props: ", spawned)
+
+
+## Mission props and trees are spawned *after* the escort route is planned,
+## so they must honour the same reserved corridor the planner used.
+func _is_in_reserved_corridor(x: float, z: float, pad: float = 0.0) -> bool:
+	var route: Array[Vector3] = get("_reserved_ground_route")
+	if route.size() < 2:
+		return false
+	var p := Vector2(x, z)
+	var need := RESERVED_ROUTE_CLEARANCE + pad
+	for i in range(route.size() - 1):
+		var a := Vector2(route[i].x, route[i].z)
+		var ab := Vector2(route[i + 1].x, route[i + 1].z) - a
+		if ab.length_squared() < 0.01:
+			continue
+		var u := clampf((p - a).dot(ab) / ab.length_squared(), 0.0, 1.0)
+		if p.distance_to(a + ab * u) <= need:
+			return true
+	return false
 
 
 func _find_named_mesh(node: Node, target: String) -> MeshInstance3D:

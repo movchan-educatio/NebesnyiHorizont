@@ -872,7 +872,16 @@ func _snap_to_ground() -> void:
 	var scene := _find_level_scene()
 	if scene != null and scene.get("frontline_map") != null:
 		var map := String(scene.get("frontline_map"))
-		if not map.is_empty() and map != "airport":
+		if map == "airport":
+			# Same fix as vehicle.gd: the merged GLB colliders return random
+			# roof/tarmac heights, so snap soldiers to the flat apron instead.
+			var gy := 0.12
+			if scene.has_method("_find_ground_y"):
+				gy = float(scene.call("_find_ground_y",
+						global_position.x, global_position.z))
+			global_position.y = gy
+			return
+		if not map.is_empty():
 			global_position.y = FrontlineTerrainScript.height_at(map,
 					global_position.x, global_position.z)
 			return

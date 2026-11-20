@@ -61,15 +61,14 @@ func _run() -> void:
 	_check(int(_vehicle.get("_wp_index")) != wp_before or int(_vehicle.get("_watchdog_recoveries")) > 0,
 			"watchdog advances the route after a stall")
 
-	# Three consecutive stalled windows force a small placement toward the
-	# current leg so a dead nav segment cannot soft-lock the unit.
-	var before_nudge := _vehicle.global_position
-	_vehicle.set("_watchdog_anchor", before_nudge)
-	_vehicle.set("_watchdog_stall", 0.0)
-	for i in range(320):
-		_vehicle.call("_update_movement_watchdog", 0.02, false, false, false)
-	_check(_vehicle.global_position.distance_to(before_nudge) > 2.0,
-			"third stalled window nudges the unit toward its route")
+	# Last-resort placement stays a short crawl.  The old 8/5/3 m placement
+	# looked like a teleport on the airport map, so assert the new bound.
+	_vehicle.global_position = Vector3.ZERO
+	_vehicle.set_waypoints([Vector3.ZERO, Vector3(0.0, 0.0, -60.0)])
+	_vehicle.call("_nudge_toward_route")
+	var nudge_dist := _vehicle.global_position.distance_to(Vector3.ZERO)
+	_check(nudge_dist > 0.5 and nudge_dist <= 2.1,
+			"stall placement is a short crawl, never an 8 m teleport (%.2f m)" % nudge_dist)
 
 	# And the normal case still drives: route movement over 1.5 s.
 	_vehicle.global_position = Vector3.ZERO
