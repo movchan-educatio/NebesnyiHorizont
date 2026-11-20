@@ -2590,10 +2590,15 @@ func _start_mission() -> void:
 					"HQ, this is Valkyrie-01. Operation %s underway, commencing run. Over." % Global.get_special_mission_name(Global.special_mission)),
 				true, "01")
 			_radio_beat_01_sent = true
-			# Missile-intercept already announces each wave through HQ radio;
-			# the generic 5 s fallback would make the same female voice repeat
-			# right before the first wave warning.
+			# Місія перехоплення: один чоловік (льотчик) і одна жінка (Штаб)
+			# на початку. Хвилі не озвучуємо, щоб жіночий голос не повторювався.
 			_radio_beat_02_fallback_timer = -1.0 if Global.special_mission == 10 else 5.0
+			if Global.special_mission == 10:
+				_radio_beat_02_sent = true
+				_play_radio_callout(
+					_txt("Валькірія-01, Штаб на зв'язку. Сектор перехоплення зайнято, чекаємо цілі. Завершуйте.",
+						"Valkyrie-01, HQ on frequency. Intercept sector is set, standing by for contacts. Out."),
+					true, "02")
 		else:
 			_play_radio_callout(
 				_txt("Штаб, я Борт-01. Ціль у квадраті спостерігаю, заходжу на бойовий курс. Прийом.",
@@ -4818,10 +4823,12 @@ func _spawn_missile_wave() -> void:
 	_set_flash(_txt("ХВИЛЯ %d — РАКЕТИ В ПОВІТРІ!" % wave_no,
 			"WAVE %d — MISSILES AIRBORNE!" % wave_no))
 	_play_alert("incoming")
-	_play_radio_callout(_txt(
-		"Попередження — хвиля %d, ракета в повітрі. Відкривайте вогонь!",
-		"Warning — wave %d, missile airborne. Engage!") % [wave_no],
-		true, "02")
+	# Хвилі не озвучуються голосом — жінка вже говорила на початку місії.
+	if Global.special_mission != 10:
+		_play_radio_callout(_txt(
+			"Попередження — хвиля %d, ракета в повітрі. Відкривайте вогонь!",
+			"Warning — wave %d, missile airborne. Engage!") % [wave_no],
+			true, "02")
 
 
 func _update_missile_intercept(delta: float) -> void:
@@ -4854,11 +4861,13 @@ func _update_missile_intercept(delta: float) -> void:
 	if not _intercept_warned and _intercept_timer <= MISSILE_WARNING_LEAD:
 		_intercept_warned = true
 		_play_alert("sam_lock")
-		_play_radio_callout(_txt(
-			"Увага! Хвиля %d — крилата ракета на підході через %d секунд.",
-			"Attention! Wave %d — cruise missile inbound in %d seconds."
-			) % [_intercept_wave + 1, int(ceilf(MISSILE_WARNING_LEAD))],
-			true, "02")
+		# Попередження про хвилю лишається на екрані, але голос не дублюється.
+		if Global.special_mission != 10:
+			_play_radio_callout(_txt(
+				"Увага! Хвиля %d — крилата ракета на підході через %d секунд.",
+				"Attention! Wave %d — cruise missile inbound in %d seconds."
+				) % [_intercept_wave + 1, int(ceilf(MISSILE_WARNING_LEAD))],
+				true, "02")
 	if _intercept_warned and _intercept_timer > 0.0:
 		var secs := int(ceilf(_intercept_timer))
 		_set_missile_warning(_txt(
