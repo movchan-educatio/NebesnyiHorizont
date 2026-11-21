@@ -286,7 +286,7 @@ func _finish_course_run(track: Track) -> void:
 	if bool(res.get("new_best", false)) and not _ghost_samples.is_empty():
 		Global.save_ghost_track("course", _ghost_samples)
 	var daily: Dictionary = Global.get_daily_challenge()
-	if str(daily.get("map_id", "")) == "course":
+	if str(daily.get("map", "")) == "course":
 		Global.mark_daily_challenge_completed()
 	_show_course_result(res, elapsed_s)
 

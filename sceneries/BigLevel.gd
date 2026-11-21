@@ -2495,6 +2495,11 @@ func _on_respawned() -> void:
 	_refresh_model_visibility()
 	_mah = 0.0
 	_rings_passed = 0
+	_ring_clean_streak = 0
+	if Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training:
+		_score = 0
+		_mission_time = 0.0
+		_freestyle_ghost_saved_once = false
 	_sync_active_training_ring(false)
 	_ghost_record_samples.clear()
 	_ghost_record_timer = 0.0
@@ -2549,13 +2554,14 @@ func _airframes_limited() -> bool:
 
 
 func _init_airframe_reserve() -> void:
+	var needed := maxi(_mission_targets_total, 2)
 	match Global.difficulty:
 		Global.Difficulty.RECRUIT:
-			_sortie_airframes_total = 6 if (Global.special_mission == 0 and Global.combat_mission == 1) else 5
+			_sortie_airframes_total = maxi(needed + 3, 5)
 		Global.Difficulty.OPERATOR:
-			_sortie_airframes_total = 4 if (Global.special_mission == 0 and Global.combat_mission == 1) else 3
+			_sortie_airframes_total = maxi(needed + 1, 3)
 		_:
-			_sortie_airframes_total = 3 if (Global.special_mission == 0 and Global.combat_mission == 1) else 2
+			_sortie_airframes_total = maxi(needed, 2)
 	_sortie_airframes_left = _sortie_airframes_total
 	_airframe_consumed_this_life = false
 
@@ -2821,8 +2827,8 @@ func _mission_title() -> String:
 			if Global.combat_training:
 				return _txt("БОЙОВЕ ТРЕНУВАННЯ: 3 КРОКИ ДО ПЕРШОГО УРАЖЕННЯ",
 						"COMBAT TRAINING: 3 STEPS TO YOUR FIRST HIT")
-			return _txt("ТРЕНУВАННЯ: пролетіть усі 24 кільця",
-					"TRAINING: Fly through all 24 gates")
+			return _txt("ФРІСТАЙЛ: пролетіть усі 24 ворота",
+					"FREESTYLE: Fly through all 24 gates")
 		_:
 			return _combat_mission_banner(Global.combat_mission)
 
@@ -2923,6 +2929,11 @@ func _show_results(reason: String) -> void:
 		return
 	if _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active():
 		_kill_cam.cancel()
+	if _touch_controls != null:
+		if _touch_controls.has_method("set_enabled"):
+			_touch_controls.call("set_enabled", false)
+		elif _touch_controls is CanvasLayer:
+			(_touch_controls as CanvasLayer).visible = false
 	if _is_mobile_runtime():
 		_hide_mobile_gameplay_hud()
 		if _results_canvas_layer != null:
@@ -2950,11 +2961,11 @@ func _show_results(reason: String) -> void:
 					Global.special_mission, final_score, _mission_time, Global.difficulty)
 	elif Global.play_mode == Global.PlayMode.TRAINING and not _mission_failed:
 		if Global.has_method("record_training_result"):
-			var map_id := frontline_map if not frontline_map.is_empty() else str(Global.menu_settings.get("selected_map", "village"))
-			Global.record_training_result(map_id, _mission_time, _rings_passed, _rings_total)
+			var map_id := frontline_map if not frontline_map.is_empty() else str(Global.menu_settings.get("selected_map", "valley"))
+			mission_rec = Global.record_training_result(map_id, _mission_time, _rings_passed, _rings_total)
 	if not _mission_failed and Global.has_method("get_daily_challenge"):
 		var daily_ch: Dictionary = Global.get_daily_challenge()
-		var cur_map := frontline_map if not frontline_map.is_empty() else str(Global.menu_settings.get("selected_map", "village"))
+		var cur_map := frontline_map if not frontline_map.is_empty() else str(Global.menu_settings.get("selected_map", "valley"))
 		var mode_matches := (int(daily_ch.get("mode", -1)) == int(Global.play_mode))
 		var map_matches := (str(daily_ch.get("map", "")) == cur_map)
 		var combat_ok := (Global.play_mode != Global.PlayMode.COMBAT) \
@@ -2978,8 +2989,11 @@ func _show_results(reason: String) -> void:
 				"FLIGHT SCHOOL    COURSE COMPLETE (10/10 MODULES)\nQUALIFICATION    FPV STRIKE OPERATOR")
 		Global.PlayMode.TRAINING:
 			var ghost_tag := _txt(" · ПРИВИД ЗБЕРЕЖЕНО", " · GHOST SAVED") if not _ghost_record_samples.is_empty() else ""
-			best_line = "%s   %d / %d%s" % [
-				_txt("КІЛЬЦЯ          ", "GATES           "), _rings_passed, _rings_total, ghost_tag]
+			var new_best_tag := _txt(" ★ НОВИЙ РЕКОРД!", " ★ NEW BEST!") if bool(mission_rec.get("new_best", false)) else ""
+			var best_sec := float(mission_rec.get("best_time", 0.0))
+			var rec_line := "\n%s %s" % [_txt("РЕКОРД ЧАСУ     ", "BEST LAP        "), _format_time(best_sec)] if best_sec > 0.0 else ""
+			best_line = "%s   %d / %d%s%s%s" % [
+				_txt("ВОРОТА          ", "GATES           "), _rings_passed, _rings_total, ghost_tag, new_best_tag, rec_line]
 		_:
 			if Global.special_mission > 0:
 				var outcome := _txt("ПРОВАЛЕНО", "FAILED") if _mission_failed else _txt("ВИКОНАНО", "COMPLETED")
@@ -3145,10 +3159,23 @@ func _show_results(reason: String) -> void:
 			_results_career_label.visible = true
 			_results_career_bar.value = xp_progress
 			_results_career_bar.visible = true
+	var score_label := _txt("БОЙОВІ ОЧКИ     ", "COMBAT SCORE    ")
+	if Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training:
+		score_label = _txt("ОЧКИ ФРІСТАЙЛУ  ", "FREESTYLE SCORE ")
+	elif Global.play_mode != Global.PlayMode.COMBAT:
+		score_label = _txt("ОЧКИ ПІЛОТА     ", "PILOT SCORE     ")
+	if _results_dvr_btn != null:
+		var allow_dvr := (Global.play_mode == Global.PlayMode.COMBAT \
+				or (Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training)) \
+				and not _dvr_samples.is_empty()
+		_results_dvr_btn.visible = allow_dvr
+		_results_dvr_btn.text = _txt("ПОВТОР УДАРУ (DVR)", "STRIKE REPLAY (DVR)") \
+				if Global.play_mode == Global.PlayMode.COMBAT \
+				else _txt("ПОВТОР ПОЛЬОТУ (DVR)", "FLIGHT REPLAY (DVR)")
 	_results_stats.text = "%s\n%s%s%s%s%s %s\n%s %d" % [
 			best_line, diff_line, award_line, campaign_line, breakdown_line,
 			_txt("ЧАС ПОЛЬОТУ     ", "FLIGHT TIME     "), _format_time(_mission_time),
-			_txt("БОЙОВІ ОЧКИ     ", "COMBAT SCORE    "), final_score]
+			score_label, final_score]
 	get_tree().paused = true
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	if can_next and _next_mission_btn != null:
@@ -3201,7 +3228,7 @@ func _on_retry_pressed() -> void:
 func _show_loading_card(mission_id: int) -> void:
 	if get_tree().root.get_node_or_null("GlobalLoadingOverlay") != null:
 		return
-	var map_name := str(Global.menu_settings.get("selected_map", "steppe"))
+	var map_name := str(Global.menu_settings.get("selected_map", "industrial"))
 	var overlay: Dictionary = LoadingScreen.build(Global.PlayMode.COMBAT,
 			mission_id, map_name, Global.get_difficulty_name(), true)
 	var layer := overlay["layer"] as CanvasLayer
@@ -3231,16 +3258,25 @@ func _hide_legacy_freestyle_gates() -> void:
 		var n := node as Node3D
 		if n != null and n != self:
 			n.visible = false
+			_disable_collisions_recursive(n)
 			count += 1
 	for node in find_children("Gate_*", "Node3D", true, false):
 		var n := node as Node3D
 		if n != null and n != self and not n.name.begins_with("FreestyleGate"):
 			n.visible = false
+			_disable_collisions_recursive(n)
 			count += 1
 	for node in find_children("FPV_Gate*", "Node3D", true, false):
 		var n := node as Node3D
 		if n != null and n != self:
 			n.visible = false
+			_disable_collisions_recursive(n)
+			count += 1
+	for node in find_children("Stunt_Ring*", "Node3D", true, false):
+		var n := node as Node3D
+		if n != null and n != self:
+			n.visible = false
+			_disable_collisions_recursive(n)
 			count += 1
 	if count > 0:
 		print("[FREESTYLE] legacy gates hidden=", count)
@@ -3461,60 +3497,171 @@ func _find_training_ring_fallback(i: int, clearance: BoxShape3D) -> Vector3:
 	return last_resort
 
 
-func _freestyle_gate_clear(pos: Vector3, radius: float) -> bool:
-	var space := get_world_3d().direct_space_state
+func _freestyle_gate_clear(pos: Vector3, radius: float,
+		dir: Vector3 = Vector3.ZERO) -> bool:
+	var gy := _find_ground_y(pos.x, pos.z)
+	if frontline_map == "uman":
+		if has_method("_uman_is_water") and bool(call("_uman_is_water", pos)) and pos.y < 2.2:
+			return false
+	elif frontline_map == "wetlands":
+		var wl := _map_water_level()
+		if pos.y - maxf(gy, wl) < 2.8:
+			return false
+	elif frontline_map == "industrial":
+		if Vector2(pos.x - 85.0, pos.z + 95.0).length() < 36.0 and pos.y - gy < 34.0:
+			return false
+		if absf(pos.x - 45.0) < 38.0 and absf(pos.z + 40.0) < 26.0 and pos.y - gy < 26.0:
+			return false
+	var world := get_world_3d()
+	if world == null:
+		return true
+	var space := world.direct_space_state
 	if space == null:
 		return true
-	var shape := SphereShape3D.new()
-	shape.radius = radius
-	var query := PhysicsShapeQueryParameters3D.new()
-	query.shape = shape
-	query.transform = Transform3D(Basis.IDENTITY, pos)
-	query.collision_mask = 1
-	query.collide_with_bodies = true
-	query.collide_with_areas = false
+	var excludes: Array[RID] = []
 	var drone := get_node_or_null("Drone")
 	if drone is CollisionObject3D:
-		query.exclude = [(drone as CollisionObject3D).get_rid()]
-	for hit in space.intersect_shape(query, 8):
-		var col = hit.get("collider")
-		if col is CollisionObject3D:
-			var nm := (col as CollisionObject3D).name
-			if nm == "UmanSafetyGround" or nm.begins_with("UmanGround"):
-				continue
-		return false
+		excludes.append((drone as CollisionObject3D).get_rid())
+	var probe_offsets: Array[Vector3] = [Vector3.ZERO]
+	var probe_radii: Array[float] = [minf(radius, maxf(1.8, pos.y - gy - 0.45))]
+	if dir.length_squared() > 0.1:
+		var fwd := dir.normalized()
+		for dist in [-4.8, 4.8]:
+			var pt := pos + fwd * float(dist)
+			var pt_gy := _find_ground_y(pt.x, pt.z)
+			if pt.y - pt_gy >= 2.2:
+				probe_offsets.append(fwd * float(dist))
+				probe_radii.append(minf(radius * 0.58, maxf(1.5, pt.y - pt_gy - 0.35)))
+	for pi in range(probe_offsets.size()):
+		var pt := pos + probe_offsets[pi]
+		var shape := SphereShape3D.new()
+		shape.radius = probe_radii[pi]
+		var query := PhysicsShapeQueryParameters3D.new()
+		query.shape = shape
+		query.transform = Transform3D(Basis.IDENTITY, pt)
+		query.collision_mask = 1
+		query.collide_with_bodies = true
+		query.collide_with_areas = false
+		query.exclude = excludes
+		for hit in space.intersect_shape(query, 8):
+			var col = hit.get("collider")
+			if col is CollisionObject3D:
+				var nm := str((col as CollisionObject3D).name)
+				if nm == "UmanSafetyGround" or nm.begins_with("UmanGround") \
+						or nm in ["FrontlineGround", "Ground", "GroundBody", "Terrain", "AirportGround"]:
+					continue
+			return false
 	return true
 
 
-## Lift / nudge a gate until its opening is not inside a tree, wall or prop.
+## Lift / nudge a gate until its opening and entry/exit corridor are clear of trees, walls, cranes and water.
 func _freestyle_clear_gate_positions(specs: Array[Dictionary]) -> void:
+	var moves: Array[Vector3] = [
+		Vector3(3.5, 0.0, 0.0), Vector3(-3.5, 0.0, 0.0),
+		Vector3(0.0, 0.0, 3.5), Vector3(0.0, 0.0, -3.5),
+		Vector3(7.0, 0.5, 0.0), Vector3(-7.0, 0.5, 0.0),
+		Vector3(0.0, 0.5, 7.0), Vector3(0.0, 0.5, -7.0),
+		Vector3(11.0, 1.5, 0.0), Vector3(-11.0, 1.5, 0.0),
+		Vector3(0.0, 1.5, 11.0), Vector3(0.0, 1.5, -11.0),
+		Vector3(14.0, 2.0, 14.0), Vector3(-14.0, 2.0, -14.0),
+		Vector3(14.0, 2.0, -14.0), Vector3(-14.0, 2.0, 14.0),
+		Vector3(20.0, 2.5, 0.0), Vector3(-20.0, 2.5, 0.0),
+		Vector3(0.0, 2.5, 20.0), Vector3(0.0, 2.5, -20.0),
+		Vector3.UP * 3.5, Vector3.UP * 7.0, Vector3.UP * 11.0, Vector3.UP * 15.0,
+	]
+	var wl := _map_water_level()
 	for spec in specs:
 		var pos: Vector3 = spec.get("pos", Vector3.ZERO)
-		var radius: float = float(spec.get("size", 3.0)) * 0.7 + 0.8
-		if _freestyle_gate_clear(pos, radius):
+		var dir: Vector3 = spec.get("dir", Vector3.FORWARD)
+		var radius: float = float(spec.get("size", 3.5)) * 0.7 + 0.8
+		if _freestyle_gate_clear(pos, radius, dir):
 			continue
-		# Prefer sliding sideways at low altitude.  Lifting first used to
-		# park gates on top of building roofs, which is just as unflyable as
-		# putting them in a tree.
-		var moves: Array[Vector3] = [
-			Vector3(3.0, 0.0, 0.0), Vector3(-3.0, 0.0, 0.0),
-			Vector3(0.0, 0.0, 3.0), Vector3(0.0, 0.0, -3.0),
-			Vector3(6.0, 0.5, 0.0), Vector3(-6.0, 0.5, 0.0),
-			Vector3(0.0, 0.5, 6.0), Vector3(0.0, 0.5, -6.0),
-			Vector3(10.0, 1.0, 0.0), Vector3(-10.0, 1.0, 0.0),
-			Vector3(0.0, 1.0, 10.0), Vector3(0.0, 1.0, -10.0),
-			Vector3(14.0, 1.5, 14.0), Vector3(-14.0, 1.5, -14.0),
-			Vector3(14.0, 1.5, -14.0), Vector3(-14.0, 1.5, 14.0),
-			Vector3.UP * 3.0, Vector3.UP * 6.0,
-		]
 		for mv in moves:
 			var cand := pos + mv
-			var agl := cand.y - _find_ground_y(cand.x, cand.z)
-			if agl < 0.5 or agl > 9.0:
+			var gy := _find_ground_y(cand.x, cand.z)
+			var base_y := maxf(gy, wl) if (frontline_map == "wetlands" or frontline_map == "uman") else gy
+			var agl := cand.y - base_y
+			if agl < 2.8 or agl > 52.0:
 				continue
-			if _freestyle_gate_clear(cand, radius):
+			if _freestyle_gate_clear(cand, radius, dir):
 				spec["pos"] = cand
+				spec["ground_y"] = gy
 				break
+	# Second pass: verify each consecutive flight corridor [i -> i+1] is clear of trees,
+	# hills or ruins, lifting obstructed waypoints upward gently along the leg.
+	for i in range(specs.size() - 1):
+		var p0: Vector3 = specs[i]["pos"]
+		var p1: Vector3 = specs[i + 1]["pos"]
+		for lift_try in range(4):
+			var leg_blocked := false
+			for frac in [0.25, 0.50, 0.75]:
+				var pt := p0.lerp(p1, float(frac))
+				if not _freestyle_gate_clear(pt, 2.2):
+					leg_blocked = true
+					break
+			if not leg_blocked:
+				break
+			p1.y += 3.5
+			var gy1 := _find_ground_y(p1.x, p1.z)
+			if p1.y - gy1 <= 52.0 and _freestyle_gate_clear(p1, 2.6):
+				specs[i + 1]["pos"] = p1
+			else:
+				break
+	# Refresh smoothed tangents after any nudges so every gate faces cleanly into the next leg.
+	var total := specs.size()
+	for i in range(total):
+		var cur: Vector3 = specs[i]["pos"]
+		var prev: Vector3 = specs[(i - 1 + total) % total]["pos"]
+		var nxt: Vector3 = specs[(i + 1) % total]["pos"]
+		var dir: Vector3
+		if i == 0:
+			dir = nxt - cur
+		elif i == total - 1:
+			dir = cur - prev
+		else:
+			dir = (nxt - cur).normalized() + (cur - prev).normalized()
+		if dir.length_squared() < 0.0001:
+			dir = Vector3.FORWARD
+		specs[i]["dir"] = dir.normalized()
+
+	var aerial_cycle := [
+		FreestyleCourseScript.SHAPE_SQUARE,
+		FreestyleCourseScript.SHAPE_DIAMOND,
+		FreestyleCourseScript.SHAPE_HEXAGON,
+	]
+	for i in range(total):
+		var sp: Dictionary = specs[i]
+		var pos: Vector3 = sp["pos"]
+		var sz := float(sp.get("size", 4.6))
+		var gy := _find_ground_y(pos.x, pos.z)
+		var fdir: Vector3 = sp["dir"]
+		var flat_dir := Vector3(fdir.x, 0.0, fdir.z)
+		if flat_dir.length_squared() < 0.0001:
+			flat_dir = Vector3.FORWARD
+		var right_axis := Basis.looking_at(flat_dir.normalized(), Vector3.UP).x
+		var leg_r := sz * 0.92
+		var lp := pos - right_axis * leg_r
+		var rp := pos + right_axis * leg_r
+		var lgy := _find_ground_y(lp.x, lp.z)
+		var rgy := _find_ground_y(rp.x, rp.z)
+		var over_water := false
+		if frontline_map == "uman" and has_method("_uman_is_water"):
+			over_water = bool(call("_uman_is_water", pos)) \
+					or bool(call("_uman_is_water", lp)) \
+					or bool(call("_uman_is_water", rp))
+		elif wl > -50.0:
+			over_water = (gy <= wl + 0.15) or (lgy <= wl + 0.15) or (rgy <= wl + 0.15)
+		sp["ground_y"] = gy
+		sp["left_ground_y"] = lgy
+		sp["right_ground_y"] = rgy
+		sp["over_water"] = over_water
+		if int(sp.get("shape", FreestyleCourseScript.SHAPE_ARCH)) == FreestyleCourseScript.SHAPE_ARCH:
+			var lowest_gy := minf(gy, minf(lgy, rgy))
+			var agl := pos.y - lowest_gy
+			if over_water or agl < 1.2 \
+					or agl > sz * FreestyleCourseScript.ARCH_MAX_AGL_MULT \
+					or absf(lgy - rgy) > FreestyleCourseScript.ARCH_MAX_SLOPE_DIFF:
+				sp["shape"] = aerial_cycle[i % aerial_cycle.size()]
 
 
 ## Freestyle courses live in real openings: hall windows/doors, hangar arches,
@@ -3544,10 +3691,8 @@ func _build_freestyle_ring_positions() -> bool:
 			var r := 78.0 + 14.0 * sin(a * 3.0 + 0.4)
 			loop.append(Vector3(cos(a) * r, 0.0, sin(a) * r * 0.88))
 		specs = FreestyleCourseScript.loop_waypoints(loop, ground_fn)
-	# Hall/airport gates are supposed to sit in wall openings; only the free
-	# scenery loops need to be pulled out of trees and props.
-	if map == "uman" or map.is_empty():
-		_freestyle_clear_gate_positions(specs)
+	# Pull any gate away from dynamic props, trees, cranes or walls across every map.
+	_freestyle_clear_gate_positions(specs)
 	if specs.size() < FreestyleCourseScript.RING_COUNT:
 		return false
 	_freestyle_ring_specs = specs
@@ -3631,7 +3776,7 @@ func _spawn_training_rings() -> void:
 		var ring: Area3D
 		if i < _freestyle_ring_specs.size():
 			ring = FreestyleCourseScript.make_checkpoint(_triggers,
-					_freestyle_ring_specs[i], i)
+					_freestyle_ring_specs[i], i, _freestyle_ring_specs.size())
 		else:
 			var pos := _training_ring_position(i)
 			var next := _training_ring_position((i + 1) % _training_ring_positions.size())
@@ -3696,7 +3841,7 @@ func _ensure_next_ring_preview() -> void:
 				var w_box := BoxMesh.new()
 				w_box.size = Vector3(0.24, 0.24, 1.9)
 				wing.mesh = w_box
-				wing.position = Vector3(float(side_s) * 0.52, -2.4, 0.0)
+				wing.position = Vector3(float(side_s) * 0.52, 0.0, 0.0)
 				wing.rotation.y = float(side_s) * deg_to_rad(36.0)
 				wing.material_override = arrow_mat
 				wing.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -3732,7 +3877,7 @@ func _sync_active_training_ring(animate_pop: bool = false) -> void:
 			var nr := _training_rings[next_idx]
 			var cur_r := _training_rings[_rings_passed] if _rings_passed < _training_rings.size() else null
 			if nr != null and is_instance_valid(nr):
-				_next_ring_preview.visible = true
+				_next_ring_preview.visible = _freestyle_ring_specs.is_empty()
 				var next_radius := float(nr.get_meta("ring_radius", 6.2))
 				_next_ring_preview.scale = Vector3.ONE * clampf(next_radius / 6.2, 0.32, 1.6)
 				_next_ring_preview.global_position = nr.global_position
@@ -3746,7 +3891,9 @@ func _sync_active_training_ring(animate_pop: bool = false) -> void:
 						if d_node == null:
 							continue
 						var frac := float(di + 1) / 5.0
-						d_node.global_position = cur_r.global_position.lerp(nr.global_position, frac)
+						var d_pos := cur_r.global_position.lerp(nr.global_position, frac)
+						d_pos.y = maxf(d_pos.y, _find_ground_y(d_pos.x, d_pos.z) + 1.5)
+						d_node.global_position = d_pos
 						if d_node.global_position.distance_squared_to(nr.global_position) > 0.5:
 							d_node.look_at(nr.global_position, Vector3.UP)
 			else:
@@ -3812,12 +3959,14 @@ func _on_ring_entered(body: Node3D, ring: Area3D) -> void:
 	_set_flash("%s %d/%d · %.1fs · ×%d" % [
 		_txt("Ворота", "Gate"), _rings_passed, _rings_total, _mission_time, _ring_clean_streak])
 	if _rings_passed >= _rings_total:
+		_freestyle_ghost_saved_once = true
 		_save_training_ghost()
-		_finish_mission(_txt("ТРЕНУВАННЯ ЗАВЕРШЕНО", "TRAINING COMPLETE"))
+		var done_title := _txt("БОЙОВЕ ТРЕНУВАННЯ ЗАВЕРШЕНО", "COMBAT TRAINING COMPLETE") \
+				if Global.combat_training else _txt("ФРІСТАЙЛ ЗАВЕРШЕНО", "FREESTYLE COMPLETE")
+		_finish_mission(done_title)
 
 
-## Training UX: pulse the next gate and dim the rest, so the course is readable
-## at range instead of 24 identical rings scattered across the map.
+## Training UX: pulse the active gate, cue the on-deck gate, and dim passed gates.
 func _update_training_ring_highlight(delta: float) -> void:
 	if _training_rings.is_empty():
 		return
@@ -3828,12 +3977,44 @@ func _update_training_ring_highlight(delta: float) -> void:
 		var ring := _training_rings[i]
 		if ring == null or not is_instance_valid(ring):
 			continue
+		var frame_mat := ring.get_meta("ring_frame_mat", null) as StandardMaterial3D
+		var glow_mat := ring.get_meta("ring_glow_mat", null) as StandardMaterial3D
+		var base_col: Color = ring.get_meta("ring_base_color", Color(0.08, 0.92, 0.88))
+		if frame_mat != null:
+			if course_live and i == next_idx and ring.visible:
+				frame_mat.albedo_color = base_col.lightened(0.18)
+				frame_mat.emission = base_col.lightened(0.10)
+				frame_mat.emission_energy_multiplier = 4.6 + sin(_ring_pulse) * 1.1
+				if glow_mat != null:
+					glow_mat.albedo_color = Color(base_col.r, base_col.g, base_col.b, 0.34)
+					glow_mat.emission_energy_multiplier = 2.0
+			elif course_live and i == next_idx + 1 and ring.visible:
+				frame_mat.albedo_color = base_col
+				frame_mat.emission = base_col
+				frame_mat.emission_energy_multiplier = 2.2
+				if glow_mat != null:
+					glow_mat.albedo_color = Color(base_col.r, base_col.g, base_col.b, 0.20)
+					glow_mat.emission_energy_multiplier = 1.0
+			elif i < _rings_passed:
+				var passed_col := base_col.darkened(0.62)
+				frame_mat.albedo_color = passed_col
+				frame_mat.emission = passed_col
+				frame_mat.emission_energy_multiplier = 0.22
+				if glow_mat != null:
+					glow_mat.albedo_color = Color(passed_col.r, passed_col.g, passed_col.b, 0.05)
+					glow_mat.emission_energy_multiplier = 0.15
+			else:
+				frame_mat.albedo_color = base_col
+				frame_mat.emission = base_col
+				frame_mat.emission_energy_multiplier = 0.95
+				if glow_mat != null:
+					glow_mat.albedo_color = Color(base_col.r, base_col.g, base_col.b, 0.12)
+					glow_mat.emission_energy_multiplier = 0.55
+			continue
 		var mat := ring.get_meta("ring_material", null) as StandardMaterial3D
 		if mat == null:
 			continue
 		if course_live and i == next_idx and ring.visible:
-			# Keep the active gate clearly brighter than the course, but below
-			# the tonemap roll-off so it reads as teal instead of a white blob.
 			mat.emission_energy_multiplier = 1.15 + sin(_ring_pulse) * 0.20
 		else:
 			mat.emission_energy_multiplier = 0.45
@@ -3876,10 +4057,16 @@ func _setup_training_ghost() -> void:
 				continue
 			if line.begins_with("MODEL:"):
 				model_path = line.substr(6)
+			elif line.begins_with("GATES:") or line.begins_with("TIME:"):
+				continue
 			else:
 				var parts := line.split(",")
 				if parts.size() >= 12:
-					samples.append(parts)
+					var sample: Array = []
+					sample.resize(parts.size())
+					for pi in range(parts.size()):
+						sample[pi] = float(parts[pi])
+					samples.append(sample)
 		f.close()
 		if not samples.is_empty():
 			g.set_samples(samples, model_path)
@@ -3915,19 +4102,48 @@ func _update_training_ghost(delta: float) -> void:
 		_ghost_node.update_transform()
 
 
+func _read_ghost_header(path: String) -> Dictionary:
+	var info := {"gates": 0, "time": 0.0, "has_samples": false}
+	if not FileAccess.file_exists(path):
+		return info
+	var rf := FileAccess.open(path, FileAccess.READ)
+	if rf == null:
+		return info
+	while not rf.eof_reached():
+		var line := rf.get_line().strip_edges()
+		if line.begins_with("GATES:"):
+			info["gates"] = int(line.substr(6))
+		elif line.begins_with("TIME:"):
+			info["time"] = float(line.substr(5))
+		elif not line.is_empty() and not line.begins_with("MODEL:"):
+			info["has_samples"] = true
+			break
+	rf.close()
+	return info
+
+
 func _save_training_ghost() -> void:
 	if Global.play_mode != Global.PlayMode.TRAINING or Global.combat_training \
 			or _ghost_record_samples.is_empty():
 		return
 	var path := _ghost_replay_file()
+	var prev := _read_ghost_header(path)
+	if bool(prev["has_samples"]):
+		var prev_gates := int(prev["gates"])
+		var prev_time := float(prev["time"])
+		if _rings_passed < prev_gates:
+			return
+		if _rings_passed == prev_gates and prev_time > 0.0 \
+				and (_mission_time <= 0.0 or _mission_time >= prev_time):
+			return
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	if f == null:
 		return
-	# MODEL line lets Ghost rebuild the translucent drone the player actually
-	# flew instead of falling back to the tiny procedural beacon.
 	var model_path := str(DroneCatalog.call("_model_path", Global.drone_preset))
 	if not model_path.is_empty():
 		f.store_line("MODEL:%s" % model_path)
+	f.store_line("GATES:%d" % _rings_passed)
+	f.store_line("TIME:%.3f" % _mission_time)
 	for sample in _ghost_record_samples:
 		var vals: Array = sample
 		var strs: PackedStringArray = []
@@ -5389,8 +5605,9 @@ func _update_escort_mission(delta: float, drone: Drone) -> void:
 	if _special_convoy == null or not is_instance_valid(_special_convoy):
 		_special_fail("КОЛОНУ ЗНИЩЕНО — СУПРОВІД ПРОВАЛЕНО")
 		return
+	var max_leash := maxf(265.0, MAP_GROUND_SAFE * 0.85)
 	var dist := drone.global_position.distance_to(_special_convoy.global_position)
-	if dist > 180.0:
+	if dist > max_leash:
 		_special_convoy_far_timer += delta
 		if _special_convoy_far_timer > 4.0 and not _special_convoy_warned:
 			_special_convoy_warned = true
@@ -5519,6 +5736,19 @@ func _setup_special_dual_escort() -> void:
 		for wp in raw_b:
 			var v: Vector3 = wp as Vector3
 			route_b.append(_special_ground_point(v.x, v.z))
+		if not frontline_map.is_empty() and route_b.size() >= 2:
+			var dense_b: Array[Vector3] = []
+			for i in range(route_b.size() - 1):
+				var a: Vector3 = route_b[i]
+				var b: Vector3 = route_b[i + 1]
+				dense_b.append(a)
+				var steps := maxi(1, int(ceil(a.distance_to(b) / 18.0)))
+				for s in range(1, steps):
+					var p := a.lerp(b, float(s) / float(steps))
+					var dry := _find_dry_spot(p.x, p.z)
+					dense_b.append(_special_ground_point(dry.x, dry.y))
+			dense_b.append(route_b[route_b.size() - 1])
+			route_b = dense_b
 	var vehicle_b := VEHICLE.new()
 	vehicle_b.kind = Vehicle.Kind.TRUCK
 	vehicle_b.hostile = false
@@ -5542,10 +5772,11 @@ func _update_dual_escort_mission(delta: float, drone: Drone) -> void:
 			or _special_convoy_b == null or not is_instance_valid(_special_convoy_b):
 		_special_fail("КОЛОНУ ЗНИЩЕНО — СУПРОВІД ПРОВАЛЕНО")
 		return
+	var max_leash := maxf(265.0, MAP_GROUND_SAFE * 0.85)
 	var dist_a := drone.global_position.distance_to(_special_convoy.global_position)
 	var dist_b := drone.global_position.distance_to(_special_convoy_b.global_position)
 	var dist := minf(dist_a, dist_b)
-	if dist > 180.0:
+	if dist > max_leash:
 		_special_convoy_far_timer += delta
 		if _special_convoy_far_timer > 4.0 and not _special_convoy_warned:
 			_special_convoy_warned = true
@@ -5577,7 +5808,17 @@ func _update_dual_escort_mission(delta: float, drone: Drone) -> void:
 		if _special_convoy_stall >= 4.0:
 			_special_convoy_stall = 0.0
 			_special_convoy_recoveries += 1
-			_special_convoy.call("escort_emergency_advance")
+			if _special_convoy_recoveries >= 4:
+				_special_convoy_recoveries = 0
+				var reroute := GroundRoutePlanner.plan(self,
+						_special_convoy.global_position, _special_convoy_dest,
+						10.0, MAP_GROUND_SAFE - 12.0)
+				if reroute.size() >= 2:
+					_special_convoy.call("set_waypoints", reroute)
+				else:
+					_special_convoy.call("escort_emergency_advance")
+			else:
+				_special_convoy.call("escort_emergency_advance")
 
 	if not b_arrived:
 		if _special_convoy_b_stall_anchor == Vector3.ZERO:
@@ -5590,7 +5831,17 @@ func _update_dual_escort_mission(delta: float, drone: Drone) -> void:
 		if _special_convoy_b_stall >= 4.0:
 			_special_convoy_b_stall = 0.0
 			_special_convoy_b_recoveries += 1
-			_special_convoy_b.call("escort_emergency_advance")
+			if _special_convoy_b_recoveries >= 4:
+				_special_convoy_b_recoveries = 0
+				var reroute_b := GroundRoutePlanner.plan(self,
+						_special_convoy_b.global_position, _special_convoy_b_dest,
+						10.0, MAP_GROUND_SAFE - 12.0)
+				if reroute_b.size() >= 2:
+					_special_convoy_b.call("set_waypoints", reroute_b)
+				else:
+					_special_convoy_b.call("escort_emergency_advance")
+			else:
+				_special_convoy_b.call("escort_emergency_advance")
 
 
 func _setup_special_dawn_defense() -> void:
@@ -6484,6 +6735,12 @@ func _setup_reb() -> void:
 	reb.base_range_m = maxf(680.0, MAP_FLIGHT_BOUND * 2.2)
 	add_child(reb)
 	_reb = reb
+	if frontline_map == "uman" \
+			or (Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training):
+		reb.unlimited_freestyle = true
+		if not reb.failsafe_changed.is_connected(_on_reb_failsafe):
+			reb.failsafe_changed.connect(_on_reb_failsafe)
+		return
 	# EW laydown per map: one omnidirectional trench dome (150-250 m) and one
 	# directional station covering the attack approach.  Positions are snapped
 	# to the procedural terrain so the masts always sit on the ground.
@@ -7166,7 +7423,10 @@ func _update_fpv_camera_fx(delta: float) -> void:
 		return
 	var speed := drone.linear_velocity.length()
 	var armed: bool = drone.flight_controller != null and drone.flight_controller.state_armed
-	var fiber_mode: bool = Global != null and bool(Global.menu_settings.get("fiber_optic_mode", false))
+	var is_freestyle := frontline_map == "uman" \
+			or (Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training)
+	var fiber_mode: bool = Global != null and not is_freestyle \
+			and bool(Global.menu_settings.get("fiber_optic_mode", false))
 	_update_fiber_cable(drone, cam, fiber_mode)
 	if armed and fiber_mode:
 		_fiber_spool_used_m = clampf(_fiber_spool_used_m + speed * delta, 0.0, 10000.0)
@@ -7327,8 +7587,11 @@ func _attach_fpv_rig(reset_ammo: bool = true) -> void:
 			if child is Node3D and String(child.name).begins_with("Bomb_"):
 				_bomb_nodes.append(child as Node3D)
 	var is_combat: bool = bool(p.get("combat", false))
-	_payload_enabled = is_combat and DroneCatalog.supports_payload_actions(Global.drone_preset)
+	var is_freestyle := Global != null and Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training
+	_payload_enabled = is_combat and not is_freestyle and DroneCatalog.supports_payload_actions(Global.drone_preset)
 	if not _payload_enabled:
+		if _fpv_payload != null:
+			_fpv_payload.visible = false
 		_fpv_payload = null
 
 	var builtin_hud := get_node_or_null("Drone/HUD")
@@ -7745,12 +8008,20 @@ func _configure_model_for_camera(node: Node, is_fpv: bool,
 		return
 	if node is MeshInstance3D:
 		var mi := node as MeshInstance3D
+		var is_freestyle := Global != null and Global.play_mode == Global.PlayMode.TRAINING \
+				and not Global.combat_training
+		var n2 := String(mi.name).to_lower()
+		var is_warhead_part := n2.contains("morkva") or n2.contains("provoloka") \
+				or n2.contains("styazka") or n2.contains("detonator") \
+				or n2.contains("warhead") or n2.contains("pg7") or n2.contains("bomb_")
+		if is_freestyle and (is_warhead_part or (_fpv_payload != null and _is_under(mi, _fpv_payload))):
+			mi.visible = false
+			return
 		if is_fpv and only_payload:
 			# Combat FPV: keep only the warhead, camera/nose housing and the
 			# fixed arms.  Propellers and motor bells belong to the airframe
 			# silhouette, not the lens: at this camera distance they clip
 			# through the near plane and fill the corners with black arcs.
-			var n2 := String(mi.name).to_lower()
 			if _heavy_bomber:
 				# The 2.8 m six-rotor airframe (battery cases, tanks, Starlink
 				# mast) sat directly in front of the bomber lens.  Keep only
@@ -7759,9 +8030,6 @@ func _configure_model_for_camera(node: Node, is_fpv: bool,
 				# target beyond.
 				mi.visible = _fpv_payload != null and _is_under(mi, _fpv_payload)
 				return
-			var is_warhead_part := n2.contains("morkva") or n2.contains("provoloka") \
-					or n2.contains("styazka") or n2.contains("detonator") \
-					or n2.contains("warhead") or n2.contains("pg7")
 			var is_front_part := n2.contains("arm_fl") or n2.contains("arm_fr") \
 					or n2.contains("front_arm") or n2.contains("front_frame")
 			var is_camera_part := n2.contains("cam") or n2.contains("lens") \
@@ -7976,12 +8244,13 @@ func _reset_fpv_payload() -> void:
 	if _fpv_payload == null or not is_instance_valid(_fpv_payload):
 		return
 	if _heavy_bomber:
+		var is_freestyle := Global != null and Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training
 		_bomb_nodes.clear()
 		for child in _fpv_payload.get_children():
 			if child is Node3D and String(child.name).begins_with("Bomb_"):
-				(child as Node3D).visible = true
+				(child as Node3D).visible = not is_freestyle
 				_bomb_nodes.append(child as Node3D)
-		_payload_enabled = true
+		_payload_enabled = not is_freestyle
 		var cs := get_node_or_null("CombatSystem")
 		if cs != null:
 			cs.set("ammo", _bomb_nodes.size())
@@ -8167,10 +8436,13 @@ func _build_results() -> void:
 	buttons.add_child(_results_lb_btn)
 	_results_dvr_btn = Button.new()
 	_results_dvr_btn.name = "ButtonStrikeDVR"
-	_results_dvr_btn.text = _txt("ПОВТОР УДАРУ (DVR)", "STRIKE REPLAY (DVR)")
+	_results_dvr_btn.text = _txt("ПОВТОР УДАРУ (DVR)", "STRIKE REPLAY (DVR)") \
+			if Global.play_mode == Global.PlayMode.COMBAT \
+			else _txt("ПОВТОР ПОЛЬОТУ (DVR)", "FLIGHT REPLAY (DVR)")
 	_results_dvr_btn.custom_minimum_size = Vector2(0, 52)
 	_results_dvr_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_results_dvr_btn.visible = (Global.play_mode == Global.PlayMode.COMBAT)
+	_results_dvr_btn.visible = (Global.play_mode == Global.PlayMode.COMBAT \
+			or (Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training))
 	_results_dvr_btn.pressed.connect(_on_dvr_replay_pressed)
 	buttons.add_child(_results_dvr_btn)
 	var retry := Button.new()
@@ -8648,20 +8920,12 @@ func _update_nav_marker() -> void:
 					target_pos = ct_info["pos"]
 					target_found = true
 					target_label = str(ct_info.get("label", _txt("ЦІЛЬ", "TARGET")))
-			if not target_found:
-				for r in _training_rings:
-					if is_instance_valid(r) and r.visible:
-						target_pos = r.global_position
-						target_found = true
-						target_label = "%s %d/%d" % [_txt("ВОРОТА", "GATE"), _rings_passed + 1, _rings_total]
-						var m := _checkpoint_visual(r)
-						if m != null and m.material_override is StandardMaterial3D:
-							var mat := m.material_override as StandardMaterial3D
-							# Match the ring pulse above; the old 3.5 bloomed the gate
-							# to pure white and hid its opening against the sky.
-							mat.emission_energy_multiplier = 1.15 + sin(Time.get_ticks_msec() * 0.008) * 0.20
-							mat.emission = Color(0.12, 0.92, 0.80)
-						break
+			if not target_found and _rings_passed >= 0 and _rings_passed < _training_rings.size():
+				var r := _training_rings[_rings_passed]
+				if r != null and is_instance_valid(r) and r.visible:
+					target_pos = r.global_position
+					target_found = true
+					target_label = "%s %d/%d" % [_txt("ВОРОТА", "GATE"), _rings_passed + 1, _rings_total]
 		_:
 			var special_info := get_special_objective_info()
 			if not special_info.is_empty() and special_info.has("pos"):
@@ -8868,10 +9132,15 @@ func _physics_process(delta: float) -> void:
 	if drone_body != null and is_instance_valid(drone_body):
 		# Position-derived closing speed survives the contact solver zeroing the
 		# rigid-body velocity on the very frame a wall/terrain is hit.
-		var step_speed := drone_body.global_position.distance_to(_drone_prev_pos) \
+		var prev_step_pos := _drone_prev_pos
+		var step_speed := drone_body.global_position.distance_to(prev_step_pos) \
 				/ maxf(delta, 0.0001)
 		_drone_last_speed = clampf(step_speed, 0.0, 80.0)
 		_drone_prev_pos = drone_body.global_position
+		if Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training \
+				and _mission_started and not _mission_finished \
+				and _rings_passed < _training_rings.size():
+			_check_freestyle_gate_sweep(prev_step_pos, drone_body)
 		# Keep a short peak memory.  The contact signal is emitted after the
 		# solver has already zeroed the body velocity, so the instantaneous
 		# value at that moment is not the closing speed.
@@ -9126,7 +9395,7 @@ func _update_hud() -> void:
 						dist_text = " · %dm" % int(flyer.global_position.distance_to(
 								next_gate.global_position))
 				_hud_label.text = "%s\n%s · %s %d/%d · %d%s" % [
-						short_name, time_str, _txt("КІЛЬЦЯ", "GATES"),
+						short_name, time_str, _txt("ВОРОТА", "GATES"),
 						_rings_passed, _rings_total, _score, dist_text]
 		_:
 			var combat_time_limit: float = Global.get_difficulty_time_limit()
@@ -9551,7 +9820,24 @@ func _on_drone_body_entered(body: Node) -> void:
 	_try_kamikaze_impact(speed)
 
 
+func _check_freestyle_gate_sweep(prev_pos: Vector3, drone_body: Drone) -> void:
+	if _rings_passed < 0 or _rings_passed >= _training_rings.size():
+		return
+	var active_ring := _training_rings[_rings_passed]
+	if active_ring == null or not is_instance_valid(active_ring) or not active_ring.visible:
+		return
+	var gate_pos := active_ring.global_position
+	var cur_pos := drone_body.global_position
+	var radius := maxf(1.85, float(active_ring.get_meta("ring_radius", 4.5)) * 0.90 + 0.45)
+	var closest := Geometry3D.get_closest_point_to_segment(gate_pos, prev_pos, cur_pos)
+	if closest.distance_squared_to(gate_pos) <= radius * radius:
+		_on_ring_entered(drone_body, active_ring)
+
+
 func _try_kamikaze_impact(impact_speed: float) -> void:
+	if Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training \
+			and not OS.has_environment("DRONE_KAMIKAZE_TEST"):
+		return
 	if not _payload_enabled or _payload_dropped or _mission_finished:
 		return
 	var combat := get_node_or_null("CombatSystem")
@@ -9692,7 +9978,9 @@ func _refresh_model_visibility() -> void:
 	if not third_person:
 		# Combat airframes show the warhead at the bottom edge with the camera
 		# lifted just above the frame so the body no longer fills the centre.
-		var combat_airframe := bool(p.get("combat", false))
+		var is_freestyle := Global != null and Global.play_mode == Global.PlayMode.TRAINING \
+				and not Global.combat_training
+		var combat_airframe := bool(p.get("combat", false)) and not is_freestyle
 		var show_airframe := bool(p.get("fpv_show_airframe", false))
 		var hide_model := bool(p.get("fpv_hide_model", false))
 		if show_airframe:

@@ -500,6 +500,8 @@ func _show_model(index: int) -> void:
 	# The hangar preview instantiates the PackedScene directly instead of going
 	# through DroneCatalog.attach_model(), so it needs the same material wrapper.
 	GlbMaterialUtilsScript.ensure_pbr(model)
+	if index >= 10 and index <= 12:
+		DroneCatalog.apply_uman_drone_materials(model, index)
 	model.rotation.y = float(p.get("model_yaw", 0.0))
 	model.rotation_degrees.x = float(p.get("model_pitch", 0.0))
 	DronePropellerSystem.setup_propellers(model, index,

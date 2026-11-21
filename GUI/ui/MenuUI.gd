@@ -903,7 +903,13 @@ const EN_TEXT: Dictionary = {
 	"ДОВІДКА Й КЕРУВАННЯ": "HELP & CONTROLS",
 	"МОБІЛЬНИЙ ІНТЕРФЕЙС": "MOBILE INTERFACE",
 	"Звук, реалізм і елементи польотного інтерфейсу": "Sound, realism and flight interface elements",
-	"  СЕНСОРНІ СТІКИ: УВІМК (НАТИСНИ ЩОБ ВИМК.)": "  TOUCH STICKS: ON (TAP TO TURN OFF)"
+	"  СЕНСОРНІ СТІКИ: УВІМК (НАТИСНИ ЩОБ ВИМК.)": "  TOUCH STICKS: ON (TAP TO TURN OFF)",
+	"🎓 ФРІСТАЙЛ": "🎓 FREESTYLE",
+	"ОЧКИ ФРІСТАЙЛУ  ": "FREESTYLE SCORE ",
+	"ФРІСТАЙЛ ЗАВЕРШЕНО": "FREESTYLE COMPLETE",
+	"ПОВТОР ПОЛЬОТУ (DVR)": "FLIGHT REPLAY (DVR)",
+	"★ НОВИЙ РЕКОРД!": "★ NEW BEST!",
+	"РЕКОРД ЧАСУ     ": "BEST LAP        ",
 }
 
 # Authentic Military Tactical C2 Palette (Olive-Drab / Field Black / Tactical Amber)

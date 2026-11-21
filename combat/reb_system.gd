@@ -53,6 +53,8 @@ var limits_enabled := true
 ## Independent gate for the EW domes.  Range/terrain loss can stay active
 ## while electronic warfare is switched off (training progression).
 var reb_zones_enabled := true
+## Always keep telemetry/video clean and mast domes disabled in Freestyle.
+var unlimited_freestyle := false
 
 var _drone: Node3D = null
 var _radio: Node = null
@@ -141,6 +143,12 @@ func _physics_process(delta: float) -> void:
 	var drone_pos := _drone.global_position
 	distance_m = drone_pos.distance_to(home_position)
 
+	if unlimited_freestyle:
+		limits_enabled = false
+		reb_zones_enabled = false
+		_set_masts_visible(false)
+		_apply_unlimited_link()
+		return
 	# Simulator aid: "link_limit" off means no range, terrain, EW or failsafe
 	# effects.  Reading the setting live lets the pause menu toggle it in flight.
 	var limits := _read_limits_enabled()

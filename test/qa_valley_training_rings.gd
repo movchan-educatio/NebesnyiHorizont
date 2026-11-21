@@ -45,6 +45,11 @@ func _run() -> void:
 			if ring == null or not is_instance_valid(ring):
 				overlaps += 1
 				continue
+			var ground := float(level.call("_find_ground_y",
+					ring.global_position.x, ring.global_position.z))
+			var height := ring.global_position.y - ground
+			min_height = minf(min_height, height)
+			max_height = maxf(max_height, height)
 			if is_freestyle:
 				# Neon checkpoints are deliberately placed inside windows,
 				# doors and arches: a wide 18 m clearance test would flag the
@@ -64,11 +69,6 @@ func _run() -> void:
 				overlaps += 1
 				push_warning("[VALLEY_TRAINING] ring %d intersects a collider at %s"
 						% [i + 1, str(ring.global_position)])
-			var ground := float(level.call("_find_ground_y",
-					ring.global_position.x, ring.global_position.z))
-			var height := ring.global_position.y - ground
-			min_height = minf(min_height, height)
-			max_height = maxf(max_height, height)
 		if is_freestyle:
 			if missing_visuals > 0:
 				_failures += missing_visuals

@@ -31,6 +31,19 @@ func _scatter_legacy_map(_instance: Node3D) -> void:
 	pass
 
 
+var _airport_props_built := false
+
+
+func _ensure_airport_props_built() -> void:
+	if _airport_props_built:
+		return
+	_airport_props_built = true
+	_hide_procedural_grass()
+	_replace_trees()
+	_spawn_detailed_props()
+	_build_airport_historical_landmarks()
+
+
 func _ready() -> void:
 	# Карта 900×900 м — стандартні межі BigLevel (152/182 м) занадто тісні.
 	MAP_GROUND_SAFE = 430.0
@@ -47,10 +60,7 @@ func _ready() -> void:
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 	_connect_horizon_assist()
-	_hide_procedural_grass()
-	_replace_trees()
-	_spawn_detailed_props()
-	_build_airport_historical_landmarks()
+	_ensure_airport_props_built()
 
 
 ## Стартовий баррель BigLevel стоїть біля початку координат і ставить дрон
@@ -61,7 +71,11 @@ func _place_drone_over_ground() -> void:
 	var d := get_node_or_null("Drone") as Drone
 	if d == null:
 		return
-	d.global_transform = Transform3D(Basis(), Vector3(0.0, 62.0, 255.0))
+	var spawn_xform := Transform3D(Basis(), Vector3(0.0, 62.0, 255.0))
+	var respawn := get_node_or_null("Respawn") as Node3D
+	if respawn != null:
+		respawn.global_transform = spawn_xform
+	d.global_transform = spawn_xform
 	_drone_prev_pos = d.global_position
 	_drone_last_speed = 0.0
 	_drone_peak_speed = 0.0
@@ -369,12 +383,23 @@ func _spawn_detailed_props() -> void:
 				rng.randf_range(0.0, TAU), rng.randf_range(0.85, 1.25))
 		if prop != null:
 			prop.name = "DetailedProp%d" % i
-			# spawn_prop дає convex-hull колізію — у тонких антен/знаків/труб
-			# вона виходить товстою. Для декоративних тонких пропсів прибираємо.
-			if nm == "prop_antenna" or nm == "prop_sign" or nm == "prop_pipe":
+			# spawn_prop дає convex-hull колізію — у тонких антен/знаків вона
+			# затовста, тому замінюємо її на вузький BoxShape3D замість видалення.
+			if nm == "prop_antenna" or nm == "prop_sign":
 				for c in prop.get_children():
 					if c is StaticBody3D:
-						c.queue_free()
+						for cs in c.get_children():
+							if cs is CollisionShape3D:
+								var box_s := BoxShape3D.new()
+								var h := 2.2
+								var cen := Vector3(0.0, 1.1, 0.0)
+								if prop is MeshInstance3D and (prop as MeshInstance3D).mesh != null:
+									var ab := (prop as MeshInstance3D).mesh.get_aabb()
+									h = maxf(ab.size.y * 0.92, 1.6)
+									cen = ab.get_center()
+								box_s.size = Vector3(0.45, h, 0.45)
+								(cs as CollisionShape3D).shape = box_s
+								(cs as CollisionShape3D).position = cen
 			spawned += 1
 	print("[Airport] detailed props: ", spawned)
 
@@ -431,6 +456,9 @@ func _build_frontline_props() -> void:
 	if Global.play_mode == Global.PlayMode.COMBAT:
 		_spawn_special_or_campaign()
 		_start_reinforcements()
+		_ensure_airport_props_built()
+	else:
+		_ensure_airport_props_built()
 	if Global.play_mode == Global.PlayMode.TRAINING:
 		if Global.combat_training:
 			_combat_training = CombatTrainingScript.new()
@@ -733,15 +761,15 @@ func _build_airport_historical_landmarks() -> void:
 
 	var st_yellow := SurfaceTool.new()
 	st_yellow.begin(Mesh.PRIMITIVE_TRIANGLES)
-	_append_box_to_st(st_yellow, Vector3(0.0, 0.01, 82.0), Vector3(520.0, 0.02, 0.45))
+	_append_box_to_st(st_yellow, Vector3(0.0, 0.010, 82.0), Vector3(520.0, 0.02, 0.45))
 	for turn_x in [-180.0, 0.0, 180.0]:
-		_append_box_to_st(st_yellow, Vector3(turn_x, 0.01, 41.0),
+		_append_box_to_st(st_yellow, Vector3(turn_x, 0.015, 41.0),
 				Vector3(0.45, 0.02, 82.0), Vector3(0.0, 0.22, 0.0))
 	for h_x in [-130.0, 0.0, 130.0]:
 		var hz := 118.0
-		_append_box_to_st(st_yellow, Vector3(h_x - 3.2, 0.01, hz), Vector3(0.9, 0.02, 7.6))
-		_append_box_to_st(st_yellow, Vector3(h_x + 3.2, 0.01, hz), Vector3(0.9, 0.02, 7.6))
-		_append_box_to_st(st_yellow, Vector3(h_x, 0.01, hz), Vector3(5.6, 0.02, 0.9))
+		_append_box_to_st(st_yellow, Vector3(h_x - 3.2, 0.010, hz), Vector3(0.9, 0.02, 7.6))
+		_append_box_to_st(st_yellow, Vector3(h_x + 3.2, 0.010, hz), Vector3(0.9, 0.02, 7.6))
+		_append_box_to_st(st_yellow, Vector3(h_x, 0.010, hz), Vector3(5.4, 0.02, 0.9))
 	_commit_st_mesh(runway, "TaxiwayApronYellow", st_yellow, mat_yellow, false)
 
 	var edge_mm := MultiMesh.new()
@@ -936,6 +964,8 @@ func _build_airport_historical_landmarks() -> void:
 	_commit_st_mesh(wrecks, "RuinedAircraftCharred", st_char, mat_charred, true)
 	_add_airport_landmark_collider(wrecks, Vector3(-5.5, 2.2, -3.5), Vector3(8.0, 4.4, 16.5))
 	_add_airport_landmark_collider(wrecks, Vector3(6.2, 2.2, 4.5), Vector3(8.0, 4.4, 16.5))
+	_add_airport_landmark_collider(wrecks, Vector3(-14.0, 5.2, 0.0), Vector3(1.0, 10.4, 25.0))
+	_add_airport_landmark_collider(wrecks, Vector3(14.0, 5.2, 0.0), Vector3(1.0, 10.4, 25.0))
 	FrontlineTerrainScript.register_structure_exclusion(
 			Vector2(wrecks_pos.x, wrecks_pos.z), Vector2(15.5, 13.5), 12.5)
 

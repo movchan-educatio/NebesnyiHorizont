@@ -793,6 +793,8 @@ func _on_reset() -> void:
 	var respawn_point: Node3D = null
 	if get_tree().current_scene != null:
 		respawn_point = get_tree().current_scene.get_node_or_null("Respawn") as Node3D
+	if respawn_point == null and get_parent() != null:
+		respawn_point = get_parent().get_node_or_null("Respawn") as Node3D
 	var respawn_transform := global_transform
 	if respawn_point != null:
 		respawn_transform = respawn_point.global_transform.translated(Vector3(0, 0.1, 0))

@@ -120,7 +120,7 @@ const MODES_TEXT := """[b]БОЙОВІ МІСІЇ (КАМПАНІЯ 1–4)[/b]
 Пульт: B — повторити модуль, Start — довідка.
 
 [b]ФРІСТАЙЛ / ВІЛЬНИЙ ПОЛІТ[/b]
-4 карти без супротивника: село, промзона, степ, плавні. Практика стіків, воріт, низьких прольотів і посадок.
+4 карти без супротивника: Умань (Софіївка), Промзона, Плавні, Аеропорт. Практика стіків, 24 неонових воріт, Привид і запис DVR.
 
 [b]ЗЛІТ[/b]
 Бойові БПЛА стартують з тактичної пускової бочки.
@@ -205,7 +205,7 @@ The coach warns about throttle spikes, lost horizon, VRS and side slip.
 Gamepad: B — retry module, Start — help.
 
 [b]FREE FLIGHT[/b]
-Four maps without opponents: village, industrial, steppe and wetlands. Practise sticks, gates, low passes and landings.
+Four maps without opponents: Uman (Sofiyivka), Industrial Zone, Wetlands and Airport. Practise sticks, 24 neon gates, Ghost lap and DVR replay.
 
 [b]TAKEOFF[/b]
 Combat drones launch from a field tube.

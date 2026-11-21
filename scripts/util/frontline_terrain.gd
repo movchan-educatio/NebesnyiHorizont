@@ -1595,12 +1595,12 @@ static func _build_industrial_river(root: Node3D) -> void:
 			_add_cylinder(root, Vector3(px, -2.4, zc0 + pz), 1.2, 9.0, conc,
 					0.0, true)
 	for px in [-16.0, 16.0]:
-		_add_box(root, Vector3(px, 0.6, zc0), Vector3(1.0, 4.4, 17.0), conc,
-				0.0, false)
+		_add_box(root, Vector3(px, -0.8, zc0), Vector3(1.2, 3.2, 16.4), conc,
+				0.0, true)
 	_add_box(root, Vector3(0.0, 2.4, zc0 - 7.6), Vector3(36.0, 0.35, 0.35),
-			steel, 0.0, false)
+			steel, 0.0, true)
 	_add_box(root, Vector3(0.0, 2.4, zc0 + 7.6), Vector3(36.0, 0.35, 0.35),
-			steel, 0.0, false)
+			steel, 0.0, true)
 
 
 static func spawn_handcrafted_on_ground(level: Node3D, path: String,
@@ -1969,6 +1969,7 @@ static func _build_crop_fields(root: Node3D, map_name: String) -> void:
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	if mobile:
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(map_name) + 5150
 	# Muted earthy fallow/stubble tints on mobile with alpha-feathered borders so
@@ -1984,6 +1985,7 @@ static func _build_crop_fields(root: Node3D, map_name: String) -> void:
 	var max_fields := 4 if mobile else 8
 	var placed := 0
 	var fields: Array = []
+	var placed_rects: Array[Rect2] = []
 	for _i in range(22):
 		var x := rng.randf_range(-155.0, 155.0)
 		var z := rng.randf_range(-155.0, 155.0)
@@ -2006,6 +2008,14 @@ static func _build_crop_fields(root: Node3D, map_name: String) -> void:
 			continue
 		var w := rng.randf_range(34.0, 54.0) if mobile else rng.randf_range(38.0, 68.0)
 		var d := rng.randf_range(28.0, 44.0) if mobile else rng.randf_range(30.0, 52.0)
+		var cand_rect := Rect2(x - w * 0.5 - 4.0, z - d * 0.5 - 4.0, w + 8.0, d + 8.0)
+		var overlaps_field := false
+		for prev_rect in placed_rects:
+			if cand_rect.intersects(prev_rect):
+				overlaps_field = true
+				break
+		if overlaps_field:
+			continue
 		if mobile:
 			var min_h := 9999.0
 			var max_h := -9999.0
@@ -2023,6 +2033,7 @@ static func _build_crop_fields(root: Node3D, map_name: String) -> void:
 		var colors := PackedColorArray()
 		var idx := PackedInt32Array()
 		var tint: Color = field_tints[placed % field_tints.size()]
+		var y_lift := 0.055 + float(placed) * 0.003
 		for cz in range(cells + 1):
 			var v := float(cz) / float(cells)
 			for cx in range(cells + 1):
@@ -2031,7 +2042,7 @@ static func _build_crop_fields(root: Node3D, map_name: String) -> void:
 				var pz := z - d * 0.5 + d * v
 				# Use the rendered terrain triangle height, not the analytic
 				# field, so the crop plane cannot hover over a slope.
-				verts.append(Vector3(px, mesh_surface_height(map_name, px, pz) + 0.06, pz))
+				verts.append(Vector3(px, mesh_surface_height(map_name, px, pz) + y_lift, pz))
 				norms.append(Vector3.UP)
 				uvs.append(Vector2(u * w / 10.0, v * d / 10.0))
 				var col := tint
@@ -2061,6 +2072,7 @@ static func _build_crop_fields(root: Node3D, map_name: String) -> void:
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(mi)
 		fields.append(mi)
+		placed_rects.append(cand_rect)
 		placed += 1
 		if placed >= max_fields:
 			break
@@ -2200,6 +2212,8 @@ static func _add_mobile_ground_patches(root: Node3D, map_name: String) -> void:
 		mat.vertex_color_use_as_albedo = true
 		mat.vertex_color_is_srgb = true
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		mat.disable_receive_shadows = true
 		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		var mi := MeshInstance3D.new()
 		mi.name = "MobileGroundPatch%d" % placed
@@ -2268,6 +2282,8 @@ static func _add_wall_decals(root: Node3D, map_name: String) -> void:
 		mat.albedo_texture = rust if i % 2 == 0 else crack
 		mat.albedo_color = Color(0.85, 0.85, 0.85)
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		mat.disable_receive_shadows = true
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		var mi := MeshInstance3D.new()

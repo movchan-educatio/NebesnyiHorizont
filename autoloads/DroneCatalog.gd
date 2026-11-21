@@ -933,6 +933,8 @@ func attach_model(parent: Node3D, index: int) -> Node3D:
 	# Inherited GLBs may predate the PBR library; upgrade at generation time
 	# so the menu stage, hangar preview and in-game model agree.
 	GlbMaterialUtilsScript.ensure_pbr(model)
+	if index >= 10 and index <= 12:
+		apply_uman_drone_materials(model, index)
 	model.rotation.y = float(p.get("model_yaw", 0.0))
 	model.rotation_degrees.x = float(p.get("model_pitch", 0.0))
 	for v in _visuals(model):
@@ -955,6 +957,69 @@ func attach_model(parent: Node3D, index: int) -> Node3D:
 	_strip_ukraine_markings(model)
 	print("[DroneCatalog] model '", path.get_file(), "' preset=", index)
 	return model
+
+
+## Shared material tuning for Uman freestyle drones (presets 10..12) so the
+## bright menu showcase, hangar preview, and in-game FPV/third-person cameras
+## show the exact same tactical colors without radioactive neon green ducts.
+static func apply_uman_drone_materials(model: Node3D, index: int) -> void:
+	if model == null or index < 10 or index > 12:
+		return
+	var accents := [
+		Color(0.10, 0.26, 0.12),
+		Color(0.46, 0.27, 0.08),
+		Color(0.07, 0.24, 0.44),
+	]
+	var accent: Color = accents[clampi(index - 10, 0, 2)]
+	for child in model.find_children("*", "MeshInstance3D", true, false):
+		var mi := child as MeshInstance3D
+		if mi == null or mi.mesh == null:
+			continue
+		var lower_mi := String(mi.name).to_lower()
+		if lower_mi.contains("propblurdisk"):
+			continue
+		for s in range(mi.mesh.get_surface_count()):
+			var src := mi.get_surface_override_material(s)
+			if src == null:
+				src = mi.mesh.surface_get_material(s)
+			if not (src is StandardMaterial3D):
+				continue
+			var sm := src as StandardMaterial3D
+			if sm.get_meta("uman_styled", false):
+				mi.set_surface_override_material(s, sm)
+				continue
+			var dup := sm.duplicate() as StandardMaterial3D
+			if dup == null:
+				continue
+			var mat_name := String(sm.resource_name).to_lower()
+			var is_led := sm.emission_enabled and (sm.emission_energy_multiplier > 0.6 or mat_name.contains("led"))
+			if is_led:
+				dup.emission_energy_multiplier = minf(sm.emission_energy_multiplier, 0.6)
+				dup.set_meta("uman_led_dimmed", true)
+				dup.set_meta("uman_styled", true)
+			else:
+				if index == 10:
+					if mat_name.contains("duct") or mat_name.contains("accent") or lower_mi.contains("duct"):
+						dup.albedo_color = sm.albedo_color * Color(0.28, 0.34, 0.28, 1.0)
+						dup.roughness = maxf(sm.roughness, 0.64)
+						dup.metallic_specular = minf(sm.metallic_specular, 0.22)
+					elif mat_name.contains("battery") or lower_mi.contains("battery"):
+						dup.albedo_color = sm.albedo_color * Color(0.55, 0.55, 0.55, 1.0)
+						dup.roughness = maxf(sm.roughness, 0.60)
+					else:
+						dup.albedo_color = sm.albedo_color * Color(0.72, 0.72, 0.72, 1.0)
+						dup.roughness = maxf(sm.roughness, 0.52)
+				else:
+					dup.albedo_color = sm.albedo_color * Color(0.78, 0.78, 0.78, 1.0)
+					dup.roughness = maxf(sm.roughness, 0.52)
+				dup.emission_enabled = true
+				dup.emission = accent
+				dup.emission_energy_multiplier = 0.05
+				dup.set_meta("uman_accent", true)
+				dup.set_meta("uman_styled", true)
+			if mi.mesh is ArrayMesh:
+				(mi.mesh as ArrayMesh).surface_set_material(s, dup)
+			mi.set_surface_override_material(s, dup)
 
 
 ## Removes the blue-yellow flag markings from every airframe.  Older GLBs use

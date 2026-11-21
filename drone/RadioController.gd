@@ -275,7 +275,6 @@ func read_input() -> void:
 	var touch_active: bool = touch != null and bool(touch.get("enabled")) \
 			and bool(touch.get("touch_mode"))
 	var wifi_active: bool = wifi != null and bool(wifi.get("valid"))
-	var elrs_roll_sign := -1.0 if wifi != null and bool(wifi.get("invert_roll")) else 1.0
 	var pad_yaw := 0.0
 	var pad_roll := 0.0
 	var pad_pitch := 0.0

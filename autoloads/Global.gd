@@ -523,12 +523,19 @@ func record_training_result(map_id: String, time_s: float, passed: int,
 		total: int) -> Dictionary:
 	var clean_id := map_id.strip_edges().to_lower()
 	if clean_id.is_empty():
-		clean_id = str(menu_settings.get("selected_map", "village")).to_lower()
+		clean_id = str(menu_settings.get("selected_map", "uman")).to_lower()
 	var sec := "training_%s" % clean_id
 	var prev: Dictionary = campaign_records.get(sec, {})
 	var time_bonus := maxi(0, int(round(360.0 - time_s))) if time_s > 0.0 else 0
 	var score := maxi(0, passed) * 120 + time_bonus
 	var rating := compute_rating(score, time_s, passed, total, false)
+	var prev_best_time := float(prev.get("best_time", 0.0))
+	var prev_best_passed := int(prev.get("best_passed", 0))
+	var is_new_best := passed > 0 and (
+		prev_best_passed <= 0
+		or passed > prev_best_passed
+		or (passed == prev_best_passed and time_s > 0.0 and (prev_best_time <= 0.0 or time_s < prev_best_time))
+	)
 	if OS.has_environment("DRONE_NO_RECORD"):
 		return {
 			"completed": passed > 0 or total == 0,
@@ -539,8 +546,8 @@ func record_training_result(map_id: String, time_s: float, passed: int,
 			"stars": int(rating["stars"]),
 			"rank": str(rating["rank"]),
 			"runs": 1,
+			"new_best": is_new_best,
 		}
-	var prev_best_time := float(prev.get("best_time", 0.0))
 	var new_best_time := time_s
 	if prev_best_time > 0.0 and time_s > 0.0:
 		new_best_time = minf(prev_best_time, time_s)
@@ -554,7 +561,7 @@ func record_training_result(map_id: String, time_s: float, passed: int,
 	var rec := {
 		"completed": bool(prev.get("completed", false)) or passed > 0 or total == 0,
 		"best_time": new_best_time,
-		"best_passed": maxi(passed, int(prev.get("best_passed", 0))),
+		"best_passed": maxi(passed, prev_best_passed),
 		"total": maxi(total, int(prev.get("total", 0))),
 		"best_score": maxi(score, int(prev.get("best_score", 0))),
 		"stars": maxi(int(rating["stars"]), int(prev.get("stars", 0))),
@@ -563,7 +570,9 @@ func record_training_result(map_id: String, time_s: float, passed: int,
 	}
 	campaign_records[sec] = rec
 	save_campaign_records()
-	return rec
+	var out := rec.duplicate()
+	out["new_best"] = is_new_best
+	return out
 
 
 func get_daily_challenge() -> Dictionary:

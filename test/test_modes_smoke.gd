@@ -35,11 +35,15 @@ func _ready() -> void:
 			Global.PlayMode.TRAINING:
 				var rings: Array = level.get("_training_rings")
 				var vis_count := 0
+				var active_monitoring := 0
 				for r in rings:
-					if is_instance_valid(r) and (r as Node3D).visible:
+					var area := r as Area3D
+					if is_instance_valid(area) and area.visible:
 						vis_count += 1
-				detail = "rings=%d active_visible=%d" % [rings.size(), vis_count]
-				ok = rings.size() == 24 and vis_count == 1
+					if is_instance_valid(area) and area.monitoring:
+						active_monitoring += 1
+				detail = "rings=%d visible=%d monitoring=%d" % [rings.size(), vis_count, active_monitoring]
+				ok = rings.size() == 24 and vis_count == 24 and active_monitoring == 1
 			Global.PlayMode.TUTORIAL:
 				var school = level.get("_flight_school")
 				detail = "flight_school=%s" % str(school != null)

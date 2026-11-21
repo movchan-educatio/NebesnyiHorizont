@@ -35,9 +35,10 @@ func add_meshes(node: Node) -> void:
 
 
 func get_mesh_transform(node: Node) -> Transform3D:
-	var xform: Transform3D = node.transform
-	if not node.get_parent() is Drone:
-		xform *= get_mesh_transform(node.get_parent())
+	var xform: Transform3D = node.transform if node is Node3D else Transform3D.IDENTITY
+	var p := node.get_parent()
+	if p is Node3D and not (p is Drone):
+		xform = get_mesh_transform(p) * xform
 	return xform
 
 
@@ -58,7 +59,7 @@ func update_drone_model(path: String) -> void:
 					holder = Drone.new()
 					holder.add_child(inst)
 				add_meshes(holder)
-				holder.queue_free()
+				holder.free()
 				loaded_meshes = get_child_count() > 0
 	if not loaded_meshes:
 		_build_procedural_beacon()
@@ -103,8 +104,8 @@ func set_samples(samples: Array, model_path: String = "") -> void:
 
 func update_transform() -> void:
 	if frame < replay.size():
-		var xform: Array = replay[frame]
-		if xform.size() < 12:
+		var xform = replay[frame]
+		if xform == null or xform.size() < 12:
 			return
 		var basis_x := Vector3(float(xform[0]), float(xform[1]), float(xform[2]))
 		var basis_y := Vector3(float(xform[3]), float(xform[4]), float(xform[5]))
@@ -132,7 +133,11 @@ func read_replay():
 			var line := file.get_line()
 			if line == "":
 				break
-			var xform: Array = line.split(",")
+			var parts: PackedStringArray = line.split(",")
+			var xform: Array = []
+			xform.resize(parts.size())
+			for i in range(parts.size()):
+				xform[i] = float(parts[i])
 			replay.append(xform)
 		file.close()
 		if not replay.is_empty():
@@ -143,6 +148,7 @@ func read_replay():
 func start_replay() -> void:
 	visible = true
 	state = State.PLAYING
+	update_transform()
 
 
 func stop_replay() -> void:

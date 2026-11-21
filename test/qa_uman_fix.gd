@@ -151,14 +151,39 @@ func _run() -> void:
 			"START and FINISH markers exist (%d/%d)" % [starts, finishes])
 	var visible_gates := 0
 	var arches := 0
+	var floating_arches := 0
+	var bad_aerial_feet := 0
 	for ring in rings:
 		var area := ring as Area3D
-		if area != null and area.visible:
+		if area == null:
+			continue
+		if area.visible:
 			visible_gates += 1
-		if area != null and int(area.get_meta("ring_shape", -1)) == 1:
+		var shp := int(area.get_meta("ring_shape", -1))
+		var r_sz := float(area.get_meta("ring_radius", 4.6))
+		var fl := area.get_node_or_null("FootLeft") as MeshInstance3D
+		var fr := area.get_node_or_null("FootRight") as MeshInstance3D
+		if shp == 1:
 			arches += 1
+			var gy_c := float(level.call("_find_ground_y", area.global_position.x, area.global_position.z))
+			var agl_c := area.global_position.y - gy_c
+			var legs_ok := bool(area.get_meta("arch_grounded", false)) and fl != null and fr != null \
+					and agl_c <= r_sz * 1.45
+			if legs_ok:
+				var gl := float(level.call("_find_ground_y", fl.global_position.x, fl.global_position.z))
+				var gr := float(level.call("_find_ground_y", fr.global_position.x, fr.global_position.z))
+				if absf(fl.global_position.y - (gl + 0.12)) >= 0.45 \
+						or absf(fr.global_position.y - (gr + 0.12)) >= 0.45:
+					legs_ok = false
+			if not legs_ok:
+				floating_arches += 1
+		else:
+			if fl != null or fr != null:
+				bad_aerial_feet += 1
 	_check(visible_gates == 24, "all freestyle arches are visible (%d/24)" % visible_gates)
-	_check(arches == 24, "Uman course uses arch gates (%d/24)" % arches)
+	_check(arches >= 6, "Uman course uses grounded arch gates on low sections (%d/24)" % arches)
+	_check(floating_arches == 0 and bad_aerial_feet == 0,
+			"all arches grounded on terrain and aerial gates clean (%d/%d)" % [floating_arches, bad_aerial_feet])
 
 	# A platform over water must NOT trigger the water respawn.
 	var platform := StaticBody3D.new()

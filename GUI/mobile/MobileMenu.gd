@@ -1271,7 +1271,7 @@ func _build_main() -> void:
 	var is_en := MenuUI.is_english()
 	var dc_title := str(dc.get("title_en" if is_en else "title_ua", dc.get("title_uk", "")))
 	var dc_line := ("★ ВИКЛИК ДНЯ: %s (+%d)" if not is_en else "★ DAILY CHALLENGE: %s (+%d)") % [dc_title, int(dc.get("bonus_score", 500))]
-	var trec := Global.get_training_record("course")
+	var trec := Global.get_training_record(str(Global.menu_settings.get("selected_map", "uman")))
 	var course_line := "• Траса тренування: пройдіть ворота на ★ / S–B (з Привидом)"
 	if bool(trec.get("completed", false)):
 		course_line = ("• Траса: рекорд %.1f с · %s [%s]" if not is_en else "• Course best: %.1fs · %s [%s]") % [
@@ -2193,7 +2193,7 @@ func _build_rates() -> void:
 	right_v.add_child(preset_row)
 
 	var presets: Array[Dictionary] = [
-		{"name": "🎓 ФРІСТАЙЛ", "rate": 450.0, "expo": 0.30},
+		{"name": "🎓 ТРЕНУВАННЯ", "rate": 450.0, "expo": 0.30},
 		{"name": "⚡ ФРІСТАЙЛ", "rate": 667.0, "expo": 0.20},
 		{"name": "🏁 ГОНКИ", "rate": 850.0, "expo": 0.15},
 		{"name": "🎬 КІНОДРОН", "rate": 350.0, "expo": 0.40},
@@ -2296,7 +2296,7 @@ func _build_play() -> void:
 	var dc := Global.get_daily_challenge()
 	var dc_title := str(dc.get("title_en" if is_en else "title_ua", dc.get("title_uk", "")))
 	var dc_done := " ✓" if bool(dc.get("completed", false)) else ""
-	var trec := Global.get_training_record("course")
+	var trec := Global.get_training_record(str(Global.menu_settings.get("selected_map", "uman")))
 	var rec_suffix := ""
 	if bool(trec.get("completed", false)):
 		rec_suffix = ("  ·  Course: %.1fs %s [%s]" if is_en else "  ·  Траса: %.1f с %s [%s]") % [
@@ -2879,7 +2879,7 @@ func _update_play_caption() -> void:
 	if _play_caption == null:
 		return
 	var is_en := MenuUI.is_english()
-	var map_name := "VILLAGE" if is_en else "СЕЛО"
+	var map_name := "UMAN" if is_en else "УМАНЬ"
 	for mp in MAP_META:
 		if str(mp["id"]) == _selected_map:
 			map_name = str(mp.get("name_en" if is_en else "name", mp["name"])).to_upper()

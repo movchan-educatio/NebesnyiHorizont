@@ -356,10 +356,11 @@ func _refresh_home_mode() -> void:
 			if Global.should_use_gentle_angle_assist():
 				description += ("  [Angle Assist ON]" if is_en else "  [М’яка стабілізація Angle]")
 		Global.PlayMode.TRAINING:
-			var rec := Global.get_training_record("course")
+			var sel_map := str(Global.menu_settings.get("selected_map", "uman"))
+			var rec := Global.get_training_record(sel_map)
 			var best_suffix := ""
 			if bool(rec.get("completed", false)):
-				best_suffix = ("  · Best: %.1fs (Rank %s)" if is_en else "  · Рекорд: %.1f с (Ранг %s)") % [float(rec.get("best_time", 0.0)), str(rec.get("best_rank", "B"))]
+				best_suffix = ("  · Best: %.1fs (Rank %s)" if is_en else "  · Рекорд: %.1f с (Ранг %s)") % [float(rec.get("best_time", 0.0)), str(rec.get("rank", rec.get("best_rank", "B")))]
 			description = ("Freestyle flight, stick calibration, and timed checkpoint course with Ghost replay." if is_en else "Вільний фрістайл, калібрування, траса на час із записом Привида.") + best_suffix
 		_:
 			description = "Select a tactical scenario, configure drone loadout, and prepare for launch." if is_en else "Оберіть тактичний сценарій та підготуйте дрон до вильоту."

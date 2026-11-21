@@ -1332,7 +1332,7 @@ func _update_selection_ui() -> void:
 		_map_stats_lbl.text = "MODULES: 10/10  •  ERROR ASSISTANT: ACTIVE  •  CERTIFICATE: AVAILABLE" if is_en else "МОДУЛІВ: 10/10  •  АСИСТЕНТ ПОМИЛОК: АКТИВНИЙ  •  СЕРТИФІКАТ: ДОСТУПНИЙ"
 		_launch_btn.text = "▶  START FPV TUTORIAL" if is_en else "▶  ПОЧАТИ ТУТОРІАЛ FPV"
 	elif _selected_mode == Global.PlayMode.TRAINING:
-		var trec := Global.get_training_record("course")
+		var trec := Global.get_training_record(_selected_map)
 		var rank_info := ""
 		if bool(trec.get("completed", false)):
 			var s_str := "★".repeat(int(trec.get("stars", 1)))

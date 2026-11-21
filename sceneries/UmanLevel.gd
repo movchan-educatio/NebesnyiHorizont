@@ -134,8 +134,12 @@ func _place_drone_over_ground() -> void:
 	var d := get_node_or_null("Drone") as Drone
 	if d == null:
 		return
-	var pos := spawn + Vector3(0.0, 3.0, 0.0)
-	d.global_transform = Transform3D(Basis(), pos)
+	var pos := spawn + Vector3(0.0, 1.4, 0.0)
+	var spawn_xform := Transform3D(Basis(), pos)
+	var respawn := get_node_or_null("Respawn") as Node3D
+	if respawn != null:
+		respawn.global_transform = spawn_xform
+	d.global_transform = spawn_xform
 	_drone_prev_pos = d.global_position
 	_drone_last_speed = 0.0
 	_drone_peak_speed = 0.0
@@ -171,43 +175,14 @@ func _place_drone_over_ground() -> void:
 ## взагалі не чіпаємо.
 func _uman_brighten_drone() -> void:
 	# BigLevel can keep several DroneModel roots (live, sensor preview, cached
-	# respawn model).  Tint all of them, otherwise the visible one stays bright
-	# green while only a hidden copy is dimmed.
+	# respawn model).  Apply the shared catalog styling to all of them so
+	# in-game appearance matches the menu/hangar showcase cleanly.
 	var models := find_children("DroneModel", "Node3D", true, false)
 	if models.is_empty():
 		return
-	var accents := [Color(0.14, 0.34, 0.17), Color(0.46, 0.27, 0.08),
-			Color(0.07, 0.24, 0.44)]
-	var idx: int = int((models[0] as Node3D).get_meta("preset_index", 10)) - 10
-	var accent: Color = accents[clampi(idx, 0, 2)]
+	var idx: int = int((models[0] as Node3D).get_meta("preset_index", 10))
 	for model in models:
-		for mi in _uman_find_meshes(model as Node3D):
-			if mi.mesh == null:
-				continue
-			for s in range(mi.mesh.get_surface_count()):
-				var src: Material = mi.mesh.surface_get_material(s)
-				if src is StandardMaterial3D:
-					var sm := src as StandardMaterial3D
-					var dup := sm.duplicate() as StandardMaterial3D
-					# The GLB's accent texture itself is saturated green and the
-					# LED material ships with emission 4.0.  Darken the albedo
-					# multiplier (the texture is preserved) and cap real LEDs.
-					var tint := 0.80 if idx == 0 else 0.88
-					dup.albedo_color = sm.albedo_color * Color(tint, tint, tint, 1.0)
-					if sm.emission_enabled and sm.emission_energy_multiplier > 0.15:
-						dup.emission_energy_multiplier = minf(sm.emission_energy_multiplier, 0.6)
-						dup.set_meta("uman_led_dimmed", true)
-					else:
-						dup.emission_enabled = true
-						dup.emission = accent
-						dup.emission_energy_multiplier = 0.08
-						dup.set_meta("uman_accent", true)
-					# Also write back into the mesh resource: BigLevel re-applies
-					# the airframe preset after this and rebuilds instance
-					# overrides from the mesh's surface materials.
-					if mi.mesh is ArrayMesh:
-						(mi.mesh as ArrayMesh).surface_set_material(s, dup)
-					mi.set_surface_override_material(s, dup)
+		DroneCatalog.apply_uman_drone_materials(model as Node3D, idx)
 
 
 func _uman_find_spawn() -> Vector3:
@@ -227,6 +202,8 @@ func _uman_armed(_mode: int) -> void:
 	var help := get_node_or_null("Help")
 	if help is CanvasLayer:
 		(help as CanvasLayer).visible = false
+	if not _mission_started and not _mission_finished:
+		_start_mission()
 
 
 ## Тільки фрістайл: ніяких місій, техніки, піхоти й спецоперацій.
@@ -339,8 +316,8 @@ func _uman_box_overlaps_water(box: AABB) -> bool:
 	var c := box.get_center()
 	if _uman_is_water(c):
 		return true
-	for dx in [-0.5, 0.5]:
-		for dz in [-0.5, 0.5]:
+	for dx in [0.0, 1.0]:
+		for dz in [0.0, 1.0]:
 			var p := box.position + Vector3(box.size.x * float(dx), 0.0,
 					box.size.z * float(dz))
 			if _uman_is_water(p):
@@ -419,8 +396,8 @@ func _uman_build_edge_world() -> void:
 			continue
 		p.y = _uman_ground_y(p)
 		var model: String = CC0_BUILDINGS[i % CC0_BUILDINGS.size()]
-		var inst := _uman_spawn_model(UMAN_MODELS + model + ".glb", p,
-				-a + PI * 0.5, randf_range(0.85, 1.25))
+		var inst := _uman_simple_model(UMAN_MODELS + model + ".glb", p,
+				-a + PI * 0.5, randf_range(0.85, 1.25), 2, 22.0)
 		if inst != null:
 			count += 1
 	print("[UMAN] edge buildings=", count)
@@ -566,7 +543,7 @@ func _uman_build_landing_pad() -> void:
 	var cyl := CylinderMesh.new()
 	cyl.top_radius = 4.2
 	cyl.bottom_radius = 4.2
-	cyl.height = 0.08
+	cyl.height = 0.04
 	cyl.radial_segments = 32
 	pad.mesh = cyl
 	var mat := StandardMaterial3D.new()
@@ -575,10 +552,25 @@ func _uman_build_landing_pad() -> void:
 	mat.roughness = 0.7
 	pad.material_override = mat
 	add_child(pad)
-	pad.position = Vector3(p.x, _uman_ground_y(p) + 0.05, p.z)
+	pad.position = Vector3(p.x, _uman_ground_y(p) + 0.025, p.z)
 
 
 # --------------------------------------------------------------- scenery -----
+
+func _uman_hide_and_disable_collision(node: Node3D) -> void:
+	if node == null:
+		return
+	node.visible = false
+	var stack: Array[Node] = [node]
+	while not stack.is_empty():
+		var cur: Node = stack.pop_back()
+		if cur is CollisionObject3D:
+			var co := cur as CollisionObject3D
+			co.collision_layer = 0
+			co.collision_mask = 0
+		for c in cur.get_children():
+			stack.append(c)
+
 
 func _uman_hide_static_jets() -> void:
 	for n in _uman_find_with_prefix(self, "Fountain_Water_Jets"):
@@ -587,20 +579,16 @@ func _uman_hide_static_jets() -> void:
 			node.visible = false
 
 
-## Старі білі/рожеві ворота з GLB (Gate_01..14) заміняємо власними
-## неоновими — вони виглядали слабко й плутали маршрут.
+## Старі білі/рожеві ворота з GLB (Gate_01..14) та залишкові кільця Stunt_Ring_*
+## заміняємо власними неоновими — вони виглядали слабко й плутали маршрут.
 func _uman_hide_old_gates() -> void:
 	var hidden := 0
-	for n in _uman_find_with_prefix(self, "Gate_"):
-		var node := n as Node3D
-		if node != null:
-			node.visible = false
-			hidden += 1
-	for n in _uman_find_with_prefix(self, "FPV_Gate"):
-		var node := n as Node3D
-		if node != null:
-			node.visible = false
-			hidden += 1
+	for prefix in ["Gate_", "FPV_Gate", "Stunt_Ring_"]:
+		for n in _uman_find_with_prefix(self, prefix):
+			var node := n as Node3D
+			if node != null:
+				_uman_hide_and_disable_collision(node)
+				hidden += 1
 	print("[UMAN] old gates hidden=", hidden)
 
 
@@ -657,8 +645,8 @@ func _uman_setup_water() -> void:
 			var b := xf * verts[inds[i + 1]]
 			var c := xf * verts[inds[i + 2]]
 			_uman_water_tris.append([
-					mini(a.x, mini(b.x, c.x)), maxi(a.x, maxi(b.x, c.x)),
-					mini(a.z, mini(b.z, c.z)), maxi(a.z, maxi(b.z, c.z)),
+					minf(a.x, minf(b.x, c.x)), maxf(a.x, maxf(b.x, c.x)),
+					minf(a.z, minf(b.z, c.z)), maxf(a.z, maxf(b.z, c.z)),
 					a.x, a.z, b.x, b.z, c.x, c.z,
 			])
 			i += 3
@@ -806,7 +794,7 @@ func _uman_replace_vegetation() -> void:
 		var h := _uman_visual_aabb(node).size.y
 		if h < 2.0:
 			continue
-		node.visible = false
+		_uman_hide_and_disable_collision(node)
 		var gp := node.global_position
 		if _uman_is_water(gp):
 			continue
@@ -820,7 +808,7 @@ func _uman_replace_vegetation() -> void:
 		var node := n as Node3D
 		if node == null:
 			continue
-		node.visible = false
+		_uman_hide_and_disable_collision(node)
 		if shrubs < 150 and not _uman_is_water(node.global_position):
 			var gp := node.global_position
 			_uman_simple_model(UMAN_MODELS + "berry-bush.glb",
@@ -836,17 +824,13 @@ func _uman_spawn_cc0_models() -> void:
 		var node := n as Node3D
 		if node == null:
 			continue
-		node.visible = false
+		_uman_hide_and_disable_collision(node)
 		if _uman_is_water(node.global_position):
 			continue
 		var model: String = CC0_BUILDINGS[used % CC0_BUILDINGS.size()]
 		var gp := node.global_position
 		var inst := _uman_simple_model(UMAN_MODELS + model + ".glb",
-				Vector3(gp.x, _uman_ground_y(gp), gp.z), randf() * TAU, 1.0, 2)
-		if inst != null:
-			var box := _uman_visual_aabb(inst)
-			if box.size.y > 0.5:
-				inst.scale = Vector3.ONE * clampf(22.0 / box.size.y, 0.55, 1.8)
+				Vector3(gp.x, _uman_ground_y(gp), gp.z), randf() * TAU, 1.0, 2, 22.0)
 		used += 1
 	var tree_spots := [
 		Vector3(-30, 1, -38), Vector3(-18, 1, -46), Vector3(-45, 1, -30),
@@ -870,7 +854,7 @@ func _uman_spawn_cc0_models() -> void:
 ## CC0 trees/buildings imported as plain GLB had no collider at all, which is
 ## why the drone flew straight through them.
 func _uman_simple_model(path: String, pos: Vector3, yaw: float, s: float,
-		solid: int = 0) -> Node3D:
+		solid: int = 0, target_height: float = 0.0) -> Node3D:
 	if not ResourceLoader.exists(path):
 		return null
 	var packed := load(path) as PackedScene
@@ -883,6 +867,10 @@ func _uman_simple_model(path: String, pos: Vector3, yaw: float, s: float,
 	inst.position = pos
 	inst.rotation.y = yaw
 	inst.scale = Vector3.ONE * s
+	if target_height > 0.0:
+		var raw_box := _uman_visual_aabb(inst)
+		if raw_box.size.y > 0.5:
+			inst.scale = Vector3.ONE * clampf(target_height / raw_box.size.y, 0.55, 1.8)
 	if solid > 0:
 		var box := _uman_visual_aabb(inst)
 		if box.size.length() > 0.05:
@@ -981,9 +969,11 @@ func _uman_spawn_freestyle_props() -> void:
 			add_child(inst)
 			inst.position = Vector3(pp.x, _uman_ground_y(pp), pp.z)
 			inst.rotation.y = randf() * TAU
-			if _uman_box_overlaps_water(_uman_visual_aabb(inst)):
+			var pbox := _uman_visual_aabb(inst)
+			if _uman_box_overlaps_water(pbox):
 				inst.queue_free()
 				continue
+			_uman_attach_prop_collider(pbox)
 			count += 1
 	lib.queue_free()
 
@@ -1024,7 +1014,7 @@ func _uman_populate_stunts() -> void:
 			p.y = _uman_ground_y(p)
 			var model: String = FREESTYLE_MODELS[total % FREESTYLE_MODELS.size()]
 			var inst := _uman_spawn_model(UMAN_MODELS + model + ".glb", p,
-					randf() * TAU, randf_range(0.9, 1.35))
+					randf() * TAU, randf_range(0.9, 1.35), false)
 			if inst == null:
 				continue
 			var box := _uman_visual_aabb(inst)
@@ -1032,6 +1022,7 @@ func _uman_populate_stunts() -> void:
 					or _uman_box_overlaps_water(box):
 				inst.queue_free()
 				continue
+			_uman_attach_prop_collider(box)
 			_uman_placed.append(Vector3(p.x, 0.0, p.z))
 			made += 1
 			total += 1
@@ -1039,6 +1030,9 @@ func _uman_populate_stunts() -> void:
 
 
 func _uman_near_landmark(p: Vector3) -> bool:
+	var sp := _uman_find_spawn()
+	if Vector2(p.x - sp.x, p.z - sp.z).length() < 12.0:
+		return true
 	if Vector2(p.x + 24.0, p.z + 34.0).length() < 19.0:
 		return true
 	if Vector2(p.x - 70.0, p.z - 55.0).length() < 26.0:
@@ -1048,7 +1042,8 @@ func _uman_near_landmark(p: Vector3) -> bool:
 	return false
 
 
-func _uman_spawn_model(path: String, pos: Vector3, yaw: float, s: float) -> Node3D:
+func _uman_spawn_model(path: String, pos: Vector3, yaw: float, s: float,
+		add_collider: bool = true) -> Node3D:
 	if not ResourceLoader.exists(path):
 		return null
 	var packed := load(path) as PackedScene
@@ -1061,14 +1056,20 @@ func _uman_spawn_model(path: String, pos: Vector3, yaw: float, s: float) -> Node
 	inst.position = pos
 	inst.rotation.y = yaw
 	inst.scale = Vector3.ONE * s
+	if add_collider:
+		var box := _uman_visual_aabb(inst)
+		_uman_attach_prop_collider(box)
+	return inst
+
+
+func _uman_attach_prop_collider(box: AABB) -> void:
 	# Декоративні великі рампи/дуги НЕ отримують box-колайдера: суцільний box
-	# закривав отвір і не давав пролітати крізь них.  Малі пропси лишаються
+	# закривав отвір і не давав пролітати крізь них. Малі пропси лишаються
 	# фізичними, але з трохи меншим колайдером, щоб не чіпляти повітря.
-	var box := _uman_visual_aabb(inst)
 	if box.size.length() < 0.05:
-		return inst
+		return
 	if box.size.x > 12.0 or box.size.z > 12.0 or box.size.y > 4.5:
-		return inst
+		return
 	var body := StaticBody3D.new()
 	body.name = "uman_obj_col_%d" % _uman_prop_colliders.size()
 	body.collision_layer = 1
@@ -1081,7 +1082,6 @@ func _uman_spawn_model(path: String, pos: Vector3, yaw: float, s: float) -> Node
 	body.position = box.get_center()
 	add_child(body)
 	_uman_prop_colliders.append(body.get_rid())
-	return inst
 
 
 func _uman_find_meshes(node: Node) -> Array:

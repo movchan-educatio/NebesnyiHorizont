@@ -1164,7 +1164,9 @@ func _touch_payload_action() -> String:
 
 
 func _payload_available(action: String = "deploy_payload") -> bool:
-	# Фрістайл-дрони Умані не мають підвісу/БЧ — кнопка «СКИД» не потрібна.
+	# У мирному режимі фрістайлу та на дронах Умані кнопка «БЧ / СКИД» не потрібна.
+	if Global != null and Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training:
+		return false
 	if DroneCatalog.is_uman(Global.drone_preset):
 		return false
 	var scene := get_tree().current_scene
