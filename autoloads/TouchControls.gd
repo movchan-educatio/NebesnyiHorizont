@@ -155,7 +155,7 @@ func _ready() -> void:
 	_drop_button.add_theme_color_override("font_color", Color(1.0, 0.95, 0.86))
 	_drop_button.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 	_drop_button.add_theme_constant_override("outline_size", 4)
-	_drop_button.button_down.connect(_on_action_pressed.bind("deploy_payload"))
+	_drop_button.button_down.connect(_on_payload_button_pressed.bind(false))
 	_drop_button.visible = false
 	_root.add_child(_drop_button)
 
@@ -168,7 +168,7 @@ func _ready() -> void:
 	_drop_button_right.add_theme_color_override("font_color", Color(1.0, 0.95, 0.86))
 	_drop_button_right.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 	_drop_button_right.add_theme_constant_override("outline_size", 4)
-	_drop_button_right.button_down.connect(_on_action_pressed.bind("deploy_payload"))
+	_drop_button_right.button_down.connect(_on_payload_button_pressed.bind(true))
 	_drop_button_right.visible = false
 	_root.add_child(_drop_button_right)
 
@@ -431,6 +431,8 @@ func set_enabled(value: bool) -> void:
 		_reset_sticks()
 		if _drop_button != null:
 			_drop_button.visible = false
+		if _drop_button_right != null:
+			_drop_button_right.visible = false
 	mode_changed.emit(touch_mode)
 
 
@@ -955,11 +957,22 @@ func _layout() -> void:
 	drop_style.set_corner_radius_all(int(drop_size * 0.5))
 	var drop_pressed := drop_style.duplicate() as StyleBoxFlat
 	drop_pressed.bg_color = Color(0.48, 0.14, 0.07, 0.95)
-	_drop_button.add_theme_stylebox_override("normal", drop_style)
-	_drop_button.add_theme_stylebox_override("hover", drop_style)
-	_drop_button.add_theme_stylebox_override("pressed", drop_pressed)
-	_drop_button.visible = enabled and (touch_mode or _layout_editing) \
-			and (not _preview or _layout_editing) and _payload_available()
+	var drop_left_style := drop_style
+	var drop_left_pressed := drop_pressed
+	var drop_right_style := drop_style
+	var drop_right_pressed := drop_pressed
+	if _is_dual_payload():
+		drop_left_style = drop_style.duplicate() as StyleBoxFlat
+		drop_left_style.border_color = Color(0.95, 0.78, 0.30, 0.88)
+		drop_left_pressed = drop_left_style.duplicate() as StyleBoxFlat
+		drop_left_pressed.bg_color = Color(0.45, 0.30, 0.08, 0.95)
+		drop_right_style = drop_style.duplicate() as StyleBoxFlat
+		drop_right_style.border_color = Color(1.0, 0.48, 0.24, 0.90)
+		drop_right_pressed = drop_right_style.duplicate() as StyleBoxFlat
+		drop_right_pressed.bg_color = Color(0.48, 0.14, 0.07, 0.95)
+	_drop_button.add_theme_stylebox_override("normal", drop_left_style)
+	_drop_button.add_theme_stylebox_override("hover", drop_left_style)
+	_drop_button.add_theme_stylebox_override("pressed", drop_left_pressed)
 	if _drop_button_right != null:
 		var drop_r_default := Vector2(_right_anchor.x - _radius - 24.0 * scale - drop_size * 0.5,
 				_right_anchor.y - drop_size * 0.65)
@@ -968,10 +981,10 @@ func _layout() -> void:
 		_drop_button_right.position = drop_r_center - drop_control_size * 0.5
 		_drop_button_right.size = drop_control_size
 		_drop_button_right.add_theme_font_size_override("font_size", int(clampf(drop_size * 0.24, 16.0, 24.0)))
-		_drop_button_right.add_theme_stylebox_override("normal", drop_style)
-		_drop_button_right.add_theme_stylebox_override("hover", drop_style)
-		_drop_button_right.add_theme_stylebox_override("pressed", drop_pressed)
-		_drop_button_right.visible = _drop_button.visible
+		_drop_button_right.add_theme_stylebox_override("normal", drop_right_style)
+		_drop_button_right.add_theme_stylebox_override("hover", drop_right_style)
+		_drop_button_right.add_theme_stylebox_override("pressed", drop_right_pressed)
+	_sync_payload_buttons()
 	if _toast != null:
 		_toast.position = Vector2(vs.x * 0.5 - 330.0, 238.0 + notch.y)
 		_toast.size = Vector2(660.0, 52.0)
@@ -1073,16 +1086,7 @@ func _update_mode_button() -> void:
 		_mode_button.text = _tx("ВВІД: СЕНСОР", "INPUT: TOUCH") if touch_mode \
 				else _tx("ВВІД: ПУЛЬТ", "INPUT: RC")
 		_style_more_panel_buttons()
-	if _drop_button != null:
-		_drop_button.visible = enabled and (touch_mode or _layout_editing) \
-				and (not _preview or _layout_editing) and _payload_available()
-		var action := _touch_payload_action()
-		var lbl_txt := _tx("БЧ", "WARHEAD") if action == "activate_payload" \
-				else _tx("СКИД", "DROP")
-		_drop_button.text = lbl_txt
-		if _drop_button_right != null:
-			_drop_button_right.visible = _drop_button.visible
-			_drop_button_right.text = lbl_txt
+	_sync_payload_buttons()
 
 
 func _on_mode_pressed() -> void:
@@ -1142,6 +1146,18 @@ func _on_flight_pressed() -> void:
 	_dispatch_action("cycle_flight_modes")
 
 
+func _on_payload_button_pressed(is_right: bool) -> void:
+	Haptics.trigger_ui_tap()
+	var actual_action := ("activate_payload" if is_right else "deploy_payload") \
+			if _is_dual_payload() else _touch_payload_action()
+	if not _payload_available(actual_action):
+		_show_toast(_tx("НЕМАЄ БОЄПРИПАСУ", "NO PAYLOAD AVAILABLE"))
+		return
+	_show_toast(_tx("БЧ АКТИВОВАНО", "WARHEAD DETONATED")
+			if actual_action == "activate_payload" else _tx("СКИД", "DROP"))
+	_dispatch_action(actual_action)
+
+
 func _on_action_pressed(action: String) -> void:
 	Haptics.trigger_ui_tap()
 	if action == "deploy_payload":
@@ -1156,6 +1172,11 @@ func _on_action_pressed(action: String) -> void:
 	_dispatch_action(action)
 
 
+func _is_dual_payload() -> bool:
+	var preset := DroneCatalog.preset(Global.drone_preset)
+	return bool(preset.get("has_drop", false)) and bool(preset.get("kamikaze", false))
+
+
 func _touch_payload_action() -> String:
 	var preset := DroneCatalog.preset(Global.drone_preset)
 	if bool(preset.get("kamikaze", false)) and not bool(preset.get("has_drop", false)):
@@ -1163,7 +1184,31 @@ func _touch_payload_action() -> String:
 	return "deploy_payload"
 
 
-func _payload_available(action: String = "deploy_payload") -> bool:
+func _sync_payload_buttons() -> void:
+	if _drop_button == null:
+		return
+	var base_show := enabled and (touch_mode or _layout_editing) \
+			and (not _preview or _layout_editing)
+	if _is_dual_payload():
+		_drop_button.visible = base_show and _payload_available("deploy_payload")
+		_drop_button.text = _tx("СКИД", "DROP")
+		if _drop_button_right != null:
+			_drop_button_right.visible = base_show and _payload_available("activate_payload")
+			_drop_button_right.text = _tx("БЧ", "WH")
+		return
+	var action := _touch_payload_action()
+	var show_btn := base_show and _payload_available(action)
+	var lbl_txt := _tx("БЧ", "WH") if action == "activate_payload" else _tx("СКИД", "DROP")
+	_drop_button.visible = show_btn
+	_drop_button.text = lbl_txt
+	if _drop_button_right != null:
+		_drop_button_right.visible = show_btn
+		_drop_button_right.text = lbl_txt
+
+
+func _payload_available(action: String = "") -> bool:
+	if action.is_empty():
+		action = _touch_payload_action()
 	# У мирному режимі фрістайлу та на дронах Умані кнопка «БЧ / СКИД» не потрібна.
 	if Global != null and Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training:
 		return false
@@ -1176,9 +1221,14 @@ func _payload_available(action: String = "deploy_payload") -> bool:
 		return false
 	# Kamikaze/warhead drones carry an integrated charge rather than a
 	# detachable ammo count, so they must not be rejected by the drop-ammo HUD.
+	# Dual-mode drones retain attached detonation only while the hanging round remains.
 	if action == "activate_payload":
 		var payload_enabled = scene.get("_payload_enabled")
-		return payload_enabled == null or payload_enabled == true
+		if payload_enabled == false:
+			return false
+		if _is_dual_payload() and scene.has_method("_ammo_count"):
+			return int(scene.call("_ammo_count")) > 0
+		return true
 	if scene.has_method("_ammo_count"):
 		if int(scene.call("_ammo_count")) <= 0:
 			return false
@@ -1205,6 +1255,7 @@ func _process(delta: float) -> void:
 	if _mode_refresh <= 0.0:
 		_mode_refresh = 0.35
 		_sync_flight_mode_label()
+		_sync_payload_buttons()
 		if enabled and not _preview:
 			var elrs := get_node_or_null("/root/ElrsWifiInput")
 			var live_elrs: bool = elrs != null and bool(elrs.get("valid"))
@@ -1618,6 +1669,7 @@ func _layout_hit_test(pos: Vector2) -> String:
 	for entry in [
 		["menu", _pause_button], ["options", _more_button],
 		["arm", _arm_button], ["drop", _drop_button],
+		["drop_right", _drop_button_right],
 	]:
 		var control := entry[1] as Control
 		if control != null and control.visible and control.get_global_rect().has_point(pos):
@@ -1637,6 +1689,7 @@ func _layout_item_center(item: String) -> Vector2:
 		"options": return _more_button.position + _more_button.size * 0.5
 		"arm": return _arm_button.position + _arm_button.size * 0.5
 		"drop": return _drop_button.position + _drop_button.size * 0.5
+		"drop_right": return _drop_button_right.position + _drop_button_right.size * 0.5
 	return Vector2.ZERO
 
 
@@ -1646,6 +1699,7 @@ func _layout_item_control(item: String) -> Control:
 		"options": return _more_button
 		"arm": return _arm_button
 		"drop": return _drop_button
+		"drop_right": return _drop_button_right
 	return null
 
 
@@ -1926,7 +1980,7 @@ func _on_drawer_draw() -> void:
 				HORIZONTAL_ALIGNMENT_CENTER, -1.0, 14, 4, label_shadow)
 		_drawer.draw_string(font, right_pos, right_text,
 				HORIZONTAL_ALIGNMENT_CENTER, -1.0, 14, label_color)
-		for control in [_pause_button, _more_button, _arm_button, _drop_button]:
+		for control in [_pause_button, _more_button, _arm_button, _drop_button, _drop_button_right]:
 			if control != null and control.visible:
 				_drawer.draw_rect(control.get_global_rect(),
 						Color(0.76, 0.96, 0.65, 0.88), false, 2.0, true)

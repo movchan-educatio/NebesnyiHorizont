@@ -183,6 +183,7 @@ func _configure_drone_visuals_for_camera(is_fpv: bool) -> void:
 	var p := DroneCatalog.preset(Global.drone_preset)
 	var fpv := drone.get_node_or_null("FPVCamera") as Camera3D
 	if fpv != null:
+		fpv.near = float(p.get("fpv_cam_near", 0.05))
 		var cam_pos = p.get("fpv_cam_pos", null)
 		if cam_pos is Vector3:
 			fpv.position = cam_pos
@@ -191,13 +192,19 @@ func _configure_drone_visuals_for_camera(is_fpv: bool) -> void:
 			fpv.transform.basis = Basis.IDENTITY.rotated(Vector3.RIGHT, deg_to_rad(float(cam_pitch)))
 	var model_root := drone.get_node_or_null("DroneModel") as Node3D
 	if model_root != null:
-		var hide_whole: bool = bool(p.get("fpv_hide_model", false)) or bool(p.get("heavy_bomber", false))
+		var show_airframe := bool(p.get("fpv_show_airframe", false))
+		var hide_props := bool(p.get("fpv_hide_props", false))
+		var hide_whole: bool = (bool(p.get("fpv_hide_model", false)) and not show_airframe) \
+				or bool(p.get("heavy_bomber", false))
 		if hide_whole:
 			model_root.visible = not is_fpv
 		else:
 			model_root.visible = true
-			_hide_props_recursive(model_root, is_fpv, false)
-			_hide_fpv_obstructions_recursive(model_root, model_root, fpv, is_fpv)
+			_hide_props_recursive(model_root, is_fpv and hide_props, show_airframe and not hide_props)
+			if not (is_fpv and show_airframe):
+				_hide_fpv_obstructions_recursive(model_root, model_root, fpv, is_fpv)
+			else:
+				_hide_fpv_obstructions_recursive(model_root, model_root, fpv, false)
 
 
 func _hide_props_recursive(node: Node, hide_props: bool, keep_front: bool = false) -> void:

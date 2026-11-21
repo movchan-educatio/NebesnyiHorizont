@@ -1,10 +1,8 @@
 extends Node
 
-## Regression: mobile fixed-wing presets (7/8/9) must keep a clean FPV lens.
-## The old "show airframe" framing put the lens at wing height on the high-wing
-## Leleka/Furia, so the wing filled the centre of the screen (owner video
-## 06:40-07:10).  This QA loads the real level per preset, asserts the drone
-## model is hidden in FPV and saves a screenshot for visual review.
+## Regression: mobile fixed-wing presets (7/8/9) keep their airframe nose
+## visible in FPV while hiding close-up camera/gimbal/optics parts so the
+## centre crosshair stays clean on real levels.
 ## Run: MOBILE_FIXED_WING_SHOT_DIR=<dir> ... qa_mobile_fixed_wing_fpv.tscn
 const TEST_NAME := "MOBILE_FIXED_WING_FPV"
 const PRESETS := [7, 8, 9]
@@ -27,14 +25,16 @@ func _run() -> void:
 	if output.is_empty():
 		output = "user://fixed_wing_fpv"
 	DirAccess.make_dir_recursive_absolute(output)
-	Global.play_mode = Global.PlayMode.TRAINING
+	Global.play_mode = Global.PlayMode.COMBAT
+	Global.combat_mission = 1
+	Global.difficulty = Global.Difficulty.RECRUIT
 	Global.special_mission = 0
 	for idx in PRESETS:
 		Global.drone_preset = idx
 		var preset := DroneCatalog.preset(idx)
-		_check(bool(preset.get("fpv_hide_model", false))
-				and not bool(preset.get("fpv_show_airframe", false)),
-				"preset %d keeps the clean FPV lens" % idx)
+		_check(not bool(preset.get("fpv_hide_model", false))
+				and bool(preset.get("fpv_show_airframe", false)),
+				"preset %d keeps airframe nose visible in FPV" % idx)
 		var packed := load("res://sceneries/SteppeLevel.tscn") as PackedScene
 		if packed == null:
 			_check(false, "SteppeLevel loads")
@@ -44,8 +44,8 @@ func _run() -> void:
 		get_tree().current_scene = level
 		await get_tree().create_timer(5.0).timeout
 		var model_root := level.get("_model_root") as Node3D
-		_check(model_root != null and not model_root.visible,
-				"preset %d hides the drone model in FPV" % idx)
+		_check(model_root != null and model_root.visible,
+				"preset %d shows nose model in FPV" % idx)
 		var cam := level.get_node_or_null("Drone/FPVCamera") as Camera3D
 		_check(cam != null and cam.position.distance_to(
 				preset.get("fpv_cam_pos", Vector3.ZERO)) < 0.05,

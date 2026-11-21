@@ -237,9 +237,9 @@ func _run() -> void:
 	var had_mobile_for_catalog := OS.has_environment("MOBILE_UI")
 	OS.unset_environment("MOBILE_UI")
 	var desktop_expected := {
-		7: {"payload": 1, "fpv_cam_pos": Vector3(0.0, 0.06, -0.56)},
-		8: {"payload": 1, "fpv_cam_pos": Vector3(0.0, 0.04, -0.42)},
-		9: {"payload": 1, "fpv_cam_pos": Vector3(0.0, 0.06, -0.78)},
+		7: {"payload": 1, "fpv_cam_pos": Vector3(0.0, 0.34, -0.38)},
+		8: {"payload": 1, "fpv_cam_pos": Vector3(0.0, 0.305, -0.32)},
+		9: {"payload": 1, "fpv_cam_pos": Vector3(0.0, 0.24, -0.58)},
 	}
 	var pc_unchanged := true
 	for preset_idx in desktop_expected:
@@ -247,19 +247,31 @@ func _run() -> void:
 		pc_unchanged = pc_unchanged \
 				and int(desktop_preset.get("payload", -1)) == int(desktop_expected[preset_idx]["payload"]) \
 				and desktop_preset.get("fpv_cam_pos") == desktop_expected[preset_idx]["fpv_cam_pos"] \
-				and bool(desktop_preset.get("fpv_hide_model", false)) \
-				and not bool(desktop_preset.get("fpv_show_airframe", false))
-	_check(pc_unchanged, "desktop fixed-wing loadout and FPV framing remain unchanged")
+				and not bool(desktop_preset.get("fpv_hide_model", false)) \
+				and bool(desktop_preset.get("fpv_show_airframe", false))
+	_check(pc_unchanged, "desktop fixed-wing loadout and nose-visible FPV framing active")
 	if had_mobile_for_catalog:
 		OS.set_environment("MOBILE_UI", "1")
-	for preset_idx in [7, 8, 9]:
+	var saved_mode_for_payload := Global.play_mode
+	Global.play_mode = Global.PlayMode.COMBAT
+	for preset_idx in [2, 4, 7, 8, 9]:
 		Global.drone_preset = preset_idx
 		kamikaze_touch_ok = kamikaze_touch_ok \
 				and bool(DroneCatalog.preset(preset_idx).get("kamikaze", false)) \
 				and DroneCatalog.supports_payload_actions(preset_idx) \
-				and touch.call("_touch_payload_action") == "activate_payload"
+				and touch.call("_touch_payload_action") == "activate_payload" \
+				and bool(touch.call("_payload_available"))
+	Global.drone_preset = 3
+	kamikaze_touch_ok = kamikaze_touch_ok \
+			and bool(DroneCatalog.preset(3).get("kamikaze", false)) \
+			and bool(DroneCatalog.preset(3).get("has_drop", false)) \
+			and DroneCatalog.supports_payload_actions(3) \
+			and bool(touch.call("_is_dual_payload")) \
+			and bool(touch.call("_payload_available", "deploy_payload")) \
+			and bool(touch.call("_payload_available", "activate_payload"))
+	Global.play_mode = saved_mode_for_payload
 	Global.drone_preset = current_preset
-	_check(kamikaze_touch_ok, "Leleka/Furia/Chaklun touch button activates warhead")
+	_check(kamikaze_touch_ok, "Kamikaze & dual-mode Quad-5 touch buttons activate payload in Combat")
 	var audio := get_node_or_null("/root/Audio")
 	if audio != null:
 		var master_was_muted := AudioServer.is_bus_mute(0)

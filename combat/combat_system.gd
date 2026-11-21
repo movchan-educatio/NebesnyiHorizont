@@ -650,6 +650,9 @@ static func kamikaze_hit_radius(node: Node) -> float:
 func _check_aerial_and_moving_kamikaze() -> void:
 	if _lost or _range_cleared or _drone == null or not is_instance_valid(_drone):
 		return
+	var preset := DroneCatalog.preset(Global.drone_preset)
+	if bool(preset.get("has_drop", false)) and ammo <= 0:
+		return
 	var controller := _drone.get_node_or_null("FlightController") as FlightController
 	if controller == null or not controller.state_armed:
 		return
@@ -777,7 +780,9 @@ func _on_drone_body_entered(body: Node) -> void:
 	if parent_node != null and parent_node.has_method("try_strike_warhead_contact"):
 		if bool(parent_node.call("try_strike_warhead_contact", body, speed)):
 			return
-	if body.is_in_group("combat_target") and body.has_method("take_damage"):
+	var preset := DroneCatalog.preset(Global.drone_preset)
+	var has_warhead := not bool(preset.get("has_drop", false)) or ammo > 0
+	if has_warhead and body.is_in_group("combat_target") and body.has_method("take_damage"):
 		if speed < kamikaze_min_speed:
 			return
 		_message("KAMIKAZE HIT", Color(1.0, 0.6, 0.2), 1.6)

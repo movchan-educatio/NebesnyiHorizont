@@ -132,15 +132,18 @@ const PRESETS := [
 		"info_en": "Agile 5-inch FPV quad on a reinforced Mark4 carbon frame. Balanced center of gravity, top-mounted 6S LiPo, crisp stick response, and a 6.5:1 thrust-to-weight ratio for training and interception.",
 		"dry": 0.41, "batt": 0.24, "kv": 2450, "torque": 1450.0, "rpm": 34000.0,
 		"prop_d": 5.0, "prop_p": 4.5, "blades": 4, "rate": 800, "motor_size": 2207,
-		"payload": 1, "payload_mass": 0.18, "combat": true, "has_drop": false,
+		"payload": 1, "payload_mass": 0.18, "combat": true, "has_drop": true,
 		"kamikaze": true,
+		"drop_name": "Осколково-кумулятивна БЧ (180г)",
+		"drop_name_en": "Frag-HEAT warhead (180g)",
 		"twr": 6.5,
 		"cog_offset": Vector3(0.0, 0.008, 0.0),
 		"dimensions": Vector3(0.22, 0.08, 0.22),
 		"drag_area": Vector3(0.012, 0.014, 0.006),
 		"model": "res://Assets/Drones/ua_norm/quad5_custom.glb",
 		"model_size": 0.225, "model_fit": false, "model_yaw": PI * 0.5,
-		"fpv_cam_pos": Vector3(0.0, 0.038, -0.115), "fpv_cam_pitch": -6.0,
+		"fpv_show_airframe": true, "fpv_cam_near": 0.015,
+		"fpv_cam_pos": Vector3(0.0, 0.114, -0.026), "fpv_cam_pitch": -16.0,
 	},
 	{
 		"id": "pisun_vtol",
@@ -170,7 +173,8 @@ const PRESETS := [
 		"model": "res://Assets/Drones/ua_norm/pisun_vtol.glb",
 		"model_size": 0.450, "model_fit": false,
 		"model_pitch": 0.0,
-		"fpv_cam_pos": Vector3(0.0, 0.088, -0.060), "fpv_cam_pitch": -12.0,
+		"fpv_show_airframe": true, "fpv_hide_props": true, "fpv_cam_near": 0.015,
+		"fpv_cam_pos": Vector3(0.0, 0.328, 0.125), "fpv_cam_pitch": -9.5,
 	},
 	{
 		"id": "military_fpv",
@@ -265,8 +269,8 @@ const PRESETS := [
 		"drag_area": Vector3(0.050, 0.030, 0.035),
 		"model": "res://Assets/Drones/ua_norm/leleka_100.glb",
 		"model_size": 2.0, "model_fit": false,
-		"fpv_hide_model": true,
-		"fpv_cam_pos": Vector3(0.0, 0.06, -0.56), "fpv_cam_pitch": -7.0,
+		"fpv_show_airframe": true, "fpv_cam_near": 0.02,
+		"fpv_cam_pos": Vector3(0.0, 0.34, -0.38), "fpv_cam_pitch": -9.0,
 	},
 	{
 		"id": "furia",
@@ -298,8 +302,8 @@ const PRESETS := [
 		"drag_area": Vector3(0.045, 0.025, 0.030),
 		"model": "res://Assets/Drones/ua_norm/furia_a1sm.glb",
 		"model_size": 2.0, "model_fit": false,
-		"fpv_hide_model": true,
-		"fpv_cam_pos": Vector3(0.0, 0.04, -0.42), "fpv_cam_pitch": -8.0,
+		"fpv_show_airframe": true, "fpv_cam_near": 0.02,
+		"fpv_cam_pos": Vector3(0.0, 0.305, -0.32), "fpv_cam_pitch": -9.0,
 	},
 	{
 		"id": "chaklun_jet",
@@ -321,7 +325,6 @@ const PRESETS := [
 		"prop_d": 14.0, "prop_p": 10.0, "blades": 4, "rate": 240, "motor_size": 5010,
 		"payload": 1, "payload_mass": 1.6, "combat": true, "has_drop": false,
 		"kamikaze": true, "fixed_wing": true, "is_jet": true, "interceptor": true,
-		"fpv_hide_model": true,
 		"max_speed_loaded": 61.1, "max_speed_empty": 88.9,
 		"twr": 3.3,
 		"battery_chemistry": 1, "battery_mah": 5000.0,
@@ -331,7 +334,8 @@ const PRESETS := [
 		"drag_area": Vector3(0.030, 0.025, 0.022),
 		"model": "res://Assets/Drones/ua_norm/chaklun_jet.glb",
 		"model_size": 1.65, "model_fit": false,
-		"fpv_cam_pos": Vector3(0.0, 0.06, -0.78), "fpv_cam_pitch": -5.0,
+		"fpv_show_airframe": true, "fpv_cam_near": 0.02,
+		"fpv_cam_pos": Vector3(0.0, 0.24, -0.58), "fpv_cam_pitch": -9.0,
 	},
 	# --- Фрістайл-дрони ТІЛЬКИ для карти Умань ---------------------------------
 	# Моделі з Assets/UmanFPV (оригінальні, CC0-безпечні для App Store).
@@ -422,22 +426,6 @@ func preset(index: int) -> Dictionary:
 	var idx := clampi(index, 0, PRESETS.size() - 1)
 	var result: Dictionary = custom_presets[index] \
 			if custom_presets.has(index) else PRESETS[idx]
-	var preset_id := str(result.get("id", ""))
-	if _is_mobile_platform() and preset_id in ["leleka100", "furia", "chaklun_jet"]:
-		# iOS-only FPV framing so the wing does not fill the centre of the screen.
-		result = result.duplicate(true)
-		result["fpv_hide_model"] = true
-		result.erase("fpv_show_airframe")
-		match preset_id:
-			"leleka100":
-				result["fpv_cam_pos"] = Vector3(0.0, 0.06, -0.72)
-				result["fpv_cam_pitch"] = -5.0
-			"furia":
-				result["fpv_cam_pos"] = Vector3(0.0, 0.04, -0.55)
-				result["fpv_cam_pitch"] = -5.0
-			_:
-				result["fpv_cam_pos"] = Vector3(0.0, 0.10, -0.48)
-				result["fpv_cam_pitch"] = -10.0
 	return result
 
 
@@ -1097,14 +1085,21 @@ func _apply_composite_detail(model: Node3D, index: int) -> void:
 			var mat_name := String(src.resource_name).to_lower()
 			if not mat_name.contains("composite"):
 				continue
+			# Preserve authored textured PBR composite skins (panel lines, normals, roughness).
+			if src is BaseMaterial3D:
+				var bm := src as BaseMaterial3D
+				if bm.albedo_texture != null or bm.normal_texture != null:
+					continue
 			var mat := StandardMaterial3D.new()
-			var base := Color(0.34, 0.39, 0.36)
-			if index == 14:
-				base = Color(0.28, 0.31, 0.30)
-			elif index == 15:
-				base = Color(0.10, 0.11, 0.12)
+			var base := Color(0.66, 0.69, 0.68)
+			if index == 8:
+				base = Color(0.35, 0.39, 0.36)
+			elif index == 9:
+				base = Color(0.16, 0.17, 0.19)
 			if mat_name.contains("grey"):
 				base = base.darkened(0.18)
+			elif mat_name.contains("dark"):
+				base = base.darkened(0.35)
 			mat.albedo_color = base
 			mat.roughness = 0.56
 			mat.metallic = 0.08

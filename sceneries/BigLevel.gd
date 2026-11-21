@@ -6940,9 +6940,15 @@ func _update_telemetry(delta: float) -> void:
 		mode_str = FlightController.mode_name(drone.flight_controller.flight_mode)
 	var is_combat: bool = bool(p.get("combat", false))
 	var has_drop: bool = bool(p.get("has_drop", false))
+	var is_dual := has_drop and bool(p.get("kamikaze", false))
 	var ammo_line := ""
 	if Global.play_mode == Global.PlayMode.COMBAT and is_combat:
-		if has_drop:
+		if is_dual:
+			if MenuUI.is_mobile_ui():
+				ammo_line = _txt("СКИД / БЧ (%d) · НА ЕКРАНІ\n", "DROP / WH (%d) · ON SCREEN\n") % _ammo_count()
+			else:
+				ammo_line = _txt("СКИД [G] / БЧ [F] · %d\n", "DROP [G] / WH [F] · %d\n") % _ammo_count()
+		elif has_drop:
 			ammo_line = _txt("СКИД %d  [G]\n", "DROP %d  [G]\n") % _ammo_count()
 		elif MenuUI.is_mobile_ui():
 			ammo_line = _txt("БЧ  · КНОПКА НА ЕКРАНІ\n", "WARHEAD · SCREEN BUTTON\n")
@@ -7231,7 +7237,7 @@ func _setup_fpv_camera_for_preset() -> void:
 	var p := DroneCatalog.preset(Global.drone_preset)
 	_base_fpv_fov = 110.0
 	cam.fov = _base_fpv_fov
-	cam.near = 0.05
+	cam.near = float(p.get("fpv_cam_near", 0.05))
 	cam.far = 4000.0
 	cam.position = p.get("fpv_cam_pos", Vector3(0.0, 0.004, -0.053))
 	cam.set_meta("base_pos", cam.position)
@@ -8156,9 +8162,35 @@ func _drop_fpv_payload() -> void:
 	timer.timeout.connect(_reset_fpv_payload)
 
 
+func _is_warhead_mesh_name(lower_name: String) -> bool:
+	return lower_name.contains("morkva") or lower_name.contains("provoloka") \
+			or lower_name.contains("styazka") or lower_name.contains("detonator") \
+			or lower_name.contains("warhead") or lower_name.contains("pg7") \
+			or lower_name.contains("bomb_")
+
+
+func _has_hanging_warhead() -> bool:
+	if not _payload_enabled or _payload_dropped:
+		return false
+	var p := DroneCatalog.preset(Global.drone_preset)
+	if bool(p.get("has_drop", false)):
+		return _ammo_count() > 0
+	return true
+
+
+func _set_warhead_meshes_visible(show: bool) -> void:
+	if _heavy_bomber or _model_root == null or not is_instance_valid(_model_root):
+		return
+	for mi_node in _model_root.find_children("*", "MeshInstance3D", true, false):
+		var mi := mi_node as MeshInstance3D
+		if mi != null and _is_warhead_mesh_name(String(mi.name).to_lower()):
+			mi.visible = show
+
+
 func _hide_fpv_payload() -> void:
 	if _fpv_payload != null and is_instance_valid(_fpv_payload):
 		_fpv_payload.visible = false
+	_set_warhead_meshes_visible(false)
 
 
 ## Kamikaze / loitering warhead activation (the second payload button, next to
@@ -8169,15 +8201,27 @@ func _activate_fpv_payload() -> void:
 	if not _payload_enabled or _payload_dropped:
 		return
 	var p := DroneCatalog.preset(Global.drone_preset)
-	if bool(p.get("has_drop", false)):
+	if bool(p.get("has_drop", false)) and not bool(p.get("kamikaze", false)):
 		_set_flash(_txt("У цього дрона немає БЧ — використайте СКИД (G)",
 				"THIS AIRCRAFT HAS NO WARHEAD — USE DROP (G)"))
+		return
+	if bool(p.get("has_drop", false)) and _ammo_count() <= 0:
+		_set_flash(_txt("БЧ ВЖЕ СКИНУТО — ПЕРЕЗАРЯДКА (R)",
+				"WARHEAD ALREADY DROPPED — RELOAD (R)"))
 		return
 	var drone := get_node_or_null("Drone") as Drone
 	if drone == null or not is_instance_valid(drone):
 		return
 	_payload_dropped = true
 	_payload_drops += 1
+	if bool(p.get("has_drop", false)):
+		_payload_ammo_left = 0
+		_hide_fpv_payload()
+		var cs := get_node_or_null("CombatSystem")
+		if cs != null:
+			cs.set("ammo", 0)
+			if cs.has_method("_update_hud"):
+				cs.call("_update_hud")
 	var hits_before := _payload_hits
 	var at := drone.global_position
 	var blast := 10.5
@@ -8256,6 +8300,8 @@ func _reset_fpv_payload() -> void:
 			cs.set("ammo", _bomb_nodes.size())
 		return
 	_fpv_payload.transform = _payload_rest
+	var is_freestyle := Global != null and Global.play_mode == Global.PlayMode.TRAINING \
+			and not Global.combat_training
 	var has_drop := bool(DroneCatalog.preset(Global.drone_preset).get(
 			"has_drop", false))
 	var remaining := _payload_ammo_left
@@ -8263,7 +8309,9 @@ func _reset_fpv_payload() -> void:
 		var cs_ammo := get_node_or_null("CombatSystem")
 		if cs_ammo != null and cs_ammo.get("ammo") != null:
 			remaining = int(cs_ammo.get("ammo"))
-	_fpv_payload.visible = _payload_enabled and (not has_drop or remaining > 0)
+	var show_payload := _payload_enabled and not is_freestyle and (not has_drop or remaining > 0)
+	_fpv_payload.visible = show_payload
+	_set_warhead_meshes_visible(show_payload)
 
 
 func _apply_fpv_rig() -> void:
@@ -9776,7 +9824,7 @@ func try_strike_warhead_contact(_body: Node, speed: float) -> bool:
 		return false
 	var p := DroneCatalog.preset(Global.drone_preset)
 	var strike := bool(p.get("kamikaze", false)) and bool(p.get("combat", false)) \
-			and not bool(p.get("has_drop", false))
+			and (not bool(p.get("has_drop", false)) or _ammo_count() > 0)
 	if not strike or speed < 7.0:
 		return false
 	_try_kamikaze_impact(speed)
@@ -9850,6 +9898,8 @@ func _try_kamikaze_impact(impact_speed: float) -> void:
 				and not bool(p.get("has_drop", false)) \
 				and int(p.get("payload", 0)) > 0
 	if not strike:
+		return
+	if bool(p.get("has_drop", false)) and _ammo_count() <= 0:
 		return
 	# Light contact with a fence, branch or ground bump must not trigger the
 	# warhead.  The active airframe has to be armed, airborne and closing at a
@@ -10008,20 +10058,19 @@ func _refresh_model_visibility() -> void:
 	# corners of the FPV frame.
 	var drone_node := get_node_or_null("Drone")
 	var preset_now := DroneCatalog.preset(Global.drone_preset)
+	var show_props := third_person or (bool(preset_now.get("fpv_show_airframe", false)) \
+			and not bool(preset_now.get("fpv_hide_props", false)))
 	if drone_node != null:
 		for prop in drone_node.find_children("*", "Propeller", true, false):
 			if prop.has_method("set_visibility"):
-				prop.call("set_visibility", third_person or bool(
-					preset_now.get("fpv_show_airframe", false)))
+				prop.call("set_visibility", show_props)
 			elif prop is VisualInstance3D:
-				(prop as VisualInstance3D).visible = third_person or bool(
-					preset_now.get("fpv_show_airframe", false))
+				(prop as VisualInstance3D).visible = show_props
 	if not is_inside_tree():
 		return
 	for pivot in get_tree().get_nodes_in_group("drone_prop_pivot"):
 		if pivot is Node3D:
-			(pivot as Node3D).visible = third_person or bool(
-					preset_now.get("fpv_show_airframe", false))
+			(pivot as Node3D).visible = show_props
 	# 3" cinewhoop: у FPV ховаємо центральний корпус — лишаємо дути,
 	# передні мотори й пофарбовані лопаті (корпус закривав би кадр).
 	if not third_person and bool(preset_now.get("fpv_hide_chassis", false)):
@@ -10083,13 +10132,25 @@ func _is_mobile_runtime() -> bool:
 func _configure_fixed_wing_fpv(node: Node) -> void:
 	if node == null:
 		return
+	var is_freestyle := Global != null and Global.play_mode == Global.PlayMode.TRAINING \
+			and not Global.combat_training
+	var hide_props := bool(DroneCatalog.preset(Global.drone_preset).get("fpv_hide_props", false))
+	var hide_warhead := is_freestyle or not _has_hanging_warhead()
 	if node is MeshInstance3D:
 		var mesh_name := String(node.name).to_lower()
-		var camera_part := mesh_name.contains("camera") or mesh_name.contains("cam")
-		(node as MeshInstance3D).visible = not camera_part
+		var camera_part := mesh_name.contains("camera") or mesh_name.contains("cam") \
+				or mesh_name.contains("gimbal") or mesh_name.contains("lens") \
+				or mesh_name.contains("hood") or mesh_name.contains("thermal") \
+				or mesh_name.contains("irst")
+		var warhead_part := _is_warhead_mesh_name(mesh_name)
+		var prop_part := hide_props and (mesh_name.contains("propeller") \
+				or mesh_name.contains("prop_") or mesh_name.contains("propblurdisk"))
+		(node as MeshInstance3D).visible = not camera_part and not prop_part \
+				and not (hide_warhead and (warhead_part \
+				or (_fpv_payload != null and _is_under(node, _fpv_payload))))
 	elif node is Node3D and (node.name == "propeller_rear" \
 			or node.is_in_group("drone_prop_pivot")):
-		(node as Node3D).visible = true
+		(node as Node3D).visible = not hide_props
 	for child in node.get_children():
 		_configure_fixed_wing_fpv(child)
 
