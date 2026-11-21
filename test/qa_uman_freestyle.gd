@@ -96,8 +96,10 @@ func _ready() -> void:
 				"після падіння у воду дрон автоматично рестартував (pos=%s)" % str(after))
 
 	_check(DroneCatalog.is_uman(Global.drone_preset), "активний дрон — фрістайльний")
-	_check(DroneCatalog.allowed_for_map("uman").size() == 3, "на Умані рівно 3 дрони")
-	_check(DroneCatalog.allowed_for_map("industrial").size() == 10, "на інших картах 10 звичайних дронів")
+	_check(DroneCatalog.allowed_for_map("uman").size() == 13, "в загальному ангарі на Умані всі 13 дронів")
+	_check(DroneCatalog.allowed_for_map("industrial").size() == 13, "в загальному ангарі на інших картах усі 13 дронів")
+	_check(DroneCatalog.allowed_for_mode(Global.PlayMode.TRAINING).size() == 13, "у фрістайлі доступні всі 13 дронів")
+	_check(DroneCatalog.allowed_for_mode(Global.PlayMode.COMBAT).size() == 10, "у бойовому режимі доступні 10 бойових дронів")
 	print("[UMAN-QA] fails=", _fails)
 	_get_tree_quit()
 

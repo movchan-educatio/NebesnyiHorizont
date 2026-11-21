@@ -12,6 +12,7 @@ extends Control
 const ROUNDED_SHADER: Shader = preload("res://GUI/mobile/rounded_rect.gdshader")
 const DronePropellerSystem = preload("res://scripts/util/DronePropellerSystem.gd")
 const GlbMaterialUtilsScript = preload("res://scripts/util/glb_material_utils.gd")
+const MenuDioramaStageScript = preload("res://scripts/util/MenuDioramaStage.gd")
 const MenuIcons = preload("res://GUI/ui/MenuIcons.gd")
 const CinematicOverlay = preload("res://scripts/util/cinematic_overlay.gd")
 ## OptionButton id for the disabled action row.  Godot's -1 means "auto id",
@@ -85,6 +86,8 @@ var _hero_container: SubViewportContainer
 var _hero_viewport: SubViewport
 var _hero_holder: Node3D
 var _hero_camera: Camera3D
+var _hero_diorama: Node3D = null
+var _hero_pad_rotator: Node3D = null
 var _hero_drone_name: Label
 var _hero_drone_tag: Label
 var _hero_drone_specs: Label
@@ -151,6 +154,8 @@ var _hangar_container: SubViewportContainer = null
 var _hangar_viewport: SubViewport = null
 var _hangar_holder: Node3D = null
 var _hangar_camera: Camera3D = null
+var _hangar_diorama: Node3D = null
+var _hangar_pad_rotator: Node3D = null
 var _hangar_drone_name: Label = null
 var _hangar_drone_tag: Label = null
 var _hangar_specs_lbl: Label = null
@@ -387,16 +392,14 @@ func _ready() -> void:
 			break
 	if not map_valid:
 		_selected_map = "uman"
-	# Умань — тільки фрістайл і тільки три власні дрони.
-	if _selected_map == "uman":
+	# Умань або фрістайл-дрони — тільки фрістайл-режим (без бою й туторіалу).
+	if not embedded and (_selected_map == "uman" or DroneCatalog.is_uman(Global.drone_preset)):
 		_selected_mode = Global.PlayMode.TRAINING
 		Global.combat_training = false
 		_selected_special = 0
 		Global.special_mission = 0
-		if not DroneCatalog.is_uman(Global.drone_preset):
-			DroneCatalog.apply(DroneCatalog.first_for_map("uman"))
-	elif DroneCatalog.is_uman(Global.drone_preset):
-		DroneCatalog.apply(0)
+		Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
+		Global.menu_settings["selected_special"] = 0
 	if Global.menu_settings.has("selected_mission"):
 		_selected_mission = clampi(int(Global.menu_settings["selected_mission"]), 1, 4)
 	if Global.menu_settings.has("selected_special"):
@@ -471,7 +474,14 @@ func _process(delta: float) -> void:
 	# Skip it while another screen is open; the hero viewport is hidden then.
 	if _hero_holder != null and _current == "main":
 		if not _is_dragging_hero:
-			_hero_holder.rotation.y += delta * 0.45
+			var hero_idle := delta * 0.45
+			_hero_holder.rotation.y += hero_idle
+			if _hero_pad_rotator != null:
+				_hero_pad_rotator.rotation.y += hero_idle
+			if _hero_diorama != null:
+				_hero_diorama.sync_idle_spin(hero_idle)
+		if _hero_diorama != null:
+			_hero_diorama.step(delta)
 		for child in _hero_holder.get_children():
 			if child.has_meta("prop_pivots"):
 				DroneCatalog.animate_propellers(child, delta * 0.8)
@@ -479,7 +489,14 @@ func _process(delta: float) -> void:
 	# 3D Drone Hangar Turntable: rotation and propeller animation when viewing Hangar
 	if _hangar_holder != null and _current == "drone":
 		if not _is_dragging_hangar:
-			_hangar_holder.rotation.y += delta * 0.45
+			var hangar_idle := delta * 0.45
+			_hangar_holder.rotation.y += hangar_idle
+			if _hangar_pad_rotator != null:
+				_hangar_pad_rotator.rotation.y += hangar_idle
+			if _hangar_diorama != null:
+				_hangar_diorama.sync_idle_spin(hangar_idle)
+		if _hangar_diorama != null:
+			_hangar_diorama.step(delta)
 		for child in _hangar_holder.get_children():
 			if child.has_meta("prop_pivots"):
 				DroneCatalog.animate_propellers(child, delta * 0.8)
@@ -1063,6 +1080,8 @@ func _show(name: String) -> void:
 		_top_brand.visible = (name != "main")
 	_apply_masthead_layout()
 	if name == "play":
+		if _play_modes_row != null:
+			_update_play_modes(_play_modes_row)
 		if _maps_row != null:
 			_update_map_cards(_maps_row)
 		_refresh_mobile_mission_strip()
@@ -1217,6 +1236,8 @@ func _build_main() -> void:
 				true, func():
 					_selected_mode = Global.PlayMode.TUTORIAL
 					_selected_map = "industrial"
+					if DroneCatalog.is_uman(Global.drone_preset):
+						DroneCatalog.apply(0)
 					_launch()
 		)
 		left.add_child(quick_btn)
@@ -1473,7 +1494,8 @@ func _setup_hero_3d_world() -> void:
 	ring_mat.albedo_color = MenuUI.ACCENT
 	ring.material_override = ring_mat
 	_hero_viewport.add_child(ring)
-	_add_tactical_podium_details(_hero_viewport, -0.2045, 0.50)
+	_hero_pad_rotator = _add_tactical_podium_details(_hero_viewport, -0.2045, 0.50)
+	_hero_diorama = MenuDioramaStageScript.attach(_hero_viewport, -0.2045, 0.50, Vector2(0.48, 0.76), false)
 
 	_hero_camera = Camera3D.new()
 	_hero_camera.fov = 30.0
@@ -1482,6 +1504,7 @@ func _setup_hero_3d_world() -> void:
 
 	_hero_holder = Node3D.new()
 	_hero_viewport.add_child(_hero_holder)
+	_fit_hero_camera()
 	_load_hero_model(Global.drone_preset)
 
 
@@ -1603,7 +1626,7 @@ func _select_prev_drone() -> void:
 	_uman_cycle_hero(-1)
 
 
-## Карусель на головному екрані показує тільки дрони, дозволені на поточній карті.
+## Карусель на головному екрані показує всі 13 дронів; для фрістайлових перемикає режим на Фрістайл.
 func _uman_cycle_hero(dir: int) -> void:
 	var list := DroneCatalog.allowed_for_map(_selected_map)
 	if list.is_empty():
@@ -1613,8 +1636,18 @@ func _uman_cycle_hero(dir: int) -> void:
 	var new_idx := list[(pos + dir + total) % total]
 	Global.drone_preset = new_idx
 	Global.menu_settings["drone_preset"] = new_idx
-	Global.save_menu_settings()
 	DroneCatalog.apply(new_idx)
+	if DroneCatalog.is_uman(new_idx):
+		_selected_mode = Global.PlayMode.TRAINING
+		Global.play_mode = Global.PlayMode.TRAINING
+		Global.combat_training = false
+		_selected_special = 0
+		Global.special_mission = 0
+		Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
+		Global.menu_settings["selected_special"] = 0
+	Global.save_menu_settings()
+	if _play_modes_row != null:
+		_update_play_modes(_play_modes_row)
 	DroneCatalog.prefetch_model(list[(pos + 1) % total])
 	DroneCatalog.prefetch_model(list[(pos - 1 + total) % total])
 	_load_hero_model(new_idx)
@@ -1630,12 +1663,22 @@ func _on_hero_gui_input(event: InputEvent) -> void:
 		_is_dragging_hero = st.pressed
 	elif event is InputEventMouseMotion and _is_dragging_hero:
 		var mm := event as InputEventMouseMotion
+		var dyaw := mm.relative.x * 0.012
 		if _hero_holder != null:
-			_hero_holder.rotation.y += mm.relative.x * 0.012
+			_hero_holder.rotation.y += dyaw
+		if _hero_pad_rotator != null:
+			_hero_pad_rotator.rotation.y += dyaw
+		if _hero_diorama != null:
+			_hero_diorama.apply_swipe_spin(dyaw)
 	elif event is InputEventScreenDrag:
 		var sd := event as InputEventScreenDrag
+		var dyaw := sd.relative.x * 0.012
 		if _hero_holder != null:
-			_hero_holder.rotation.y += sd.relative.x * 0.012
+			_hero_holder.rotation.y += dyaw
+		if _hero_pad_rotator != null:
+			_hero_pad_rotator.rotation.y += dyaw
+		if _hero_diorama != null:
+			_hero_diorama.apply_swipe_spin(dyaw)
 
 
 # ---------------------------------------------------------------- TACTICAL CONTROLLER SCREEN
@@ -2254,7 +2297,10 @@ func _build_play() -> void:
 		var m_title := str(m.get("name_en" if is_en else "name", m.get("name", "")))
 		var btn := _button(m_title, 40, int(m["id"]) == _selected_mode)
 		btn.pressed.connect(func():
-			_selected_mode = Global.sanitize_play_mode(int(m["id"]))
+			var m_id := Global.sanitize_play_mode(int(m["id"]))
+			if (_selected_map == "uman" or DroneCatalog.is_uman(Global.drone_preset)) and m_id != Global.PlayMode.TRAINING:
+				m_id = Global.PlayMode.TRAINING
+			_selected_mode = m_id
 			_update_play_modes(modes_row)
 		)
 		btn.set_meta("mode_id", int(m["id"]))
@@ -2419,17 +2465,15 @@ func _build_play() -> void:
 func _select_map(card_id: String, row: HBoxContainer = null) -> void:
 	_selected_map = card_id
 	Global.menu_settings["selected_map"] = _selected_map
-	# Умань — тільки фрістайл і тільки власні дрони; інші карти — звичайні.
-	if card_id == "uman":
+	# Умань або фрістайл-дрони — тільки режим Фрістайл, але на будь-якій обраній карті.
+	if card_id == "uman" or DroneCatalog.is_uman(Global.drone_preset):
 		_selected_mode = Global.PlayMode.TRAINING
 		Global.play_mode = Global.PlayMode.TRAINING
+		Global.combat_training = false
 		Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
 		_selected_special = 0
 		Global.special_mission = 0
-		if not DroneCatalog.is_uman(Global.drone_preset):
-			DroneCatalog.apply(DroneCatalog.first_for_map("uman"))
-	elif DroneCatalog.is_uman(Global.drone_preset):
-		DroneCatalog.apply(0)
+		Global.menu_settings["selected_special"] = 0
 	Global.save_menu_settings()
 	var target_row: HBoxContainer = row if row != null else _maps_row
 	if target_row != null:
@@ -2905,11 +2949,15 @@ func _update_play_caption() -> void:
 
 
 func _update_play_modes(row: HBoxContainer) -> void:
+	var only_freestyle := (_selected_map == "uman" or DroneCatalog.is_uman(Global.drone_preset))
+	if only_freestyle and _selected_mode != Global.PlayMode.TRAINING:
+		_selected_mode = Global.PlayMode.TRAINING
+		_selected_special = 0
 	for c in row.get_children():
 		if c is Button and c.has_meta("mode_id"):
 			var mid := int(c.get_meta("mode_id", -1))
-			# На Умані доступний тільки фрістайл — бойовий/туторіал ховаємо.
-			if _selected_map == "uman":
+			# На Умані або для фрістайл-дронів доступний тільки Фрістайл.
+			if only_freestyle:
 				c.visible = (mid == Global.PlayMode.TRAINING)
 			else:
 				c.visible = true
@@ -2945,7 +2993,7 @@ func _update_map_cards(row: HBoxContainer) -> void:
 
 func _launch(combat_training: bool = false) -> void:
 	Global.combat_training = combat_training
-	if combat_training and _selected_map != "uman":
+	if combat_training:
 		# Industrial proving ground + GRIM-7M (a combat airframe with a real
 		# payload release).  The guide replaces the freestyle ring course.
 		_selected_mode = Global.PlayMode.TRAINING
@@ -2954,14 +3002,12 @@ func _launch(combat_training: bool = false) -> void:
 		Global.special_mission = 0
 		QuadSettings.custom_rates = false
 		DroneCatalog.apply(1)
-	# Умань — тільки фрістайл і тільки три власні дрони.
-	if _selected_map == "uman":
+	# Умань або фрістайл-дрони — тільки режим фрістайлу на обраній карті.
+	elif _selected_map == "uman" or DroneCatalog.is_uman(Global.drone_preset):
 		_selected_mode = Global.PlayMode.TRAINING
 		Global.combat_training = false
 		_selected_special = 0
 		Global.special_mission = 0
-		if not DroneCatalog.is_uman(Global.drone_preset):
-			DroneCatalog.apply(DroneCatalog.first_for_map("uman"))
 	_selected_mode = Global.sanitize_play_mode(_selected_mode)
 	Global.play_mode = _selected_mode
 	if _selected_mode == Global.PlayMode.COMBAT:
@@ -3238,7 +3284,8 @@ func _setup_hangar_3d_world() -> void:
 	h_ring_mat.albedo_color = MenuUI.ACCENT
 	h_ring.material_override = h_ring_mat
 	_hangar_viewport.add_child(h_ring)
-	_add_tactical_podium_details(_hangar_viewport, -0.1770, 0.50)
+	_hangar_pad_rotator = _add_tactical_podium_details(_hangar_viewport, -0.1770, 0.50)
+	_hangar_diorama = MenuDioramaStageScript.attach(_hangar_viewport, -0.1770, 0.50, Vector2(0.48, 0.76), false)
 
 	_hangar_camera = Camera3D.new()
 	_hangar_camera.fov = 30.0
@@ -3247,22 +3294,13 @@ func _setup_hangar_3d_world() -> void:
 
 	_hangar_holder = Node3D.new()
 	_hangar_viewport.add_child(_hangar_holder)
+	_fit_hangar_camera()
 
 
-func _add_tactical_podium_details(vp: Node, top_y: float, radius: float) -> void:
-	# Stepped armored base & field crate plinth underneath the turntable
-	var crate := MeshInstance3D.new()
-	var crate_box := BoxMesh.new()
-	crate_box.size = Vector3(radius * 1.48, 0.16, radius * 1.48)
-	crate.mesh = crate_box
-	crate.position = Vector3(0.0, top_y - 0.095, 0.0)
-	crate.rotation.y = deg_to_rad(18.0)
-	var crate_mat := StandardMaterial3D.new()
-	crate_mat.albedo_color = Color(0.15, 0.19, 0.14)
-	crate_mat.roughness = 0.82
-	crate_mat.metallic = 0.22
-	crate.material_override = crate_mat
-	vp.add_child(crate)
+func _add_tactical_podium_details(vp: Node, top_y: float, radius: float) -> Node3D:
+	var pad_rotator := Node3D.new()
+	pad_rotator.name = "TurntableDeckDetails"
+	vp.add_child(pad_rotator)
 
 	# Inner concentric calibration ring flush on the deck
 	var inner_ring := MeshInstance3D.new()
@@ -3278,7 +3316,7 @@ func _add_tactical_podium_details(vp: Node, top_y: float, radius: float) -> void
 	ir_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	ir_mat.albedo_color = Color(0.95, 0.76, 0.30, 0.85)
 	inner_ring.material_override = ir_mat
-	vp.add_child(inner_ring)
+	pad_rotator.add_child(inner_ring)
 
 	# 8 radial compass ticks + 4 outer corner lugs with amber LED pips
 	var lug_mat := StandardMaterial3D.new()
@@ -3295,7 +3333,7 @@ func _add_tactical_podium_details(vp: Node, top_y: float, radius: float) -> void
 		tick.position = Vector3(sin(a) * r_mid, top_y + 0.0015, cos(a) * r_mid)
 		tick.rotation.y = a
 		tick.material_override = ir_mat if (i % 2 == 0) else lug_mat
-		vp.add_child(tick)
+		pad_rotator.add_child(tick)
 		if i % 2 == 1:
 			var lug := MeshInstance3D.new()
 			var l_box := BoxMesh.new()
@@ -3305,7 +3343,8 @@ func _add_tactical_podium_details(vp: Node, top_y: float, radius: float) -> void
 			lug.position = Vector3(sin(a) * r_lug, top_y - 0.004, cos(a) * r_lug)
 			lug.rotation.y = a
 			lug.material_override = lug_mat
-			vp.add_child(lug)
+			pad_rotator.add_child(lug)
+	return pad_rotator
 
 
 func _load_hangar_model(preset_idx: int) -> void:
@@ -3440,8 +3479,18 @@ func _update_hangar_list_styles() -> void:
 func _on_hangar_choose_pressed() -> void:
 	Global.drone_preset = _hangar_preview_idx
 	Global.menu_settings["drone_preset"] = _hangar_preview_idx
-	Global.save_menu_settings()
 	DroneCatalog.apply(_hangar_preview_idx)
+	if DroneCatalog.is_uman(_hangar_preview_idx):
+		_selected_mode = Global.PlayMode.TRAINING
+		Global.play_mode = Global.PlayMode.TRAINING
+		Global.combat_training = false
+		_selected_special = 0
+		Global.special_mission = 0
+		Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
+		Global.menu_settings["selected_special"] = 0
+	Global.save_menu_settings()
+	if _play_modes_row != null:
+		_update_play_modes(_play_modes_row)
 	_load_hero_model(_hangar_preview_idx)
 	_update_hangar_info(_hangar_preview_idx)
 	_update_hangar_list_styles()
@@ -3485,12 +3534,22 @@ func _on_hangar_gui_input(event: InputEvent) -> void:
 		_is_dragging_hangar = st.pressed
 	elif event is InputEventMouseMotion and _is_dragging_hangar:
 		var mm := event as InputEventMouseMotion
+		var dyaw := mm.relative.x * 0.012
 		if _hangar_holder != null:
-			_hangar_holder.rotation.y += mm.relative.x * 0.012
+			_hangar_holder.rotation.y += dyaw
+		if _hangar_pad_rotator != null:
+			_hangar_pad_rotator.rotation.y += dyaw
+		if _hangar_diorama != null:
+			_hangar_diorama.apply_swipe_spin(dyaw)
 	elif event is InputEventScreenDrag:
 		var sd := event as InputEventScreenDrag
+		var dyaw := sd.relative.x * 0.012
 		if _hangar_holder != null:
-			_hangar_holder.rotation.y += sd.relative.x * 0.012
+			_hangar_holder.rotation.y += dyaw
+		if _hangar_pad_rotator != null:
+			_hangar_pad_rotator.rotation.y += dyaw
+		if _hangar_diorama != null:
+			_hangar_diorama.apply_swipe_spin(dyaw)
 
 
 # ---------------------------------------------------------------- SETTINGS SCREEN (100% PC PARITY)

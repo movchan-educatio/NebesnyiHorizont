@@ -481,27 +481,41 @@ func is_combat(index: int) -> bool:
 	return bool(p.get("combat", false))
 
 
-## Фрістайл-дрони, які існують ТІЛЬКИ для карти Умань.
+## Фрістайл-дрони (доступні на всіх картах виключно в режимі фрістайлу).
 func is_uman(index: int) -> bool:
 	var p := preset(index)
 	return bool(p.get("uman_only", false))
 
 
-## Список індексів, доступних для конкретної карти.
-## На Умані — тільки три фрістайл-дрони; на інших картах — усі звичайні.
-func allowed_for_map(map_id: String) -> Array[int]:
+## Повертає true для чисто фрістайлових моделей (без бойових місій і туторіалу).
+func is_freestyle_only(index: int) -> bool:
+	return is_uman(index)
+
+
+## Загальний список індексів для ангару та меню огляду на будь-якій карті.
+func allowed_for_map(_map_id: String = "") -> Array[int]:
 	var out: Array[int] = []
-	var uman := map_id == "uman"
 	for i in range(count()):
-		if is_uman(i) == uman:
+		out.append(i)
+	return out
+
+
+## Фільтр дронів за режимом: у фрістайлі (TRAINING) доступні всі 13,
+## у бойових вильотах та туторіалі — лише 10 базових/бойових дронів.
+func allowed_for_mode(mode: int) -> Array[int]:
+	var out: Array[int] = []
+	var freestyle := (mode == Global.PlayMode.TRAINING)
+	for i in range(count()):
+		if freestyle or not is_uman(i):
 			out.append(i)
 	return out
 
 
-## Перший дрон, дозволений на карті (використовується при зміні карти).
+## Базовий дрон за замовчуванням для карти (для Умані — перший фрістайл-дрон).
 func first_for_map(map_id: String) -> int:
-	var ids := allowed_for_map(map_id)
-	return ids[0] if not ids.is_empty() else 0
+	if map_id == "uman" and count() > 10:
+		return 10
+	return 0
 
 
 ## Combat-ready payload activation: detachable stores and integrated kamikaze

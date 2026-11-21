@@ -5,6 +5,7 @@ extends Control
 const MAIN_MENU := "res://GUI/MainMenu.tscn"
 const DronePropellerSystem = preload("res://scripts/util/DronePropellerSystem.gd")
 const GlbMaterialUtilsScript = preload("res://scripts/util/glb_material_utils.gd")
+const MenuDioramaStageScript = preload("res://scripts/util/MenuDioramaStage.gd")
 
 var _pending := 0
 var _rows: Array[Dictionary] = []
@@ -13,6 +14,9 @@ var _preview_container: SubViewportContainer = null
 var _holder: Node3D = null
 var _preview_camera: Camera3D = null
 var _preview_ring: MeshInstance3D = null
+var _diorama: Node3D = null
+var _pad_rotator: Node3D = null
+var _is_dragging_preview := false
 var _caption: Label = null
 var _tag: Label = null
 var _specs: Label = null
@@ -69,10 +73,7 @@ func _build() -> void:
 	var title := MenuUI.title("ОБРАТИ ДРОН", 26 if short_screen else 30)
 	box.add_child(title)
 	if not short_screen:
-		var is_uman_map := str(Global.menu_settings.get("selected_map", "uman")) == "uman"
-		box.add_child(MenuUI.subtitle(
-				"Три фрістайл-дрони для карти Умань" if is_uman_map
-				else "Готові моделі для тренування та бойових місій"))
+		box.add_child(MenuUI.subtitle("Готові моделі для фрістайлу, тренування та бойових місій"))
 
 	var columns := HBoxContainer.new()
 	columns.add_theme_constant_override("separation", 20)
@@ -253,7 +254,8 @@ func _setup_preview_world() -> void:
 	ring.material_override = ring_mat
 	_preview.add_child(ring)
 	_preview_ring = ring
-	_add_tactical_podium_details(_preview, -0.328, 0.36)
+	_pad_rotator = _add_tactical_podium_details(_preview, -0.328, 0.36)
+	_diorama = MenuDioramaStageScript.attach(_preview, -0.328, 0.36, Vector2(0.62, 1.0), false)
 
 	var cam := Camera3D.new()
 	cam.fov = 42.0
@@ -267,19 +269,10 @@ func _setup_preview_world() -> void:
 	_preview.add_child(_holder)
 
 
-func _add_tactical_podium_details(vp: Node, top_y: float, radius: float) -> void:
-	var crate := MeshInstance3D.new()
-	var crate_box := BoxMesh.new()
-	crate_box.size = Vector3(radius * 1.48, 0.14, radius * 1.48)
-	crate.mesh = crate_box
-	crate.position = Vector3(0.0, top_y - 0.09, 0.0)
-	crate.rotation.y = deg_to_rad(18.0)
-	var crate_mat := StandardMaterial3D.new()
-	crate_mat.albedo_color = Color(0.15, 0.19, 0.14)
-	crate_mat.roughness = 0.82
-	crate_mat.metallic = 0.22
-	crate.material_override = crate_mat
-	vp.add_child(crate)
+func _add_tactical_podium_details(vp: Node, top_y: float, radius: float) -> Node3D:
+	var pad_rotator := Node3D.new()
+	pad_rotator.name = "TurntableDeckDetails"
+	vp.add_child(pad_rotator)
 
 	var inner_ring := MeshInstance3D.new()
 	var inner_torus := TorusMesh.new()
@@ -294,7 +287,7 @@ func _add_tactical_podium_details(vp: Node, top_y: float, radius: float) -> void
 	ir_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	ir_mat.albedo_color = Color(0.95, 0.76, 0.30, 0.85)
 	inner_ring.material_override = ir_mat
-	vp.add_child(inner_ring)
+	pad_rotator.add_child(inner_ring)
 
 	var lug_mat := StandardMaterial3D.new()
 	lug_mat.albedo_color = Color(0.20, 0.25, 0.21)
@@ -310,7 +303,7 @@ func _add_tactical_podium_details(vp: Node, top_y: float, radius: float) -> void
 		tick.position = Vector3(sin(a) * r_mid, top_y + 0.0015, cos(a) * r_mid)
 		tick.rotation.y = a
 		tick.material_override = ir_mat if (i % 2 == 0) else lug_mat
-		vp.add_child(tick)
+		pad_rotator.add_child(tick)
 		if i % 2 == 1:
 			var lug := MeshInstance3D.new()
 			var l_box := BoxMesh.new()
@@ -320,7 +313,8 @@ func _add_tactical_podium_details(vp: Node, top_y: float, radius: float) -> void
 			lug.position = Vector3(sin(a) * r_lug, top_y - 0.004, cos(a) * r_lug)
 			lug.rotation.y = a
 			lug.material_override = lug_mat
-			vp.add_child(lug)
+			pad_rotator.add_child(lug)
+	return pad_rotator
 
 
 func _make_row(index: int) -> Control:
@@ -390,18 +384,39 @@ func _on_row_clicked(index: int) -> void:
 
 
 func _on_preview_gui_input(event: InputEvent) -> void:
-	# Clicking the large hangar turntable selects the previewed airframe.
-	# Keyboard/row selection is unchanged.
+	# Clicking the large hangar turntable selects the previewed airframe;
+	# dragging/swiping spins the turntable & scatters brass shell casings.
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed:
-			_apply_pending()
-			accept_event()
+		if mb.button_index == MOUSE_BUTTON_LEFT:
+			_is_dragging_preview = mb.pressed
+			if mb.pressed:
+				_apply_pending()
+				accept_event()
 	elif event is InputEventScreenTouch:
 		var touch := event as InputEventScreenTouch
+		_is_dragging_preview = touch.pressed
 		if touch.pressed:
 			_apply_pending()
 			accept_event()
+	elif event is InputEventMouseMotion and _is_dragging_preview:
+		var mm := event as InputEventMouseMotion
+		var dyaw := mm.relative.x * 0.012
+		if _holder != null:
+			_holder.rotation.y += dyaw
+		if _pad_rotator != null:
+			_pad_rotator.rotation.y += dyaw
+		if _diorama != null:
+			_diorama.apply_swipe_spin(dyaw)
+	elif event is InputEventScreenDrag:
+		var sd := event as InputEventScreenDrag
+		var dyaw := sd.relative.x * 0.012
+		if _holder != null:
+			_holder.rotation.y += dyaw
+		if _pad_rotator != null:
+			_pad_rotator.rotation.y += dyaw
+		if _diorama != null:
+			_diorama.apply_swipe_spin(dyaw)
 
 
 ## Combat sorties may only use combat airframes.
@@ -425,20 +440,17 @@ func _select_preview(index: int) -> void:
 
 
 func _apply_pending() -> void:
-	var map_id := str(Global.menu_settings.get("selected_map", "uman"))
-	# Фрістайл-дрони існують тільки на Умані — назад і вперед блокуємо вибір.
-	if DroneCatalog.is_uman(_pending) != (map_id == "uman"):
-		return
-	if DroneCatalog.is_uman(_pending):
-		Global.menu_settings["selected_map"] = "uman"
+	var is_freestyle_only := DroneCatalog.is_uman(_pending)
+	if is_freestyle_only:
 		Global.play_mode = Global.PlayMode.TRAINING
 		Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
 		Global.special_mission = 0
+		Global.menu_settings["selected_special"] = 0
+		Global.combat_training = false
 	var was_combat_locked := _combat_locked(_pending)
-	# A civilian/recon airframe cannot fly an armed combat sortie.  Instead of
+	# A civilian/freestyle airframe cannot fly an armed combat sortie. Instead of
 	# rejecting the click, select the drone and switch the pending sortie to
-	# Free Flight (the mode where it is actually available).  Combat launches
-	# still have a hard safety net in MainMenu._launch_current_selection().
+	# Freestyle (the mode where it is available across all maps).
 	if was_combat_locked:
 		Global.play_mode = Global.PlayMode.TRAINING
 		Global.special_mission = 0
@@ -455,8 +467,10 @@ func _apply_pending() -> void:
 	if _choose != null:
 		_choose.text = "SELECTED ✓" if MenuUI.is_english() else "ОБРАНО ✓"
 	if _confirm != null:
-		if was_combat_locked:
-			_confirm.text = ("✓ %s selected for Free Flight (no tactical payload).\nCombat sorties require a tactical / drop drone." if MenuUI.is_english() else "✓ %s обрано для вільного польоту (без БЧ).\nДля бойових місій потрібен тактичний дрон або дрон зі скидом.") % preset_name
+		if is_freestyle_only:
+			_confirm.text = ("✓ %s selected for Freestyle on any map (non-combat).\nSwitch to a combat drone for tactical missions." if MenuUI.is_english() else "✓ %s обрано для фрістайлу на будь-якій карті (без бойових місій).\nДля бойових завдань оберіть ударний дрон.") % preset_name
+		elif was_combat_locked:
+			_confirm.text = ("✓ %s selected for Free Flight (no tactical payload).\nCombat sorties require a tactical / drop drone." if MenuUI.is_english() else "✓ %s обрано для вільного польотів (без БЧ).\nДля бойових місій потрібен тактичний дрон або дрон зі скидом.") % preset_name
 		else:
 			_confirm.text = ("✓ %s is selected for your next sortie.\nGo back to choose a flight mode." if MenuUI.is_english() else "✓ %s — саме цей дрон злетить у наступному польоті.\nНатисніть «НАЗАД» і виберіть режим.") % preset_name
 
@@ -597,10 +611,18 @@ func _refresh() -> void:
 
 func _process(delta: float) -> void:
 	if _holder != null:
-		_holder.rotate_y(delta * 0.5)
+		if not _is_dragging_preview:
+			var dyaw := delta * 0.5
+			_holder.rotate_y(dyaw)
+			if _pad_rotator != null:
+				_pad_rotator.rotate_y(dyaw)
+			if _diorama != null:
+				_diorama.sync_idle_spin(dyaw)
 		for m in _holder.get_children():
 			if m is Node3D:
 				DroneCatalog.animate_propellers(m as Node3D, delta)
+	if _diorama != null:
+		_diorama.step(delta)
 
 
 func _go_back() -> void:

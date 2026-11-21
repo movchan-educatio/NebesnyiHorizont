@@ -41,6 +41,7 @@ const DRONE_SCREEN := "res://GUI/DroneSelectScreen.tscn"
 const OPTIONS_SCREEN := "res://GUI/OptionsMenu.tscn"
 const DronePropellerSystem = preload("res://scripts/util/DronePropellerSystem.gd")
 const LocScript = preload("res://scripts/util/localization_manager.gd")
+const MenuDioramaStageScript = preload("res://scripts/util/MenuDioramaStage.gd")
 
 # Selection state
 var _selected_mode: int = Global.PlayMode.TUTORIAL
@@ -108,6 +109,7 @@ var _viewport_container: SubViewportContainer = null
 var _sub_viewport: SubViewport = null
 var _camera: Camera3D = null
 var _model_holder: Node3D = null
+var _diorama: Node3D = null
 var _cam_yaw: float = 0.55
 var _cam_pitch: float = 0.26
 var _cam_dist: float = 1.05
@@ -526,17 +528,14 @@ func _ready() -> void:
 	if _selected_mode == Global.PlayMode.COMBAT and not OS.has_environment("DRONE_COMBAT_MISSION"):
 		_selected_mission = mini(_selected_mission, Global.campaign_unlocked_mission())
 	_selected_mission = clampi(_selected_mission, 1, 4)
-	# Фінальна охорона: Умань не може відкритися в бойовому режимі або зі звичайним дроном.
-	if _selected_map == "uman":
+	# Умань або фрістайл-дрони — тільки режим фрістайлу (без бою та туторіалу).
+	if _selected_map == "uman" or DroneCatalog.is_uman(Global.drone_preset):
 		_selected_mode = Global.PlayMode.TRAINING
 		Global.play_mode = Global.PlayMode.TRAINING
 		Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
 		_selected_special = 0
 		Global.special_mission = 0
-		if not DroneCatalog.is_uman(Global.drone_preset):
-			DroneCatalog.apply(DroneCatalog.first_for_map("uman"))
-	elif DroneCatalog.is_uman(Global.drone_preset):
-		DroneCatalog.apply(0)
+		Global.menu_settings["selected_special"] = 0
 	_build()
 	_update_selection_ui()
 	MenuUI.localize_tree(self)
@@ -1105,8 +1104,8 @@ func _special_mission_def(mission_id: int) -> Dictionary:
 
 func _select_mode(mode: int) -> void:
 	mode = Global.sanitize_play_mode(mode)
-	# Умань — виключно фрістайл: бойові режими й туторіал тут недоступні.
-	if _selected_map == "uman" and mode != Global.PlayMode.TRAINING:
+	# Умань та фрістайл-дрони літають виключно у фрістайлі.
+	if (_selected_map == "uman" or DroneCatalog.is_uman(Global.drone_preset)) and mode != Global.PlayMode.TRAINING:
 		mode = Global.PlayMode.TRAINING
 	_selected_mode = mode
 	Global.play_mode = mode
@@ -1136,6 +1135,10 @@ func _select_mission(m_id: int) -> void:
 	Global.menu_settings["selected_mission"] = m_id
 	Global.menu_settings["selected_special"] = 0
 	Global.save_menu_settings()
+	if not DroneCatalog.is_combat(Global.drone_preset):
+		QuadSettings.custom_rates = false
+		DroneCatalog.apply(DroneCatalog.first_combat_index())
+		_load_drone_model()
 	_update_selection_ui()
 
 
@@ -1183,19 +1186,14 @@ func _select_map(map_id: String) -> void:
 		return
 	_selected_map = map_id
 	Global.menu_settings["selected_map"] = map_id
-	# Умань — тільки фрістайл і тільки власні дрони; інші карти — навпаки.
-	if map_id == "uman":
+	# Умань або фрістайл-дрони — тільки режим фрістайлу (без скидання дрона на іншій карті).
+	if map_id == "uman" or DroneCatalog.is_uman(Global.drone_preset):
 		_selected_mode = Global.PlayMode.TRAINING
 		Global.play_mode = Global.PlayMode.TRAINING
 		Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
+		_selected_special = 0
 		Global.special_mission = 0
 		Global.menu_settings["selected_special"] = 0
-		if not DroneCatalog.is_uman(Global.drone_preset):
-			DroneCatalog.apply(DroneCatalog.first_for_map("uman"))
-			_load_drone_model()
-	elif DroneCatalog.is_uman(Global.drone_preset):
-		DroneCatalog.apply(0)
-		_load_drone_model()
 	Global.save_menu_settings()
 	for key in _map_buttons.keys():
 		var b: Button = _map_buttons[key]
@@ -1413,8 +1411,8 @@ func _update_selection_ui() -> void:
 	if _foot_status_lbl != null:
 		_foot_status_lbl.text = "NEBESNYI HORIZONT · TACTICAL FPV SIMULATOR · v1.19.0" if is_en else "НЕБЕСНИЙ ГОРИЗОНТ · ТАКТИЧНИЙ FPV-СИМУЛЯТОР · v1.19.0"
 
-	# На фрістайл-карті Умань бойових місій і спецоперацій не існує.
-	var hide_combat_ui := _selected_map == "uman"
+	# На фрістайл-карті Умань або з фрістайл-дронами доступний виключно Фрістайл.
+	var hide_combat_ui := _selected_map == "uman" or DroneCatalog.is_uman(Global.drone_preset)
 	if _combat_section != null:
 		_combat_section.visible = not hide_combat_ui
 	if _special_section != null:
@@ -1426,9 +1424,10 @@ func _update_selection_ui() -> void:
 		if b is Control:
 			(b as Control).visible = not hide_combat_ui
 	for mode_key in [_mode_buttons, _ribbon_buttons]:
-		var combat_btn: Variant = mode_key.get(Global.PlayMode.COMBAT)
-		if combat_btn is Control:
-			(combat_btn as Control).visible = not hide_combat_ui
+		for mode_id in [Global.PlayMode.COMBAT, Global.PlayMode.TUTORIAL]:
+			var m_btn: Variant = mode_key.get(mode_id)
+			if m_btn is Control:
+				(m_btn as Control).visible = not hide_combat_ui
 	if _quick_diff_container != null:
 		_quick_diff_container.visible = (_selected_mode == Global.PlayMode.COMBAT)
 	if _briefing_btn != null:
@@ -1693,15 +1692,7 @@ func _update_diff_buttons() -> void:
 
 func _launch_current_selection(combat_training: bool = false) -> void:
 	Global.combat_training = combat_training
-	# Умань — тільки фрістайл на трьох власних дронах.
-	if _selected_map == "uman":
-		_selected_mode = Global.PlayMode.TRAINING
-		Global.special_mission = 0
-		Global.combat_training = false
-		if not DroneCatalog.is_uman(Global.drone_preset):
-			DroneCatalog.apply(DroneCatalog.first_for_map("uman"))
-	Global.play_mode = _selected_mode
-	if combat_training and _selected_map != "uman":
+	if combat_training:
 		# Three-step first-strike training: industrial proving ground, combat-ready
 		# dropper, no campaign records and no freestyle ring course.
 		Global.play_mode = Global.PlayMode.TRAINING
@@ -1710,7 +1701,13 @@ func _launch_current_selection(combat_training: bool = false) -> void:
 		Global.special_mission = 0
 		QuadSettings.custom_rates = false
 		DroneCatalog.apply(1)
-	elif _selected_mode == Global.PlayMode.COMBAT:
+	# Умань або фрістайл-дрони — тільки фрістайл на обраній карті.
+	elif _selected_map == "uman" or DroneCatalog.is_uman(Global.drone_preset):
+		_selected_mode = Global.PlayMode.TRAINING
+		Global.special_mission = 0
+		Global.combat_training = false
+	Global.play_mode = _selected_mode
+	if not combat_training and _selected_mode == Global.PlayMode.COMBAT:
 		if _selected_special > 0:
 			Global.special_mission = _selected_special
 			Global.chain_briefing_pending = false
@@ -2110,8 +2107,8 @@ func _cycle_drone(dir: int) -> void:
 		pos = 0
 		DroneCatalog.apply(allowed[0])
 	var new_idx := allowed[(pos + dir + allowed.size()) % allowed.size()]
-	if _selected_mode == Global.PlayMode.COMBAT \
-			and not DroneCatalog.is_combat(new_idx):
+	if DroneCatalog.is_uman(new_idx) or (_selected_mode == Global.PlayMode.COMBAT \
+			and not DroneCatalog.is_combat(new_idx)):
 		_selected_mode = Global.PlayMode.TRAINING
 		_selected_special = 0
 		Global.play_mode = Global.PlayMode.TRAINING
@@ -2344,6 +2341,14 @@ func _setup_3d_scene() -> void:
 	outer_ring.material_override = outer_mat
 	_sub_viewport.add_child(outer_ring)
 
+	_diorama = MenuDioramaStageScript.attach(
+		_sub_viewport,
+		-0.37,
+		0.52,
+		Vector2(sin(0.60), cos(0.60)),
+		true
+	)
+
 	# Holder node for the loaded 3D drone
 	_model_holder = Node3D.new()
 	_sub_viewport.add_child(_model_holder)
@@ -2432,6 +2437,15 @@ func _on_3d_gui_input(event: InputEvent) -> void:
 		_cam_yaw -= event.relative.x * 0.012
 		_cam_pitch = clampf(_cam_pitch + event.relative.y * 0.010, -0.65, 1.25)
 		_update_cam_transform()
+		if _diorama != null:
+			_diorama.apply_swipe_spin(-event.relative.x * 0.012)
+	elif event is InputEventScreenDrag:
+		var sd := event as InputEventScreenDrag
+		_cam_yaw -= sd.relative.x * 0.012
+		_cam_pitch = clampf(_cam_pitch + sd.relative.y * 0.010, -0.65, 1.25)
+		_update_cam_transform()
+		if _diorama != null:
+			_diorama.apply_swipe_spin(-sd.relative.x * 0.012)
 
 
 func _update_cam_transform() -> void:
@@ -2449,6 +2463,8 @@ func _process(delta: float) -> void:
 	if _auto_orbit and not _is_dragging:
 		_cam_yaw += delta * 0.32
 		_update_cam_transform()
+	if _diorama != null:
+		_diorama.step(delta)
 	if _model_holder != null:
 		for m in _model_holder.get_children():
 			if m is Node3D:
