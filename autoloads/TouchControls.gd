@@ -381,22 +381,35 @@ func toggle_touch_sticks_preference() -> bool:
 
 
 func _any_modal_menu_open() -> bool:
-	var scene := get_tree().current_scene if get_tree() != null else null
-	if scene == null:
-		return false
-	for node_name in ["PauseMenu", "pause_menu", "OptionsMenu", "QuadSettingsMenu", "MobileMenu"]:
-		var n := scene.get_node_or_null(node_name)
-		if n is CanvasItem and (n as CanvasItem).visible:
+	var tree := get_tree()
+	var scene := tree.current_scene if tree != null else null
+	if scene != null:
+		for node_name in ["PauseMenu", "pause_menu", "OptionsMenu", "QuadSettingsMenu", "MobileMenu"]:
+			var n := scene.get_node_or_null(node_name)
+			if n is CanvasItem and (n as CanvasItem).visible:
+				return true
+		var pause_node = scene.get("pause_menu")
+		if pause_node is CanvasItem and (pause_node as CanvasItem).visible:
 			return true
-	var pause_node = scene.get("pause_menu")
-	if pause_node is CanvasItem and (pause_node as CanvasItem).visible:
-		return true
-	var brief = scene.get("_chain_brief")
-	if brief is CanvasItem and (brief as CanvasItem).visible:
-		return true
-	var results = scene.get("_results")
-	if results is CanvasItem and (results as CanvasItem).visible:
-		return true
+		var brief = scene.get("_chain_brief")
+		if brief is CanvasItem and (brief as CanvasItem).visible:
+			return true
+		var results = scene.get("_results")
+		if results is CanvasItem and (results as CanvasItem).visible:
+			return true
+		var kc = scene.get("_kill_cam")
+		if kc != null and is_instance_valid(kc) and kc.has_method("is_active") and bool(kc.call("is_active")):
+			return true
+		var sw = scene.get("_drone_switcher")
+		if sw != null and is_instance_valid(sw) and sw.has_method("is_open") and bool(sw.call("is_open")):
+			return true
+	if tree != null:
+		for kc_node in tree.get_nodes_in_group("recon_kill_cam"):
+			if kc_node != null and is_instance_valid(kc_node) and kc_node.has_method("is_active") and bool(kc_node.call("is_active")):
+				return true
+		for sw_node in tree.get_nodes_in_group("mission_drone_switcher"):
+			if sw_node != null and is_instance_valid(sw_node) and sw_node.has_method("is_open") and bool(sw_node.call("is_open")):
+				return true
 	return false
 
 

@@ -39,6 +39,7 @@ func _init() -> void:
 
 func _ready() -> void:
 	visible = false
+	add_to_group("mission_drone_switcher")
 	_build_ui()
 
 

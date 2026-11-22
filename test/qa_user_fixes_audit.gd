@@ -495,21 +495,149 @@ func _audit_industrial_arches_switcher_and_reset() -> void:
 	if not legacy_vis:
 		_pass("Legacy CombatHUD subnodes hidden immediately")
 
-	# Check auto-reset scheduled after payload drop leaves 0 ammo
+	# Verify post-drop & post-replay auto-reset rules (miss vs kill, remaining ammo vs 0 ammo, kamikaze skip)
 	var cs := lvl.get_node_or_null("CombatSystem")
-	if cs != null:
+	var drone := lvl.get_node_or_null("Drone") as Drone
+	var kc := lvl.get("_kill_cam") as Object
+	if cs != null and drone != null and kc != null:
+		var respawn_counts := [0]
+		var on_respawn := func() -> void:
+			respawn_counts[0] += 1
+		if not drone.is_connected("respawned", on_respawn):
+			drone.connect("respawned", on_respawn)
+
+		# 1) Drop & MISS with 0 ammo left (quad5): wait 2.1s -> MUST NOT auto-reset
+		lvl.call("switch_drone_in_mission", 3)
+		for _f1 in range(10):
+			await get_tree().physics_frame
+		await _wait_frames(6)
+		respawn_counts[0] = 0
 		cs.set("ammo", 0)
+		lvl.set("_payload_ammo_left", 0)
 		lvl.set("_active_dropped_payloads", 1)
 		lvl.call("notify_payload_exploded")
-		var rearm_timer := lvl.get("_post_drop_rearm_timer") as Timer
-		if rearm_timer != null and not rearm_timer.is_stopped():
-			_pass("Post-drop 0-ammo auto-reset timer armed cleansly (%.1fs)" % rearm_timer.wait_time)
-			rearm_timer.stop()
+		await get_tree().create_timer(2.1).timeout
+		if not bool(kc.call("is_active")) and not bool(lvl.get("_pending_post_drop_rearm")) \
+				and int(cs.get("ammo")) == 0 and respawn_counts[0] == 0 \
+				and lvl.get("_post_drop_rearm_timer") == null:
+			_pass("Miss with 0 ammo does NOT trigger 2s auto-reset")
 		else:
-			_fail("Post-drop auto-reset timer failed to start after notify_payload_exploded")
-		# Check low-speed kamikaze threshold helper
+			_fail("Miss auto-reset regression: kc=%s pend=%s ammo=%s respawns=%d" % [
+				str(kc.call("is_active")), str(lvl.get("_pending_post_drop_rearm")),
+				str(cs.get("ammo")), respawn_counts[0]
+			])
+
+		# 2) Drop & KILL with remaining ammo (baba_yaga 4->3): Kill-Cam freezes airborne drone, no reset after replay
+		lvl.call("switch_drone_in_mission", 6)
+		for _f2 in range(10):
+			await get_tree().physics_frame
+		await _wait_frames(6)
+		respawn_counts[0] = 0
+		drone.global_position += Vector3(0.0, 25.0, 0.0)
+		if drone.has_method("reset_motion_history"):
+			drone.reset_motion_history()
+		drone.freeze = false
+		var bomb_nodes: Array = lvl.get("_bomb_nodes")
+		if bomb_nodes != null and bomb_nodes.size() > 1:
+			bomb_nodes.pop_back()
+		cs.set("ammo", int(bomb_nodes.size()))
+		lvl.set("_active_dropped_payloads", 1)
+		lvl.set("_kill_cam_last_ms", -10000)
+		var kc_rem_ok := bool(lvl.call("_maybe_trigger_kill_cam", drone.global_position + Vector3(50, -25, 50), true))
+		lvl.call("notify_payload_exploded")
+		for _p2 in range(4):
+			await get_tree().physics_frame
+		var modal_during_kc := TouchControls != null and bool(TouchControls.call("_any_modal_menu_open"))
+		if kc_rem_ok and bool(kc.call("is_active")) and drone.freeze \
+				and bool(lvl.get("_kill_cam_paused_drone")) and not bool(lvl.get("_pending_post_drop_rearm")) \
+				and modal_during_kc:
+			kc.call("cancel")
+			for _p2b in range(6):
+				await get_tree().physics_frame
+			await _wait_frames(4)
+			if not bool(kc.call("is_active")) and not drone.freeze and int(lvl.call("_ammo_count")) == 3 and respawn_counts[0] == 0:
+				_pass("Kill with remaining bombs pauses drone for Kill-Cam then resumes flight with 3 bombs")
+			else:
+				_fail("Post-KillCam resume mismatch (ammo=%s freeze=%s respawns=%d)" % [
+					str(lvl.call("_ammo_count")), str(drone.freeze), respawn_counts[0]
+				])
+		else:
+			_fail("Kill-Cam remaining-ammo setup failed (ok=%s active=%s freeze=%s pend=%s modal=%s)" % [
+				str(kc_rem_ok), str(kc.call("is_active")), str(drone.freeze),
+				str(lvl.get("_pending_post_drop_rearm")), str(modal_during_kc)
+			])
+			if bool(kc.call("is_active")):
+				kc.call("cancel")
+
+		# 3) Drop & KILL with LAST bomb (quad5 1->0): hold reset until replay finishes, then reset+rearm
+		lvl.call("switch_drone_in_mission", 3)
+		for _f3 in range(10):
+			await get_tree().physics_frame
+		await _wait_frames(6)
+		respawn_counts[0] = 0
+		drone.global_position += Vector3(0.0, 25.0, 0.0)
+		if drone.has_method("reset_motion_history"):
+			drone.reset_motion_history()
+		drone.freeze = false
+		cs.set("ammo", 0)
+		lvl.set("_payload_ammo_left", 0)
+		lvl.set("_active_dropped_payloads", 1)
+		lvl.set("_kill_cam_last_ms", -10000)
+		var kc_last_ok := bool(lvl.call("_maybe_trigger_kill_cam", drone.global_position + Vector3(55, -25, 55), true))
+		lvl.call("notify_payload_exploded")
+		for _p3 in range(4):
+			await get_tree().physics_frame
+		if kc_last_ok and bool(kc.call("is_active")) and bool(lvl.get("_pending_post_drop_rearm")) \
+				and respawn_counts[0] == 0 and int(cs.get("ammo")) == 0:
+			kc.call("cancel")
+			for _p3b in range(10):
+				await get_tree().physics_frame
+			await _wait_frames(6)
+			if respawn_counts[0] == 1 and int(cs.get("ammo")) == 1 and not drone.freeze:
+				_pass("Kill with last bomb waits for Kill-Cam finish/skip, then auto-resets & rearms (ammo=1)")
+			else:
+				_fail("Post-KillCam last-bomb reset mismatch (respawns=%d ammo=%s freeze=%s)" % [
+					respawn_counts[0], str(cs.get("ammo")), str(drone.freeze)
+				])
+		else:
+			_fail("Kill-Cam last-bomb setup failed (ok=%s active=%s pend=%s respawns=%d ammo=%s)" % [
+				str(kc_last_ok), str(kc.call("is_active")), str(lvl.get("_pending_post_drop_rearm")),
+				respawn_counts[0], str(cs.get("ammo"))
+			])
+			if bool(kc.call("is_active")):
+				kc.call("cancel")
+
+		# 4) Kamikaze & KILL with early replay skip: fallback timer cancelled, instant post-replay respawn
 		lvl.call("switch_drone_in_mission", 0)
-		await _wait_frames(4)
+		for _f4 in range(10):
+			await get_tree().physics_frame
+		await _wait_frames(6)
+		respawn_counts[0] = 0
+		lvl.set("_kill_cam_last_ms", -10000)
+		var kam_timer := Timer.new()
+		kam_timer.one_shot = true
+		lvl.add_child(kam_timer)
+		kam_timer.start(2.4)
+		lvl.set("_kamikaze_respawn_timer", kam_timer)
+		var kc_kam_ok := bool(lvl.call("_maybe_trigger_kill_cam", drone.global_position + Vector3(40, 0, 40), true))
+		if kc_kam_ok and kam_timer.is_stopped() and bool(lvl.get("_pending_kamikaze_respawn")):
+			kc.call("cancel")
+			for _p4b in range(10):
+				await get_tree().physics_frame
+			await _wait_frames(6)
+			if respawn_counts[0] == 1:
+				_pass("Kamikaze Kill-Cam cancels 2.4s timer and respawns immediately after replay skip")
+			else:
+				_fail("Kamikaze post-KillCam skip did not respawn immediately (respawns=%d)" % respawn_counts[0])
+		else:
+			_fail("Kamikaze Kill-Cam timer conversion failed")
+			if bool(kc.call("is_active")):
+				kc.call("cancel")
+
+		if drone.is_connected("respawned", on_respawn):
+			drone.disconnect("respawned", on_respawn)
+
+		# Check low-speed kamikaze threshold helper
 		var v_sample := Vehicle.new()
 		v_sample.add_to_group("combat_target")
 		if lvl.has_method("_is_combat_target_body") and bool(lvl.call("_is_combat_target_body", v_sample)):

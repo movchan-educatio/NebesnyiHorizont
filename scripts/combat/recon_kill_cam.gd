@@ -113,6 +113,7 @@ var _skip_btn: Button = null
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	add_to_group("recon_kill_cam")
 
 
 func is_active() -> bool:

@@ -819,7 +819,9 @@ func _destroy_drone(text: String) -> void:
 		if not bool(lvl.call("consume_sortie_airframe", text)):
 			return
 	await get_tree().create_timer(1.3).timeout
-	if lvl != null and lvl.has_method("_execute_kamikaze_respawn"):
+	if lvl != null and lvl.has_method("request_kamikaze_respawn_after_replay"):
+		lvl.call("request_kamikaze_respawn_after_replay")
+	elif lvl != null and lvl.has_method("_execute_kamikaze_respawn"):
 		lvl.call("_execute_kamikaze_respawn")
 	elif is_instance_valid(_drone):
 		_drone.freeze = false

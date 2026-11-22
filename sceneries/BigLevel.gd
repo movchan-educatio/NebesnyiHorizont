@@ -253,7 +253,7 @@ var _defer_loading_dismiss := false
 var _defer_training_rings := false
 var _active_dropped_payloads := 0
 var _pending_post_drop_rearm := false
-var _post_drop_rearm_timer: Timer = null
+var _kill_cam_paused_drone := false
 var _drone_switcher: Node = null
 var _freestyle_landmark_aabbs: Array[AABB] = []
 var _pending_airframe_fail := false
@@ -2482,14 +2482,16 @@ func _on_arm_failed(reason) -> void:
 
 func _on_respawned() -> void:
 	_kill_cam_triggered = false
+	_kill_cam_paused_drone = false
 	_pending_kamikaze_respawn = false
+	_pending_airframe_fail = false
 	_active_dropped_payloads = 0
 	_pending_post_drop_rearm = false
 	_airframe_consumed_this_life = false
 	if _kamikaze_respawn_timer != null and is_instance_valid(_kamikaze_respawn_timer):
 		_kamikaze_respawn_timer.stop()
-	if _post_drop_rearm_timer != null and is_instance_valid(_post_drop_rearm_timer):
-		_post_drop_rearm_timer.stop()
+	if _airframe_fail_timer != null and is_instance_valid(_airframe_fail_timer):
+		_airframe_fail_timer.stop()
 	var d_vis := get_node_or_null("Drone") as Drone
 	if d_vis != null:
 		d_vis.visible = true
@@ -4444,26 +4446,72 @@ func _maybe_trigger_kill_cam(impact_pos: Vector3, is_key_target: bool) -> bool:
 	var ok: bool = _kill_cam.trigger(self, impact_pos, drone_pos, prev_cam, Callable(self, "_on_kill_cam_finished"))
 	if not ok:
 		_kill_cam_triggered = false
+	else:
+		if _kamikaze_respawn_timer != null and is_instance_valid(_kamikaze_respawn_timer) \
+				and not _kamikaze_respawn_timer.is_stopped():
+			_kamikaze_respawn_timer.stop()
+			_pending_kamikaze_respawn = true
+		if _airframe_fail_timer != null and is_instance_valid(_airframe_fail_timer) \
+				and not _airframe_fail_timer.is_stopped():
+			_airframe_fail_timer.stop()
+			_pending_airframe_fail = true
+		var live_drone := get_node_or_null("Drone") as Drone
+		if live_drone != null and is_instance_valid(live_drone) and live_drone.visible and not live_drone.freeze:
+			live_drone.linear_velocity = Vector3.ZERO
+			live_drone.angular_velocity = Vector3.ZERO
+			live_drone.freeze = true
+			_kill_cam_paused_drone = true
+		if _touch_controls != null and _touch_controls.has_method("_reset_sticks"):
+			_touch_controls.call("_reset_sticks")
 	return ok
 
 
 func _on_kill_cam_finished() -> void:
 	_kill_cam_triggered = false
+	var had_paused_drone := _kill_cam_paused_drone
+	_kill_cam_paused_drone = false
 	if _pending_combat_complete:
 		_pending_combat_complete = false
+		_pending_airframe_fail = false
+		_pending_kamikaze_respawn = false
+		_pending_post_drop_rearm = false
 		_check_combat_mission_complete()
-	if _pending_airframe_fail and not _mission_finished and not _victory_scheduled and not _pending_combat_complete:
+		return
+	var airframe_timer_active := _airframe_fail_timer != null \
+			and is_instance_valid(_airframe_fail_timer) and not _airframe_fail_timer.is_stopped()
+	if (_pending_airframe_fail or airframe_timer_active) \
+			and not _mission_finished and not _victory_scheduled:
+		if airframe_timer_active:
+			_airframe_fail_timer.stop()
+		_pending_airframe_fail = false
+		_pending_kamikaze_respawn = false
+		_pending_post_drop_rearm = false
 		_resolve_airframe_exhausted()
-	if _pending_kamikaze_respawn and not _mission_finished and not _victory_scheduled and not _pending_combat_complete:
+		return
+	var kam_timer_active := _kamikaze_respawn_timer != null \
+			and is_instance_valid(_kamikaze_respawn_timer) and not _kamikaze_respawn_timer.is_stopped()
+	if (_pending_kamikaze_respawn or kam_timer_active) \
+			and not _mission_finished and not _victory_scheduled:
+		if kam_timer_active:
+			_kamikaze_respawn_timer.stop()
 		_pending_kamikaze_respawn = false
+		_pending_post_drop_rearm = false
 		call_deferred("_execute_kamikaze_respawn")
-	else:
-		_pending_kamikaze_respawn = false
-	if _pending_post_drop_rearm and not _mission_finished and not _victory_scheduled and not _pending_combat_complete:
+		return
+	if _pending_post_drop_rearm and not _mission_finished and not _victory_scheduled:
 		_pending_post_drop_rearm = false
 		call_deferred("_execute_drop_rearm")
-	else:
-		_pending_post_drop_rearm = false
+		return
+	_pending_kamikaze_respawn = false
+	_pending_post_drop_rearm = false
+	if had_paused_drone and not _mission_finished and not _victory_scheduled:
+		var drone := get_node_or_null("Drone") as Drone
+		if drone != null and is_instance_valid(drone) and drone.visible:
+			drone.linear_velocity = Vector3.ZERO
+			drone.angular_velocity = Vector3.ZERO
+			if drone.has_method("reset_motion_history"):
+				drone.reset_motion_history()
+			drone.freeze = false
 
 
 func _on_vehicle_destroyed(points: int, kind: int, vehicle: Vehicle = null) -> void:
@@ -4507,8 +4555,10 @@ func _on_vehicle_destroyed(points: int, kind: int, vehicle: Vehicle = null) -> v
 		var impact_pos := vehicle.global_position if (vehicle != null and is_instance_valid(vehicle)) \
 				else (drone.global_position if drone != null else Vector3.ZERO)
 		_last_strike_pos = impact_pos
+		var last_ordnance_spent := _ammo_count() <= 0 and _active_dropped_payloads <= 0
 		var is_key: bool = is_primary_target \
-				or kind in [Vehicle.Kind.TANK, Vehicle.Kind.BMP, Vehicle.Kind.APC, Vehicle.Kind.HELI, Vehicle.Kind.SHAHED, Vehicle.Kind.SAM]
+				or kind in [Vehicle.Kind.TANK, Vehicle.Kind.BMP, Vehicle.Kind.APC, Vehicle.Kind.HELI, Vehicle.Kind.SHAHED, Vehicle.Kind.SAM] \
+				or last_ordnance_spent
 		var kc_started := _maybe_trigger_kill_cam(impact_pos, is_key)
 		var kc_active := kc_started or (_kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active())
 		if is_primary_target and not _radio_beat_03_sent:
@@ -4600,7 +4650,9 @@ func _on_infantry_unit_destroyed(points: int, is_primary: bool, unit: Node3D = n
 		combat.call("add_bonus_score", points, flash_msg)
 	_set_flash(flash_msg)
 	var kc_started := false
-	if is_primary:
+	var trigger_inf_kc := is_primary or (Global.play_mode == Global.PlayMode.COMBAT \
+			and _ammo_count() <= 0 and _active_dropped_payloads <= 0)
+	if trigger_inf_kc:
 		var drone := get_node_or_null("Drone") as Node3D
 		var impact_pos := unit.global_position if (unit != null and is_instance_valid(unit)) \
 				else (drone.global_position if drone != null else Vector3.ZERO)
@@ -5229,17 +5281,24 @@ func _add_aa_gun(pos: Vector3, count_as_primary: bool = false) -> Node3D:
 		gun.add_to_group("primary_combat_target")
 	else:
 		gun.add_to_group("bonus_combat_target")
-	gun.destroyed.connect(_on_aa_gun_destroyed)
+	gun.destroyed.connect(_on_aa_gun_destroyed.bind(gun))
 	_aa_guns.append(gun)
 	return gun
 
 
-func _on_aa_gun_destroyed(points: int) -> void:
+func _on_aa_gun_destroyed(points: int, gun: Node3D = null) -> void:
 	_score += points
+	_payload_hits += 1
 	var combat := get_node_or_null("CombatSystem")
 	if combat != null and combat.has_method("add_bonus_score"):
 		combat.call("add_bonus_score", points,
 				_txt("ЗЕНІТНУ УСТАНОВКУ ЗНИЩЕНО", "AA EMPLACEMENT DESTROYED"))
+	if Global.play_mode == Global.PlayMode.COMBAT:
+		var drone := get_node_or_null("Drone") as Node3D
+		var impact_pos := gun.global_position if (gun != null and is_instance_valid(gun)) \
+				else (drone.global_position if drone != null else Vector3.ZERO)
+		_last_strike_pos = impact_pos
+		_maybe_trigger_kill_cam(impact_pos, true)
 	CombatSfxScript.play_hitmarker(self, true)
 	_set_flash("%s +%d" % [_txt("Зенітка", "AA Gun"), points])
 
@@ -8292,6 +8351,8 @@ func _poll_payload_switch_edges() -> void:
 
 
 func _drop_fpv_payload() -> void:
+	if _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active():
+		return
 	if not _payload_enabled:
 		return
 	if _bomb_cooldown > 0.0:
@@ -8404,6 +8465,8 @@ func _hide_fpv_payload() -> void:
 ## combat target in the blast radius and respawns the operator after a short
 ## pause.  Bombers with a physical drop are told to use the drop button.
 func _activate_fpv_payload() -> void:
+	if _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active():
+		return
 	if not _payload_enabled or _payload_dropped:
 		return
 	var p := DroneCatalog.preset(Global.drone_preset)
@@ -8489,42 +8552,57 @@ func _execute_kamikaze_respawn() -> void:
 	_respawn_and_rearm()
 
 
+func request_kamikaze_respawn_after_replay() -> void:
+	if _mission_finished or _victory_scheduled or _pending_combat_complete:
+		return
+	if _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active():
+		_pending_kamikaze_respawn = true
+		return
+	_execute_kamikaze_respawn()
+
+
 func notify_payload_exploded() -> void:
 	_active_dropped_payloads = maxi(0, _active_dropped_payloads - 1)
 	if _mission_finished or _victory_scheduled or _pending_combat_complete:
 		return
 	if Global.play_mode != Global.PlayMode.COMBAT and not Global.combat_training:
 		return
-	var rem := _bomb_nodes.size() if _heavy_bomber else _ammo_count()
-	if rem <= 0 and _active_dropped_payloads <= 0:
-		_schedule_post_drop_rearm()
+	_resolve_payload_explosion_after_damage()
 
 
-func _schedule_post_drop_rearm() -> void:
-	_set_flash(_txt("БЧ ВИКОРИСТАНО — АВТОПОВЕРНЕННЯ НА СТАРТ...",
-			"PAYLOAD EXPENDED — AUTO-RESETTING TO LAUNCH..."))
-	if _post_drop_rearm_timer == null or not is_instance_valid(_post_drop_rearm_timer):
-		_post_drop_rearm_timer = Timer.new()
-		_post_drop_rearm_timer.name = "PostDropRearmTimer"
-		_post_drop_rearm_timer.one_shot = true
-		_post_drop_rearm_timer.timeout.connect(_on_post_drop_rearm_timeout)
-		add_child(_post_drop_rearm_timer)
-	_post_drop_rearm_timer.start(1.8)
-
-
-func _on_post_drop_rearm_timeout() -> void:
-	if _mission_finished or _victory_scheduled or _pending_combat_complete:
+func _resolve_payload_explosion_after_damage() -> void:
+	var tree := get_tree()
+	if tree == null:
 		return
-	if _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active():
+	await tree.physics_frame
+	if not is_inside_tree():
+		return
+	await tree.physics_frame
+	if not is_inside_tree() or _mission_finished or _victory_scheduled or _pending_combat_complete:
+		return
+	var rem := _bomb_nodes.size() if _heavy_bomber else _ammo_count()
+	if rem > 0 or _active_dropped_payloads > 0:
+		return
+	var kc_active := _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active()
+	if kc_active:
+		# Target was destroyed and automatic recon replay is playing:
+		# auto-reset cleanly the moment the replay finishes (never mid-replay, never on a miss).
 		_pending_post_drop_rearm = true
 		return
-	_execute_drop_rearm()
+	# Missed or non-lethal drop: never auto-reset — let the pilot keep flying and choose R / Craft switch.
+	if Global.play_mode == Global.PlayMode.COMBAT:
+		_set_flash(_txt("БОЄКОМПЛЕКТ ВИЧЕРПАНО — R (ПЕРЕЗАРЯДКА) АБО «БОРТ»",
+				"AMMO EXPENDED — R (REARM) OR SWITCH CRAFT"))
 
 
 func _execute_drop_rearm() -> void:
 	_pending_post_drop_rearm = false
+	_kill_cam_paused_drone = false
 	if _mission_finished or _victory_scheduled:
 		return
+	var drone := get_node_or_null("Drone") as Drone
+	if drone != null and is_instance_valid(drone):
+		drone.freeze = false
 	_payload_dropped = false
 	_payload_ammo_left = int(DroneCatalog.preset(Global.drone_preset).get("payload", 0))
 	var cs := get_node_or_null("CombatSystem")
@@ -8568,8 +8646,8 @@ func switch_drone_in_mission(new_preset: int) -> bool:
 	_payload_dropped = false
 	_active_dropped_payloads = 0
 	_pending_post_drop_rearm = false
-	if _post_drop_rearm_timer != null and is_instance_valid(_post_drop_rearm_timer):
-		_post_drop_rearm_timer.stop()
+	_pending_kamikaze_respawn = false
+	_kill_cam_paused_drone = false
 	DroneCatalog.apply_to_drone(drone, new_preset)
 	_sync_fpv_drone_model(true, true, false)
 	var p := DroneCatalog.preset(new_preset)
