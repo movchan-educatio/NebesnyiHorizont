@@ -28,6 +28,7 @@ const MODEL_PATHS := {
 }
 const MOBILE_HELI_MODEL := "res://Assets/vehicles/apache_hecu_half-life_mobile.glb"
 const MOBILE_TARGET_SCALE := 1.20
+const GLOBAL_VEHICLE_SCALE := 1.20
 const VEHICLE_GROUND_BOUND := 152.0
 const VEHICLE_AIR_BOUND := 168.0
 const MODEL_SIZE := {
@@ -151,6 +152,7 @@ var _wp_index := 0
 var _wheels: Array[Node3D] = []
 var _front_wheels: Array[Node3D] = []
 var _wheel_radius := 0.52
+var _base_scale := Vector3.ONE
 var _steer_angle := 0.0
 var _turret: Node3D = null
 var _barrel: Node3D = null
@@ -296,11 +298,12 @@ func _ready() -> void:
 		add_child(beacon)
 	# Scale the complete mobile target hierarchy (visuals, procedural details,
 	# and CollisionShape3D) as one unit.  The PC model and collider stay at 1:1.
-	if _is_mobile_target_platform():
-		scale *= Vector3.ONE * MOBILE_TARGET_SCALE
-		_half_len *= MOBILE_TARGET_SCALE
-		_muzzle_height *= MOBILE_TARGET_SCALE
-		_wheel_radius *= MOBILE_TARGET_SCALE
+	var total_scale := GLOBAL_VEHICLE_SCALE * (MOBILE_TARGET_SCALE if _is_mobile_target_platform() else 1.0)
+	scale *= Vector3.ONE * total_scale
+	_base_scale = scale
+	_half_len *= total_scale
+	_muzzle_height *= total_scale
+	_wheel_radius *= total_scale
 	_setup_engine_audio()
 	if halt_interval > 0.0:
 		_halt_cd = randf_range(halt_interval * 0.4, halt_interval)
@@ -394,7 +397,8 @@ func _variant_get(key: String, fallback: Variant) -> Variant:
 
 func _model_box() -> Vector3:
 	var box: Vector3 = _variant_get("box", MODEL_BOX.get(kind, Vector3(3.0, 1.7, 6.0)))
-	return box * MOBILE_TARGET_SCALE if _is_mobile_target_platform() else box
+	var total_scale := GLOBAL_VEHICLE_SCALE * (MOBILE_TARGET_SCALE if _is_mobile_target_platform() else 1.0)
+	return box * total_scale
 
 
 func _is_mobile_target_platform() -> bool:
@@ -2934,7 +2938,7 @@ func _settle_wreck() -> void:
 	tween.tween_property(self, "position:y", position.y - 0.38, 0.55)
 	tween.tween_property(self, "rotation:x", deg_to_rad(12.0), 0.55)
 	tween.tween_property(self, "rotation:z", deg_to_rad(-8.5), 0.55)
-	tween.tween_property(self, "scale", Vector3(1.02, 0.82, 1.02), 0.55)
+	tween.tween_property(self, "scale", Vector3(_base_scale.x * 1.02, _base_scale.y * 0.82, _base_scale.z * 1.02), 0.55)
 
 	_detach_wreck_parts()
 
@@ -3165,7 +3169,7 @@ func _crash_impact(gy: float) -> void:
 	global_position.y = gy + 0.18
 	rotation.x = deg_to_rad(14.0)
 	rotation.z += randf_range(-0.28, 0.28)
-	scale = Vector3(1.05, 0.72, 1.05)
+	scale = Vector3(_base_scale.x * 1.05, _base_scale.y * 0.72, _base_scale.z * 1.05)
 	var parent := get_parent()
 	DestructionFxScript.stop_trail(self)
 	if parent != null:

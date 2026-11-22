@@ -21,9 +21,9 @@ const CombatSfxScript = preload("res://combat/sfx.gd")
 ## closes fast.  The old 4.8 m / 3.2 m spheres demanded a pixel-perfect hit on
 ## a 16.5 m helicopter and a 3.8 m Shahed, so campaign 3/4 were unwinnable in
 ## practice.  These envelopes cover the airframe silhouette and the rotor disc.
-const KAMIKAZE_RADIUS_HELI := 7.0
-const KAMIKAZE_RADIUS_SHAHED := 5.0
-const KAMIKAZE_RADIUS_VEHICLE := 3.5
+const KAMIKAZE_RADIUS_HELI := 8.4
+const KAMIKAZE_RADIUS_SHAHED := 6.0
+const KAMIKAZE_RADIUS_VEHICLE := 4.2
 
 var score := 0
 var ammo := 0
@@ -66,6 +66,12 @@ func _ready() -> void:
 	_drone = get_parent().get_node_or_null("Drone") as Drone
 	_range = get_parent().get_node_or_null("CombatRange")
 	_hud = get_parent().get_node_or_null("CombatHUD")
+	var parent_lvl := get_parent()
+	if _hud != null and parent_lvl != null and parent_lvl.has_method("_spawn_combat_mission"):
+		for sub in ["Root/TopRight", "Root/Message", "Root/Hint"]:
+			var item := _hud.get_node_or_null(sub) as CanvasItem
+			if item != null:
+				item.visible = false
 	var p := DroneCatalog.preset(Global.drone_preset)
 	var is_combat: bool = bool(p.get("combat", false))
 	var has_drop: bool = bool(p.get("has_drop", false))
@@ -112,7 +118,8 @@ func _ready() -> void:
 	elif OS.has_environment("DRONE_SCREENSHOT"):
 		_capture_screenshot()
 	elif not OS.has_environment("DRONE_AUTOTEST"):
-		_message("RANGE LIVE — F TO DROP — AA + INFANTRY ACTIVE", Color(0.75, 1.0, 0.7), 3.5)
+		if get_parent() == null or not get_parent().has_method("_spawn_combat_mission"):
+			_message("RANGE LIVE — F TO DROP — AA + INFANTRY ACTIVE", Color(0.75, 1.0, 0.7), 3.5)
 
 
 func _capture_screenshot() -> void:
@@ -561,6 +568,9 @@ func _payload_unit_mass(p: Dictionary) -> float:
 func _on_payload_exploded() -> void:
 	explosions += 1
 	Haptics.trigger_explosion(0.55)
+	var lvl := get_parent()
+	if lvl != null and lvl.has_method("notify_payload_exploded"):
+		lvl.call("notify_payload_exploded")
 
 
 func _on_target_spawned(target: Node3D) -> void:
@@ -643,7 +653,7 @@ static func kamikaze_hit_radius(node: Node) -> float:
 			_:
 				return KAMIKAZE_RADIUS_VEHICLE
 	if node.is_in_group("enemy_infantry"):
-		return 1.8
+		return 2.16
 	return 0.0
 
 
@@ -809,7 +819,9 @@ func _destroy_drone(text: String) -> void:
 		if not bool(lvl.call("consume_sortie_airframe", text)):
 			return
 	await get_tree().create_timer(1.3).timeout
-	if is_instance_valid(_drone):
+	if lvl != null and lvl.has_method("_execute_kamikaze_respawn"):
+		lvl.call("_execute_kamikaze_respawn")
+	elif is_instance_valid(_drone):
 		_drone.freeze = false
 		_drone.reset()
 	_lost = false

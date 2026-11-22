@@ -525,6 +525,25 @@ static func _apply_material(node: Node3D, prop_name: String) -> void:
 		mat.roughness = finish.x
 		mat.metallic = finish.y
 		mat.metallic_specular = 0.34 if finish.y >= 0.12 else 0.22
+		mat.uv1_triplanar = true
+		mat.uv1_world_triplanar = true
+		mat.uv1_triplanar_sharpness = 8.0
+		mat.uv1_scale = Vector3.ONE * 0.28
+		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		var nrm_path := "res://Assets/frontline/industrial_hall/concrete_slab_wall_nor_gl.jpg"
+		var rgh_path := "res://Assets/frontline/industrial_hall/concrete_slab_wall_rough.jpg"
+		if finish.y >= 0.14 or prop_name in ["cargo_ship", "fuel_depot", "factory_plant", "grain_elevator"]:
+			nrm_path = "res://Assets/frontline/industrial_hall/metal_plate_02_nor_gl.jpg"
+			rgh_path = "res://Assets/frontline/industrial_hall/metal_plate_02_rough.jpg"
+		elif prop_name in ["power_pole", "fence_section", "barn_small", "well_house", "watchtower", "farm_complex"]:
+			nrm_path = "res://Assets/frontline/textures/wood_normal.jpg"
+			rgh_path = "res://Assets/frontline/textures/wood_rough.jpg"
+		if ResourceLoader.exists(nrm_path):
+			mat.normal_enabled = true
+			mat.normal_texture = load(nrm_path) as Texture2D
+			mat.normal_scale = 0.85
+		if ResourceLoader.exists(rgh_path):
+			mat.roughness_texture = load(rgh_path) as Texture2D
 		_materials[prop_name] = mat
 	for child in node.find_children("*", "MeshInstance3D", true, false):
 		(child as MeshInstance3D).material_override = mat

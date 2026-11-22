@@ -364,10 +364,18 @@ static func _flush_pending(root: Node3D) -> void:
 			mm.visibility_range_end_margin = 20.0
 			mm.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	if _prop_mat == null:
-		_prop_mat = StandardMaterial3D.new()
+		var base_pbr := FT._pbr("hall_metal", Color.WHITE, 0.30) as StandardMaterial3D
+		if base_pbr != null:
+			_prop_mat = base_pbr.duplicate() as StandardMaterial3D
+			_prop_mat.albedo_texture = null
+			_prop_mat.uv1_triplanar = true
+			_prop_mat.uv1_world_triplanar = true
+		else:
+			_prop_mat = StandardMaterial3D.new()
+		_prop_mat.albedo_color = Color(1.06, 1.05, 1.02)
 		_prop_mat.vertex_color_use_as_albedo = true
-		_prop_mat.roughness = 0.9
-		_prop_mat.metallic = 0.08
+		_prop_mat.roughness = 0.84
+		_prop_mat.metallic = 0.12
 	var meshes: Dictionary = PROPS.meshes()
 	for name in _p_props.keys():
 		var mesh: Mesh = meshes.get(name, null)

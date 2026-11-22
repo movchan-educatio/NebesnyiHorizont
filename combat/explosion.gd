@@ -206,6 +206,59 @@ func _resolve_ground_y(pos: Vector3) -> float:
 
 
 static var _crater_texture: GradientTexture2D = null
+static var _crater_clod_mat: StandardMaterial3D = null
+static var _flash_quad_cache: QuadMesh = null
+static var _radial_tex_cache: GradientTexture2D = null
+static var _soft_tex_cache: GradientTexture2D = null
+
+
+static func _ensure_crater_texture() -> GradientTexture2D:
+	if _crater_texture == null:
+		# Built-in radial gradient instead of a per-pixel image loop: the old
+		# 16k set_pixel loop caused a one-second hitch on the first impact.
+		var grad := Gradient.new()
+		grad.offsets = PackedFloat32Array([0.0, 0.55, 0.88, 1.0])
+		grad.colors = PackedColorArray([
+			Color(0.020, 0.017, 0.013, 0.96),
+			Color(0.055, 0.043, 0.031, 0.80),
+			Color(0.120, 0.095, 0.065, 0.35),
+			Color(0.20, 0.16, 0.11, 0.0),
+		])
+		_crater_texture = GradientTexture2D.new()
+		_crater_texture.gradient = grad
+		_crater_texture.width = 64
+		_crater_texture.height = 64
+		_crater_texture.fill = GradientTexture2D.FILL_RADIAL
+		_crater_texture.fill_from = Vector2(0.5, 0.5)
+		_crater_texture.fill_to = Vector2(1.0, 0.5)
+	return _crater_texture
+
+
+static func _get_crater_clod_mat() -> StandardMaterial3D:
+	if _crater_clod_mat == null:
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color(0.09, 0.075, 0.055)
+		mat.roughness = 1.0
+		mat.metallic = 0.0
+		mat.metallic_specular = 0.20
+		_crater_clod_mat = mat
+	return _crater_clod_mat
+
+
+static func _get_flash_quad() -> QuadMesh:
+	if _flash_quad_cache == null:
+		var q := QuadMesh.new()
+		q.size = Vector2(2.0, 2.0)
+		_flash_quad_cache = q
+	return _flash_quad_cache
+
+
+static func prewarm() -> void:
+	_ensure_crater_texture()
+	_get_crater_clod_mat()
+	_get_flash_quad()
+	_radial_texture()
+	_soft_texture()
 
 
 ## Ground bursts leave a scorch decal, a dark crater disc and a ring of dirt
@@ -231,29 +284,11 @@ func _spawn_crater() -> void:
 	if absf(ground.y - global_position.y) > 5.0:
 		return  # airborne burst, no ground crater
 	var crater_r := clampf(radius * 0.95, 3.0, 24.0)
-	if _crater_texture == null:
-		# Built-in radial gradient instead of a per-pixel image loop: the old
-		# 16k set_pixel loop caused a one-second hitch on the first impact.
-		var grad := Gradient.new()
-		grad.offsets = PackedFloat32Array([0.0, 0.55, 0.88, 1.0])
-		grad.colors = PackedColorArray([
-			Color(0.020, 0.017, 0.013, 0.96),
-			Color(0.055, 0.043, 0.031, 0.80),
-			Color(0.120, 0.095, 0.065, 0.35),
-			Color(0.20, 0.16, 0.11, 0.0),
-		])
-		_crater_texture = GradientTexture2D.new()
-		_crater_texture.gradient = grad
-		_crater_texture.width = 128
-		_crater_texture.height = 128
-		_crater_texture.fill = GradientTexture2D.FILL_RADIAL
-		_crater_texture.fill_from = Vector2(0.5, 0.5)
-		_crater_texture.fill_to = Vector2(1.0, 0.5)
 	var parent_node := get_parent()
 	if parent_node == null or not is_instance_valid(parent_node):
 		return
 	var decal := Decal.new()
-	decal.texture_albedo = _crater_texture
+	decal.texture_albedo = _ensure_crater_texture()
 	decal.size = Vector3(crater_r * 2.1, 4.5, crater_r * 2.1)
 	decal.cull_mask = 1
 	decal.albedo_mix = 0.55
@@ -264,28 +299,27 @@ func _spawn_crater() -> void:
 	_free_after(decal, 75.0)
 	# Keep ground clods parented under parent_node directly on the terrain
 	# (never as children of the elevated decal) and clean them up quickly.
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.09, 0.075, 0.055)
-	mat.roughness = 1.0
-	mat.metallic = 0.0
-	mat.metallic_specular = 0.20
+	var mat := _get_crater_clod_mat()
 	var clods_root := Node3D.new()
 	clods_root.name = "CraterClods"
 	parent_node.add_child(clods_root)
 	clods_root.global_position = Vector3.ZERO
-	for i in range(7):
-		var a := TAU * float(i) / 7.0 + randf() * 0.4
+	var low_q := QualityManager.get_active_level() == QualityManager.Level.LOW
+	var clod_count := 3 if low_q else 7
+	for i in range(clod_count):
+		var a := TAU * float(i) / float(clod_count) + randf() * 0.4
 		var dist := crater_r * randf_range(0.45, 0.85)
 		var cx := ground.x + cos(a) * dist
 		var cz := ground.z + sin(a) * dist
 		var clod_y := ground.y
-		var cq := PhysicsRayQueryParameters3D.create(
-				Vector3(cx, ground.y + 3.0, cz),
-				Vector3(cx, ground.y - 3.0, cz))
-		cq.collision_mask = 1
-		var chit := space.intersect_ray(cq)
-		if not chit.is_empty():
-			clod_y = (chit["position"] as Vector3).y
+		if not low_q:
+			var cq := PhysicsRayQueryParameters3D.create(
+					Vector3(cx, ground.y + 3.0, cz),
+					Vector3(cx, ground.y - 3.0, cz))
+			cq.collision_mask = 1
+			var chit := space.intersect_ray(cq)
+			if not chit.is_empty():
+				clod_y = (chit["position"] as Vector3).y
 		var h := randf_range(0.08, 0.25)
 		var clod := MeshInstance3D.new()
 		var w := randf_range(0.12, 0.42)
@@ -388,9 +422,7 @@ func _spawn_smoke() -> void:
 
 func _spawn_flash() -> void:
 	var flash := MeshInstance3D.new()
-	var quad := QuadMesh.new()
-	quad.size = Vector2(2.0, 2.0)
-	flash.mesh = quad
+	flash.mesh = _get_flash_quad()
 	var material := StandardMaterial3D.new()
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -541,6 +573,8 @@ static func _free_after(node: Node, seconds: float) -> void:
 
 
 static func _soft_texture() -> GradientTexture2D:
+	if _soft_tex_cache != null:
+		return _soft_tex_cache
 	var gradient := Gradient.new()
 	gradient.offsets = PackedFloat32Array([0.0, 0.4, 0.75, 1.0])
 	gradient.colors = PackedColorArray([
@@ -551,15 +585,18 @@ static func _soft_texture() -> GradientTexture2D:
 	])
 	var texture := GradientTexture2D.new()
 	texture.gradient = gradient
-	texture.width = 128
-	texture.height = 128
+	texture.width = 64
+	texture.height = 64
 	texture.fill = GradientTexture2D.FILL_RADIAL
 	texture.fill_from = Vector2(0.5, 0.5)
 	texture.fill_to = Vector2(1.0, 0.5)
-	return texture
+	_soft_tex_cache = texture
+	return _soft_tex_cache
 
 
 static func _radial_texture() -> GradientTexture2D:
+	if _radial_tex_cache != null:
+		return _radial_tex_cache
 	var gradient := Gradient.new()
 	gradient.offsets = PackedFloat32Array([0.0, 0.35, 0.72, 1.0])
 	gradient.colors = PackedColorArray([
@@ -570,12 +607,13 @@ static func _radial_texture() -> GradientTexture2D:
 	])
 	var texture := GradientTexture2D.new()
 	texture.gradient = gradient
-	texture.width = 128
-	texture.height = 128
+	texture.width = 64
+	texture.height = 64
 	texture.fill = GradientTexture2D.FILL_RADIAL
 	texture.fill_from = Vector2(0.5, 0.5)
 	texture.fill_to = Vector2(1.0, 0.5)
-	return texture
+	_radial_tex_cache = texture
+	return _radial_tex_cache
 
 
 static func _particle_quad(size: float, color: Color, additive: bool) -> QuadMesh:

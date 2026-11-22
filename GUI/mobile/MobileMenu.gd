@@ -172,6 +172,8 @@ var _is_dragging_hangar: bool = false
 # origin-space AABB and shrink the whole drone to a speck.
 var _hero_load_token := 0
 var _hangar_load_token := 0
+var _rebuilding_screens := false
+var _handing_off_loading := false
 
 # --- Settings Tabs & PC Parity ---
 var _settings_panels: Dictionary = {}
@@ -472,33 +474,33 @@ func _process(delta: float) -> void:
 
 	# 3D Drone Hero Turntable: continuous idle rotation and propeller animation.
 	# Skip it while another screen is open; the hero viewport is hidden then.
-	if _hero_holder != null and _current == "main":
+	if _hero_holder != null and is_instance_valid(_hero_holder) and _current == "main":
 		if not _is_dragging_hero:
 			var hero_idle := delta * 0.45
 			_hero_holder.rotation.y += hero_idle
-			if _hero_pad_rotator != null:
+			if _hero_pad_rotator != null and is_instance_valid(_hero_pad_rotator):
 				_hero_pad_rotator.rotation.y += hero_idle
-			if _hero_diorama != null:
+			if _hero_diorama != null and is_instance_valid(_hero_diorama):
 				_hero_diorama.sync_idle_spin(hero_idle)
-		if _hero_diorama != null:
+		if _hero_diorama != null and is_instance_valid(_hero_diorama):
 			_hero_diorama.step(delta)
 		for child in _hero_holder.get_children():
-			if child.has_meta("prop_pivots"):
+			if is_instance_valid(child) and child.has_meta("prop_pivots"):
 				DroneCatalog.animate_propellers(child, delta * 0.8)
 
 	# 3D Drone Hangar Turntable: rotation and propeller animation when viewing Hangar
-	if _hangar_holder != null and _current == "drone":
+	if _hangar_holder != null and is_instance_valid(_hangar_holder) and _current == "drone":
 		if not _is_dragging_hangar:
 			var hangar_idle := delta * 0.45
 			_hangar_holder.rotation.y += hangar_idle
-			if _hangar_pad_rotator != null:
+			if _hangar_pad_rotator != null and is_instance_valid(_hangar_pad_rotator):
 				_hangar_pad_rotator.rotation.y += hangar_idle
-			if _hangar_diorama != null:
+			if _hangar_diorama != null and is_instance_valid(_hangar_diorama):
 				_hangar_diorama.sync_idle_spin(hangar_idle)
-		if _hangar_diorama != null:
+		if _hangar_diorama != null and is_instance_valid(_hangar_diorama):
 			_hangar_diorama.step(delta)
 		for child in _hangar_holder.get_children():
-			if child.has_meta("prop_pivots"):
+			if is_instance_valid(child) and child.has_meta("prop_pivots"):
 				DroneCatalog.animate_propellers(child, delta * 0.8)
 
 	# 2D Live Stick Monitor & 3D RadioMaster TX12 Sticks Animation
@@ -531,7 +533,7 @@ func _process(delta: float) -> void:
 			rol = float(touch.get("roll"))
 
 		var thr_disp: float = clampf(thr, 0.0, 1.0)
-		if _stick_readout != null:
+		if _stick_readout != null and is_instance_valid(_stick_readout):
 			var thr_pct := int(round(thr_disp * 100.0))
 			var yaw_pct := int(round(yaw * 100.0))
 			var pit_pct := int(round(-pit * 100.0))
@@ -617,6 +619,11 @@ func _vsize() -> Vector2:
 func _fs(px: float) -> int:
 	var scale := clampf(_vsize().y / 760.0, 1.15, 1.55)
 	return maxi(16, int(round(px * scale)))
+
+
+func _fs_small(px: float) -> int:
+	var scale := clampf(_vsize().y / 760.0, 1.10, 1.45)
+	return maxi(12, int(round(px * scale)))
 
 
 func _gap(px: float) -> int:
@@ -712,7 +719,7 @@ func _button(text: String, height: float = 48.0, primary: bool = false) -> Butto
 	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	b.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
 	b.focus_mode = Control.FOCUS_NONE
-	var min_h: int = maxi(_ui_sz(height), _fs(46.0))
+	var min_h: int = maxi(_ui_sz(height), _fs(34.0))
 	b.custom_minimum_size = Vector2(0, min_h)
 	b.add_theme_font_size_override("font_size", _fs(19 if not primary else 23))
 	b.add_theme_color_override("font_color", Color(0.06, 0.09, 0.07) if primary else MenuUI.TEXT)
@@ -729,16 +736,18 @@ func _button(text: String, height: float = 48.0, primary: bool = false) -> Butto
 	return b
 
 
-func _nav_button(icon_tex: Texture2D, text: String, primary: bool, callback: Callable) -> Button:
-	var height: float = 62.0 if not primary else 70.0
+func _nav_button(icon_tex: Texture2D, text: String, primary: bool, callback: Callable,
+		height_override: float = 0.0, font_override: float = 0.0) -> Button:
+	var height: float = height_override if height_override > 0.0 else (62.0 if not primary else 70.0)
 	var b := _button("  " + text, height, primary)
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	if icon_tex != null:
 		b.icon = icon_tex
 		b.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.expand_icon = true
-	b.add_theme_font_size_override("font_size", _fs(21 if not primary else 24))
-	b.add_theme_constant_override("h_separation", _gap(14))
+	var fpx: float = font_override if font_override > 0.0 else (21.0 if not primary else 24.0)
+	b.add_theme_font_size_override("font_size", _fs(fpx))
+	b.add_theme_constant_override("h_separation", _gap(12))
 	b.pressed.connect(callback)
 	return b
 
@@ -939,10 +948,10 @@ func _update_perf_bars(store: Dictionary, p: Dictionary) -> void:
 		var item: Dictionary = store[k]
 		var v_pct := int(round(float(vals[k])))
 		var bar: ProgressBar = item.get("bar") as ProgressBar
-		if bar != null:
+		if bar != null and is_instance_valid(bar):
 			bar.value = float(v_pct)
 		var lbl: Label = item.get("label") as Label
-		if lbl != null:
+		if lbl != null and is_instance_valid(lbl):
 			var t_str := str(item.get("en" if is_en else "ua", ""))
 			lbl.text = "%s %d%%" % [t_str, v_pct]
 
@@ -1001,9 +1010,11 @@ func _build_root() -> void:
 	top.add_child(_top_brand)
 
 	var logo := _label("НЕБЕСНИЙ ГОРИЗОНТ", 26, MenuUI.TEXT)
+	logo.name = "TopBrandLogo"
 	logo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_top_brand.add_child(logo)
 	var brand_sub := _label("ТАКТИЧНИЙ FPV-СИМУЛЯТОР  •  МОБІЛЬНИЙ ТЕРМІНАЛ", 11, MenuUI.MUTED)
+	brand_sub.name = "TopBrandSub"
 	brand_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_top_brand.add_child(brand_sub)
 
@@ -1036,11 +1047,7 @@ func _build_root() -> void:
 	_lang_top_btn = _button("EN" if MenuUI.is_english() else "UA", 32, false)
 	var lang_top_btn := _lang_top_btn
 	lang_top_btn.custom_minimum_size = Vector2(_ui_sz(48), _ui_sz(32))
-	lang_top_btn.pressed.connect(func():
-		Loc.toggle_language()
-		MenuUI.localize_tree(self)
-		call_deferred("_rebuild_screens")
-	)
+	lang_top_btn.pressed.connect(_on_toggle_language)
 	chips.add_child(lang_top_btn)
 
 	_elrs_chip = _chip_panel(Color(0.40, 0.62, 0.48, 0.65))
@@ -1202,35 +1209,42 @@ func _build_main() -> void:
 	var screen := _make_screen("main")
 	var h := HBoxContainer.new()
 	h.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	h.add_theme_constant_override("separation", _gap(20))
+	h.add_theme_constant_override("separation", _gap(16))
 	screen.add_child(h)
+
+	var has_quick_tut := not Global.is_tutorial_completed()
+	var nav_h: float = 42.0 if has_quick_tut else 48.0
+	var nav_h_pri: float = 48.0 if has_quick_tut else 54.0
+	var nav_font: float = 18.0 if has_quick_tut else 19.0
+	var nav_font_pri: float = 20.0 if has_quick_tut else 22.0
 
 	# Left Nav Rail
 	var left := VBoxContainer.new()
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	left.size_flags_stretch_ratio = 0.42
-	left.add_theme_constant_override("separation", _gap(6))
+	left.add_theme_constant_override("separation", _gap(4 if has_quick_tut else 5))
 	h.add_child(left)
 
-	# Title centered exactly in the middle above the "ОДИНОЧНА ГРА" button
+	# Title centered above nav buttons
 	var title_box := VBoxContainer.new()
 	title_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title_box.alignment = BoxContainer.ALIGNMENT_CENTER
-	title_box.add_theme_constant_override("separation", _gap(2))
+	title_box.add_theme_constant_override("separation", _gap(1))
 
-	var main_logo := _label("НЕБЕСНИЙ ГОРИЗОНТ", 30, MenuUI.TEXT)
+	var main_logo := _label("НЕБЕСНИЙ ГОРИЗОНТ", 26 if has_quick_tut else 28, MenuUI.TEXT)
 	_main_logo = main_logo
 	main_logo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title_box.add_child(main_logo)
 
-	var main_sub := _label("ТАКТИЧНИЙ FPV-СИМУЛЯТОР", 12, MenuUI.FPV_AMBER)
+	var main_sub := _label("ТАКТИЧНИЙ FPV-СИМУЛЯТОР", 11, MenuUI.FPV_AMBER)
 	main_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title_box.add_child(main_sub)
 
 	left.add_child(title_box)
-	left.add_child(_spacer(_gap(8)))
+	left.add_child(_spacer(2))
 
-	if not Global.is_tutorial_completed():
+	if has_quick_tut:
 		var quick_btn := _nav_button(MenuIcons.icon_play(Color(0.06, 0.09, 0.07)),
 				"ШВИДКИЙ СТАРТ: ТУТОРІАЛ" if not MenuUI.is_english() else "QUICK START: TUTORIAL",
 				true, func():
@@ -1238,13 +1252,12 @@ func _build_main() -> void:
 					_selected_map = "industrial"
 					if DroneCatalog.is_uman(Global.drone_preset):
 						DroneCatalog.apply(0)
-					_launch()
+					_launch(),
+				nav_h_pri, nav_font_pri
 		)
 		left.add_child(quick_btn)
 
 	# Always-visible first-strike lesson, matching the desktop home screen.
-	# It is a separate TRAINING session with one tank and three explicit steps,
-	# and it never writes a campaign record.
 	var ct_done := Global.is_combat_training_completed()
 	var ct_text := ("✓ БОЙОВЕ ТРЕНУВАННЯ · ПОВТОРИТИ" if ct_done \
 			else "БОЙОВЕ ТРЕНУВАННЯ: 3 КРОКИ") if not MenuUI.is_english() \
@@ -1254,61 +1267,72 @@ func _build_main() -> void:
 			ct_text, false, func():
 				_selected_mode = Global.PlayMode.TRAINING
 				_selected_map = "industrial"
-				_launch(true)
+				_launch(true),
+			nav_h, nav_font
 	))
 
 	var sp_primary := Global.is_tutorial_completed()
 	var sp_icon_col := Color(0.06, 0.09, 0.07) if sp_primary else Color(0.84, 0.96, 0.87)
-	left.add_child(_nav_button(MenuIcons.icon_play(sp_icon_col), "ОДИНОЧНА ГРА", sp_primary, func(): _show("play")))
-	left.add_child(_nav_button(MenuIcons.icon_radio(MenuUI.TEXT), "ПУЛЬТ ТА ELRS", false, func(): _show("controls")))
-	left.add_child(_nav_button(MenuIcons.icon_rates(MenuUI.TEXT), "РЕЙТИ ТА ЕКСПО", false, func(): _show("rates")))
-	left.add_child(_nav_button(MenuIcons.icon_hangar(MenuUI.TEXT), "АНГАР ДРОНІВ", false, func(): _show("drone")))
-	left.add_child(_nav_button(MenuIcons.icon_settings(MenuUI.TEXT), "НАЛАШТУВАННЯ", false, func(): _show("settings")))
+	left.add_child(_nav_button(MenuIcons.icon_play(sp_icon_col), "ОДИНОЧНА ГРА", sp_primary, func(): _show("play"),
+			nav_h_pri if sp_primary else nav_h, nav_font_pri if sp_primary else nav_font))
+	left.add_child(_nav_button(MenuIcons.icon_radio(MenuUI.TEXT), "ПУЛЬТ ТА ELRS", false, func(): _show("controls"), nav_h, nav_font))
+	left.add_child(_nav_button(MenuIcons.icon_rates(MenuUI.TEXT), "РЕЙТИ ТА ЕКСПО", false, func(): _show("rates"), nav_h, nav_font))
+	left.add_child(_nav_button(MenuIcons.icon_hangar(MenuUI.TEXT), "АНГАР ДРОНІВ", false, func(): _show("drone"), nav_h, nav_font))
+	left.add_child(_nav_button(MenuIcons.icon_settings(MenuUI.TEXT), "НАЛАШТУВАННЯ", false, func(): _show("settings"), nav_h, nav_font))
 
-	left.add_child(_spacer(_gap(4)))
+	left.add_child(_spacer(2))
 
-	# Tactical Changelog & Daily Challenge Card for this version
-	var chg_card := _panel(Color(0.02, 0.048, 0.038, 0.92), Color(0.38, 0.54, 0.42, 0.70), 1, 12)
+	# Tactical Changelog & Daily Challenge Card (single-margin compact style so bottom never clips)
+	var chg_card := PanelContainer.new()
+	var chg_sb := _panel_style(Color(0.02, 0.048, 0.038, 0.92), Color(0.38, 0.54, 0.42, 0.70), 1, 12)
+	chg_sb.content_margin_left = _gap(10)
+	chg_sb.content_margin_right = _gap(10)
+	chg_sb.content_margin_top = _gap(6)
+	chg_sb.content_margin_bottom = _gap(6)
+	chg_card.add_theme_stylebox_override("panel", chg_sb)
 	chg_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var chg_m := MarginContainer.new()
-	chg_m.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	chg_m.add_theme_constant_override("margin_left", _gap(12))
-	chg_m.add_theme_constant_override("margin_right", _gap(12))
-	chg_m.add_theme_constant_override("margin_top", _gap(8))
-	chg_m.add_theme_constant_override("margin_bottom", _gap(8))
-	chg_card.add_child(chg_m)
+	chg_card.size_flags_vertical = Control.SIZE_SHRINK_END
 
 	var chg_v := VBoxContainer.new()
-	chg_v.add_theme_constant_override("separation", _gap(3))
-	chg_m.add_child(chg_v)
+	chg_v.add_theme_constant_override("separation", _gap(2))
+	chg_card.add_child(chg_v)
 
+	var is_en := MenuUI.is_english()
 	var chg_hdr := HBoxContainer.new()
-	chg_hdr.add_child(_label("ОНОВЛЕННЯ // СПИСОК ЗМІН", 13, MenuUI.FPV_AMBER))
+	var hdr_lbl := Label.new()
+	hdr_lbl.text = "UPDATES // CHANGELOG" if is_en else "ОНОВЛЕННЯ // СПИСОК ЗМІН"
+	hdr_lbl.add_theme_font_size_override("font_size", _fs_small(12))
+	hdr_lbl.add_theme_color_override("font_color", MenuUI.FPV_AMBER)
+	chg_hdr.add_child(hdr_lbl)
 	chg_hdr.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
-	chg_hdr.add_child(_label("v1.19.0", 12, MenuUI.FPV_GREEN))
+	var ver_lbl := Label.new()
+	ver_lbl.text = "v1.19.0"
+	ver_lbl.add_theme_font_size_override("font_size", _fs_small(11))
+	ver_lbl.add_theme_color_override("font_color", MenuUI.FPV_GREEN)
+	chg_hdr.add_child(ver_lbl)
 	chg_v.add_child(chg_hdr)
 
 	var dc := Global.get_daily_challenge()
-	var is_en := MenuUI.is_english()
 	var dc_title := str(dc.get("title_en" if is_en else "title_ua", dc.get("title_uk", "")))
 	var dc_line := ("★ ВИКЛИК ДНЯ: %s (+%d)" if not is_en else "★ DAILY CHALLENGE: %s (+%d)") % [dc_title, int(dc.get("bonus_score", 500))]
 	var trec := Global.get_training_record(str(Global.menu_settings.get("selected_map", "uman")))
-	var course_line := "• Траса тренування: пройдіть ворота на ★ / S–B (з Привидом)"
+	var course_line := "• Freestyle track: gates ★ / S–B (with Ghost)" if is_en \
+			else "• Траса тренування: ворота на ★ / S–B (з Привидом)"
 	if bool(trec.get("completed", false)):
-		course_line = ("• Траса: рекорд %.1f с · %s [%s]" if not is_en else "• Course best: %.1fs · %s [%s]") % [
+		course_line = ("• Course best: %.1fs · %s [%s]" if is_en else "• Траса: рекорд %.1f с · %s [%s]") % [
 			float(trec.get("best_time", 0.0)), "★".repeat(int(trec.get("stars", 1))), str(trec.get("rank", trec.get("best_rank", "B")))]
 
 	var changes := [
 		dc_line,
 		course_line,
-		"• Режими: Туторіал (м’яка Angle) → Тренування → Бойовий",
-		"• Геймпади, ELRS Wi-Fi, UA/EN та Safe Area",
+		"• Modes: Tutorial (soft Angle) → Training → Combat" if is_en else "• Режими: Туторіал (м’яка Angle) → Тренування → Бойовий",
+		"• Gamepads, ELRS Wi-Fi, UA/EN & Safe Area" if is_en else "• Геймпади, ELRS Wi-Fi, UA/EN та Safe Area",
 	]
 	for c_txt in changes:
 		var cl := Label.new()
 		cl.text = c_txt
 		cl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		cl.add_theme_font_size_override("font_size", _fs(14))
+		cl.add_theme_font_size_override("font_size", _fs_small(11))
 		cl.add_theme_color_override("font_color", Color(0.85, 0.94, 0.88))
 		chg_v.add_child(cl)
 
@@ -1319,6 +1343,7 @@ func _build_main() -> void:
 	var hero := _build_3d_hero()
 	_main_hero = hero
 	hero.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hero.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	hero.size_flags_stretch_ratio = 0.58
 	h.add_child(hero)
 
@@ -1357,7 +1382,7 @@ func _build_3d_hero() -> Control:
 	overlay.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for side in ["left", "right", "top", "bottom"]:
-		overlay.add_theme_constant_override("margin_%s" % side, _gap(16))
+		overlay.add_theme_constant_override("margin_%s" % side, _gap(12))
 	card.add_child(overlay)
 
 	var v := VBoxContainer.new()
@@ -1375,11 +1400,11 @@ func _build_3d_hero() -> Control:
 	info_box.add_theme_constant_override("separation", _gap(2))
 	top_info.add_child(info_box)
 
-	_hero_drone_name = _label("«ГРІМ-7»", 32, MenuUI.TEXT)
+	_hero_drone_name = _label("«ГРІМ-7»", 30, MenuUI.TEXT)
 	_hero_drone_name.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	info_box.add_child(_hero_drone_name)
 
-	_hero_drone_tag = _label("УДАРНИЙ 8–10\"  •  БОЙОВИЙ БПЛА", 14, MenuUI.FPV_AMBER)
+	_hero_drone_tag = _label("УДАРНИЙ 8–10\"  •  БОЙОВИЙ БПЛА", 13, MenuUI.FPV_AMBER)
 	_hero_drone_tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	info_box.add_child(_hero_drone_tag)
 
@@ -1396,14 +1421,14 @@ func _build_3d_hero() -> Control:
 	bottom_selector.alignment = BoxContainer.ALIGNMENT_CENTER
 	v.add_child(bottom_selector)
 
-	var prev_btn := _button("ПОПЕРЕДНІЙ", 46)
+	var prev_btn := _button("ПОПЕРЕДНІЙ", 42)
 	prev_btn.custom_minimum_size.x = _ui_sz(150)
 	prev_btn.pressed.connect(_select_prev_drone)
 	bottom_selector.add_child(prev_btn)
 
 	var play_text := "ПРОДОВЖИТИ ПОЛІТ" if is_pause_mode else "ПОЧАТИ ВИЛІТ"
-	var play_btn := _button(play_text, 50, true)
-	play_btn.custom_minimum_size.x = _ui_sz(260)
+	var play_btn := _button(play_text, 46, true)
+	play_btn.custom_minimum_size.x = _ui_sz(250)
 	play_btn.pressed.connect(func():
 		if is_pause_mode:
 			emit_signal("closed")
@@ -1414,7 +1439,7 @@ func _build_3d_hero() -> Control:
 	)
 	bottom_selector.add_child(play_btn)
 
-	var next_btn := _button("НАСТУПНИЙ", 46)
+	var next_btn := _button("НАСТУПНИЙ", 42)
 	next_btn.custom_minimum_size.x = _ui_sz(150)
 	next_btn.pressed.connect(_select_next_drone)
 	bottom_selector.add_child(next_btn)
@@ -1509,7 +1534,7 @@ func _setup_hero_3d_world() -> void:
 
 
 func _load_hero_model(preset_idx: int) -> void:
-	if _hero_holder == null:
+	if _hero_holder == null or not is_instance_valid(_hero_holder):
 		return
 	_hero_load_token += 1
 	var token := _hero_load_token
@@ -1521,7 +1546,7 @@ func _load_hero_model(preset_idx: int) -> void:
 		_hero_holder.remove_child(child)
 		child.queue_free()
 	await DroneCatalog.wait_for_model(preset_idx)
-	if token != _hero_load_token:
+	if token != _hero_load_token or not is_instance_valid(_hero_holder):
 		return
 	var model: Node3D = DroneCatalog.attach_model(_hero_holder, preset_idx)
 	if model == null:
@@ -1536,8 +1561,8 @@ func _load_hero_model(preset_idx: int) -> void:
 	# frame occasionally produced an origin-space AABB and a tiny drone.
 	await get_tree().process_frame
 	await get_tree().process_frame
-	if token != _hero_load_token or not is_instance_valid(model) \
-			or model.get_parent() != _hero_holder:
+	if token != _hero_load_token or not is_instance_valid(_hero_holder) \
+			or not is_instance_valid(model) or model.get_parent() != _hero_holder:
 		return
 	MenuUI.fit_preview_model(model, target_sz, -0.205)
 	_ensure_preview_scale(_hero_holder, model, target_sz, -0.205)
@@ -1546,7 +1571,8 @@ func _load_hero_model(preset_idx: int) -> void:
 
 
 func _fit_hero_camera() -> void:
-	if _hero_holder == null or _hero_camera == null:
+	if _hero_holder == null or not is_instance_valid(_hero_holder) \
+			or _hero_camera == null or not is_instance_valid(_hero_camera):
 		return
 	var box := _combined_bounds(_hero_holder)
 	var center := box.get_center() if box.size.length() > 0.01 else Vector3.ZERO
@@ -1603,11 +1629,11 @@ func _ensure_preview_scale(holder: Node3D, model: Node3D, target: float,
 
 func _update_hero_drone_info(preset_idx: int) -> void:
 	var p := DroneCatalog.preset(preset_idx)
-	if _hero_drone_name != null:
+	if _hero_drone_name != null and is_instance_valid(_hero_drone_name):
 		_hero_drone_name.text = MenuUI.translate_text(DroneCatalog.get_drone_name(preset_idx))
-	if _hero_drone_tag != null:
+	if _hero_drone_tag != null and is_instance_valid(_hero_drone_tag):
 		_hero_drone_tag.text = MenuUI.translate_text(DroneCatalog.get_drone_tag(preset_idx))
-	if _hero_drone_specs != null:
+	if _hero_drone_specs != null and is_instance_valid(_hero_drone_specs):
 		var mass := int(round((float(p.get("dry", 0.4)) + float(p.get("batt", 0.2))) * 1000.0))
 		var twr := float(p.get("twr", 5.0))
 		var kv := int(p.get("kv", 2000))
@@ -2663,7 +2689,9 @@ func _mobile_airframe_budget() -> int:
 
 func _build_mobile_briefing_modal(host: Control, is_en: bool) -> void:
 	if _briefing_modal != null and is_instance_valid(_briefing_modal):
-		_briefing_modal.free()
+		if _briefing_modal.get_parent() != null:
+			_briefing_modal.get_parent().remove_child(_briefing_modal)
+		_briefing_modal.queue_free()
 		_briefing_modal = null
 	_briefing_modal = PanelContainer.new()
 	_briefing_modal.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -3051,6 +3079,7 @@ func _launch(combat_training: bool = false) -> void:
 		tween.tween_property(loading_bar, "value", 92.0, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 		await tween.finished
 	await get_tree().process_frame
+	_handing_off_loading = true
 	get_tree().change_scene_to_file(path)
 
 
@@ -3348,7 +3377,7 @@ func _add_tactical_podium_details(vp: Node, top_y: float, radius: float) -> Node
 
 
 func _load_hangar_model(preset_idx: int) -> void:
-	if _hangar_holder == null:
+	if _hangar_holder == null or not is_instance_valid(_hangar_holder):
 		return
 	_hangar_load_token += 1
 	var token := _hangar_load_token
@@ -3360,7 +3389,7 @@ func _load_hangar_model(preset_idx: int) -> void:
 		_hangar_holder.remove_child(child)
 		child.queue_free()
 	await DroneCatalog.wait_for_model(preset_idx)
-	if token != _hangar_load_token:
+	if token != _hangar_load_token or not is_instance_valid(_hangar_holder):
 		return
 	var model: Node3D = DroneCatalog.attach_model(_hangar_holder, preset_idx)
 	if model == null:
@@ -3374,8 +3403,8 @@ func _load_hangar_model(preset_idx: int) -> void:
 	# opened in the hangar could be a speck until Next/Previous reloaded it.
 	await get_tree().process_frame
 	await get_tree().process_frame
-	if token != _hangar_load_token or not is_instance_valid(model) \
-			or model.get_parent() != _hangar_holder:
+	if token != _hangar_load_token or not is_instance_valid(_hangar_holder) \
+			or not is_instance_valid(model) or model.get_parent() != _hangar_holder:
 		return
 	MenuUI.fit_preview_model(model, target_sz, -0.1775)
 	_ensure_preview_scale(_hangar_holder, model, target_sz, -0.1775)
@@ -3384,7 +3413,8 @@ func _load_hangar_model(preset_idx: int) -> void:
 
 
 func _fit_hangar_camera() -> void:
-	if _hangar_holder == null or _hangar_camera == null:
+	if _hangar_holder == null or not is_instance_valid(_hangar_holder) \
+			or _hangar_camera == null or not is_instance_valid(_hangar_camera):
 		return
 	var box := _combined_bounds(_hangar_holder)
 	var center := box.get_center() if box.size.length() > 0.01 else Vector3.ZERO
@@ -3400,11 +3430,11 @@ func _fit_hangar_camera() -> void:
 func _update_hangar_info(preset_idx: int) -> void:
 	var p := DroneCatalog.preset(preset_idx)
 	var is_en := MenuUI.is_english()
-	if _hangar_drone_name != null:
+	if _hangar_drone_name != null and is_instance_valid(_hangar_drone_name):
 		_hangar_drone_name.text = MenuUI.translate_text(DroneCatalog.get_drone_name(preset_idx))
-	if _hangar_drone_tag != null:
+	if _hangar_drone_tag != null and is_instance_valid(_hangar_drone_tag):
 		_hangar_drone_tag.text = MenuUI.translate_text(DroneCatalog.get_drone_tag(preset_idx))
-	if _hangar_specs_lbl != null:
+	if _hangar_specs_lbl != null and is_instance_valid(_hangar_specs_lbl):
 		var mass: int = int(round((float(p.get("dry", 0.4)) + float(p.get("batt", 0.2))) * 1000.0))
 		var twr: float = float(p.get("twr", 5.0))
 		var kv: int = int(p.get("kv", 2000))
@@ -3414,7 +3444,7 @@ func _update_hangar_info(preset_idx: int) -> void:
 		else:
 			_hangar_specs_lbl.text = "МАСА: %d г • TWR: %.1f:1 • МОТОРИ: %d KV • КУТ КАМЕРИ: %d°" % [mass, twr, kv, tilt]
 	_update_perf_bars(_hangar_perf_bars, p)
-	if _hangar_select_btn != null:
+	if _hangar_select_btn != null and is_instance_valid(_hangar_select_btn):
 		if preset_idx == Global.drone_preset:
 			_hangar_select_btn.text = "SELECTED FOR SORTIES" if is_en else "ОБРАНО ДЛЯ ВИЛЬОТІВ"
 			_hangar_select_btn.modulate = Color(0.75, 1.0, 0.75)
@@ -4336,11 +4366,7 @@ func _build_settings_tab_sys() -> void:
 	lang_box.add_child(lang_info)
 	var lang_btn := _button("EN / UA" if compact else ("ENGLISH (EN) → UA" if is_en else "УКРАЇНСЬКА (UA) → EN"), 42, true)
 	lang_btn.custom_minimum_size = Vector2(_ui_sz(100 if compact else 230), _ui_sz(42))
-	lang_btn.pressed.connect(func():
-		Loc.toggle_language()
-		MenuUI.localize_tree(self)
-		call_deferred("_rebuild_screens")
-	)
+	lang_btn.pressed.connect(_on_toggle_language)
 	lang_box.add_child(lang_btn)
 	sv.add_child(lang_box)
 
@@ -4500,26 +4526,128 @@ func _open_elrs_guide_modal() -> void:
 	scroll.add_child(body_lbl)
 
 
-## Rebuild every menu screen in place after a layout/presentation change.
-## (accessibility font scale).  Deferred so the triggering control is no
-## longer in its signal callback when its subtree is freed.
-func _rebuild_screens() -> void:
-	if _content == null:
+func _on_toggle_language() -> void:
+	if _rebuilding_screens:
 		return
-	var keep := _current if _screens.has(_current) else "main"
-	for c in _content.get_children():
-		c.free()
+	Loc.toggle_language()
+	call_deferred("_rebuild_screens")
+
+
+func _reset_screen_refs() -> void:
+	_hero_load_token += 1
+	_hangar_load_token += 1
+	_is_dragging_hero = false
+	_is_dragging_hangar = false
+	_main_logo = null
+	_main_hero = null
+	_hero_container = null
+	_hero_viewport = null
+	_hero_holder = null
+	_hero_camera = null
+	_hero_diorama = null
+	_hero_pad_rotator = null
+	_hero_drone_name = null
+	_hero_drone_tag = null
+	_hero_drone_specs = null
+	_maps_row = null
+	_play_modes_row = null
+	_mission_row = null
+	_mission_bar = null
+	_diff_bar = null
+	_briefing_btn = null
+	if _briefing_modal != null and is_instance_valid(_briefing_modal):
+		if _briefing_modal.get_parent() != null:
+			_briefing_modal.get_parent().remove_child(_briefing_modal)
+		_briefing_modal.queue_free()
+	_briefing_modal = null
+	_briefing_title = null
+	_briefing_body = null
+	_kropyva_panel = null
+	_kropyva_canvas = null
+	_briefing_fiber_btn = null
+	_briefing_flank_btn = null
+	_play_caption = null
+	_play_daily_lbl = null
+	_radio = null
+	_radio_skeleton = null
+	_radio_viewport = null
+	_radio_camera = null
+	_stick_readout = null
+	_source_status = null
+	_arm_status_label = null
+	_arm_status_panel = null
+	_calib_btn = null
+	_calib_hint = null
+	_rate_curve = null
+	_rate_status = null
+	_hangar_container = null
+	_hangar_viewport = null
+	_hangar_holder = null
+	_hangar_camera = null
+	_hangar_diorama = null
+	_hangar_pad_rotator = null
+	_hangar_drone_name = null
+	_hangar_drone_tag = null
+	_hangar_specs_lbl = null
+	_hangar_select_btn = null
+	_hangar_list_container = null
+	_hangar_scroll = null
+	_settings_body_container = null
+	_fps_slider_hud = null
+	_fps_label_hud = null
 	_screens.clear()
+	_hero_perf_bars.clear()
+	_hangar_perf_bars.clear()
+	_map_cards.clear()
+	_mission_buttons.clear()
+	_diff_buttons.clear()
+	_channel_options.clear()
+	_invert_buttons.clear()
+	_channel_bars.clear()
+	_action_options.clear()
+	_switch_status_labels.clear()
+	_auto_detect_buttons.clear()
 	_settings_panels.clear()
 	_settings_tab_buttons.clear()
+	_sim_toggles.clear()
+	_hud_toggles.clear()
+	_quality_buttons.clear()
+
+
+## Rebuild every menu screen in place after a layout/presentation/language change.
+## Detaches & queue_frees children cleanly (never synchronous .free() on live SubViewports).
+func _rebuild_screens() -> void:
+	if _content == null or not is_instance_valid(_content) or _rebuilding_screens:
+		return
+	_rebuilding_screens = true
+	var keep := _current if _screens.has(_current) else "main"
+	_reset_screen_refs()
+	for c in _content.get_children():
+		_content.remove_child(c)
+		c.queue_free()
 	_build_main()
 	_build_play()
 	_build_controls()
 	_build_rates()
 	_build_drone()
 	_build_settings()
+	if _lang_top_btn != null and is_instance_valid(_lang_top_btn):
+		_lang_top_btn.text = "EN" if MenuUI.is_english() else "UA"
+	if _back_btn != null and is_instance_valid(_back_btn):
+		_back_btn.text = " " + MenuUI.translate_text("НАЗАД")
+	if _top_brand != null and is_instance_valid(_top_brand):
+		var logo_lbl := _top_brand.get_node_or_null("TopBrandLogo") as Label
+		var sub_lbl := _top_brand.get_node_or_null("TopBrandSub") as Label
+		if logo_lbl != null:
+			logo_lbl.text = "HEAVENLY HORIZON" if MenuUI.is_english() else "НЕБЕСНИЙ ГОРИЗОНТ"
+		if sub_lbl != null:
+			sub_lbl.text = "TACTICAL FPV SIMULATOR  •  MOBILE TERMINAL" if MenuUI.is_english() \
+					else "ТАКТИЧНИЙ FPV-СИМУЛЯТОР  •  МОБІЛЬНИЙ ТЕРМІНАЛ"
+	_apply_masthead_layout()
 	_show(keep)
 	_update_status()
+	MenuUI.localize_tree(self)
+	_rebuilding_screens = false
 
 
 func _spacer(height: float, flags: int = Control.SIZE_SHRINK_CENTER) -> Control:
@@ -4531,6 +4659,8 @@ func _spacer(height: float, flags: int = Control.SIZE_SHRINK_CENTER) -> Control:
 
 
 func _exit_tree() -> void:
+	_hero_load_token += 1
+	_hangar_load_token += 1
 	var vp := get_viewport()
 	if vp != null and vp.size_changed.is_connected(_on_mobile_viewport_resized):
 		vp.size_changed.disconnect(_on_mobile_viewport_resized)
@@ -4538,6 +4668,8 @@ func _exit_tree() -> void:
 		_prefetch_timer.stop()
 		_prefetch_timer.queue_free()
 		_prefetch_timer = null
+	if DroneCatalog != null and DroneCatalog.has_method("flush_prefetch"):
+		DroneCatalog.call("flush_prefetch")
 	if _hero_holder != null and is_instance_valid(_hero_holder):
 		for c in _hero_holder.get_children():
 			if is_instance_valid(c):
@@ -4546,7 +4678,7 @@ func _exit_tree() -> void:
 		for c in _hangar_holder.get_children():
 			if is_instance_valid(c):
 				c.queue_free()
-	if _loading_layer != null and is_instance_valid(_loading_layer):
+	if not _handing_off_loading and _loading_layer != null and is_instance_valid(_loading_layer):
 		_loading_layer.queue_free()
 		_loading_layer = null
 	_screens.clear()

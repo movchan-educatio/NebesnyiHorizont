@@ -243,7 +243,7 @@ const PRESETS := [
 		"id": "leleka100",
 		"parts_profile": 13,
 		"audio_kind": 3,
-		"prop_tint": Color(0.72, 0.74, 0.72),
+		"prop_tint": Color(0.24, 0.26, 0.28),
 		"motor_tint": Color(0.22, 0.23, 0.24),
 		"pusher": true,
 		"composite_base": true,
@@ -870,6 +870,17 @@ func clear_model_cache() -> void:
 	_model_prefetch_failed.clear()
 
 
+func flush_prefetch() -> void:
+	_model_prefetch_queue.clear()
+	if not _model_prefetch_active.is_empty():
+		var st := ResourceLoader.load_threaded_get_status(_model_prefetch_active)
+		if st == ResourceLoader.THREAD_LOAD_IN_PROGRESS or st == ResourceLoader.THREAD_LOAD_LOADED:
+			var res = ResourceLoader.load_threaded_get(_model_prefetch_active)
+			if res is PackedScene:
+				_model_scene_cache[_model_prefetch_active] = res
+		_model_prefetch_active = ""
+
+
 func _exit_tree() -> void:
 	if not _model_prefetch_active.is_empty():
 		var st := ResourceLoader.load_threaded_get_status(_model_prefetch_active)
@@ -1098,6 +1109,27 @@ func _apply_composite_detail(model: Node3D, index: int) -> void:
 				continue
 			var mat_name := String(src.resource_name).to_lower()
 			if not mat_name.contains("composite"):
+				continue
+			if index == 7 and src is StandardMaterial3D:
+				var leleka_mat := (src as StandardMaterial3D).duplicate() as StandardMaterial3D
+				if mat_name.contains("belly"):
+					leleka_mat.albedo_color = Color(0.32, 0.38, 0.41)
+				elif mat_name.contains("grey"):
+					leleka_mat.albedo_color = Color(0.28, 0.33, 0.36)
+				elif mat_name.contains("dark"):
+					leleka_mat.albedo_color = Color(0.18, 0.21, 0.23)
+				else:
+					leleka_mat.albedo_color = Color(0.42, 0.49, 0.52)
+				leleka_mat.roughness = maxf(leleka_mat.roughness, 0.64)
+				leleka_mat.metallic = minf(leleka_mat.metallic, 0.10)
+				leleka_mat.metallic_specular = 0.22
+				if not leleka_mat.normal_enabled and _composite_normal != null:
+					leleka_mat.normal_enabled = true
+					leleka_mat.normal_texture = _composite_normal
+					leleka_mat.uv1_triplanar = true
+					leleka_mat.uv1_scale = Vector3(7.0, 7.0, 7.0)
+					leleka_mat.uv1_world_triplanar = false
+				mi.set_surface_override_material(s, leleka_mat)
 				continue
 			# Preserve authored textured PBR composite skins (panel lines, normals, roughness).
 			if src is BaseMaterial3D:

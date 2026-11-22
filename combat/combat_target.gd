@@ -15,10 +15,11 @@ const MODEL_PATHS := {
 	Kind.TRUCK: "res://Assets/vehicles/gaz_tigr_low_poly.glb",
 	Kind.INFANTRY: "res://Assets/combat/rifleman.glb",
 }
+const TARGET_SIZE_BOOST := 1.20
 const MODEL_SIZE := {
-	Kind.TANK: 8.8,
-	Kind.TRUCK: 5.5,
-	Kind.INFANTRY: 1.9,
+	Kind.TANK: 8.8 * TARGET_SIZE_BOOST,
+	Kind.TRUCK: 5.5 * TARGET_SIZE_BOOST,
+	Kind.INFANTRY: 1.9 * TARGET_SIZE_BOOST,
 }
 const MODEL_YAW := {
 	Kind.TANK: 0.0,
@@ -146,11 +147,11 @@ func _build_from_glb(path: String, target_len: float, yaw: float) -> bool:
 	_collect_meshes(model)
 	var csize := after.size
 	if kind == Kind.TANK:
-		csize = Vector3(3.6, 2.4, 7.4)
+		csize = Vector3(3.6, 2.4, 7.4) * TARGET_SIZE_BOOST
 	elif kind == Kind.TRUCK:
-		csize = Vector3(2.4, 2.4, 5.4)
+		csize = Vector3(2.4, 2.4, 5.4) * TARGET_SIZE_BOOST
 	elif kind == Kind.INFANTRY:
-		csize = Vector3(0.75, 1.9, 0.75)
+		csize = Vector3(0.75, 1.9, 0.75) * TARGET_SIZE_BOOST
 	_add_collision(csize, Vector3(0.0, csize.y * 0.5, 0.0))
 	return true
 
@@ -176,6 +177,7 @@ func _build_bunker() -> void:
 
 
 func _build_tank_fallback() -> void:
+	scale = Vector3.ONE * TARGET_SIZE_BOOST
 	var hull := Color(0.24, 0.28, 0.18)
 	var dark := Color(0.08, 0.08, 0.08)
 	_add_box(Vector3(2.8, 1.1, 6.0), Vector3(0, 0.7, 0), hull)
@@ -185,12 +187,14 @@ func _build_tank_fallback() -> void:
 
 
 func _build_truck_fallback() -> void:
+	scale = Vector3.ONE * TARGET_SIZE_BOOST
 	var body := Color(0.26, 0.30, 0.19)
 	_add_box(Vector3(2.3, 1.8, 5.2), Vector3(0, 1.1, 0), body)
 	_add_collision(Vector3(2.5, 2.4, 5.6), Vector3(0, 1.2, 0))
 
 
 func _build_infantry_fallback() -> void:
+	scale = Vector3.ONE * TARGET_SIZE_BOOST
 	var uniform := Color(0.26, 0.30, 0.18)
 	_add_box(Vector3(0.52, 1.75, 0.35), Vector3(0, 0.9, 0), uniform)
 	_add_collision(Vector3(0.62, 1.82, 0.62), Vector3(0, 0.91, 0))

@@ -215,6 +215,40 @@ def wall_with_door(name, length, height, thick, y, door_w, door_h, z0, rgb,
             (0, y, z0 + door_h + lintel_h * 0.5), rgb, collect=col)
 
 
+def _bake_uv_and_ao(ob):
+    me = ob.data
+    if not me.uv_layers:
+        me.uv_layers.new(name="UVMap")
+    uv_layer = me.uv_layers.active.data
+    col_layer = me.color_attributes["Col"] if "Col" in me.color_attributes else me.color_attributes.new(name="Col", type='FLOAT_COLOR', domain='CORNER')
+    zs = [v.co.z for v in me.vertices] if me.vertices else [0.0, 1.0]
+    z_min = min(zs)
+    z_span = max(0.25, max(zs) - z_min)
+    for poly in me.polygons:
+        n = poly.normal
+        ax, ay, az = abs(n.x), abs(n.y), abs(n.z)
+        sun = max(0.0, n.x * 0.35 - n.y * 0.40 + n.z * 0.85)
+        for li in poly.loop_indices:
+            vi = me.loops[li].vertex_index
+            co = me.vertices[vi].co
+            if az >= ax and az >= ay:
+                u, v = co.x * 0.25, co.y * 0.25
+            elif ax >= ay:
+                u, v = co.y * 0.25, co.z * 0.25
+            else:
+                u, v = co.x * 0.25, co.z * 0.25
+            uv_layer[li].uv = (u, v)
+            h_t = max(0.0, min(1.0, (co.z - z_min) / z_span))
+            ao = (0.66 + 0.34 * pow(h_t, 0.65)) * (0.86 + 0.24 * sun)
+            c = col_layer.data[li].color
+            col_layer.data[li].color = (
+                min(1.0, c[0] * ao),
+                min(1.0, c[1] * ao),
+                min(1.0, c[2] * ao),
+                1.0,
+            )
+
+
 def join_and_export(name, parts, colliders):
     if not parts:
         print("LANDMARK_FAIL", name)
@@ -226,6 +260,7 @@ def join_and_export(name, parts, colliders):
     bpy.ops.object.join()
     vis = bpy.context.object
     vis.name = name
+    _bake_uv_and_ao(vis)
     if colliders:
         bpy.ops.object.select_all(action='DESELECT')
         for ob in colliders:
@@ -241,6 +276,7 @@ def join_and_export(name, parts, colliders):
     out = os.path.join(ROOT, name + ".glb")
     bpy.ops.export_scene.gltf(filepath=out, export_format='GLB',
                               use_selection=True, export_apply=True,
+                              export_texcoords=True, export_normals=True,
                               export_yup=True)
     tris = sum(len(p.vertices) - 2 for p in vis.data.polygons)
     print("LANDMARK_OK", name, "verts=", len(vis.data.vertices),
@@ -484,52 +520,112 @@ def l_grain_elevator():
 
 def l_cargo_ship():
     parts, col = [], []
-    # Hull: solid sides and bottom, open-top cargo holds so the drone can dive in.
-    box("hull_bottom", (36.0, 8.4, 0.6), (0, 0, 0.3), RED, collect=col)
-    box("hull_bottom_vis", (36.0, 8.4, 0.6), (0, 0, 0.3), RED, collect=parts)
+    HULL_GREY = (0.19, 0.22, 0.25)
+    HULL_DARK = (0.14, 0.16, 0.18)
+    HULL_OXIDE = (0.29, 0.11, 0.08)
+    DECK_RUST = (0.26, 0.18, 0.14)
+    SUPER_CREAM = (0.43, 0.42, 0.38)
+    # Hull: anti-fouling oxide bottom + weathered naval grey freeboard, open-top cargo holds.
+    box("hull_bottom", (36.0, 8.4, 0.6), (0, 0, 0.3), HULL_OXIDE, collect=col)
+    box("hull_bottom_vis", (36.0, 8.4, 0.8), (0, 0, 0.4), HULL_OXIDE, collect=parts)
     for sy in (-1.0, 1.0):
-        box("hull_side", (36.0, 0.4, 3.4), (0, sy * 4.0, 1.7), RED, collect=col)
-        box("hull_side_vis", (36.0, 0.4, 3.4), (0, sy * 4.0, 1.7), RED, collect=parts)
-        box("bulwark", (34.0, 0.22, 1.0), (0, sy * 4.35, 3.9), METAL_LIGHT,
-            collect=parts)
-    box("stern", (0.5, 8.4, 3.4), (-18.0, 0, 1.7), RED, collect=col)
-    box("stern_vis", (0.5, 8.4, 3.4), (-18.0, 0, 1.7), RED, collect=parts)
+        box("hull_side", (36.0, 0.4, 3.4), (0, sy * 4.0, 1.7), HULL_GREY, collect=col)
+        box("hull_side_lower", (36.0, 0.44, 1.15), (0, sy * 4.0, 0.65), HULL_OXIDE, collect=parts)
+        box("waterline_boot", (36.1, 0.46, 0.18), (0, sy * 4.0, 1.24), WHITE, collect=parts)
+        box("hull_side_vis", (36.0, 0.42, 2.2), (0, sy * 4.0, 2.35), HULL_GREY, collect=parts)
+        box("bulwark", (34.0, 0.24, 1.05), (0, sy * 4.32, 3.92), HULL_DARK, collect=parts)
+        box("gunwale_rail", (34.2, 0.34, 0.14), (0, sy * 4.35, 4.46), METAL_LIGHT, collect=parts)
+        # External vertical hull ribs & rust streaks
+        for rx in range(-15, 16, 3):
+            box("hull_rib", (0.22, 0.12, 2.8), (float(rx), sy * 4.24, 2.1), HULL_DARK, collect=parts)
+            if rx % 6 == 0:
+                box("hull_rust", (0.85, 0.08, 1.8), (float(rx) + 0.9, sy * 4.23, 2.4), RUST_DARK, collect=parts)
+    box("stern", (0.5, 8.4, 3.4), (-18.0, 0, 1.7), HULL_GREY, collect=col)
+    box("stern_lower", (0.55, 8.4, 1.2), (-18.0, 0, 0.65), HULL_OXIDE, collect=parts)
+    box("stern_vis", (0.52, 8.4, 2.3), (-18.0, 0, 2.35), HULL_GREY, collect=parts)
+    box("stern_transom_cap", (0.8, 8.6, 0.9), (-18.1, 0, 3.85), HULL_DARK, collect=parts)
     # Deck strips leave two hatch openings (the holds are enterable).
     for sy in (-1.0, 1.0):
-        box("deck_strip", (36.0, 2.2, 0.25), (0, sy * 3.1, 3.55), METAL, collect=parts)
+        box("deck_strip", (36.0, 2.2, 0.25), (0, sy * 3.1, 3.55), DECK_RUST, collect=parts)
     for x0 in (-13.5, -9.0, 4.5, 9.0, 14.5):
-        box("deck_bar", (4.5, 4.0, 0.25), (x0, 0, 3.55), METAL, collect=parts)
-    # Open holds with coaming walls (fly-in boxes).
+        box("deck_bar", (4.5, 4.0, 0.25), (x0, 0, 3.55), DECK_RUST, collect=parts)
+    # Raised hatch coamings with structural stiffeners (visual + collision).
     for x in (-8.0, 6.0):
         for sx in (-1.0, 1.0):
-            box("hold_wall", (0.25, 6.4, 1.0), (x + sx * 4.5, 0, 4.05), METAL,
-                collect=col)
+            box("hold_wall", (0.28, 6.4, 1.05), (x + sx * 4.5, 0, 4.05), RUST, collect=col)
+            box("hold_wall_vis", (0.28, 6.4, 1.05), (x + sx * 4.5, 0, 4.05), RUST, collect=parts)
         for sy in (-1.0, 1.0):
-            box("hold_end", (9.2, 0.25, 1.0), (x, sy * 3.2, 4.05), METAL,
-                collect=col)
-    # Bow plates.
+            box("hold_end", (9.2, 0.28, 1.05), (x, sy * 3.2, 4.05), RUST, collect=col)
+            box("hold_end_vis", (9.2, 0.28, 1.05), (x, sy * 3.2, 4.05), RUST, collect=parts)
+        # Interior hold bottom ribbing
+        for rib_x in (-3.0, -1.0, 1.0, 3.0):
+            box("hold_rib", (0.24, 6.2, 0.35), (x + rib_x, 0, 0.78), HULL_DARK, collect=parts)
+    # Raked bow plates + forecastle deck + anchor windlass.
     for sy in (-1.0, 1.0):
-        box("bow_plate", (5.0, 2.8, 3.4), (18.8, sy * 2.4, 1.7), RED,
+        box("bow_plate_low", (5.2, 2.8, 1.25), (18.8, sy * 2.4, 0.65), HULL_OXIDE,
             (0, 0, sy * math.radians(26)), collect=parts)
-        box("bow_plate_col", (5.0, 2.8, 3.4), (18.8, sy * 2.4, 1.7), RED,
+        box("bow_plate", (5.2, 2.8, 2.3), (18.9, sy * 2.4, 2.35), HULL_GREY,
+            (0, 0, sy * math.radians(26)), collect=parts)
+        box("bow_plate_col", (5.0, 2.8, 3.4), (18.8, sy * 2.4, 1.7), HULL_GREY,
             (0, 0, sy * math.radians(26)), collect=col)
-    # Superstructure with an open bridge deck door.
-    box("house", (8.0, 7.0, 5.5), (-13.0, 0, 6.2), WHITE, collect=col)
-    box("house_vis", (8.0, 7.0, 5.5), (-13.0, 0, 6.2), WHITE, collect=parts)
-    box("bridge", (6.4, 7.4, 1.5), (-12.2, 0, 9.6), WHITE, collect=parts)
+        box("bow_bulwark", (4.8, 0.24, 1.1), (19.0, sy * 2.2, 4.05), HULL_DARK,
+            (0, 0, sy * math.radians(26)), collect=parts)
+        cyl("hawse_pipe", 0.32, 0.6, (19.6, sy * 1.65, 2.9), RUST_DARK,
+            (0, math.pi / 2, sy * 0.4), verts=10, collect=parts)
+    box("forecastle_deck", (5.4, 5.8, 0.35), (17.8, 0, 3.85), DECK_RUST, collect=parts)
+    cyl("windlass_drum", 0.45, 2.4, (18.6, 0, 4.35), METAL, (math.pi / 2, 0, 0), verts=10, collect=parts)
+    cyl("bow_mast", 0.14, 5.2, (20.2, 0, 6.4), METAL_LIGHT, verts=8, collect=parts)
+    box("bow_xarm", (0.14, 2.2, 0.14), (20.2, 0, 8.2), METAL_LIGHT, collect=parts)
+    # Deck crane pedestal and boom between holds (at x = -1.2).
+    cyl("crane_pedestal", 0.85, 3.2, (-1.2, 0.0, 5.1), METAL_LIGHT, verts=12, collect=parts)
+    box("crane_turret", (1.8, 1.6, 1.5), (-1.2, 0.0, 7.2), ORANGE, collect=parts)
+    box("crane_cab_win", (0.7, 0.12, 0.8), (-0.4, -0.82, 7.3), GLASS, collect=parts)
+    box("crane_boom", (9.5, 0.45, 0.45), (3.2, 0.0, 9.2), ORANGE, (0, -math.radians(18), 0), collect=parts)
+    # Multi-tier aft superstructure with bridge wings, exterior walkways, lifeboats & radar mast.
+    box("house", (8.0, 7.0, 5.5), (-13.0, 0, 6.2), SUPER_CREAM, collect=col)
+    box("house_tier1", (8.2, 7.0, 2.7), (-13.0, 0, 4.9), SUPER_CREAM, collect=parts)
+    box("house_deck1", (8.6, 7.6, 0.22), (-13.0, 0, 6.3), HULL_DARK, collect=parts)
+    box("house_tier2", (7.2, 6.4, 2.6), (-12.8, 0, 7.65), SUPER_CREAM, collect=parts)
+    box("house_deck2", (7.8, 8.6, 0.24), (-12.5, 0, 9.0), HULL_DARK, collect=parts)
+    box("bridge", (6.4, 8.4, 1.65), (-12.2, 0, 9.9), SUPER_CREAM, collect=parts)
+    box("bridge_roof", (6.8, 8.8, 0.25), (-12.2, 0, 10.82), HULL_DARK, collect=parts)
+    # Forward and side bridge windows + brow visor
+    box("bridge_win_front", (0.16, 7.6, 0.85), (-8.95, 0, 10.05), GLASS, collect=parts)
+    box("bridge_visor", (0.55, 8.8, 0.14), (-8.75, 0, 10.55), HULL_DARK, collect=parts)
     for sy in (-1.0, 1.0):
-        box("bridge_win", (6.0, 0.16, 0.9), (-12.2, sy * 3.78, 9.7), GLASS, collect=parts)
-    box("funnel", (1.4, 1.4, 2.4), (-15.6, 0, 12.4), BLACK, collect=parts)
-    box("funnel_band", (1.5, 1.5, 0.35), (-15.6, 0, 13.2), ORANGE, collect=parts)
-    cyl("mast", 0.12, 6.0, (-17.5, 0, 9.0), METAL, verts=8, collect=parts)
+        box("bridge_win_side", (5.8, 0.16, 0.85), (-12.2, sy * 4.22, 10.05), GLASS, collect=parts)
+        for wx in (-15.2, -13.2, -11.2):
+            box("porthole_t1", (0.75, 0.14, 0.65), (wx, sy * 3.54, 5.15), GLASS, collect=parts)
+            box("porthole_t2", (0.75, 0.14, 0.65), (wx + 0.3, sy * 3.24, 7.75), GLASS, collect=parts)
+        # Lifeboats on davits on port and starboard decks
+        box("lifeboat", (3.6, 1.15, 0.85), (-13.5, sy * 4.15, 6.95), ORANGE, collect=parts)
+        box("lifeboat_canopy", (2.4, 0.95, 0.45), (-13.5, sy * 4.15, 7.5), WHITE, collect=parts)
+    # Raked exhaust funnel with casing, band and uptake pipes
+    box("funnel_base", (2.4, 2.0, 1.2), (-15.4, 0, 11.4), SUPER_CREAM, collect=parts)
+    box("funnel", (2.0, 1.6, 2.6), (-15.6, 0, 13.1), HULL_DARK, (0, -math.radians(8), 0), collect=parts)
+    box("funnel_band", (2.08, 1.68, 0.45), (-15.65, 0, 13.7), ORANGE, (0, -math.radians(8), 0), collect=parts)
+    cyl("exhaust_pipe_a", 0.25, 0.8, (-15.3, -0.35, 14.5), SOOT, verts=8, collect=parts)
+    cyl("exhaust_pipe_b", 0.25, 0.8, (-15.3, 0.35, 14.5), SOOT, verts=8, collect=parts)
+    # Radar mast & scanner crossbar
+    cyl("mast", 0.16, 5.2, (-12.0, 0, 13.4), METAL_LIGHT, verts=8, collect=parts)
+    box("radar_xarm", (0.2, 3.2, 0.18), (-12.0, 0, 14.6), METAL_LIGHT, collect=parts)
+    box("radar_scanner", (0.35, 1.8, 0.24), (-11.8, 0, 15.8), WHITE, collect=parts)
+    # Corrugated deck containers with ribs
     for i in range(3):
-        box("cont", (5.6, 2.3, 2.5), (2.5 + i * 6.2, -3.0, 4.85),
-            BLUE if i % 2 else ORANGE, collect=parts)
+        cx = 2.5 + i * 6.2
+        c_col = BLUE if i % 2 else RUST
+        box("cont", (5.6, 2.35, 2.5), (cx, -3.0, 4.85), c_col, collect=parts)
+        for r in range(-2, 3):
+            box("cont_rib", (0.14, 2.42, 2.38), (cx + r * 1.05, -3.0, 4.85), HULL_DARK, collect=parts)
     for i in range(2):
-        box("cont2", (5.4, 2.2, 2.4), (6.0 + i * 6.0, 3.0, 4.8), GREEN, collect=parts)
+        cx = 6.0 + i * 6.0
+        box("cont2", (5.4, 2.25, 2.4), (cx, 3.0, 4.8), GREEN, collect=parts)
+        for r in range(-2, 3):
+            box("cont2_rib", (0.14, 2.32, 2.28), (cx + r * 1.0, 3.0, 4.8), HULL_DARK, collect=parts)
     for i in range(8):
-        cyl("bollard", 0.12, 0.5, (-15.0 + i * 4.2, -4.3, 4.5), METAL, verts=6,
-            collect=parts)
+        for sy in (-1.0, 1.0):
+            cyl("bollard", 0.14, 0.55, (-15.0 + i * 4.2, sy * 4.15, 3.9), METAL, verts=8,
+                collect=parts)
     join_and_export("cargo_ship", parts, col)
 
 

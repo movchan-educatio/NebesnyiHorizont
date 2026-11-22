@@ -4,15 +4,19 @@ extends "res://sceneries/BigLevel.gd"
 ## РЕБ, погоду, HUD, треки, якість) і підміняємо лише географію карти.
 
 const AIRPORT_GLB := "res://Assets/maps/abandoned_airport.glb"
+const AIRPORT_LANDMARKS_GLB := "res://Assets/maps/airport_landmarks.glb"
 const GATE_BIG := "res://tracks/gates/Gate_7x6_Simple.tscn"
 const GATE_SMALL := "res://tracks/gates/Gate_5x5_Simple.tscn"
 const TREE_OAK := "res://Assets/frontline/oak.glb"
 const TREE_PINE := "res://Assets/frontline/pine.glb"
+const VegAssetsScript := preload("res://scripts/util/vegetation_assets.gd")
 
 const HIDDEN_DEC := ["DEC__M_Green", "DEC__M_Ground", "DEC__M_Hill",
-	"DEC__M_Corrugated", "DEC__M_Rust", "DEC__M_Steel", "DEC__M_Concrete", "DEC__M_Rubber"]
+	"DEC__M_Corrugated", "DEC__M_Rust", "DEC__M_Steel", "DEC__M_Concrete", "DEC__M_Rubber",
+	"DEC__M_Yellow", "COL__M_Yellow", "DEC__M_Marking"]
 
 var _grass_hide_attempts := 0
+var _landmark_meshes_cache: Dictionary = {}
 
 
 
@@ -21,10 +25,44 @@ func _map_path() -> String:
 	return AIRPORT_GLB
 
 
-## GLB уже має запечені PBR-матеріали — не ховаємо меші, як робить BigLevel
-## для старих плейсхолдерних карт.
-func _apply_map_materials(_node: Node) -> void:
-	pass
+## Оновлюємо процедурні Voronoi-матеріали карти на повноцінні 2K Triplanar PBR
+## (бетон, злітний асфальтобетон перону, гофрований метал ангарів, іржа, фарбована штукатурка).
+func _apply_map_materials(node: Node) -> void:
+	if node == null:
+		return
+	var tarmac_mat := (FrontlineTerrainScript._pbr("hall_concrete", Color(0.56, 0.55, 0.52), 0.06) as StandardMaterial3D).duplicate() as StandardMaterial3D
+	tarmac_mat.uv1_triplanar = true
+	tarmac_mat.uv1_world_triplanar = true
+	tarmac_mat.uv1_scale = Vector3(0.06, 0.06, 0.06)
+	tarmac_mat.roughness = 0.88
+	var pbr_by_mesh := {
+		"COL__M_Concrete": FrontlineTerrainScript._pbr("hall_concrete", Color(0.76, 0.74, 0.70), 0.16),
+		"DEC__M_FarConc": FrontlineTerrainScript._pbr("hall_concrete", Color(0.72, 0.70, 0.66), 0.14),
+		"COL__M_Tarmac": tarmac_mat,
+		"DEC__M_Tarmac": tarmac_mat,
+		"COL__M_Ground": tarmac_mat,
+		"COL__M_Corrugated": FrontlineTerrainScript._pbr("steel", Color(0.64, 0.66, 0.68), 0.24),
+		"COL__M_Rust": FrontlineTerrainScript._pbr("hall_rust", Color(0.70, 0.50, 0.38), 0.28),
+		"COL__M_Steel": FrontlineTerrainScript._pbr("hall_metal", Color(0.62, 0.65, 0.68), 0.26),
+		"COL__M_Paint": FrontlineTerrainScript._pbr("plaster", Color(0.74, 0.71, 0.65), 0.22),
+		"DEC__M_Paint": FrontlineTerrainScript._pbr("plaster", Color(0.72, 0.69, 0.63), 0.22),
+		"COL__M_Brick": FrontlineTerrainScript._pbr("brick", Color(0.68, 0.44, 0.36), 0.38),
+		"DEC__M_Brick": FrontlineTerrainScript._pbr("brick", Color(0.68, 0.44, 0.36), 0.38),
+		"COL__M_Wood": FrontlineTerrainScript._pbr("wood", Color(0.62, 0.48, 0.34), 0.32),
+		"DEC__M_Wood": FrontlineTerrainScript._pbr("wood", Color(0.62, 0.48, 0.34), 0.32),
+	}
+	var all_meshes: Array[MeshInstance3D] = []
+	_collect_meshes(node, all_meshes)
+	for mi in all_meshes:
+		if mi.name in HIDDEN_DEC:
+			mi.visible = false
+			continue
+		if pbr_by_mesh.has(mi.name):
+			var pmat := pbr_by_mesh[mi.name] as Material
+			if pmat != null:
+				mi.material_override = pmat
+				if mi.name in ["COL__M_Tarmac", "DEC__M_Tarmac", "COL__M_Ground"]:
+					mi.set_meta("no_batch", true)
 
 
 func _scatter_legacy_map(_instance: Node3D) -> void:
@@ -51,6 +89,8 @@ func _ready() -> void:
 	MAP_AIR_SAFE = 450.0
 	_ground_y = 0.12
 	set_meta("disable_procedural_grass", true)
+	_defer_loading_dismiss = true
+	_defer_training_rings = true
 	super._ready()
 	_force_touch_mode()
 	var radio := get_node_or_null("RadioController")
@@ -61,6 +101,12 @@ func _ready() -> void:
 	await get_tree().physics_frame
 	_connect_horizon_assist()
 	_ensure_airport_props_built()
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	if Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training \
+			and not _mission_finished:
+		_spawn_training_rings()
+	call_deferred("_dismiss_global_loading_overlay")
 
 
 ## Стартовий баррель BigLevel стоїть біля початку координат і ставить дрон
@@ -204,11 +250,13 @@ func _replace_trees() -> void:
 		_find_dec_mesh(root, found)
 	for m in found:
 		if m.name == "COL__M_Ground":
-			# Беремо той самий матеріал, що й у льотного поля, — межі не буде видно.
+			# Беремо той самий PBR матеріал, що й у льотного поля, — межі не буде видно.
 			var tarmac := _find_named_mesh(get_node_or_null("MapRoot"), "COL__M_Tarmac")
 			var mat: Material = null
-			if tarmac != null and tarmac.mesh != null and tarmac.mesh.get_surface_count() > 0:
-				mat = tarmac.mesh.surface_get_material(0)
+			if tarmac != null:
+				mat = tarmac.material_override
+				if mat == null and tarmac.mesh != null and tarmac.mesh.get_surface_count() > 0:
+					mat = tarmac.mesh.surface_get_material(0)
 			if mat != null:
 				m.material_override = mat
 			continue
@@ -224,7 +272,7 @@ func _replace_trees() -> void:
 	var oak_xforms: Array[Transform3D] = []
 	var pine_xforms: Array[Transform3D] = []
 	var q := QualityManagerScript.get_active_level()
-	var tree_count := 72 if q == QualityManagerScript.Level.LOW else (110 if q == QualityManagerScript.Level.MEDIUM else 150)
+	var tree_count := 48 if q == QualityManagerScript.Level.LOW else (110 if q == QualityManagerScript.Level.MEDIUM else 150)
 	for i in range(tree_count):
 		var use_pine := ((i % 3 != 0) if q == QualityManagerScript.Level.LOW else (i % 3 == 0)) and pine != null
 		if oak == null:
@@ -244,12 +292,51 @@ func _replace_trees() -> void:
 			oak_xforms.append(xf)
 	var veg_range := float(QualityManagerScript.get_value("veg_range", 560.0))
 	var tree_shadows := QualityManagerScript.get_active_level() >= QualityManagerScript.Level.HIGH
-	_batch_tree_group(oak, "AirportOak", oak_xforms, tree_shadows, veg_range)
-	_batch_tree_group(pine, "AirportPine", pine_xforms, tree_shadows, veg_range)
+	var veg_trees: Array[Dictionary] = VegAssetsScript.trees()
+	var oak_entry: Dictionary = {}
+	var pine_entry: Dictionary = {}
+	for t_entry in veg_trees:
+		if bool(t_entry.get("pine", false)):
+			if pine_entry.is_empty():
+				pine_entry = t_entry
+		else:
+			if oak_entry.is_empty():
+				oak_entry = t_entry
+	if not oak_entry.is_empty() and not pine_entry.is_empty():
+		_batch_veg_tree_entry(oak_entry, "AirportOak", oak_xforms, tree_shadows, veg_range)
+		_batch_veg_tree_entry(pine_entry, "AirportPine", pine_xforms, tree_shadows, veg_range)
+	else:
+		_batch_tree_group(oak, "AirportOak", oak_xforms, tree_shadows, veg_range)
+		_batch_tree_group(pine, "AirportPine", pine_xforms, tree_shadows, veg_range)
 	var all_trees: Array[Transform3D] = []
 	all_trees.append_array(oak_xforms)
 	all_trees.append_array(pine_xforms)
 	_add_airport_tree_colliders(all_trees)
+
+
+func _batch_veg_tree_entry(entry: Dictionary, label: String,
+		xforms: Array[Transform3D], cast_shadows: bool, veg_range: float) -> void:
+	if xforms.is_empty():
+		return
+	var part_keys := ["trunk", "leaves"]
+	for p_idx in range(part_keys.size()):
+		var mesh := entry.get(part_keys[p_idx]) as Mesh
+		if mesh == null:
+			continue
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = mesh
+		mm.instance_count = xforms.size()
+		for i in range(xforms.size()):
+			mm.set_instance_transform(i, xforms[i])
+		var mmi := MultiMeshInstance3D.new()
+		mmi.name = "%s_MM_%d" % [label, p_idx]
+		mmi.multimesh = mm
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if cast_shadows \
+				else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mmi.visibility_range_end = veg_range
+		mmi.visibility_range_end_margin = 60.0
+		add_child(mmi)
 
 
 func _batch_tree_group(packed: PackedScene, label: String,
@@ -368,7 +455,7 @@ func _spawn_detailed_props() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7777
 	var spawned := 0
-	var prop_count := 64 if QualityManagerScript.get_active_level() == QualityManagerScript.Level.LOW else 96
+	var prop_count := 44 if QualityManagerScript.get_active_level() == QualityManagerScript.Level.LOW else 96
 	for i in range(prop_count):
 		var nm: String = str(names[i % names.size()])
 		var a := rng.randf_range(0.0, TAU)
@@ -500,11 +587,13 @@ func _build_airport_collision() -> void:
 	var flat_dec := ["DEC__M_Marking", "DEC__M_Oil", "DEC__M_Yellow",
 		"DEC__M_Glass", "DEC__M_Paint", "DEC__M_FarConc"]
 	var flat_floor_names := ["COL__M_Ground", "COL__M_Tarmac", "DEC__M_Tarmac"]
-	var flat_surface_names := ["COL__M_Paint", "COL__M_Yellow", "COL__M_Glass"]
+	var flat_surface_names := ["COL__M_Paint", "COL__M_Glass"]
 	var solid_cells: Dictionary = {}
 	var flat_cells: Dictionary = {}
 	var has_floor := false
 	for mi in meshes:
+		if mi.name in HIDDEN_DEC:
+			continue
 		if mi.name in ["DEC__M_Hill", "DEC__M_FarHill", "DEC__M_FarConc",
 			"DEC__M_Green", "DEC__M_Ground"]:
 			mi.cast_shadow = MeshInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -710,32 +799,84 @@ func _pick_clear_airport_landmark_pos(base: Vector2, radius: float) -> Vector3:
 	return Vector3(base.x, _ground_y, base.y)
 
 
+func _get_airport_landmark_mesh(mesh_name: String) -> Mesh:
+	if _landmark_meshes_cache.is_empty():
+		var packed := load(AIRPORT_LANDMARKS_GLB) as PackedScene
+		if packed != null:
+			var inst := packed.instantiate()
+			if inst != null:
+				var found_mi: Array[MeshInstance3D] = []
+				_collect_meshes(inst, found_mi)
+				for mi in found_mi:
+					if mi.mesh != null:
+						_landmark_meshes_cache[String(mi.name)] = mi.mesh.duplicate()
+				inst.free()
+	return _landmark_meshes_cache.get(mesh_name) as Mesh
+
+
 func _make_airport_mat(albedo: Color, rough: float = 0.86,
-		metal: float = 0.08, unshaded: bool = false) -> StandardMaterial3D:
+		metal: float = 0.08, unshaded: bool = false,
+		pbr_kind: String = "hall_concrete", use_vcol: bool = false) -> StandardMaterial3D:
+	if not unshaded:
+		var base_pbr := FrontlineTerrainScript._pbr(pbr_kind, albedo, 0.24)
+		if base_pbr != null:
+			var pm := base_pbr.duplicate() as StandardMaterial3D
+			pm.uv1_triplanar = true
+			pm.uv1_world_triplanar = true
+			if use_vcol:
+				# Keep PBR normal/roughness/AO relief while letting baked vertex colors + AO drive albedo cleanly.
+				pm.albedo_texture = null
+				pm.albedo_color = Color(1.04, 1.03, 1.01) if albedo == Color.WHITE or (albedo.r > 0.99 and albedo.g > 0.99 and albedo.b > 0.99) else albedo
+			else:
+				pm.albedo_color = albedo
+			pm.roughness = rough
+			pm.metallic = metal
+			pm.metallic_specular = 0.28
+			pm.vertex_color_use_as_albedo = use_vcol
+			return pm
 	var m := StandardMaterial3D.new()
 	m.albedo_color = albedo
 	m.roughness = rough
 	m.metallic = metal
 	m.metallic_specular = 0.25
+	m.vertex_color_use_as_albedo = use_vcol
 	if unshaded:
 		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	return m
 
 
+func _add_sculpted_landmark_mesh(parent: Node3D, node_name: String,
+		mesh: Mesh, mat: Material, cast_shadows: bool = true) -> MeshInstance3D:
+	if mesh == null:
+		return null
+	var mi := MeshInstance3D.new()
+	mi.name = node_name
+	mi.mesh = mesh
+	if mat != null:
+		mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if cast_shadows \
+			else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.visibility_range_end = 1100.0
+	mi.visibility_range_end_margin = 80.0
+	mi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+	parent.add_child(mi)
+	return mi
+
+
 ## 5 фірмових історичних орієнтирів аеропорту (ЗПС з розміткою, руїни диспетчерської
 ## вежі, паливний термінал, вантажний контейнерний двір, зруйнований ангар з літаками).
-## Усі геометрії змерджені через SurfaceTool / MultiMeshInstance3D (лише ~12 draw calls
-## та ~1500 трикутників сумарно), що зберігає бюджет LOW preset на iPhone 11.
+## Використовує деталізовані Blender-меші з airport_landmarks.glb + 2K Triplanar PBR.
 func _build_airport_historical_landmarks() -> void:
 	if get_node_or_null("AirportLandmark_RunwayStrip") != null:
 		return
-	var mat_white := _make_airport_mat(Color(0.84, 0.83, 0.78), 0.92, 0.0)
-	var mat_yellow := _make_airport_mat(Color(0.86, 0.68, 0.18), 0.90, 0.0)
-	var mat_concrete := _make_airport_mat(Color(0.54, 0.53, 0.49), 0.90, 0.04)
-	var mat_charred := _make_airport_mat(Color(0.24, 0.23, 0.22), 0.94, 0.05)
-	var mat_rust := _make_airport_mat(Color(0.46, 0.29, 0.19), 0.82, 0.28)
-	var mat_steel := _make_airport_mat(Color(0.44, 0.47, 0.50), 0.72, 0.42)
-	var mat_alloy := _make_airport_mat(Color(0.62, 0.65, 0.67), 0.68, 0.35)
+	var mat_white := _make_airport_mat(Color(0.86, 0.85, 0.80), 0.92, 0.0, false, "hall_concrete", false)
+	var mat_yellow := _make_airport_mat(Color(0.86, 0.68, 0.18), 0.90, 0.0, false, "hall_concrete", false)
+	var mat_concrete := _make_airport_mat(Color(0.72, 0.70, 0.66), 0.90, 0.04, false, "hall_concrete", false)
+	var mat_tower_vcol := _make_airport_mat(Color(1.06, 1.05, 1.02), 0.86, 0.08, false, "hall_concrete", true)
+	var mat_depot_vcol := _make_airport_mat(Color(1.06, 1.05, 1.02), 0.76, 0.24, false, "hall_metal", true)
+	var mat_hangar_vcol := _make_airport_mat(Color(1.06, 1.06, 1.08), 0.74, 0.34, false, "hall_metal", true)
+	var mat_aircraft_vcol := _make_airport_mat(Color(1.08, 1.10, 1.12), 0.70, 0.30, false, "hall_metal", true)
+	var mat_edge_vcol := _make_airport_mat(Color(1.10, 1.06, 0.90), 0.65, 0.20, false, "hall_metal", true)
 
 	# 1. Злітно-посадкова смуга 09/27 + руліжні доріжки + вертолітні майданчики перону
 	var runway := Node3D.new()
@@ -774,21 +915,24 @@ func _build_airport_historical_landmarks() -> void:
 
 	var edge_mm := MultiMesh.new()
 	edge_mm.transform_format = MultiMesh.TRANSFORM_3D
-	var light_box := BoxMesh.new()
-	light_box.size = Vector3(0.35, 0.42, 0.35)
-	edge_mm.mesh = light_box
+	var edge_mesh := _get_airport_landmark_mesh("RunwayEdgeLight")
+	if edge_mesh == null:
+		var light_box := BoxMesh.new()
+		light_box.size = Vector3(0.35, 0.42, 0.35)
+		edge_mesh = light_box
+	edge_mm.mesh = edge_mesh
 	var light_xfs: Array[Transform3D] = []
 	for side_z in [-21.0, 21.0]:
 		for i in range(-9, 10):
 			light_xfs.append(Transform3D(Basis.IDENTITY,
-					Vector3(float(i) * 34.0, 0.21, side_z)))
+					Vector3(float(i) * 34.0, 0.0, side_z)))
 	edge_mm.instance_count = light_xfs.size()
 	for i in range(light_xfs.size()):
 		edge_mm.set_instance_transform(i, light_xfs[i])
 	var edge_mmi := MultiMeshInstance3D.new()
 	edge_mmi.name = "RunwayEdgeLights_MM"
 	edge_mmi.multimesh = edge_mm
-	edge_mmi.material_override = mat_yellow
+	edge_mmi.material_override = mat_edge_vcol
 	edge_mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	edge_mmi.visibility_range_end = 700.0
 	runway.add_child(edge_mmi)
@@ -801,32 +945,20 @@ func _build_airport_historical_landmarks() -> void:
 	add_child(tower)
 	_tag_airport_landmark(tower, "airport_control_tower_ruins")
 
-	var st_tw_conc := SurfaceTool.new()
-	st_tw_conc.begin(Mesh.PRIMITIVE_TRIANGLES)
-	_append_box_to_st(st_tw_conc, Vector3(0.0, 3.8, 0.0), Vector3(9.4, 7.6, 9.4))
-	_append_box_to_st(st_tw_conc, Vector3(0.0, 12.8, 0.0), Vector3(6.4, 11.2, 6.4))
-	_append_box_to_st(st_tw_conc, Vector3(0.0, 18.8, 0.0), Vector3(10.2, 0.85, 10.2))
-	_append_box_to_st(st_tw_conc, Vector3(0.2, 22.6, -0.1),
-			Vector3(9.6, 0.65, 9.6), Vector3(0.06, 0.0, -0.05))
-	for r_i in range(6):
-		var ang := TAU * float(r_i) / 6.0
-		_append_box_to_st(st_tw_conc,
-				Vector3(cos(ang) * 5.8, 0.65, sin(ang) * 5.8),
-				Vector3(2.8, 1.3, 2.2), Vector3(0.18, ang, -0.14))
-	_commit_st_mesh(tower, "TowerConcrete", st_tw_conc, mat_concrete, true)
-
-	var st_tw_steel := SurfaceTool.new()
-	st_tw_steel.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for sx in [-4.2, 4.2]:
-		for sz in [-4.2, 4.2]:
-			_append_box_to_st(st_tw_steel, Vector3(sx, 20.7, sz), Vector3(0.38, 3.4, 0.38))
-	_append_cyl_to_st(st_tw_steel, Vector3(0.0, 24.8, 0.0), 0.35, 3.8)
-	_append_box_to_st(st_tw_steel, Vector3(0.0, 26.5, 0.0),
-			Vector3(5.4, 0.75, 0.55), Vector3(0.0, 0.45, 0.08))
-	_commit_st_mesh(tower, "TowerSteelFrame", st_tw_steel, mat_rust, true)
-	_add_airport_landmark_collider(tower, Vector3(0.0, 12.0, 0.0), Vector3(9.6, 24.0, 9.6))
+	var tower_mesh := _get_airport_landmark_mesh("ControlTowerRuins")
+	if tower_mesh != null:
+		_add_sculpted_landmark_mesh(tower, "TowerConcrete", tower_mesh, mat_tower_vcol, true)
+	# Segmented colliders so the octagonal ATC cab (y = 19.8..23.4 m) has open fly-through windows on all 8 faces
+	_add_airport_landmark_collider(tower, Vector3(0.0, 3.85, 0.0), Vector3(9.6, 7.7, 9.6))
+	_add_airport_landmark_collider(tower, Vector3(0.0, 13.7, 0.0), Vector3(6.8, 12.1, 6.8))
+	_add_airport_landmark_collider(tower, Vector3(0.0, 19.35, 0.0), Vector3(10.4, 0.85, 10.4))
+	_add_airport_landmark_collider(tower, Vector3(0.0, 26.0, 0.0), Vector3(10.4, 5.2, 10.4))
+	for mi in range(8):
+		var mang := float(mi) * TAU / 8.0
+		_add_airport_landmark_collider(tower, Vector3(cos(mang) * 4.65, 21.55, -sin(mang) * 4.65),
+				Vector3(0.32, 3.85, 0.32))
 	FrontlineTerrainScript.register_structure_exclusion(
-			Vector2(tower_pos.x, tower_pos.z), Vector2(6.5, 6.5), 27.0)
+			Vector2(tower_pos.x, tower_pos.z), Vector2(6.5, 6.5), 29.0)
 
 	# 3. Паливний термінал ПММ (Aviation Fuel Depot)
 	var depot_pos := _pick_clear_airport_landmark_pos(Vector2(295.0, 165.0), 16.0)
@@ -836,25 +968,9 @@ func _build_airport_historical_landmarks() -> void:
 	add_child(depot)
 	_tag_airport_landmark(depot, "airport_fuel_depot")
 
-	var st_fd_conc := SurfaceTool.new()
-	st_fd_conc.begin(Mesh.PRIMITIVE_TRIANGLES)
-	_append_box_to_st(st_fd_conc, Vector3(0.0, 0.2, 0.0), Vector3(24.0, 0.4, 16.0))
-	_append_box_to_st(st_fd_conc, Vector3(0.0, 0.8, -7.7), Vector3(24.0, 1.2, 0.6))
-	_append_box_to_st(st_fd_conc, Vector3(0.0, 0.8, 7.7), Vector3(24.0, 1.2, 0.6))
-	_append_box_to_st(st_fd_conc, Vector3(-11.7, 0.8, 0.0), Vector3(0.6, 1.2, 15.0))
-	_append_box_to_st(st_fd_conc, Vector3(11.7, 0.8, 0.0), Vector3(0.6, 1.2, 15.0))
-	_commit_st_mesh(depot, "FuelDepotBund", st_fd_conc, mat_concrete, true)
-
-	var st_fd_tanks := SurfaceTool.new()
-	st_fd_tanks.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for tx in [-5.6, 5.6]:
-		for tz in [-3.4, 3.4]:
-			_append_cyl_to_st(st_fd_tanks, Vector3(tx, 2.5, tz),
-					1.95, 9.6, Vector3(0.0, 0.0, PI * 0.5))
-	_append_box_to_st(st_fd_tanks, Vector3(0.0, 4.7, 0.0), Vector3(20.0, 0.35, 0.9))
-	_append_cyl_to_st(st_fd_tanks, Vector3(0.0, 1.8, 0.0),
-			0.28, 13.0, Vector3(PI * 0.5, 0.0, 0.0))
-	_commit_st_mesh(depot, "FuelDepotCisterns", st_fd_tanks, mat_rust, true)
+	var depot_mesh := _get_airport_landmark_mesh("FuelDepot")
+	if depot_mesh != null:
+		_add_sculpted_landmark_mesh(depot, "FuelDepotCisterns", depot_mesh, mat_depot_vcol, true)
 	_add_airport_landmark_collider(depot, Vector3(0.0, 2.5, 0.0), Vector3(24.0, 5.0, 16.0))
 	FrontlineTerrainScript.register_structure_exclusion(
 			Vector2(depot_pos.x, depot_pos.z), Vector2(13.0, 9.0), 6.0)
@@ -872,15 +988,17 @@ func _build_airport_historical_landmarks() -> void:
 	_append_box_to_st(st_yd_pad, Vector3(0.0, 0.16, 0.0), Vector3(26.0, 0.32, 22.0))
 	_commit_st_mesh(yard, "ContainerYardPad", st_yd_pad, mat_concrete, false)
 
-	var cont_box := BoxMesh.new()
-	cont_box.size = Vector3(6.2, 2.6, 2.5)
-	var cont_mat := _make_airport_mat(Color.WHITE, 0.80, 0.22)
-	cont_mat.vertex_color_use_as_albedo = true
+	var cont_mesh := _get_airport_landmark_mesh("CargoContainer")
+	if cont_mesh == null:
+		var cont_box := BoxMesh.new()
+		cont_box.size = Vector3(6.2, 2.6, 2.5)
+		cont_mesh = cont_box
+	var cont_mat := _make_airport_mat(Color.WHITE, 0.78, 0.26, false, "steel", true)
 	var palette: Array[Color] = [
-		Color(0.27, 0.34, 0.24),
-		Color(0.52, 0.23, 0.17),
-		Color(0.22, 0.34, 0.46),
-		Color(0.58, 0.47, 0.22),
+		Color(0.32, 0.40, 0.28),
+		Color(0.58, 0.26, 0.19),
+		Color(0.24, 0.38, 0.52),
+		Color(0.62, 0.50, 0.24),
 	]
 	var cont_xfs: Array[Transform3D] = []
 	var cont_cols: Array[Color] = []
@@ -895,7 +1013,7 @@ func _build_airport_historical_landmarks() -> void:
 	var cont_mm := MultiMesh.new()
 	cont_mm.transform_format = MultiMesh.TRANSFORM_3D
 	cont_mm.use_colors = true
-	cont_mm.mesh = cont_box
+	cont_mm.mesh = cont_mesh
 	cont_mm.instance_count = cont_xfs.size()
 	for i in range(cont_xfs.size()):
 		cont_mm.set_instance_transform(i, cont_xfs[i])
@@ -920,48 +1038,23 @@ func _build_airport_historical_landmarks() -> void:
 	add_child(wrecks)
 	_tag_airport_landmark(wrecks, "airport_hangar_aircraft_wrecks")
 
-	var st_hangar := SurfaceTool.new()
-	st_hangar.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for arch_z in [-12.0, -4.0, 4.0, 12.0]:
-		for side_x in [-14.0, 14.0]:
-			_append_box_to_st(st_hangar, Vector3(side_x, 5.2, arch_z), Vector3(0.65, 10.4, 0.65))
-		_append_box_to_st(st_hangar, Vector3(-7.2, 11.2, arch_z),
-				Vector3(14.8, 0.55, 0.55), Vector3(0.0, 0.0, 0.16))
-		_append_box_to_st(st_hangar, Vector3(7.2, 11.2, arch_z),
-				Vector3(14.8, 0.55, 0.55), Vector3(0.0, 0.0, -0.16))
-	for purlin_x in [-11.0, -5.5, 5.5, 11.0]:
-		_append_box_to_st(st_hangar, Vector3(purlin_x, 10.9, 0.0), Vector3(0.35, 0.35, 25.0))
-	_commit_st_mesh(wrecks, "RuinedHangarFrame", st_hangar, mat_steel, true)
+	var hangar_mesh := _get_airport_landmark_mesh("RuinedHangarFrame")
+	if hangar_mesh != null:
+		_add_sculpted_landmark_mesh(wrecks, "RuinedHangarFrame", hangar_mesh, mat_hangar_vcol, true)
 
-	var st_planes := SurfaceTool.new()
-	st_planes.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var st_char := SurfaceTool.new()
-	st_char.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for p_spec in [
-		[Vector3(-5.5, 0.0, -3.5), 0.18],
-		[Vector3(6.2, 0.0, 4.5), -0.28],
-	]:
-		var p_off: Vector3 = p_spec[0]
-		var yaw: float = float(p_spec[1])
-		var b := Basis(Vector3.UP, yaw)
-		_append_cyl_to_st(st_planes, p_off + Vector3(0.0, 1.9, 0.0),
-				1.55, 16.5, Vector3(PI * 0.5, yaw, 0.06))
-		_append_box_to_st(st_planes, p_off + b * Vector3(0.0, 2.1, -0.5),
-				Vector3(19.5, 0.32, 2.8), Vector3(0.04, yaw, -0.05))
-		_append_box_to_st(st_char, p_off + b * Vector3(0.0, 4.4, -7.2),
-				Vector3(0.36, 4.4, 2.6), Vector3(0.0, yaw, 0.04))
-		_append_box_to_st(st_char, p_off + b * Vector3(0.0, 3.1, -7.4),
-				Vector3(6.8, 0.26, 1.6), Vector3(0.0, yaw, 0.0))
-		for eng_x in [-4.6, 4.6]:
-			_append_cyl_to_st(st_char, p_off + b * Vector3(eng_x, 1.45, 0.4),
-					0.62, 2.4, Vector3(PI * 0.5, yaw, 0.0))
-	for rub_i in range(8):
-		var rang := TAU * float(rub_i) / 8.0
-		_append_box_to_st(st_char,
-				Vector3(cos(rang) * 11.0, 0.45, sin(rang) * 8.5),
-				Vector3(2.2, 0.9, 1.6), Vector3(0.1, rang, -0.12))
-	_commit_st_mesh(wrecks, "RuinedAircraftBodies", st_planes, mat_alloy, true)
-	_commit_st_mesh(wrecks, "RuinedAircraftCharred", st_char, mat_charred, true)
+	var aircraft_mesh := _get_airport_landmark_mesh("AircraftWreck")
+	if aircraft_mesh != null:
+		var st_planes := SurfaceTool.new()
+		st_planes.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for p_spec in [
+			[Vector3(-5.5, 0.0, -3.5), 0.18],
+			[Vector3(6.2, 0.0, 4.5), -0.28],
+		]:
+			var p_off: Vector3 = p_spec[0]
+			var yaw: float = float(p_spec[1])
+			var xf := Transform3D(Basis(Vector3.UP, yaw), p_off)
+			st_planes.append_from(aircraft_mesh, 0, xf)
+		_commit_st_mesh(wrecks, "RuinedAircraftBodies", st_planes, mat_aircraft_vcol, true)
 	_add_airport_landmark_collider(wrecks, Vector3(-5.5, 2.2, -3.5), Vector3(8.0, 4.4, 16.5))
 	_add_airport_landmark_collider(wrecks, Vector3(6.2, 2.2, 4.5), Vector3(8.0, 4.4, 16.5))
 	_add_airport_landmark_collider(wrecks, Vector3(-14.0, 5.2, 0.0), Vector3(1.0, 10.4, 25.0))

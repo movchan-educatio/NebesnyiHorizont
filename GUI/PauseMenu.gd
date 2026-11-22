@@ -14,6 +14,7 @@ const MenuIcons = preload("res://GUI/ui/MenuIcons.gd")
 @onready var btn_help := $PanelContainer/VBoxContainer/ButtonHelp
 @onready var btn_options := $PanelContainer/VBoxContainer/ButtonOptions
 @onready var btn_main_menu := $PanelContainer/VBoxContainer/ButtonMainMenu
+var btn_switch_drone: Button
 var btn_controls: Button
 var btn_touch_sticks: Button
 var btn_quit: Button
@@ -38,6 +39,7 @@ func _ready() -> void:
 	visibility_changed.connect(_on_visibility_changed)
 
 	_bind_button(btn_resume, Callable(self, "_on_resume_pressed"))
+	_bind_button(btn_switch_drone, Callable(self, "_on_switch_drone_pressed"))
 	_bind_button(btn_controls, Callable(self, "_on_controls_pressed"))
 	_bind_button(btn_touch_sticks, Callable(self, "_on_touch_sticks_toggled"))
 	_bind_button(btn_quad, Callable(self, "_on_quad_pressed"))
@@ -119,6 +121,10 @@ func _apply_military_styling() -> void:
 		title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 	# Create Dedicated Controls & Touch Toggle Buttons
+	btn_switch_drone = Button.new()
+	btn_switch_drone.name = "ButtonSwitchDrone"
+	vbox.add_child(btn_switch_drone)
+
 	btn_controls = Button.new()
 	btn_controls.name = "ButtonControls"
 	vbox.add_child(btn_controls)
@@ -131,8 +137,8 @@ func _apply_military_styling() -> void:
 	btn_quit.name = "ButtonQuit"
 	vbox.add_child(btn_quit)
 
-	# Ensure clean order: header -> title -> resume -> controls -> touch_sticks -> quad -> options -> main_menu -> quit
-	var desired_order := [header, title_lbl, btn_resume, btn_controls, btn_touch_sticks, btn_quad, btn_options, btn_main_menu, btn_quit]
+	# Ensure clean order: header -> title -> resume -> switch_drone -> controls -> touch_sticks -> quad -> options -> main_menu -> quit
+	var desired_order := [header, title_lbl, btn_resume, btn_switch_drone, btn_controls, btn_touch_sticks, btn_quad, btn_options, btn_main_menu, btn_quit]
 	var order_idx := 0
 	for el in desired_order:
 		if el != null and el.get_parent() == vbox:
@@ -140,7 +146,7 @@ func _apply_military_styling() -> void:
 			order_idx += 1
 
 	var pause_btn_height := 84.0 if mobile_ui else 46.0
-	var btn_list := [btn_resume, btn_controls, btn_touch_sticks, btn_quad, btn_options, btn_main_menu, btn_quit]
+	var btn_list := [btn_resume, btn_switch_drone, btn_controls, btn_touch_sticks, btn_quad, btn_options, btn_main_menu, btn_quit]
 
 	for b in btn_list:
 		if b != null:
@@ -153,6 +159,10 @@ func _apply_military_styling() -> void:
 	btn_resume.text = "  ПРОДОВЖИТИ ПОЛІТ"
 	btn_resume.icon = MenuIcons.icon_play(Color(0.06, 0.09, 0.07))
 	btn_resume.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+
+	btn_switch_drone.text = "  ЗМІНИТИ ДРОН (МІСІЯ)"
+	btn_switch_drone.icon = MenuIcons.icon_hangar(Color(0.75, 0.96, 0.72))
+	btn_switch_drone.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 	btn_controls.text = "  ПУЛЬТ ТА КАЛІБРУВАННЯ"
 	btn_controls.icon = MenuIcons.icon_radio(Color(0.85, 0.95, 0.88))
@@ -204,7 +214,7 @@ func _apply_military_styling() -> void:
 			Color(0.32, 0.48, 0.38, 0.6), 1, 12, 16, 8)
 	var def_hover := MenuUI.feel_style(Color(0.08, 0.15, 0.11, 0.96),
 			Color(0.45, 0.65, 0.50, 0.85), 1, 12, 16, 8)
-	for b in [btn_controls, btn_touch_sticks, btn_quad, btn_options, btn_main_menu]:
+	for b in [btn_switch_drone, btn_controls, btn_touch_sticks, btn_quad, btn_options, btn_main_menu]:
 		b.add_theme_stylebox_override("normal", def_style)
 		b.add_theme_stylebox_override("hover", def_hover)
 		b.add_theme_stylebox_override("focus", def_hover)
@@ -222,6 +232,9 @@ func _apply_military_styling() -> void:
 
 func _on_visibility_changed() -> void:
 	if visible:
+		if btn_switch_drone != null:
+			var cur_scene := get_tree().current_scene
+			btn_switch_drone.visible = cur_scene != null and cur_scene.has_method("open_drone_switcher")
 		MenuUI.localize_tree(self)
 	if visible or (quad_settings != null and quad_settings.visible) or (options_menu != null and options_menu.visible) or (mobile_menu != null and mobile_menu.visible):
 		_set_flight_hud_suppressed(true)
@@ -404,6 +417,16 @@ func _on_controls_pressed() -> void:
 		mobile_menu.call("open_tab", "controls", true)
 	else:
 		options_menu.visible = true
+
+
+func _on_switch_drone_pressed() -> void:
+	show_menu(false)
+	_set_flight_hud_suppressed(false)
+	get_tree().paused = false
+	_set_drone_frozen(false)
+	var scene := get_tree().current_scene
+	if scene != null and scene.has_method("open_drone_switcher"):
+		scene.call("open_drone_switcher")
 
 
 func _on_quad_pressed() -> void:

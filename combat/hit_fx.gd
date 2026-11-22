@@ -21,6 +21,56 @@ static var _active := 0
 static var _spark_texture: Texture2D = null
 static var _smoke_texture: Texture2D = null
 static var _dust_texture: Texture2D = null
+static var _burst_quad_add: Dictionary = {}
+static var _burst_quad_mix: Dictionary = {}
+
+
+static func _ensure_textures() -> void:
+	if _spark_texture == null:
+		_spark_texture = _radial_texture([
+			Color(1.0, 1.0, 0.95, 1.0),
+			Color(1.0, 0.62, 0.16, 0.9),
+			Color(1.0, 0.25, 0.02, 0.0),
+		])
+		_smoke_texture = _radial_texture([
+			Color(1.0, 1.0, 1.0, 0.75),
+			Color(0.55, 0.55, 0.55, 0.30),
+			Color(0.2, 0.2, 0.2, 0.0),
+		])
+		_dust_texture = _radial_texture([
+			Color(0.82, 0.69, 0.48, 0.65),
+			Color(0.48, 0.38, 0.25, 0.25),
+			Color(0.2, 0.15, 0.10, 0.0),
+		])
+
+
+static func _cached_burst_quad(tex: Texture2D, additive: bool) -> QuadMesh:
+	var key := tex.get_instance_id() if tex != null else 0
+	var table := _burst_quad_add if additive else _burst_quad_mix
+	if table.has(key):
+		return table[key] as QuadMesh
+	var quad := QuadMesh.new()
+	quad.size = Vector2.ONE
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mat.albedo_texture = tex
+	mat.albedo_color = Color.WHITE
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.vertex_color_use_as_albedo = true
+	if additive:
+		mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	quad.material = mat
+	table[key] = quad
+	return quad
+
+
+static func prewarm() -> void:
+	_ensure_textures()
+	_cached_burst_quad(_spark_texture, true)
+	_cached_burst_quad(_smoke_texture, false)
+	_cached_burst_quad(_dust_texture, false)
 
 
 static func scene_for(kind: String) -> PackedScene:
@@ -109,26 +159,13 @@ static func spawn(parent: Node, world_position: Vector3, kind: String = "vehicle
 ## flash; these particles give the hit the fine, high-frame-rate detail that a
 ## small GLB cannot carry efficiently.
 static func _spawn_particles(fx: Node3D, kind: String, power: float = 1.0) -> void:
-	if _spark_texture == null:
-		_spark_texture = _radial_texture([
-			Color(1.0, 1.0, 0.95, 1.0),
-			Color(1.0, 0.62, 0.16, 0.9),
-			Color(1.0, 0.25, 0.02, 0.0),
-		])
-		_smoke_texture = _radial_texture([
-			Color(1.0, 1.0, 1.0, 0.75),
-			Color(0.55, 0.55, 0.55, 0.30),
-			Color(0.2, 0.2, 0.2, 0.0),
-		])
-		_dust_texture = _radial_texture([
-			Color(0.82, 0.69, 0.48, 0.65),
-			Color(0.48, 0.38, 0.25, 0.25),
-			Color(0.2, 0.15, 0.10, 0.0),
-		])
+	_ensure_textures()
 	var is_inf := kind == "infantry"
-	var spark_amount := int((10 if is_inf else 18) * (0.45 + 0.55 * power))
-	var smoke_amount := int((7 if is_inf else 10) * (0.45 + 0.55 * power))
-	var dust_amount := int((8 if is_inf else 14) * (0.45 + 0.55 * power))
+	var low_q := QualityManager.get_active_level() == QualityManager.Level.LOW
+	var count_mult := 0.55 if low_q else 1.0
+	var spark_amount := maxi(3, int((10 if is_inf else 18) * (0.45 + 0.55 * power) * count_mult))
+	var smoke_amount := maxi(3, int((7 if is_inf else 10) * (0.45 + 0.55 * power) * count_mult))
+	var dust_amount := maxi(3, int((8 if is_inf else 14) * (0.45 + 0.55 * power) * count_mult))
 	_particle_burst(fx, spark_amount, 0.55, Color(1.0, 0.55, 0.10, 1.0),
 			_spark_texture, 3.5, 9.0, Vector3(0, -7.0, 0),
 			0.05, 0.12, true)
@@ -138,15 +175,16 @@ static func _spawn_particles(fx: Node3D, kind: String, power: float = 1.0) -> vo
 	_particle_burst(fx, dust_amount, 1.0, Color(0.55, 0.43, 0.28, 0.55),
 			_dust_texture, 1.0, 3.2, Vector3(0, -1.6, 0),
 			0.35, 0.8, false)
-	var light := OmniLight3D.new()
-	light.light_color = Color(1.0, 0.42, 0.08)
-	light.light_energy = 2.4 * power
-	light.omni_range = (9.0 if not is_inf else 4.0) * (0.6 + 0.4 * power)
-	light.shadow_enabled = false
-	fx.add_child(light)
-	var tw := fx.create_tween()
-	tw.tween_property(light, "light_energy", 0.0, 0.30)
-	tw.tween_callback(light.queue_free)
+	if not low_q:
+		var light := OmniLight3D.new()
+		light.light_color = Color(1.0, 0.42, 0.08)
+		light.light_energy = 2.4 * power
+		light.omni_range = (9.0 if not is_inf else 4.0) * (0.6 + 0.4 * power)
+		light.shadow_enabled = false
+		fx.add_child(light)
+		var tw := fx.create_tween()
+		tw.tween_property(light, "light_energy", 0.0, 0.30)
+		tw.tween_callback(light.queue_free)
 
 
 static func _radial_texture(colors: Array) -> GradientTexture2D:
@@ -196,20 +234,7 @@ static func _particle_burst(parent: Node3D, amount: int, lifetime: float,
 	process.angular_velocity_min = -180.0
 	process.angular_velocity_max = 180.0
 	particles.process_material = process
-	var quad := QuadMesh.new()
-	quad.size = Vector2.ONE
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	mat.albedo_texture = tex
-	mat.albedo_color = Color.WHITE
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mat.vertex_color_use_as_albedo = true
-	if additive:
-		mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	quad.material = mat
-	particles.draw_pass_1 = quad
+	particles.draw_pass_1 = _cached_burst_quad(tex, additive)
 	particles.visibility_aabb = AABB(Vector3(-8, -8, -8), Vector3(16, 16, 16))
 	parent.add_child(particles)
 	particles.emitting = true

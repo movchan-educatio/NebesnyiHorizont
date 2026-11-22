@@ -1584,23 +1584,37 @@ static func _build_industrial_river(root: Node3D) -> void:
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(mi)
 
-	# Concrete bridge across the northern industrial channel.
-	var conc := _mat(Color(0.56, 0.54, 0.49), 0.9)
-	var steel := _mat(Color(0.24, 0.25, 0.26), 0.8)
+	# Detailed concrete & steel girder bridge across the northern industrial channel.
+	var conc := _pbr("hall_concrete", Color(0.68, 0.66, 0.62), 0.18)
+	var asphalt := _pbr("asphalt", Color(0.46, 0.46, 0.48), 0.24)
+	var steel := _pbr("hall_metal", Color(0.44, 0.47, 0.50), 0.26)
+	var rust_girder := _pbr("hall_rust", Color(0.56, 0.36, 0.24), 0.28)
 	var zc0 := -170.0
-	_add_box(root, Vector3(0.0, 1.4, zc0), Vector3(36.0, 1.2, 17.0), conc,
-			0.0, true)
+	# Structural deck slab + asphalt roadway + raised side pedestrian curbs
+	_add_box(root, Vector3(0.0, 1.32, zc0), Vector3(36.4, 0.95, 17.2), conc, 0.0, true)
+	_add_box(root, Vector3(0.0, 1.84, zc0), Vector3(36.2, 0.12, 13.6), asphalt, 0.0, false)
+	for side_z in [-7.6, 7.6]:
+		_add_box(root, Vector3(0.0, 1.96, zc0 + side_z), Vector3(36.4, 0.32, 1.75), conc, 0.0, false)
+	# Under-deck longitudinal steel I-beam girders & transverse cross-beams
+	for gz in [-6.2, -2.1, 2.1, 6.2]:
+		_add_box(root, Vector3(0.0, 0.55, zc0 + gz), Vector3(35.8, 0.65, 0.38), rust_girder, 0.0, false)
+	for gx in [-14.0, -7.0, 0.0, 7.0, 14.0]:
+		_add_box(root, Vector3(gx, 0.62, zc0), Vector3(0.45, 0.55, 15.8), steel, 0.0, false)
+	# Flared concrete river piers with pier caps & cutwater noses
 	for px in [-14.0, 14.0]:
+		_add_box(root, Vector3(px, 0.10, zc0), Vector3(2.2, 0.65, 16.2), conc, 0.0, false)
 		for pz in [-6.5, 6.5]:
-			_add_cylinder(root, Vector3(px, -2.4, zc0 + pz), 1.2, 9.0, conc,
-					0.0, true)
-	for px in [-16.0, 16.0]:
-		_add_box(root, Vector3(px, -0.8, zc0), Vector3(1.2, 3.2, 16.4), conc,
-				0.0, true)
-	_add_box(root, Vector3(0.0, 2.4, zc0 - 7.6), Vector3(36.0, 0.35, 0.35),
-			steel, 0.0, true)
-	_add_box(root, Vector3(0.0, 2.4, zc0 + 7.6), Vector3(36.0, 0.35, 0.35),
-			steel, 0.0, true)
+			_add_cylinder(root, Vector3(px, -2.4, zc0 + pz), 1.25, 9.0, conc, 0.0, true)
+			_add_cylinder(root, Vector3(px, 0.0, zc0 + pz), 1.45, 0.55, rust_girder, 0.0, false)
+	# Bank abutment walls & wing walls
+	for px in [-16.6, 16.6]:
+		_add_box(root, Vector3(px, -0.8, zc0), Vector3(1.5, 3.4, 17.4), conc, 0.0, true)
+	# Steel bridge parapets with vertical stanchions and double rails
+	for side_z in [-8.25, 8.25]:
+		_add_box(root, Vector3(0.0, 2.85, zc0 + side_z), Vector3(36.4, 0.16, 0.18), steel, 0.0, true)
+		_add_box(root, Vector3(0.0, 2.42, zc0 + side_z), Vector3(36.4, 0.12, 0.14), rust_girder, 0.0, false)
+		for post_x in range(-16, 17, 4):
+			_add_box(root, Vector3(float(post_x), 2.48, zc0 + side_z), Vector3(0.22, 0.92, 0.24), steel, 0.0, false)
 
 
 static func spawn_handcrafted_on_ground(level: Node3D, path: String,
@@ -1908,17 +1922,63 @@ static func _apply_triplanar(node: Node) -> void:
 		var mi := mi_node as MeshInstance3D
 		if mi == null or mi.mesh == null:
 			continue
+		var m_low := String(mi.name).to_lower()
 		for s in range(mi.mesh.get_surface_count()):
 			var mat: Material = mi.get_surface_override_material(s)
 			if mat == null:
 				mat = mi.mesh.surface_get_material(s)
 			var sm := mat as StandardMaterial3D
-			if sm == null or sm.albedo_texture == null:
+			if sm == null:
 				continue
 			var id := sm.get_instance_id()
 			if seen.has(id):
 				continue
 			seen[id] = true
+			if sm.albedo_texture == null:
+				if sm.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED or sm.emission_enabled:
+					continue
+				var rname := sm.resource_name.to_lower()
+				var base_c := sm.albedo_color
+				var pbr_kind := "hall_concrete"
+				var u_scale := 0.28
+				var is_met := false
+				if rname.contains("wood") or m_low.contains("wood") or m_low.contains("dock") or m_low.contains("pier"):
+					pbr_kind = "wood"
+					u_scale = 0.35
+				elif rname.contains("rust") or m_low.contains("barge") or rname.contains("wagon_red") or rname.contains("cont0"):
+					pbr_kind = "hall_rust"
+					u_scale = 0.30
+					is_met = true
+				elif rname.contains("wagon") or rname.contains("cont") or m_low.contains("cont") or m_low.contains("wagon"):
+					pbr_kind = "corrugated_metal"
+					u_scale = 0.34
+					is_met = true
+				elif rname.contains("dark") or rname.contains("metal") or rname.contains("steel") or m_low.contains("rail") or m_low.contains("loco"):
+					pbr_kind = "hall_metal"
+					u_scale = 0.32
+					is_met = true
+				var ref_pbr := _pbr(pbr_kind, Color.WHITE, u_scale)
+				if ref_pbr != null and ref_pbr.albedo_texture != null:
+					sm.albedo_texture = ref_pbr.albedo_texture
+					sm.normal_enabled = ref_pbr.normal_enabled
+					sm.normal_texture = ref_pbr.normal_texture
+					sm.normal_scale = ref_pbr.normal_scale
+					sm.roughness_texture = ref_pbr.roughness_texture
+					sm.ao_enabled = ref_pbr.ao_enabled
+					sm.ao_texture = ref_pbr.ao_texture
+					sm.uv1_triplanar = true
+					sm.uv1_world_triplanar = true
+					sm.uv1_scale = Vector3(u_scale, u_scale, u_scale)
+					sm.albedo_color = Color(
+						clampf(base_c.r * 1.42 + 0.10, 0.22, 1.15),
+						clampf(base_c.g * 1.42 + 0.10, 0.22, 1.15),
+						clampf(base_c.b * 1.42 + 0.10, 0.22, 1.15),
+						1.0
+					)
+					sm.metallic = 0.18 if is_met else 0.0
+					sm.roughness = 0.76 if is_met else 0.88
+					sm.cull_mode = BaseMaterial3D.CULL_DISABLED
+				continue
 			sm.uv1_triplanar = true
 			sm.uv1_world_triplanar = true
 			# Per-family world scale: brick and roof tiles need a much tighter
@@ -1954,10 +2014,10 @@ static func _apply_triplanar(node: Node) -> void:
 ## the cheap density that makes the open maps read as working farmland instead
 ## of an empty green field.
 static func _build_crop_fields(root: Node3D, map_name: String) -> void:
+	if map_name == "industrial" or map_name == "wetlands":
+		return
 	var mobile := OS.get_name() == "iOS" or OS.has_feature("mobile") \
 			or OS.has_environment("MOBILE_UI")
-	if mobile and (map_name == "industrial" or map_name == "wetlands"):
-		return
 	var tex := load("res://Assets/handcrafted/textures/crop_rows.png") as Texture2D
 	if tex == null:
 		return
@@ -2650,21 +2710,110 @@ static func _add_mobile_church(root: Node3D, map_name: String, p: Vector2) -> vo
 	_keep_poi_detail(node, 1200.0)
 
 
+static var _shared_landmarks_cache: Dictionary = {}
+static var _forge_scene_cache: Dictionary = {}
+
+
+static func _get_shared_landmark_mesh(mesh_name: String) -> Mesh:
+	if _shared_landmarks_cache.is_empty():
+		var path := "res://Assets/maps/airport_landmarks.glb"
+		if ResourceLoader.exists(path):
+			var packed := load(path) as PackedScene
+			if packed != null:
+				var inst := packed.instantiate()
+				if inst != null:
+					for child in inst.find_children("*", "MeshInstance3D", true, false):
+						var mi := child as MeshInstance3D
+						if mi != null and mi.mesh != null:
+							_shared_landmarks_cache[String(mi.name)] = mi.mesh.duplicate()
+					inst.free()
+	return _shared_landmarks_cache.get(mesh_name) as Mesh
+
+
+static func _instantiate_sculpted_glb(parent: Node3D, glb_path: String,
+		pbr_kind: String = "hall_metal", tint: Color = Color(1.12, 1.10, 1.06),
+		local_pos: Vector3 = Vector3.ZERO, yaw: float = 0.0,
+		scale_vec: Vector3 = Vector3.ONE, add_col: bool = true) -> Node3D:
+	if not _forge_scene_cache.has(glb_path):
+		_forge_scene_cache[glb_path] = load(glb_path) as PackedScene if ResourceLoader.exists(glb_path) else null
+	var packed := _forge_scene_cache.get(glb_path) as PackedScene
+	if packed == null:
+		return null
+	var inst := packed.instantiate() as Node3D
+	if inst == null:
+		return null
+	inst.position = local_pos
+	inst.rotation.y = yaw
+	inst.scale = scale_vec
+	parent.add_child(inst)
+	var ref_pbr := _pbr(pbr_kind, Color.WHITE, 0.28)
+	var has_body := not inst.find_children("*", "StaticBody3D", true, false).is_empty()
+	var meshes: Array[MeshInstance3D] = []
+	if inst is MeshInstance3D:
+		meshes.append(inst as MeshInstance3D)
+	for c in inst.find_children("*", "MeshInstance3D", true, false):
+		meshes.append(c as MeshInstance3D)
+	for mi in meshes:
+		if mi == null or mi.mesh == null:
+			continue
+		var nm := String(mi.name).to_lower()
+		if nm.contains("-col") or nm.contains("-convcol"):
+			mi.visible = false
+			continue
+		mi.set_meta("no_batch", true)
+		for s in range(mi.mesh.get_surface_count()):
+			var src_mat := mi.get_surface_override_material(s)
+			if src_mat == null:
+				src_mat = mi.mesh.surface_get_material(s)
+			var sm := src_mat as StandardMaterial3D
+			if sm != null and sm.albedo_texture != null:
+				# Forge GLBs carry baked albedo textures (and no vertex colors): preserve their
+				# baked albedo and enhance with triplanar normal/roughness relief.
+				var ench := sm.duplicate() as StandardMaterial3D
+				ench.cull_mode = BaseMaterial3D.CULL_DISABLED
+				if ref_pbr != null:
+					if ref_pbr.normal_enabled and ref_pbr.normal_texture != null and not ench.normal_enabled:
+						ench.normal_enabled = true
+						ench.normal_texture = ref_pbr.normal_texture
+						ench.normal_scale = 0.85
+					if ref_pbr.roughness_texture != null and ench.roughness_texture == null:
+						ench.roughness_texture = ref_pbr.roughness_texture
+				mi.set_surface_override_material(s, ench)
+			elif ref_pbr != null:
+				mi.set_surface_override_material(s, ref_pbr)
+		if add_col and not has_body:
+			var shape := mi.mesh.create_trimesh_shape()
+			if shape != null:
+				var body := StaticBody3D.new()
+				body.name = "SculptedCol"
+				body.collision_layer = 1
+				body.collision_mask = 1
+				var cs := CollisionShape3D.new()
+				cs.shape = shape
+				body.add_child(cs)
+				mi.add_child(body)
+	for b in inst.find_children("*", "StaticBody3D", true, false):
+		var sb := b as StaticBody3D
+		if sb != null:
+			sb.collision_layer = 1
+			sb.collision_mask = 1
+	return inst
+
+
 static func _add_mobile_pipe_rack(root: Node3D, map_name: String, p: Vector2) -> void:
 	var gy := _height(map_name, p.x, p.y)
 	var node := Node3D.new()
 	node.name = "MobileHero2_PipeRack"
 	node.position = Vector3(p.x, gy, p.y)
 	root.add_child(node)
-	var steel := _pbr("hall_metal", Color(0.62, 0.64, 0.62), 0.24)
-	var rust := _pbr("hall_rust", Color(0.60, 0.44, 0.32), 0.3)
-	_add_box(node, Vector3(0.0, 0.12, 0.0), Vector3(20.0, 0.24, 6.0), steel)
-	for i in range(5):
-		for side in [-1.0, 1.0]:
-			_add_box(node, Vector3(-8.0 + float(i) * 4.0, 4.2, side * 2.6),
-					Vector3(0.34, 8.2, 0.34), steel)
-	_add_cylinder(node, Vector3(0.0, 8.4, 0.0), 0.5, 20.6, rust, PI * 0.5)
-	_add_cylinder(node, Vector3(0.0, 5.2, 0.0), 0.34, 20.6, rust, PI * 0.5)
+	var forged := _instantiate_sculpted_glb(node,
+			"res://Assets/handcrafted/forge/industrial_10_pipe_rack_overpass.glb",
+			"hall_metal", Color(1.14, 1.12, 1.08))
+	if forged == null:
+		var steel := _pbr("hall_metal", Color(0.62, 0.64, 0.62), 0.24)
+		var rust := _pbr("hall_rust", Color(0.60, 0.44, 0.32), 0.3)
+		_add_box(node, Vector3(0.0, 0.12, 0.0), Vector3(20.0, 0.24, 6.0), steel)
+		_add_cylinder(node, Vector3(0.0, 8.4, 0.0), 0.5, 20.6, rust, PI * 0.5)
 	_keep_poi_detail(node, 1200.0)
 
 
@@ -2674,13 +2823,12 @@ static func _add_mobile_boathouse(root: Node3D, map_name: String, p: Vector2) ->
 	node.name = "MobileHero2_Boathouse"
 	node.position = Vector3(p.x, gy, p.y)
 	root.add_child(node)
-	var wood := _pbr("wood", Color(0.62, 0.50, 0.36), 0.3)
-	var roof := _pbr("hall_rust", Color(0.40, 0.44, 0.38), 0.32)
-	for i in range(4):
-		_add_box(node, Vector3(-3.3 + float(i) * 2.2, 0.9, 0.0),
-				Vector3(0.4, 1.8, 5.2), wood)
-	_add_box(node, Vector3(0.0, 2.0, 0.0), Vector3(8.0, 0.24, 5.4), wood)
-	_add_prism(node, Vector3(0.0, 3.0, 0.0), Vector3(9.0, 2.2, 6.2), roof)
+	var forged := _instantiate_sculpted_glb(node,
+			"res://Assets/handcrafted/forge/swamp_07_flooded_bunker_stilts.glb",
+			"wood", Color(1.12, 1.08, 1.02))
+	if forged == null:
+		var wood := _pbr("wood", Color(0.62, 0.50, 0.36), 0.3)
+		_add_box(node, Vector3(0.0, 2.0, 0.0), Vector3(8.0, 0.24, 5.4), wood)
 	_keep_poi_detail(node, 1200.0)
 
 
@@ -2728,15 +2876,12 @@ static func _add_mobile_water_cistern(root: Node3D, map_name: String, p: Vector2
 	node.name = "MobileHero3_WaterCistern"
 	node.position = Vector3(p.x, gy, p.y)
 	root.add_child(node)
-	var concrete := _pbr("hall_concrete", Color(0.54, 0.53, 0.50), 0.24)
-	var steel := _pbr("hall_metal", Color(0.62, 0.64, 0.64), 0.2)
-	_add_box(node, Vector3(0.0, 0.2, 0.0), Vector3(8.0, 0.4, 8.0), concrete)
-	var tank := _add_cylinder(node, Vector3(0.0, 7.0, 0.0), 3.0, 13.0, steel)
-	_keep_poi_detail(tank)
-	for sx in [-1.0, 1.0]:
-		for sz in [-1.0, 1.0]:
-			_add_box(node, Vector3(sx * 2.6, 2.9, sz * 2.6), Vector3(0.3, 5.4, 0.3), steel)
-	_add_cylinder(node, Vector3(0.0, 14.0, 0.0), 3.05, 0.5, steel, 0.0, false)
+	var forged := _instantiate_sculpted_glb(node,
+			"res://Assets/handcrafted/forge/steppe_23_rozhnovsky_tower_standing.glb",
+			"hall_metal", Color(1.12, 1.12, 1.10))
+	if forged == null:
+		var steel := _pbr("hall_metal", Color(0.62, 0.64, 0.64), 0.2)
+		_add_cylinder(node, Vector3(0.0, 7.0, 0.0), 3.0, 13.0, steel)
 	_keep_poi_detail(node, 1200.0)
 
 
@@ -2746,13 +2891,12 @@ static func _add_mobile_pier_house(root: Node3D, map_name: String, p: Vector2) -
 	node.name = "MobileHero3_PierHouse"
 	node.position = Vector3(p.x, gy, p.y)
 	root.add_child(node)
-	var wood := _pbr("wood", Color(0.52, 0.42, 0.28), 0.3)
-	var roof := _pbr("hall_rust", Color(0.34, 0.40, 0.34), 0.32)
-	for i in range(6):
-		_add_box(node, Vector3(-6.0 + float(i) * 2.4, 0.9, 0.0), Vector3(0.4, 1.8, 6.0), wood)
-	_add_box(node, Vector3(0.0, 1.9, 0.0), Vector3(13.0, 0.3, 6.2), wood)
-	_add_prism(node, Vector3(0.0, 3.2, 0.0), Vector3(14.0, 2.6, 7.0), roof)
-	_add_box(node, Vector3(6.6, 0.6, 0.0), Vector3(1.6, 1.2, 3.0), wood)
+	var forged := _instantiate_sculpted_glb(node,
+			"res://Assets/handcrafted/forge/swamp_15_abandoned_hydro_lock.glb",
+			"hall_concrete", Color(1.12, 1.10, 1.06))
+	if forged == null:
+		var wood := _pbr("wood", Color(0.52, 0.42, 0.28), 0.3)
+		_add_box(node, Vector3(0.0, 1.9, 0.0), Vector3(13.0, 0.3, 6.2), wood)
 	_keep_poi_detail(node, 1200.0)
 
 
@@ -2804,29 +2948,31 @@ static func _add_mobile_flare_stack(root: Node3D, map_name: String, p: Vector2) 
 	node.name = "MobileHero_FlareStack"
 	node.position = Vector3(p.x, gy, p.y)
 	root.add_child(node)
-	var concrete := _pbr("hall_concrete", Color(0.44, 0.44, 0.42), 0.24)
-	var rust := _pbr("hall_rust", Color(0.62, 0.46, 0.34), 0.3)
-	_add_box(node, Vector3(0.0, 0.4, 0.0), Vector3(5.6, 0.8, 5.6), concrete)
-	var stack := _add_cylinder(node, Vector3(0.0, 17.5, 0.0), 0.75, 34.0, rust)
-	_keep_poi_detail(stack)
-	for i in range(4):
-		var yaw := TAU * float(i) / 4.0
-		_add_box(node, Vector3(cos(yaw) * 5.6, 8.5, sin(yaw) * 5.6),
-				Vector3(0.2, 0.2, 8.0), rust, yaw, false)
+	# Sculpted industrial smokestack + lattice derrick tower + burner shroud
+	_instantiate_sculpted_glb(node,
+			"res://Assets/handcrafted/forge/industrial_03_smokestack_breached_flue.glb",
+			"hall_concrete", Color(1.12, 1.10, 1.06))
+	var steel := _pbr("hall_metal", Color(0.48, 0.50, 0.52), 0.28)
+	var rust := _pbr("hall_rust", Color(0.62, 0.38, 0.24), 0.30)
+	# Burner tip assembly & wind shroud crown at top of stack
+	_add_cylinder(node, Vector3(0.0, 33.4, 0.0), 1.05, 1.4, steel, 0.0, false)
+	_add_cylinder(node, Vector3(0.0, 34.4, 0.0), 0.52, 1.2, rust, 0.0, false)
 	var flame_mat := StandardMaterial3D.new()
 	flame_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	flame_mat.albedo_color = Color(1.0, 0.55, 0.16)
+	flame_mat.albedo_color = Color(1.0, 0.58, 0.18)
 	flame_mat.emission_enabled = true
-	flame_mat.emission = Color(1.0, 0.45, 0.10)
+	flame_mat.emission = Color(1.0, 0.46, 0.10)
 	flame_mat.emission_energy_multiplier = 2.6
 	var flame := MeshInstance3D.new()
 	flame.name = "FlareFlame"
-	var sphere_mesh := SphereMesh.new()
-	sphere_mesh.radius = 0.9
-	sphere_mesh.height = 1.8
-	flame.mesh = sphere_mesh
+	var flame_cone := CylinderMesh.new()
+	flame_cone.top_radius = 0.08
+	flame_cone.bottom_radius = 0.65
+	flame_cone.height = 1.65
+	flame_cone.radial_segments = 10
+	flame.mesh = flame_cone
 	flame.material_override = flame_mat
-	flame.position = Vector3(0.0, 35.2, 0.0)
+	flame.position = Vector3(0.0, 35.4, 0.0)
 	flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	flame.set_meta("no_batch", true)
 	node.add_child(flame)
@@ -2839,15 +2985,48 @@ static func _add_mobile_lighthouse(root: Node3D, map_name: String, p: Vector2) -
 	node.name = "MobileHero_Lighthouse"
 	node.position = Vector3(p.x, gy, p.y)
 	root.add_child(node)
-	var concrete := _pbr("hall_concrete", Color(0.58, 0.58, 0.54), 0.24)
-	var white := _pbr("hall_concrete", Color(0.82, 0.84, 0.82), 0.18)
+	# Adjacent marsh boardwalk keeper pavilion (kept well clear of lighthouse mast so they never overlap)
+	_instantiate_sculpted_glb(node,
+			"res://Assets/handcrafted/forge/swamp_22_marsh_boardwalk_tower.glb",
+			"wood", Color(1.06, 1.04, 1.00), Vector3(20.5, 0.0, 5.0), 0.15,
+			Vector3.ONE * 0.85)
+	register_structure_exclusion(p + Vector2(20.5, 5.0), Vector2(10.0, 8.0), 12.0)
+	var tower_mesh := _get_shared_landmark_mesh("NavBeaconTower")
+	var tower_mat := _pbr("hall_metal", Color.WHITE, 0.26)
+	if tower_mesh != null and tower_mat != null:
+		var t_mat := tower_mat.duplicate() as StandardMaterial3D
+		t_mat.albedo_texture = null
+		t_mat.albedo_color = Color(1.08, 1.07, 1.04)
+		t_mat.uv1_triplanar = true
+		t_mat.uv1_world_triplanar = true
+		t_mat.vertex_color_use_as_albedo = true
+		var t_mi := MeshInstance3D.new()
+		t_mi.name = "LighthouseLatticeMast"
+		t_mi.mesh = tower_mesh
+		t_mi.material_override = t_mat
+		t_mi.scale = Vector3(1.15, 0.85, 1.15)
+		t_mi.set_meta("no_batch", true)
+		node.add_child(t_mi)
 	var band := _pbr("hall_rust", Color(0.68, 0.24, 0.18), 0.24)
-	_add_box(node, Vector3(0.0, 0.3, 0.0), Vector3(8.0, 0.6, 8.0), concrete)
-	var tower := _add_cylinder(node, Vector3(0.0, 10.6, 0.0), 2.3, 20.6, white)
-	_keep_poi_detail(tower)
-	for h in [3.4, 7.2, 11.0, 14.8]:
-		_add_cylinder(node, Vector3(0.0, h, 0.0), 2.32, 0.5, band, 0.0, false)
-	_add_box(node, Vector3(0.0, 21.6, 0.0), Vector3(5.6, 0.7, 5.6), band)
+	var dark_steel := _pbr("hall_metal", Color(0.28, 0.30, 0.32), 0.28)
+	# Lantern cupola gallery, mullions & conical copper roof cap at y = 21.6..23.6 m
+	_add_cylinder(node, Vector3(0.0, 21.5, 0.0), 1.65, 0.35, band, 0.0, true)
+	for i in range(6):
+		var ang := TAU * float(i) / 6.0
+		_add_box(node, Vector3(cos(ang) * 0.95, 22.35, sin(ang) * 0.95),
+				Vector3(0.10, 1.35, 0.10), dark_steel, ang, false)
+	var cupola := CylinderMesh.new()
+	cupola.top_radius = 0.08
+	cupola.bottom_radius = 1.45
+	cupola.height = 0.95
+	cupola.radial_segments = 12
+	var cup_mi := MeshInstance3D.new()
+	cup_mi.name = "LighthouseCupolaRoof"
+	cup_mi.mesh = cupola
+	cup_mi.material_override = band
+	cup_mi.position = Vector3(0.0, 23.45, 0.0)
+	cup_mi.set_meta("no_batch", true)
+	node.add_child(cup_mi)
 	var lamp_mat := StandardMaterial3D.new()
 	lamp_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	lamp_mat.albedo_color = Color(0.20, 0.95, 0.55)
@@ -2856,12 +3035,14 @@ static func _add_mobile_lighthouse(root: Node3D, map_name: String, p: Vector2) -
 	lamp_mat.emission_energy_multiplier = 2.4
 	var lamp := MeshInstance3D.new()
 	lamp.name = "LighthouseLamp"
-	var lamp_mesh := SphereMesh.new()
-	lamp_mesh.radius = 0.7
-	lamp_mesh.height = 1.4
+	var lamp_mesh := CylinderMesh.new()
+	lamp_mesh.top_radius = 0.48
+	lamp_mesh.bottom_radius = 0.48
+	lamp_mesh.height = 0.95
+	lamp_mesh.radial_segments = 12
 	lamp.mesh = lamp_mesh
 	lamp.material_override = lamp_mat
-	lamp.position = Vector3(0.0, 22.4, 0.0)
+	lamp.position = Vector3(0.0, 22.35, 0.0)
 	lamp.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	lamp.set_meta("no_batch", true)
 	node.add_child(lamp)
@@ -2874,12 +3055,27 @@ static func _add_mobile_beacon(root: Node3D, map_name: String, p: Vector2,
 	var node := Node3D.new()
 	node.name = "MobileBeacon_%s_%d_%d" % [map_name, int(p.x), int(p.y)]
 	root.add_child(node)
-	var base_mat := _pbr("hall_concrete", Color(0.42, 0.42, 0.40), 0.35)
-	_add_box(node, Vector3(0.0, 0.18, 0.0), Vector3(3.4, 0.36, 3.4), base_mat)
-	var pole_mat := _pbr("hall_metal", Color(0.55, 0.57, 0.55), 0.32)
-	_add_box(node, Vector3(0.0, 13.4, 0.0), Vector3(0.5, 26.0, 0.5), pole_mat)
-	var plat_mat := _pbr("steel", Color(0.72, 0.30, 0.22), 0.40)
-	_add_box(node, Vector3(0.0, 26.55, 0.0), Vector3(1.7, 0.3, 1.7), plat_mat)
+	var mast_mesh := _get_shared_landmark_mesh("NavBeaconTower")
+	var base_pbr := _pbr("hall_metal", Color.WHITE, 0.28)
+	if mast_mesh != null and base_pbr != null:
+		var mast_mat := base_pbr.duplicate() as StandardMaterial3D
+		mast_mat.albedo_texture = null
+		mast_mat.albedo_color = Color(1.08, 1.07, 1.04)
+		mast_mat.uv1_triplanar = true
+		mast_mat.uv1_world_triplanar = true
+		mast_mat.vertex_color_use_as_albedo = true
+		var mast_mi := MeshInstance3D.new()
+		mast_mi.name = "BeaconLatticeTower"
+		mast_mi.mesh = mast_mesh
+		mast_mi.material_override = mast_mat
+		mast_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		mast_mi.visibility_range_end = 1100.0
+		mast_mi.set_meta("no_batch", true)
+		node.add_child(mast_mi)
+		_add_collision_box(node, Vector3(0.0, 13.0, 0.0), Vector3(1.6, 26.0, 1.6))
+	else:
+		var pole_mat := _pbr("hall_metal", Color(0.55, 0.57, 0.55), 0.32)
+		_add_box(node, Vector3(0.0, 13.4, 0.0), Vector3(0.5, 26.0, 0.5), pole_mat)
 	var light_mat := StandardMaterial3D.new()
 	light_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	light_mat.albedo_color = light_color
@@ -2888,12 +3084,14 @@ static func _add_mobile_beacon(root: Node3D, map_name: String, p: Vector2,
 	light_mat.emission_energy_multiplier = 2.0
 	var sphere := MeshInstance3D.new()
 	sphere.name = "BeaconLight"
-	var sphere_mesh := SphereMesh.new()
-	sphere_mesh.radius = 0.55
-	sphere_mesh.height = 1.1
-	sphere.mesh = sphere_mesh
+	var lens_mesh := CylinderMesh.new()
+	lens_mesh.top_radius = 0.42
+	lens_mesh.bottom_radius = 0.42
+	lens_mesh.height = 0.85
+	lens_mesh.radial_segments = 12
+	sphere.mesh = lens_mesh
 	sphere.material_override = light_mat
-	sphere.position = Vector3(0.0, 27.35, 0.0)
+	sphere.position = Vector3(0.0, 26.65, 0.0)
 	sphere.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	sphere.set_meta("no_batch", true)
 	node.add_child(sphere)
@@ -2933,7 +3131,7 @@ static func _pbr(kind: String, tint: Color = Color.WHITE, uv_scale: float = 0.22
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	var base := ""
 	match kind:
-		"plaster":
+		"plaster", "plaster_wall", "wall":
 			base = "res://Assets/frontline/village_textures/plaster"
 		"brick":
 			base = "res://Assets/frontline/village_textures/brick"
@@ -2943,7 +3141,7 @@ static func _pbr(kind: String, tint: Color = Color.WHITE, uv_scale: float = 0.22
 			base = "res://Assets/frontline/village_textures/wood"
 		"concrete":
 			base = "res://Assets/frontline/admin_building_concrete"
-		"steel":
+		"steel", "corrugated_metal":
 			base = "res://Assets/frontline/factory_hall_steel"
 		"asphalt":
 			base = "res://Assets/frontline/admin_building_asphalt"
@@ -2977,7 +3175,9 @@ static func _pbr(kind: String, tint: Color = Color.WHITE, uv_scale: float = 0.22
 		var ao_path := base + ("_ao.jpg" if is_hall else "_ao.png")
 		if albedo != null:
 			mat.albedo_texture = albedo
+		if albedo != null or normal != null:
 			mat.uv1_triplanar = true
+			mat.uv1_world_triplanar = true
 			mat.uv1_triplanar_sharpness = 8.0
 			mat.uv1_scale = Vector3.ONE * uv_scale
 		if normal != null:
@@ -4912,52 +5112,16 @@ static func _poi_water_tower(root: Node3D, map_name: String, p: Vector2) -> Node
 	_tag_signature_landmark(node, node.name)
 	_poi_positions.append(site)
 	add_contact_shadow(root, map_name, site, 11.0, "POI_WaterTower")
-	var concrete := _pbr("hall_concrete", Color(0.78, 0.76, 0.70), 0.16)
-	var steel := _pbr("hall_metal", Color(0.58, 0.62, 0.64), 0.14)
-	var rust := _pbr("hall_rust", Color(0.78, 0.62, 0.50), 0.20)
-	var band := _pbr("hall_rust", Color(0.72, 0.20, 0.14), 0.24)
-
-	var base := _add_box(node, Vector3(0.0, 0.20, 0.0),
-			Vector3(8.4, 1.2, 8.4), concrete)
-	_keep_poi_detail(base)
-	for sx in [-1.0, 1.0]:
-		for sz in [-1.0, 1.0]:
-			var leg := _add_box(node, Vector3(sx * 2.8, 7.1, sz * 2.8),
-					Vector3(0.38, 13.0, 0.38), steel)
-			_keep_poi_detail(leg)
-	for h in [4.8, 9.2, 13.2]:
-		_add_box(node, Vector3(0.0, h, 0.0), Vector3(6.0, 0.22, 0.22),
-				steel, 0.0, false)
-		_add_box(node, Vector3(0.0, h, 0.0), Vector3(0.22, 0.22, 6.0),
-				steel, 0.0, false)
-	var tank := _add_cylinder(node, Vector3(0.0, 16.3, 0.0), 4.2, 5.0, steel)
-	_keep_poi_detail(tank)
-	_add_cylinder(node, Vector3(0.0, 14.25, 0.0), 4.26, 0.34, band, 0.0, false)
-	_add_cylinder(node, Vector3(0.0, 17.85, 0.0), 4.26, 0.34, band, 0.0, false)
-	var roof := CylinderMesh.new()
-	roof.top_radius = 0.18
-	roof.bottom_radius = 4.45
-	roof.height = 1.7
-	roof.radial_segments = 24
-	var roof_mi := MeshInstance3D.new()
-	roof_mi.mesh = roof
-	roof_mi.material_override = rust
-	roof_mi.position = Vector3(0.0, 19.65, 0.0)
-	roof_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
-	node.add_child(roof_mi)
-	_keep_poi_detail(roof_mi)
-	# Roof collision so the tank remains solid from above.
-	_add_collision_box(node, Vector3(0.0, 19.2, 0.0), Vector3(6.5, 1.4, 6.5))
-	# Ladder on the south-west leg.
-	for i in range(16):
-		_add_box(node, Vector3(2.8, 1.4 + float(i) * 0.78, 2.55),
-				Vector3(0.62, 0.055, 0.055), rust, 0.0, false)
-	_add_box(node, Vector3(2.48, 7.2, 2.55), Vector3(0.055, 12.6, 0.055),
-			rust, 0.0, false)
-	_add_box(node, Vector3(3.12, 7.2, 2.55), Vector3(0.055, 12.6, 0.055),
-			rust, 0.0, false)
-	# Outlet riser down the north face.
-	_add_cylinder(node, Vector3(0.0, 8.2, 4.35), 0.18, 15.6, rust, 0.0, false)
+	var forged := _instantiate_sculpted_glb(node,
+			"res://Assets/handcrafted/forge/steppe_23_rozhnovsky_tower_standing.glb",
+			"hall_metal", Color(1.12, 1.12, 1.10), Vector3.ZERO, 0.0, Vector3(1.18, 1.18, 1.18))
+	_instantiate_sculpted_glb(node,
+			"res://Assets/handcrafted/forge/industrial_02_boiler_house_ruin.glb",
+			"hall_concrete", Color(1.06, 1.05, 1.02), Vector3(9.5, 0.0, 0.0), 0.35, Vector3(0.85, 0.85, 0.85))
+	if forged == null:
+		var steel := _pbr("hall_metal", Color(0.58, 0.62, 0.64), 0.14)
+		_add_cylinder(node, Vector3(0.0, 10.0, 0.0), 3.6, 18.0, steel)
+	_keep_poi_detail(node, 1200.0)
 	print("[FrontlineTerrain] POI water tower at ", site)
 	return node
 
@@ -5111,23 +5275,26 @@ static func _poi_watchtower(root: Node3D, map_name: String, p: Vector2) -> void:
 	var site := _reserve_near_site(root, map_name, p, 12.0, 28.0, false)
 	if site == Vector2.INF:
 		site = _poi_site(map_name, p)
-	var MS = load("res://scripts/util/military_structures.gd")
-	if MS == null:
-		return
 	var gy := footprint_surface_height(map_name, site, 12.0, 12.0, 0.0)
-	var tower = MS.build_observation_watchtower(root,
-			Vector3(site.x, gy - 0.10, site.y), 0.25)
-	if tower != null:
-		tower.name = "POI_Watchtower_" + map_name
-		_tag_signature_landmark(tower as Node3D, tower.name)
-		_poi_positions.append(site)
-		add_contact_shadow(root, map_name, site, 11.0, "POI_Watchtower")
+	var tower := Node3D.new()
+	tower.name = "POI_Watchtower_" + map_name
+	tower.position = Vector3(site.x, gy - 0.10, site.y)
+	tower.rotation.y = 0.25
+	root.add_child(tower)
+	_tag_signature_landmark(tower, tower.name)
+	_poi_positions.append(site)
+	add_contact_shadow(root, map_name, site, 11.0, "POI_Watchtower")
+	_instantiate_sculpted_glb(tower,
+			"res://Assets/handcrafted/forge/swamp_09_rotting_watchtower_marsh.glb",
+			"wood", Color(1.12, 1.08, 1.02))
+	_keep_poi_detail(tower, 1200.0)
+
 	var wreck_target := Vector2(clampf(site.x - 24.0, -154.0, 154.0),
 			clampf(site.y + 18.0, -154.0, 154.0))
 	var wreck_site := _poi_site(map_name, wreck_target)
-	var wreck_y := water_level(map_name) - 0.35
-	var wreck = MS.build_burnt_btr_hull(root,
-			Vector3(wreck_site.x, wreck_y, wreck_site.y), 2.35)
+	var wreck_y := water_level(map_name) - 0.25
+	var wreck := ASSETS.spawn_prop(root, "prop_apc",
+			Vector3(wreck_site.x, wreck_y, wreck_site.y), 2.35, 1.15)
 	if wreck != null:
 		wreck.name = "POI_SunkenBTR_" + map_name
 		_poi_positions.append(wreck_site)
@@ -5218,6 +5385,11 @@ static func _add_war_wear(root: Node3D, map_name: String) -> void:
 	var worn := 0
 	for node in root.get_children():
 		if not (node is Node3D):
+			continue
+		var nname := String(node.name)
+		# Only weather solid authored halls/handcrafted buildings — never slap flat
+		# shell-hole / rust-streak quads across open lattice towers or wooden piers.
+		if not (nname.begins_with("HeroHall") or nname.begins_with("Handcrafted_")):
 			continue
 		var aabb := _wear_aabb(node as Node3D)
 		# Only the big halls/landmarks: dressing every shed and post (68 nodes)
@@ -6252,27 +6424,27 @@ static func _build_wetlands(root: Node3D, map_name: String) -> void:
 	var wet_patrol_boat := MOVING_PATROL_BOAT.create_patrol_boat(wet_boat_wps, wl, 0.0)
 	root.add_child(wet_patrol_boat)
 
-	# Timber boardwalk leads straight into the flooded pump-station door.
-	for i in range(13):
-		var px := 6.0 + float(i) * 2.1
-		var py := maxf(_height(map_name, px, 60.0), wl) + 0.28
-		_add_box(root, Vector3(px, py, 60.0), Vector3(2.1, 0.14, 3.0), wood, 0.0, true)
-		if i % 2 == 0:
-			for sz in [-1.4, 1.4]:
-				_add_cylinder(root, Vector3(px, py - 0.55, 60.0 + sz), 0.09, 1.3,
-						wood, 0.0, false)
+	# Sculpted timber trestle causeway leading into the flooded pump-station door (single clean span).
+	var cy := maxf(_height(map_name, 24.0, 60.0), wl)
+	_instantiate_sculpted_glb(root,
+			"res://Assets/handcrafted/forge/swamp_04_wooden_trestle_causeway.glb",
+			"wood", Color(1.12, 1.08, 1.02), Vector3(24.0, cy, 60.0), 0.0,
+			Vector3.ONE * 0.88)
+	register_structure_exclusion(Vector2(24.0, 60.0), Vector2(14.5, 4.5), 4.5)
 
-	# One curated sunken barge inside ±150 m reserved cleanly.
+	# One curated sculpted sunken river barge inside ±150 m reserved cleanly.
 	var barge_p := Vector2(-115.0, -38.0)
 	for cand in [Vector2(-115.0, -38.0), Vector2(-132.0, -20.0), Vector2(120.0, -118.0)]:
 		if try_reserve_structure(root, map_name, cand, 13.0, 28.0, false):
 			barge_p = cand
 			break
 	var by := _height(map_name, barge_p.x, barge_p.y)
-	_add_box(root, Vector3(barge_p.x, maxf(by, wl) + 0.7, barge_p.y), Vector3(18.0, 2.6, 6.0), rust, 0.25, true)
-	_add_box(root, Vector3(barge_p.x, maxf(by, wl) + 2.2, barge_p.y + 1.0), Vector3(6.0, 2.2, 3.4),
-			concrete, 0.25, false)
-	_add_cylinder(root, Vector3(barge_p.x + 6.0, maxf(by, wl) + 2.4, barge_p.y), 0.5, 4.0, dark, 0.0, false)
+	var barge_node := _instantiate_sculpted_glb(root,
+			"res://Assets/handcrafted/forge/swamp_03_half_sunk_river_barge.glb",
+			"hall_rust", Color(1.14, 1.08, 1.04),
+			Vector3(barge_p.x, maxf(by, wl) - 0.15, barge_p.y), 0.25)
+	if barge_node != null:
+		barge_node.name = "WetlandsBarge"
 	add_contact_shadow(root, map_name, barge_p, 13.0, "WetlandsBarge")
 	ASSETS.spawn_prop(root, "prop_apc",
 			Vector3(16.0, _height(map_name, 16.0, 70.0), 70.0), 1.15, 1.0)
@@ -6405,141 +6577,35 @@ static func _add_hall(root: Node3D, map_name: String, p: Vector2, w: float, h: f
 
 
 static func _add_burnt_tank(root: Node3D, map_name: String, p: Vector2, yaw: float) -> void:
-	var y := footprint_surface_height(map_name, p, 5.8, 2.6, yaw) - 0.22
-	var soot := _mat(Color(0.115, 0.105, 0.090), 0.98)
-	var rust := _mat(Color(0.295, 0.170, 0.095), 0.94, 0.10)
-	var steel := _mat(Color(0.205, 0.190, 0.165), 0.82, 0.38)
-	var track := _mat(Color(0.070, 0.066, 0.058), 1.0)
-
-	# Whole wreck in one local frame so it can sit at a knocked-out roll angle.
+	var y := footprint_surface_height(map_name, p, 5.8, 2.6, yaw) - 0.12
 	var hull_node := Node3D.new()
 	hull_node.position = Vector3(p.x, y, p.y)
 	hull_node.rotation = Vector3(0.0, yaw, 0.045)
 	root.add_child(hull_node)
 	add_contact_shadow(root, map_name, p, 3.6, "BurntTank", 0.85)
 
-	# Lower hull, upper hull and the sloped glacis plate.  The old wreck was a
-	# single tall slab; separating the hull into two volumes gives the tank the
-	# layered silhouette it needs at FPV distance.
+	var tank_mesh := _get_shared_landmark_mesh("BurntTankWreck")
+	var base_pbr := _pbr("hall_rust", Color.WHITE, 0.30)
+	if tank_mesh != null and base_pbr != null:
+		var t_mat := base_pbr.duplicate() as StandardMaterial3D
+		t_mat.albedo_texture = null
+		t_mat.albedo_color = Color(1.08, 1.06, 1.04)
+		t_mat.uv1_triplanar = true
+		t_mat.uv1_world_triplanar = true
+		t_mat.vertex_color_use_as_albedo = true
+		var mi := MeshInstance3D.new()
+		mi.name = "BurntTankMesh"
+		mi.mesh = tank_mesh
+		mi.material_override = t_mat
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		mi.visibility_range_end = 950.0
+		mi.set_meta("no_batch", true)
+		hull_node.add_child(mi)
+		_add_collision_box(hull_node, Vector3(0.0, 1.05, 0.0), Vector3(6.0, 2.1, 3.3))
+		return
+
+	var soot := _pbr("hall_rust", Color(0.24, 0.22, 0.20), 0.32)
 	_add_box(hull_node, Vector3(0.0, 0.70, 0.0), Vector3(5.8, 0.88, 2.62), soot, 0.0, true)
-	_add_box(hull_node, Vector3(-0.10, 1.20, 0.0), Vector3(5.2, 0.42, 2.38), soot, 0.0, false)
-	_add_local_box(hull_node, Vector3(2.45, 1.06, 0.0),
-			Vector3(1.45, 0.14, 2.36), rust, Vector3(0.0, 0.0, -0.80))
-	_add_local_box(hull_node, Vector3(-2.92, 1.02, 0.0),
-			Vector3(0.14, 0.72, 2.20), steel, Vector3(0.0, 0.0, -0.18))
-
-	# Track assemblies: skirt + five road wheels per side, which is what reads
-	# as "tank" instead of a flat box.
-	var wheel_mesh := CylinderMesh.new()
-	wheel_mesh.top_radius = 0.40
-	wheel_mesh.bottom_radius = 0.40
-	wheel_mesh.height = 0.30
-	wheel_mesh.radial_segments = 12
-	var rim_mesh := CylinderMesh.new()
-	rim_mesh.top_radius = 0.22
-	rim_mesh.bottom_radius = 0.22
-	rim_mesh.height = 0.33
-	rim_mesh.radial_segments = 10
-	for side in [-1.0, 1.0]:
-		_add_box(hull_node, Vector3(0.0, 0.62, 1.46 * side),
-				Vector3(6.1, 0.70, 0.16), track, 0.0, false)
-		for wx in [-2.15, -1.05, 0.05, 1.15, 2.20]:
-			var wheel := MeshInstance3D.new()
-			wheel.mesh = wheel_mesh
-			wheel.material_override = steel
-			wheel.position = Vector3(wx, 0.43, 1.44 * side)
-			wheel.rotation.x = PI * 0.5
-			wheel.set_meta("batch_cyl", Vector3(0.40, 0.30, 0.40))
-			hull_node.add_child(wheel)
-			var rim := MeshInstance3D.new()
-			rim.mesh = rim_mesh
-			rim.material_override = rust
-			rim.position = Vector3(wx, 0.43, 1.46 * side)
-			rim.rotation.x = PI * 0.5
-			rim.set_meta("batch_cyl", Vector3(0.22, 0.33, 0.22))
-			hull_node.add_child(rim)
-
-	# Cast turret: a squashed cylinder reads as the rounded T-64/T-72 dome,
-	# with a rear bustle, mantlet, cupola and a drooping gun barrel.
-	var turret := MeshInstance3D.new()
-	var turret_mesh := CylinderMesh.new()
-	turret_mesh.top_radius = 0.82
-	turret_mesh.bottom_radius = 1.02
-	turret_mesh.height = 0.80
-	turret_mesh.radial_segments = 12
-	turret.mesh = turret_mesh
-	turret.material_override = rust
-	turret.position = Vector3(0.05, 1.70, 0.0)
-	turret.scale = Vector3(1.22, 1.0, 0.92)
-	hull_node.add_child(turret)
-	_add_box(hull_node, Vector3(-1.05, 1.74, 0.0), Vector3(1.05, 0.58, 1.72), rust, 0.12, false)
-	_add_box(hull_node, Vector3(1.18, 1.78, 0.0), Vector3(0.42, 0.62, 1.20), steel, 0.0, false)
-
-	var barrel := MeshInstance3D.new()
-	var barrel_mesh := CylinderMesh.new()
-	barrel_mesh.top_radius = 0.060
-	barrel_mesh.bottom_radius = 0.085
-	barrel_mesh.height = 3.40
-	barrel_mesh.radial_segments = 10
-	barrel.mesh = barrel_mesh
-	barrel.material_override = steel
-	barrel.position = Vector3(2.90, 1.84, 0.02)
-	# Rotate -90° around Z so the cylinder axis (+Y) points forward (+X), then
-	# droop the muzzle: the barrel is visibly bent after the cook-off.
-	barrel.rotation = Vector3(0.0, 0.0, -PI * 0.5 - 0.19)
-	hull_node.add_child(barrel)
-
-	var muzzle := MeshInstance3D.new()
-	var muzzle_mesh := CylinderMesh.new()
-	muzzle_mesh.top_radius = 0.105
-	muzzle_mesh.bottom_radius = 0.105
-	muzzle_mesh.height = 0.28
-	muzzle_mesh.radial_segments = 10
-	muzzle.mesh = muzzle_mesh
-	muzzle.material_override = track
-	muzzle.position = Vector3(4.58, 1.52, 0.02)
-	muzzle.rotation = Vector3(0.0, 0.0, -PI * 0.5 - 0.19)
-	muzzle.set_meta("batch_cyl", Vector3(0.105, 0.28, 0.105))
-	hull_node.add_child(muzzle)
-
-	# Cupola, hatch and a bent antenna.
-	var cupola := MeshInstance3D.new()
-	var cup_mesh := CylinderMesh.new()
-	cup_mesh.top_radius = 0.30
-	cup_mesh.bottom_radius = 0.34
-	cup_mesh.height = 0.36
-	cup_mesh.radial_segments = 8
-	cupola.mesh = cup_mesh
-	cupola.material_override = steel
-	cupola.position = Vector3(0.38, 2.18, 0.52)
-	cupola.set_meta("batch_cyl", Vector3(0.34, 0.36, 0.34))
-	hull_node.add_child(cupola)
-	var hatch := MeshInstance3D.new()
-	var hatch_mesh := CylinderMesh.new()
-	hatch_mesh.top_radius = 0.26
-	hatch_mesh.bottom_radius = 0.26
-	hatch_mesh.height = 0.07
-	hatch_mesh.radial_segments = 8
-	hatch.mesh = hatch_mesh
-	hatch.material_override = track
-	hatch.position = Vector3(0.38, 2.39, 0.52)
-	hatch.set_meta("batch_cyl", Vector3(0.26, 0.07, 0.26))
-	hull_node.add_child(hatch)
-	var antenna := MeshInstance3D.new()
-	var antenna_mesh := CylinderMesh.new()
-	antenna_mesh.top_radius = 0.012
-	antenna_mesh.bottom_radius = 0.022
-	antenna_mesh.height = 2.3
-	antenna_mesh.radial_segments = 5
-	antenna.mesh = antenna_mesh
-	antenna.material_override = steel
-	antenna.position = Vector3(-1.28, 2.72, -0.78)
-	antenna.rotation = Vector3(0.12, 0.0, 0.30)
-	hull_node.add_child(antenna)
-
-	# Stowage boxes on the fenders, one hanging open.
-	_add_box(hull_node, Vector3(-1.85, 1.42, 1.18), Vector3(1.10, 0.34, 0.30), steel, 0.0, false)
-	_add_box(hull_node, Vector3(-1.70, 1.38, -1.20), Vector3(1.25, 0.30, 0.28), rust, 0.0, false)
 
 
 static func _add_local_box(parent: Node3D, pos: Vector3, size: Vector3,
@@ -7616,11 +7682,24 @@ static func _build_props(root: Node3D, map_name: String) -> void:
 	if not is_combat:
 		per_type = 1
 	var boxes: Array = []
-	var prop_mat := StandardMaterial3D.new()
-	prop_mat.vertex_color_use_as_albedo = true
-	prop_mat.roughness = 0.9
-	prop_mat.metallic = 0.08
-	prop_mat.metallic_specular = 0.25
+	var prop_base_pbr := _pbr("hall_metal", Color.WHITE, 0.30)
+	var prop_mat: StandardMaterial3D = null
+	if prop_base_pbr != null:
+		prop_mat = prop_base_pbr.duplicate() as StandardMaterial3D
+		prop_mat.albedo_texture = null
+		prop_mat.albedo_color = Color(1.06, 1.05, 1.02)
+		prop_mat.uv1_triplanar = true
+		prop_mat.uv1_world_triplanar = true
+		prop_mat.vertex_color_use_as_albedo = true
+		prop_mat.roughness = 0.84
+		prop_mat.metallic = 0.12
+		prop_mat.metallic_specular = 0.26
+	else:
+		prop_mat = StandardMaterial3D.new()
+		prop_mat.vertex_color_use_as_albedo = true
+		prop_mat.roughness = 0.86
+		prop_mat.metallic = 0.10
+		prop_mat.metallic_specular = 0.25
 	var prop_names: Array = meshes.keys()
 	if q == QualityManager.Level.LOW and prop_names.size() > 10:
 		prop_names = prop_names.slice(0, 10)

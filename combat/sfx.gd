@@ -1162,6 +1162,17 @@ static func play_hitmarker(parent: Node, is_kill: bool = false,
 	player.finished.connect(player.queue_free)
 
 
+static func prewarm() -> void:
+	boom_stream()
+	shot_stream()
+	rifle_stream()
+	cannon_stream()
+	hitmarker_stream()
+	drop_stream()
+	drone_impact_stream()
+	soldier_death_stream()
+
+
 static func clear_caches() -> void:
 	_boom_stream = null
 	_shot_stream = null

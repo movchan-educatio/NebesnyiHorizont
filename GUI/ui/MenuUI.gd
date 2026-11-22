@@ -772,6 +772,7 @@ const EN_TEXT: Dictionary = {
 	"БОЙОВИЙ FPV СИМУЛЯТОР // ПАУЗА": "TACTICAL FPV SIMULATOR // PAUSE",
 	"РЕЖИМ ПАУЗИ": "PAUSED",
 	"  ПРОДОВЖИТИ ПОЛІТ": "  RESUME FLIGHT",
+	"  ЗМІНИТИ ДРОН (МІСІЯ)": "  SWITCH DRONE (MISSION)",
 	"  ПУЛЬТ ТА КАЛІБРУВАННЯ": "  RADIO & CALIBRATION",
 	"  СЕНСОРНІ СТІКИ: ВИМК (РЕЖИМ ПУЛЬТА)": "  TOUCH STICKS: OFF (RADIO MODE)",
 	"  СЕНСОРНІ СТІКИ: УВІМК": "  TOUCH STICKS: ON",

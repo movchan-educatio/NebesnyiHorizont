@@ -402,11 +402,47 @@ static func _add_cyl(parent: Node3D, radius: float, height: float,
 	return mi
 
 
+static var _crane_mat_cache: Dictionary = {}
+
 static func _pbr_mat(albedo: Color, rough: float, metal: float) -> StandardMaterial3D:
+	var key := "%s|%.2f|%.2f" % [albedo.to_html(), rough, metal]
+	if _crane_mat_cache.has(key):
+		return _crane_mat_cache[key] as StandardMaterial3D
 	var m := StandardMaterial3D.new()
-	m.albedo_color = albedo
+	m.albedo_color = Color(
+		clampf(albedo.r * 1.32 + 0.06, 0.14, 1.15),
+		clampf(albedo.g * 1.32 + 0.06, 0.14, 1.15),
+		clampf(albedo.b * 1.32 + 0.06, 0.14, 1.15),
+		1.0
+	)
 	m.roughness = rough
 	m.metallic = metal
+	m.metallic_specular = 0.30
+	m.uv1_triplanar = true
+	m.uv1_world_triplanar = true
+	m.uv1_triplanar_sharpness = 8.0
+	m.uv1_scale = Vector3.ONE * 0.30
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	var diff_p := "res://Assets/frontline/industrial_hall/metal_plate_02_diff.jpg"
+	var nor_p := "res://Assets/frontline/industrial_hall/metal_plate_02_nor_gl.jpg"
+	var rgh_p := "res://Assets/frontline/industrial_hall/metal_plate_02_rough.jpg"
+	if metal < 0.15:
+		diff_p = "res://Assets/frontline/industrial_hall/concrete_slab_wall_diff.jpg"
+		nor_p = "res://Assets/frontline/industrial_hall/concrete_slab_wall_nor_gl.jpg"
+		rgh_p = "res://Assets/frontline/industrial_hall/concrete_slab_wall_rough.jpg"
+	elif albedo.r > albedo.b * 1.4:
+		diff_p = "res://Assets/frontline/industrial_hall/rusty_metal_02_diff.jpg"
+		nor_p = "res://Assets/frontline/industrial_hall/rusty_metal_02_nor_gl.jpg"
+		rgh_p = "res://Assets/frontline/industrial_hall/rusty_metal_02_rough.jpg"
+	if ResourceLoader.exists(diff_p):
+		m.albedo_texture = load(diff_p) as Texture2D
+	if ResourceLoader.exists(nor_p):
+		m.normal_enabled = true
+		m.normal_texture = load(nor_p) as Texture2D
+		m.normal_scale = 0.95
+	if ResourceLoader.exists(rgh_p):
+		m.roughness_texture = load(rgh_p) as Texture2D
+	_crane_mat_cache[key] = m
 	return m
 
 

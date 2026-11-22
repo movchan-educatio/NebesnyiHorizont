@@ -17,6 +17,67 @@ const ORBIT_RAD_PER_SEC := 0.072
 const FOV_START := 32.0
 const FOV_END := 15.0
 
+static var _rf_shader: Shader = null
+static var _signal_loss_shader: Shader = null
+
+
+static func _get_rf_shader() -> Shader:
+	if _rf_shader != null:
+		return _rf_shader
+	var sh := Shader.new()
+	sh.code = """
+shader_type canvas_item;
+uniform float time_sec = 0.0;
+uniform float jolt = 0.0;
+float hash21(vec2 p) {
+	p = fract(p * vec2(123.34, 456.21));
+	p += dot(p, p + 45.32);
+	return fract(p.x * p.y);
+}
+void fragment() {
+	vec2 uv = UV;
+	float scan = sin(uv.y * 540.0 + time_sec * 18.0) * 0.5 + 0.5;
+	float noise = hash21(floor(uv * vec2(260.0, 140.0)) + fract(time_sec * 17.3));
+	vec2 d = uv - vec2(0.5);
+	float vig = smoothstep(0.32, 0.78, dot(d, d) * 1.45);
+	float band = smoothstep(0.92, 1.0, sin(uv.y * 14.0 - time_sec * 4.5));
+	float alpha = vig * 0.42 + scan * 0.06 + (noise - 0.5) * (0.08 + jolt * 0.14) + band * (0.04 + jolt * 0.08);
+	vec3 col = mix(vec3(0.05, 0.11, 0.10), vec3(0.70, 0.92, 0.85), clamp(noise * 0.45 + band, 0.0, 1.0));
+	COLOR = vec4(col, clamp(alpha, 0.0, 0.65));
+}
+"""
+	_rf_shader = sh
+	return _rf_shader
+
+
+static func _get_signal_loss_shader() -> Shader:
+	if _signal_loss_shader != null:
+		return _signal_loss_shader
+	var static_sh := Shader.new()
+	static_sh.code = """
+shader_type canvas_item;
+uniform float time_sec = 0.0;
+float hash21(vec2 p) {
+	p = fract(p * vec2(234.34, 435.345));
+	p += dot(p, p + 34.23);
+	return fract(p.x * p.y);
+}
+void fragment() {
+	vec2 grid = floor(UV * vec2(220.0, 128.0));
+	float n = hash21(grid + fract(time_sec * 47.0));
+	float bar = smoothstep(0.65, 1.0, sin(UV.y * 42.0 + time_sec * 65.0));
+	float v = clamp(n * 0.85 + bar * 0.25, 0.06, 0.96);
+	COLOR = vec4(v * 0.92, v, v * 0.94, 1.0);
+}
+"""
+	_signal_loss_shader = static_sh
+	return _signal_loss_shader
+
+
+static func prewarm() -> void:
+	_get_rf_shader()
+	_get_signal_loss_shader()
+
 var _active: bool = false
 var _elapsed: float = 0.0
 var _shockwave_delay: float = 0.42
@@ -156,29 +217,7 @@ func _build_hud() -> void:
 	_rf_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_rf_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_rf_mat = ShaderMaterial.new()
-	var sh := Shader.new()
-	sh.code = """
-shader_type canvas_item;
-uniform float time_sec = 0.0;
-uniform float jolt = 0.0;
-float hash21(vec2 p) {
-	p = fract(p * vec2(123.34, 456.21));
-	p += dot(p, p + 45.32);
-	return fract(p.x * p.y);
-}
-void fragment() {
-	vec2 uv = UV;
-	float scan = sin(uv.y * 540.0 + time_sec * 18.0) * 0.5 + 0.5;
-	float noise = hash21(floor(uv * vec2(260.0, 140.0)) + fract(time_sec * 17.3));
-	vec2 d = uv - vec2(0.5);
-	float vig = smoothstep(0.32, 0.78, dot(d, d) * 1.45);
-	float band = smoothstep(0.92, 1.0, sin(uv.y * 14.0 - time_sec * 4.5));
-	float alpha = vig * 0.42 + scan * 0.06 + (noise - 0.5) * (0.08 + jolt * 0.14) + band * (0.04 + jolt * 0.08);
-	vec3 col = mix(vec3(0.05, 0.11, 0.10), vec3(0.70, 0.92, 0.85), clamp(noise * 0.45 + band, 0.0, 1.0));
-	COLOR = vec4(col, clamp(alpha, 0.0, 0.65));
-}
-"""
-	_rf_mat.shader = sh
+	_rf_mat.shader = _get_rf_shader()
 	_rf_rect.material = _rf_mat
 	root.add_child(_rf_rect)
 
@@ -286,24 +325,7 @@ void fragment() {
 	_signal_loss_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_signal_loss_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_signal_loss_mat = ShaderMaterial.new()
-	var static_sh := Shader.new()
-	static_sh.code = """
-shader_type canvas_item;
-uniform float time_sec = 0.0;
-float hash21(vec2 p) {
-	p = fract(p * vec2(234.34, 435.345));
-	p += dot(p, p + 34.23);
-	return fract(p.x * p.y);
-}
-void fragment() {
-	vec2 grid = floor(UV * vec2(220.0, 128.0));
-	float n = hash21(grid + fract(time_sec * 47.0));
-	float bar = smoothstep(0.65, 1.0, sin(UV.y * 42.0 + time_sec * 65.0));
-	float v = clamp(n * 0.85 + bar * 0.25, 0.06, 0.96);
-	COLOR = vec4(v * 0.92, v, v * 0.94, 1.0);
-}
-"""
-	_signal_loss_mat.shader = static_sh
+	_signal_loss_mat.shader = _get_signal_loss_shader()
 	_signal_loss_rect.material = _signal_loss_mat
 	_signal_loss_box.add_child(_signal_loss_rect)
 

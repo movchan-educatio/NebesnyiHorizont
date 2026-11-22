@@ -252,49 +252,59 @@ static func _get_hazard_texture() -> Texture2D:
 	return _hazard_prop_tex
 
 
+static func _resolve_tex_path(base_no_ext: String) -> String:
+	for ext in [".png", ".jpg"]:
+		var p: String = base_no_ext + str(ext)
+		if ResourceLoader.exists(p):
+			return p
+	return ""
+
+
 static func _get_prop_mat(kind: String, tint: Color, rough: float = 0.7, metal: float = 0.0) -> StandardMaterial3D:
 	var key := "%s|%.2f|%.2f|%.2f|%.2f|%.2f" % [kind, tint.r, tint.g, tint.b, rough, metal]
 	if _prop_mat_cache.has(key):
 		return _prop_mat_cache[key] as StandardMaterial3D
 	var m := StandardMaterial3D.new()
 	m.albedo_color = tint
+	m.vertex_color_use_as_albedo = true
 	m.roughness = rough
 	m.metallic = metal
+	m.metallic_specular = 0.28
 	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	m.uv1_triplanar = true
 	m.uv1_world_triplanar = true
 	m.uv1_triplanar_sharpness = 8.0
-	m.uv1_scale = Vector3.ONE * 0.28
+	m.uv1_scale = Vector3.ONE * 0.32
 
-	var alb_path := "res://Assets/frontline/textures/%s_albedo.png" % kind
-	var nrm_path := "res://Assets/frontline/textures/%s_normal.png" % kind
-	var rgh_path := "res://Assets/frontline/textures/%s_rough.png" % kind
-	var ao_path := "res://Assets/frontline/textures/%s_ao.png" % kind
+	var alb_path := _resolve_tex_path("res://Assets/frontline/textures/%s_albedo" % kind)
+	var nrm_path := _resolve_tex_path("res://Assets/frontline/textures/%s_normal" % kind)
+	var rgh_path := _resolve_tex_path("res://Assets/frontline/textures/%s_rough" % kind)
+	var ao_path := _resolve_tex_path("res://Assets/frontline/textures/%s_ao" % kind)
 	if kind == "concrete":
-		alb_path = "res://Assets/frontline/industrial_hall/concrete_slab_wall_diff.jpg"
-		nrm_path = "res://Assets/frontline/industrial_hall/concrete_slab_wall_nor_gl.jpg"
-		rgh_path = "res://Assets/frontline/industrial_hall/concrete_slab_wall_rough.jpg"
-		ao_path = "res://Assets/frontline/industrial_hall/concrete_slab_wall_ao.jpg"
+		alb_path = _resolve_tex_path("res://Assets/frontline/industrial_hall/concrete_slab_wall_diff")
+		nrm_path = _resolve_tex_path("res://Assets/frontline/industrial_hall/concrete_slab_wall_nor_gl")
+		rgh_path = _resolve_tex_path("res://Assets/frontline/industrial_hall/concrete_slab_wall_rough")
+		ao_path = _resolve_tex_path("res://Assets/frontline/industrial_hall/concrete_slab_wall_ao")
 	elif kind == "steel":
-		alb_path = "res://Assets/frontline/industrial_hall/metal_plate_02_diff.jpg"
-		nrm_path = "res://Assets/frontline/industrial_hall/metal_plate_02_nor_gl.jpg"
-		rgh_path = "res://Assets/frontline/industrial_hall/metal_plate_02_rough.jpg"
-		ao_path = "res://Assets/frontline/industrial_hall/metal_plate_02_ao.jpg"
+		alb_path = _resolve_tex_path("res://Assets/frontline/industrial_hall/metal_plate_02_diff")
+		nrm_path = _resolve_tex_path("res://Assets/frontline/industrial_hall/metal_plate_02_nor_gl")
+		rgh_path = _resolve_tex_path("res://Assets/frontline/industrial_hall/metal_plate_02_rough")
+		ao_path = _resolve_tex_path("res://Assets/frontline/industrial_hall/metal_plate_02_ao")
 	elif kind == "rust":
-		alb_path = "res://Assets/frontline/industrial_hall/rusty_metal_02_diff.jpg"
-		nrm_path = "res://Assets/frontline/industrial_hall/rusty_metal_02_nor_gl.jpg"
-		rgh_path = "res://Assets/frontline/industrial_hall/rusty_metal_02_rough.jpg"
-		ao_path = "res://Assets/frontline/industrial_hall/rusty_metal_02_ao.jpg"
+		alb_path = _resolve_tex_path("res://Assets/frontline/industrial_hall/rusty_metal_02_diff")
+		nrm_path = _resolve_tex_path("res://Assets/frontline/industrial_hall/rusty_metal_02_nor_gl")
+		rgh_path = _resolve_tex_path("res://Assets/frontline/industrial_hall/rusty_metal_02_rough")
+		ao_path = _resolve_tex_path("res://Assets/frontline/industrial_hall/rusty_metal_02_ao")
 
-	if ResourceLoader.exists(alb_path):
+	if alb_path != "":
 		m.albedo_texture = load(alb_path) as Texture2D
-	if ResourceLoader.exists(nrm_path):
+	if nrm_path != "":
 		m.normal_enabled = true
 		m.normal_texture = load(nrm_path) as Texture2D
 		m.normal_scale = 1.15
-	if ResourceLoader.exists(rgh_path):
+	if rgh_path != "":
 		m.roughness_texture = load(rgh_path) as Texture2D
-	if ResourceLoader.exists(ao_path):
+	if ao_path != "":
 		var ao_tex := load(ao_path) as Texture2D
 		if ao_tex != null:
 			m.ao_enabled = true
@@ -359,42 +369,44 @@ static func _fix_arch(inst: Node3D) -> void:
 static func _texture_prop(mi: MeshInstance3D, prop_name: String) -> void:
 	if mi == null or mi.mesh == null:
 		return
+	# All 20 sculpted props in props_library.glb carry baked multi-part vertex colors + AO.
+	# Use balanced PBR surface multipliers so vertex colors + triplanar normal/roughness shine through.
 	var mat: StandardMaterial3D = null
 	match prop_name:
 		"prop_ammo":
-			mat = _get_prop_mat("steel", Color(0.28, 0.34, 0.22), 0.65, 0.45)
+			mat = _get_prop_mat("steel", Color(1.12, 1.14, 1.08), 0.65, 0.35)
 		"prop_antenna":
-			mat = _get_prop_mat("steel", Color(0.42, 0.45, 0.46), 0.45, 0.70)
+			mat = _get_prop_mat("steel", Color(1.15, 1.16, 1.18), 0.48, 0.55)
 		"prop_apc":
-			mat = _get_prop_mat("camo", Color(0.30, 0.36, 0.24), 0.72, 0.15)
+			mat = _get_prop_mat("steel", Color(1.10, 1.12, 1.06), 0.72, 0.22)
 		"prop_barrel", "prop_oil_drum":
-			mat = _get_prop_mat("steel", Color(0.22, 0.30, 0.38), 0.55, 0.50)
+			mat = _get_prop_mat("steel", Color(1.14, 1.14, 1.16), 0.55, 0.45)
 		"prop_barrier":
-			mat = _get_prop_mat("concrete", Color(0.68, 0.66, 0.62), 0.88, 0.0)
+			mat = _get_prop_mat("concrete", Color(1.12, 1.10, 1.06), 0.88, 0.0)
 		"prop_camo_net", "prop_tent":
-			mat = _get_prop_mat("camo", Color(0.26, 0.33, 0.20), 0.85, 0.0)
+			mat = _get_prop_mat("camo", Color(1.08, 1.10, 1.04), 0.86, 0.0)
 		"prop_car_wreck":
-			mat = _get_prop_mat("rust", Color(0.36, 0.22, 0.16), 0.90, 0.10)
+			mat = _get_prop_mat("rust", Color(1.12, 1.08, 1.04), 0.84, 0.18)
 		"prop_crate", "prop_pallet":
-			mat = _get_prop_mat("wood", Color(0.50, 0.42, 0.32), 0.82, 0.0)
+			mat = _get_prop_mat("wood", Color(1.10, 1.06, 1.00), 0.82, 0.0)
 		"prop_fence", "prop_logs":
-			mat = _get_prop_mat("wood", Color(0.42, 0.34, 0.26), 0.86, 0.0)
+			mat = _get_prop_mat("wood", Color(1.08, 1.04, 0.98), 0.86, 0.0)
 		"prop_fuel_tank":
-			mat = _get_prop_mat("steel", Color(0.46, 0.48, 0.50), 0.48, 0.60)
+			mat = _get_prop_mat("steel", Color(1.14, 1.15, 1.16), 0.52, 0.48)
 		"prop_generator":
-			mat = _get_prop_mat("steel", Color(0.32, 0.36, 0.30), 0.55, 0.50)
+			mat = _get_prop_mat("steel", Color(1.12, 1.14, 1.10), 0.56, 0.42)
 		"prop_hay":
-			mat = _get_prop_mat("wood", Color(0.70, 0.60, 0.38), 0.92, 0.0)
+			mat = _get_prop_mat("wood", Color(1.16, 1.12, 0.98), 0.92, 0.0)
 		"prop_pipe":
-			mat = _get_prop_mat("steel", Color(0.36, 0.38, 0.40), 0.45, 0.65)
+			mat = _get_prop_mat("rust", Color(1.12, 1.10, 1.08), 0.58, 0.48)
 		"prop_sandbags":
-			mat = _get_prop_mat("sandbag", Color(0.58, 0.52, 0.38), 0.88, 0.0)
+			mat = _get_prop_mat("sandbag", Color(1.10, 1.08, 1.02), 0.88, 0.0)
 		"prop_sign":
-			mat = _get_prop_mat("steel", Color(0.78, 0.64, 0.18), 0.50, 0.40)
+			mat = _get_prop_mat("steel", Color(1.18, 1.16, 1.10), 0.52, 0.35)
 		"prop_tires":
-			mat = _get_prop_mat("asphalt", Color(0.14, 0.14, 0.15), 0.92, 0.0)
+			mat = _get_prop_mat("asphalt", Color(0.92, 0.92, 0.94), 0.90, 0.0)
 		_:
-			mat = _get_prop_mat("concrete", Color(0.60, 0.58, 0.54), 0.85, 0.0)
+			mat = _get_prop_mat("concrete", Color(1.08, 1.06, 1.04), 0.85, 0.0)
 
 	for s in range(mi.mesh.get_surface_count()):
 		mi.set_surface_override_material(s, mat)

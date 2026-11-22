@@ -74,6 +74,7 @@ var _preview := false
 ## toggles (mode/input/reset/video/touch/tilt) live inside the quick-options drawer.
 var _bar_open := false
 var _more_button: Button = null
+var _drone_button: Button = null
 var _more_panel: PanelContainer = null
 var _float_button: Button = null
 var _spring_button: Button = null
@@ -134,6 +135,8 @@ func _ready() -> void:
 	_root.add_child(_arm_button)
 
 	_pause_button = _make_top_button(_tx("МЕНЮ", "MENU"), _on_pause_pressed)
+	_drone_button = _make_top_button(_tx("БОРТ", "CRAFT"), _on_drone_switch_pressed)
+	_drone_button.name = "TouchDroneSwitchButton"
 	_more_button = _make_top_button("", Callable(self, "_on_more_pressed"))
 	_more_button.name = "TouchMoreButton"
 	var more_tex := MenuIcons.icon_more(Color(0.90, 0.96, 0.91))
@@ -198,6 +201,8 @@ func _refresh_language_labels() -> void:
 		_arm_button.text = _tx("ARM", "ARM")
 	if _pause_button != null:
 		_pause_button.text = _tx("МЕНЮ", "MENU")
+	if _drone_button != null:
+		_drone_button.text = _tx("БОРТ", "CRAFT")
 	if _more_button != null and _more_button.icon == null:
 		_more_button.text = _tx("ОПЦ", "OPTIONS")
 	if _drop_button != null:
@@ -263,7 +268,7 @@ func set_menu_preview(on: bool) -> void:
 		touch_mode = true
 		_layout()
 		_reset_sticks()
-		for b in [_pause_button, _flight_button, _setup_button, _drop_button, _drop_button_right,
+		for b in [_pause_button, _drone_button, _flight_button, _setup_button, _drop_button, _drop_button_right,
 				_reset_button, _video_button, _mode_button, _arm_button, _more_button]:
 			if b != null:
 				b.visible = false
@@ -303,7 +308,7 @@ func open_layout_editor(close_preview_after: bool = false) -> void:
 		touch_mode = true
 		_layout()
 		_reset_sticks()
-		for button in [_pause_button, _flight_button, _setup_button, _drop_button, _drop_button_right,
+		for button in [_pause_button, _drone_button, _flight_button, _setup_button, _drop_button, _drop_button_right,
 				_reset_button, _video_button, _mode_button, _more_button]:
 			if button != null:
 				button.visible = false
@@ -839,6 +844,9 @@ func _apply_top_bar_visibility() -> void:
 	var live := enabled and (not _preview or _layout_editing)
 	if _pause_button != null:
 		_pause_button.visible = live
+	if _drone_button != null:
+		var cur_scene := get_tree().current_scene if get_tree() != null else null
+		_drone_button.visible = live and cur_scene != null and cur_scene.has_method("open_drone_switcher")
 	if _more_button != null:
 		_more_button.visible = live
 	var open := live and _bar_open
@@ -923,6 +931,14 @@ func _layout() -> void:
 		_more_button.position = more_center - _more_button.size * 0.5
 		_pause_button.add_theme_font_size_override("font_size", int(roundf(22.0 * scale)))
 		_more_button.add_theme_font_size_override("font_size", int(roundf(22.0 * scale)))
+	if _drone_button != null:
+		_drone_button.size = Vector2(menu_w, menu_h)
+		var drone_center_default := Vector2(side_x + menu_w + 10.0 * scale + menu_w * 0.5,
+				side_y + menu_h * 0.5)
+		var drone_center := _clamp_layout_button_center(
+				_saved_layout_center("drone", drone_center_default, vs), _drone_button.size, vs, notch)
+		_drone_button.position = drone_center - _drone_button.size * 0.5
+		_drone_button.add_theme_font_size_override("font_size", int(roundf(20.0 * scale)))
 	if _more_panel != null:
 		var panel_w := clampf(344.0 * scale, 240.0, maxf(240.0, vs.x - notch.x - notch.z - 24.0))
 		var panel_h := minf(360.0, maxf(220.0, vs.y - notch.y - notch.w - 24.0))
@@ -1061,7 +1077,7 @@ func _apply_button_style() -> void:
 	normal.set_corner_radius_all(8)
 	var pressed := normal.duplicate() as StyleBoxFlat
 	pressed.bg_color = Color(0.12, 0.30, 0.44, 0.85)
-	for b in [_pause_button, _setup_button, _more_button]:
+	for b in [_pause_button, _drone_button, _setup_button, _more_button]:
 		if b != null:
 			b.add_theme_stylebox_override("normal", normal)
 			b.add_theme_stylebox_override("hover", normal)
@@ -1123,6 +1139,13 @@ func _on_arm_pressed() -> void:
 
 func _on_pause_pressed() -> void:
 	_dispatch_action("pause_menu")
+
+
+func _on_drone_switch_pressed() -> void:
+	Haptics.trigger_ui_tap()
+	var cur_scene := get_tree().current_scene if get_tree() != null else null
+	if cur_scene != null and cur_scene.has_method("open_drone_switcher"):
+		cur_scene.call("open_drone_switcher")
 
 
 func _on_flight_pressed() -> void:
@@ -1667,7 +1690,7 @@ func _begin_layout_drag(pointer: int, pointer_position: Vector2) -> bool:
 func _layout_hit_test(pos: Vector2) -> String:
 	# Buttons are tested first so the ARM / DROP hit areas remain easy to grab.
 	for entry in [
-		["menu", _pause_button], ["options", _more_button],
+		["menu", _pause_button], ["drone", _drone_button], ["options", _more_button],
 		["arm", _arm_button], ["drop", _drop_button],
 		["drop_right", _drop_button_right],
 	]:
@@ -1686,6 +1709,7 @@ func _layout_item_center(item: String) -> Vector2:
 		"left": return _left_center
 		"right": return _right_center
 		"menu": return _pause_button.position + _pause_button.size * 0.5
+		"drone": return _drone_button.position + _drone_button.size * 0.5 if _drone_button != null else Vector2.ZERO
 		"options": return _more_button.position + _more_button.size * 0.5
 		"arm": return _arm_button.position + _arm_button.size * 0.5
 		"drop": return _drop_button.position + _drop_button.size * 0.5
@@ -1696,6 +1720,7 @@ func _layout_item_center(item: String) -> Vector2:
 func _layout_item_control(item: String) -> Control:
 	match item:
 		"menu": return _pause_button
+		"drone": return _drone_button
 		"options": return _more_button
 		"arm": return _arm_button
 		"drop": return _drop_button
@@ -1764,7 +1789,7 @@ func _save_touch_layout() -> void:
 func _point_hits_ui(pos: Vector2) -> bool:
 	if _setup_root != null and _setup_root.visible:
 		return true
-	for c in [_pause_button, _more_button, _arm_button, _drop_button, _drop_button_right, _more_panel]:
+	for c in [_pause_button, _drone_button, _more_button, _arm_button, _drop_button, _drop_button_right, _more_panel]:
 		if c != null and c.visible and c.get_global_rect().has_point(pos):
 			return true
 	var scene := get_tree().current_scene if get_tree() != null else null
@@ -1980,7 +2005,7 @@ func _on_drawer_draw() -> void:
 				HORIZONTAL_ALIGNMENT_CENTER, -1.0, 14, 4, label_shadow)
 		_drawer.draw_string(font, right_pos, right_text,
 				HORIZONTAL_ALIGNMENT_CENTER, -1.0, 14, label_color)
-		for control in [_pause_button, _more_button, _arm_button, _drop_button, _drop_button_right]:
+		for control in [_pause_button, _drone_button, _more_button, _arm_button, _drop_button, _drop_button_right]:
 			if control != null and control.visible:
 				_drawer.draw_rect(control.get_global_rect(),
 						Color(0.76, 0.96, 0.65, 0.88), false, 2.0, true)

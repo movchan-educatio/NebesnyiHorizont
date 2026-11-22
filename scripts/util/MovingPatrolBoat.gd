@@ -78,12 +78,8 @@ static func create_patrol_boat(wps: Array[Vector3], water_y: float, yaw: float =
 	root.rotation.y = yaw
 
 	var FT = load("res://scripts/util/frontline_terrain.gd")
-	var camo_hull: Material = FT._pbr("steel", Color(0.28, 0.35, 0.30), 0.28) # Olive-gray naval camo
-	var deck_dark: Material = FT._pbr("steel", Color(0.22, 0.24, 0.25), 0.35)
-	var superstructure: Material = FT._pbr("steel", Color(0.38, 0.42, 0.40), 0.26)
-	var weapon_mat: Material = FT._pbr("steel", Color(0.18, 0.19, 0.20), 0.22)
-	var glass_mat: Material = FT._mat(Color(0.04, 0.08, 0.10), 0.15, 0.35)
-	var wake_mat: Material = FT._mat(Color(0.90, 0.95, 0.98), 0.60, 0.85)
+	var camo_hull: Material = FT._pbr("hall_metal", Color(0.28, 0.35, 0.30), 0.28)
+	var weapon_mat: Material = FT._pbr("hall_metal", Color(0.18, 0.19, 0.20), 0.22)
 
 	# 1. Boat Static/Animatable Body for Collision
 	var boat_body := AnimatableBody3D.new()
@@ -93,73 +89,78 @@ static func create_patrol_boat(wps: Array[Vector3], water_y: float, yaw: float =
 	boat_body.sync_to_physics = false
 	root.add_child(boat_body)
 
-	# Hull dimensions: 15.6m long, 3.8m beam, 1.8m depth
 	var length := 15.6
 	var beam := 3.8
-
-	# Main lower hull
-	_add_box(boat_body, Vector3(beam, 1.4, length * 0.72),
-			Vector3(0.0, 0.2, -length * 0.05), camo_hull, 0.0, true)
-
-	# Tapered bow wedge
-	_add_prism(boat_body, Vector3(beam, 1.4, length * 0.28),
-			Vector3(0.0, 0.2, length * 0.45), camo_hull, PI, true)
-
-	# Upper teak / non-slip deck
-	_add_box(boat_body, Vector3(beam - 0.2, 0.12, length * 0.96),
-			Vector3(0.0, 0.95, 0.0), deck_dark, 0.0, true)
-
-	# Deck bulwarks / gunwales along edges
-	for side in [-1.0, 1.0]:
-		_add_box(boat_body, Vector3(0.12, 0.65, length * 0.85),
-				Vector3(side * (beam * 0.5 - 0.08), 1.25, -length * 0.05), camo_hull, 0.0, false)
-
-	# 2. Armored Pilothouse / Bridge (Midship)
-	var bridge := _add_box(boat_body, Vector3(2.6, 1.9, 4.2),
-			Vector3(0.0, 1.9, -0.6), superstructure, 0.0, true)
-
-	# Bridge windows (forward, sides)
-	_add_box(bridge, Vector3(2.3, 0.65, 0.1),
-			Vector3(0.0, 0.35, 2.15), glass_mat, 0.0, false)
-	for side in [-1.0, 1.0]:
-		_add_box(bridge, Vector3(0.1, 0.65, 2.4),
-				Vector3(side * 1.35, 0.35, 0.2), glass_mat, 0.0, false)
-
-	# 3. Forward Armored Remote Weapon Turret (Bow 30mm Autocannon)
-	var turret_mount := _add_cyl(boat_body, 0.95, 0.65,
-			Vector3(0.0, 1.3, length * 0.26), weapon_mat, true)
-	var turret_housing := _add_box(boat_body, Vector3(1.4, 0.9, 1.6),
-			Vector3(0.0, 1.85, length * 0.26), weapon_mat, 0.0, true)
-	# Dual 30mm gun barrels
-	for gx in [-0.15, 0.15]:
-		_add_cyl(boat_body, 0.06, 2.4,
-				Vector3(gx, 1.95, length * 0.26 + 1.6), weapon_mat, false, Vector3(PI * 0.5, 0.0, 0.0))
-
-	# 4. Mast with Rotating Radar Scanner
-	var mast_y := 2.85
-	_add_cyl(boat_body, 0.12, 3.2,
-			Vector3(0.0, mast_y + 1.6, -1.2), superstructure, false)
-	# Cross yardarm with navigation lights
-	_add_box(boat_body, Vector3(1.8, 0.08, 0.08),
-			Vector3(0.0, mast_y + 2.4, -1.2), superstructure, 0.0, false)
+	var sculpted_hull: Mesh = FT._get_shared_landmark_mesh("PatrolBoatHull") if FT.has_method("_get_shared_landmark_mesh") else null
+	if sculpted_hull != null:
+		var hull_pbr := FT._pbr("hall_metal", Color.WHITE, 0.32) as StandardMaterial3D
+		var hull_mat := hull_pbr.duplicate() as StandardMaterial3D if hull_pbr != null else StandardMaterial3D.new()
+		hull_mat.albedo_texture = null
+		hull_mat.albedo_color = Color(1.06, 1.06, 1.04)
+		hull_mat.uv1_triplanar = true
+		hull_mat.uv1_world_triplanar = true
+		hull_mat.vertex_color_use_as_albedo = true
+		hull_mat.roughness = 0.68
+		hull_mat.metallic = 0.24
+		var hull_mi := MeshInstance3D.new()
+		hull_mi.name = "SculptedPatrolBoatHull"
+		hull_mi.mesh = sculpted_hull
+		hull_mi.material_override = hull_mat
+		hull_mi.scale = Vector3(1.42, 1.42, 1.48)
+		hull_mi.position = Vector3(0.0, -0.35, 0.0)
+		hull_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		hull_mi.set_meta("no_batch", true)
+		boat_body.add_child(hull_mi)
+		var cs := CollisionShape3D.new()
+		var bshape := BoxShape3D.new()
+		bshape.size = Vector3(beam, 2.6, length)
+		cs.shape = bshape
+		cs.position = Vector3(0.0, 1.1, 0.0)
+		boat_body.add_child(cs)
+	else:
+		_add_box(boat_body, Vector3(beam, 1.4, length * 0.72),
+				Vector3(0.0, 0.2, -length * 0.05), camo_hull, 0.0, true)
 
 	# Rotating radar scanner bar atop mast
 	var radar := Node3D.new()
 	radar.name = "BoatRadarScanner"
-	radar.position = Vector3(0.0, mast_y + 3.3, -1.2)
+	radar.position = Vector3(0.0, 4.45, -0.5)
 	boat_body.add_child(radar)
 	root._radar_antenna = radar
-
 	_add_box(radar, Vector3(1.4, 0.18, 0.22), Vector3.ZERO, weapon_mat, 0.0, false)
 
-	# 5. Stern Transom, Outboard Drives, and Wake Trails
-	_add_box(boat_body, Vector3(2.4, 0.9, 0.8),
-			Vector3(0.0, 0.55, -length * 0.48), camo_hull, 0.0, true)
-
-	# Twin foam wake planes trailing behind boat
+	# Translucent feathered foam wake trails behind stern (replacing opaque white boxes)
+	var wake_grad := Gradient.new()
+	wake_grad.colors = PackedColorArray([
+		Color(0.92, 0.96, 0.98, 0.0),
+		Color(0.92, 0.96, 0.98, 0.34),
+		Color(0.88, 0.94, 0.96, 0.14),
+		Color(0.85, 0.92, 0.95, 0.0),
+	])
+	wake_grad.offsets = PackedFloat32Array([0.0, 0.22, 0.65, 1.0])
+	var wake_tex := GradientTexture2D.new()
+	wake_tex.gradient = wake_grad
+	wake_tex.fill = GradientTexture2D.FILL_RADIAL
+	wake_tex.fill_from = Vector2(0.5, 0.25)
+	wake_tex.fill_to = Vector2(0.5, 1.0)
+	var wake_mat := StandardMaterial3D.new()
+	wake_mat.albedo_texture = wake_tex
+	wake_mat.albedo_color = Color(0.92, 0.96, 0.98, 0.42)
+	wake_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	wake_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	wake_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	wake_mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 	for side in [-1.0, 1.0]:
-		var wake := _add_box(root, Vector3(1.2, 0.04, 7.5),
-				Vector3(side * 1.5, 0.02, -length * 0.5 - 3.8), wake_mat, side * 0.12, false)
+		var wake_q := QuadMesh.new()
+		wake_q.size = Vector2(1.8, 8.5)
+		var wake_mi := MeshInstance3D.new()
+		wake_mi.mesh = wake_q
+		wake_mi.material_override = wake_mat
+		wake_mi.position = Vector3(side * 1.45, 0.04, -length * 0.5 - 3.6)
+		wake_mi.rotation = Vector3(-PI * 0.5, side * 0.14, 0.0)
+		wake_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		wake_mi.set_meta("no_batch", true)
+		root.add_child(wake_mi)
 
 	return root
 

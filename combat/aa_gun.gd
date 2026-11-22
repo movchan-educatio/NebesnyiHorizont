@@ -56,6 +56,7 @@ func _ready() -> void:
 	collision_mask = 1
 	_disabled = _qa_disabled()
 	_build()
+	scale *= Vector3.ONE * 1.20
 	var cs := get_tree().current_scene if get_tree() != null else null
 	if cs != null:
 		if _drone == null or not is_instance_valid(_drone):

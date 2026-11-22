@@ -14,6 +14,7 @@ const INFANTRY_IMPOSTOR_ATLAS := "res://Assets/combat/soldier_impostor_atlas.png
 ## and collapse inside Godot.
 const SOLDIER_MODEL := "res://Assets/combat/rifleman.glb"
 const MOBILE_TARGET_SCALE := 1.20
+const GLOBAL_INFANTRY_SCALE := 1.20
 const TracerScript = preload("res://combat/tracer.gd")
 const ExplosionScript = preload("res://combat/explosion.gd")
 const CombatSfxScript = preload("res://combat/sfx.gd")
@@ -120,8 +121,9 @@ func _ready() -> void:
 	_walk_phase = fmod(float(abs(get_instance_id())) * 0.6180339, TAU)
 	_build()
 	_build_lod_proxy()
-	# Keep the desktop target unchanged.  Scaling the body uniformly also scales
-	# the attached CollisionShape3D, including its crouched/prone adjustments.
+	# Uniform +20% scale boost across all platforms (and mobile visual scale on top),
+	# scaling visuals, LOD proxy, and CollisionShape3D together cleanly.
+	scale *= Vector3.ONE * GLOBAL_INFANTRY_SCALE
 	if _mobile_visual_lod_enabled():
 		scale *= Vector3.ONE * MOBILE_TARGET_SCALE
 	var scene := _find_level_scene()

@@ -362,6 +362,40 @@ PROPS = {
 }
 
 
+def _bake_uv_and_ao(ob):
+    me = ob.data
+    if not me.uv_layers:
+        me.uv_layers.new(name="UVMap")
+    uv_layer = me.uv_layers.active.data
+    col_layer = me.color_attributes["Col"] if "Col" in me.color_attributes else me.color_attributes.new(name="Col", type='FLOAT_COLOR', domain='CORNER')
+    zs = [v.co.z for v in me.vertices] if me.vertices else [0.0, 1.0]
+    z_min = min(zs)
+    z_span = max(0.20, max(zs) - z_min)
+    for poly in me.polygons:
+        n = poly.normal
+        ax, ay, az = abs(n.x), abs(n.y), abs(n.z)
+        sun = max(0.0, n.x * 0.35 - n.y * 0.40 + n.z * 0.85)
+        for li in poly.loop_indices:
+            vi = me.loops[li].vertex_index
+            co = me.vertices[vi].co
+            if az >= ax and az >= ay:
+                u, v = co.x * 0.45, co.y * 0.45
+            elif ax >= ay:
+                u, v = co.y * 0.45, co.z * 0.45
+            else:
+                u, v = co.x * 0.45, co.z * 0.45
+            uv_layer[li].uv = (u, v)
+            h_t = max(0.0, min(1.0, (co.z - z_min) / z_span))
+            ao = (0.64 + 0.36 * pow(h_t, 0.65)) * (0.86 + 0.24 * sun)
+            c = col_layer.data[li].color
+            col_layer.data[li].color = (
+                min(1.0, c[0] * ao),
+                min(1.0, c[1] * ao),
+                min(1.0, c[2] * ao),
+                1.0,
+            )
+
+
 def build_one(name, only=None):
     if only and name != only:
         return
@@ -380,10 +414,12 @@ def build_one(name, only=None):
     bpy.ops.object.join()
     joined = bpy.context.object
     joined.name = name
+    _bake_uv_and_ao(joined)
     os.makedirs(ROOT, exist_ok=True)
     out = os.path.join(ROOT, name + ".glb")
     bpy.ops.export_scene.gltf(filepath=out, export_format='GLB',
                               use_selection=True, export_apply=True,
+                              export_texcoords=True, export_normals=True,
                               export_yup=True)
     tris = sum(len(p.vertices) - 2 for p in joined.data.polygons)
     print("PROP_OK", name, "verts=", len(joined.data.vertices),

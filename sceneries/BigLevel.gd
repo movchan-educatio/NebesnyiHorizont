@@ -32,6 +32,7 @@ const FpvIconsScript = preload("res://scripts/util/fpv_icons.gd")
 const ReconKillCamScript = preload("res://scripts/combat/recon_kill_cam.gd")
 const GhostScript = preload("res://drone/Ghost.gd")
 const FreestyleCourseScript = preload("res://scripts/util/freestyle_course.gd")
+const MissionDroneSwitcherScript = preload("res://scripts/util/mission_drone_switcher.gd")
 const MAIN_MENU := "res://GUI/MainMenu.tscn"
 const MOBILE_MENU := "res://GUI/mobile/MobileMenu.tscn"
 
@@ -248,6 +249,13 @@ var _kill_cam: ReconKillCamScript = null
 var _kill_cam_triggered := false
 var _kill_cam_last_ms := -10000
 var _pending_combat_complete := false
+var _defer_loading_dismiss := false
+var _defer_training_rings := false
+var _active_dropped_payloads := 0
+var _pending_post_drop_rearm := false
+var _post_drop_rearm_timer: Timer = null
+var _drone_switcher: Node = null
+var _freestyle_landmark_aabbs: Array[AABB] = []
 var _pending_airframe_fail := false
 var _victory_scheduled := false
 var _pending_kamikaze_respawn := false
@@ -601,7 +609,8 @@ func _ready() -> void:
 	_setup_weather()
 	_setup_vision_overlay()
 	_apply_osd_colors()
-	call_deferred("_dismiss_global_loading_overlay")
+	if not _defer_loading_dismiss:
+		call_deferred("_dismiss_global_loading_overlay")
 	# Mission entry always shows the flight HUD.  A stale "OSD off" from an
 	# earlier session used to hide every label after returning from the menu.
 	_osd_visible = true
@@ -1381,7 +1390,8 @@ func _build_valley_props() -> void:
 				add_child(_combat_training)
 				_combat_training.initialize(self, d_ct, _ground_y)
 			else:
-				_queue_training_ring_spawn()
+				if not _defer_training_rings:
+					_queue_training_ring_spawn()
 		_:
 			if OS.has_environment("DRONE_COMBAT_MISSION"):
 				Global.combat_mission = clampi(int(OS.get_environment("DRONE_COMBAT_MISSION")), 1, 4)
@@ -1425,7 +1435,7 @@ func _build_frontline_props() -> void:
 			_combat_training = CombatTrainingScript.new()
 			add_child(_combat_training)
 			_combat_training.initialize(self, d, _ground_y)
-		else:
+		elif not _defer_training_rings:
 			_queue_training_ring_spawn()
 	if Global.play_mode == Global.PlayMode.TUTORIAL:
 		_flight_school = FlightSchool.new()
@@ -2473,9 +2483,13 @@ func _on_arm_failed(reason) -> void:
 func _on_respawned() -> void:
 	_kill_cam_triggered = false
 	_pending_kamikaze_respawn = false
+	_active_dropped_payloads = 0
+	_pending_post_drop_rearm = false
 	_airframe_consumed_this_life = false
 	if _kamikaze_respawn_timer != null and is_instance_valid(_kamikaze_respawn_timer):
 		_kamikaze_respawn_timer.stop()
+	if _post_drop_rearm_timer != null and is_instance_valid(_post_drop_rearm_timer):
+		_post_drop_rearm_timer.stop()
 	var d_vis := get_node_or_null("Drone") as Drone
 	if d_vis != null:
 		d_vis.visible = true
@@ -3497,6 +3511,71 @@ func _find_training_ring_fallback(i: int, clearance: BoxShape3D) -> Vector3:
 	return last_resort
 
 
+func _collect_freestyle_landmark_aabbs() -> Array[AABB]:
+	var out: Array[AABB] = []
+	var queue: Array[Node] = [self]
+	while not queue.is_empty():
+		var cur: Node = queue.pop_back()
+		if cur == null or not is_instance_valid(cur):
+			continue
+		var nm := String(cur.name)
+		var lower := nm.to_lower()
+		# Keep HeroHall / Hall_* fly-through sites eligible for authored hall gates,
+		# while collecting solid non-hall landmarks (towers, lighthouses, hangars, fuel depots, etc.).
+		if nm == "HeroHall" or nm.begins_with("Hall_") or nm == "TrainingRings" \
+				or nm == "ContactShadows" or nm == "Drone" or cur is Vehicle \
+				or nm in ["FrontlineGround", "Ground", "GroundBody", "Terrain", "AirportGround"]:
+			continue
+		var is_landmark_root := nm.begins_with("POI_") or nm.begins_with("MobileHero") \
+				or nm.begins_with("AirportLandmark_") or nm == "WetlandsBarge" \
+				or lower.contains("crane") or lower.contains("silo") or lower.contains("tower")
+		if not is_landmark_root:
+			for c in cur.get_children():
+				if String(c.name) == "SculptedCol":
+					is_landmark_root = true
+					break
+		if is_landmark_root and cur is Node3D:
+			var merged := AABB()
+			var has_box := false
+			var sub_stack: Array[Node] = [cur]
+			while not sub_stack.is_empty():
+				var sub: Node = sub_stack.pop_back()
+				if sub is MeshInstance3D and (sub as MeshInstance3D).visible:
+					var mi := sub as MeshInstance3D
+					if mi.mesh != null:
+						var local_bb := mi.get_aabb()
+						if local_bb.size.length_squared() > 0.01:
+							var xf := mi.global_transform
+							var world_bb := AABB()
+							var first_pt := true
+							for xi in [0.0, 1.0]:
+								for yi in [0.0, 1.0]:
+									for zi in [0.0, 1.0]:
+										var corner := xf * (local_bb.position + Vector3(
+												local_bb.size.x * float(xi),
+												local_bb.size.y * float(yi),
+												local_bb.size.z * float(zi)))
+										if first_pt:
+											world_bb = AABB(corner, Vector3.ZERO)
+											first_pt = false
+										else:
+											world_bb = world_bb.expand(corner)
+							if world_bb.size.x < 120.0 and world_bb.size.z < 120.0:
+								if not has_box:
+									merged = world_bb
+									has_box = true
+								else:
+									merged = merged.merge(world_bb)
+				for ch in sub.get_children():
+					sub_stack.append(ch)
+			if has_box:
+				out.append(merged)
+			continue
+		for ch in cur.get_children():
+			queue.append(ch)
+	return out
+
+
 func _freestyle_gate_clear(pos: Vector3, radius: float,
 		dir: Vector3 = Vector3.ZERO) -> bool:
 	var gy := _find_ground_y(pos.x, pos.z)
@@ -3512,6 +3591,12 @@ func _freestyle_gate_clear(pos: Vector3, radius: float,
 			return false
 		if absf(pos.x - 45.0) < 38.0 and absf(pos.z + 40.0) < 26.0 and pos.y - gy < 26.0:
 			return false
+	var gate_box := AABB(
+			pos - Vector3(radius + 1.4, radius + 1.0, radius + 1.4),
+			Vector3((radius + 1.4) * 2.0, (radius + 1.0) * 2.0, (radius + 1.4) * 2.0))
+	for lbox in _freestyle_landmark_aabbs:
+		if gate_box.intersects(lbox):
+			return false
 	var world := get_world_3d()
 	if world == null:
 		return true
@@ -3523,15 +3608,30 @@ func _freestyle_gate_clear(pos: Vector3, radius: float,
 	if drone is CollisionObject3D:
 		excludes.append((drone as CollisionObject3D).get_rid())
 	var probe_offsets: Array[Vector3] = [Vector3.ZERO]
-	var probe_radii: Array[float] = [minf(radius, maxf(1.8, pos.y - gy - 0.45))]
+	var probe_radii: Array[float] = [minf(radius + 0.6, maxf(1.8, pos.y - gy - 0.45))]
+	var fwd := dir.normalized() if dir.length_squared() > 0.01 else Vector3.FORWARD
 	if dir.length_squared() > 0.1:
-		var fwd := dir.normalized()
 		for dist in [-4.8, 4.8]:
 			var pt := pos + fwd * float(dist)
 			var pt_gy := _find_ground_y(pt.x, pt.z)
 			if pt.y - pt_gy >= 2.2:
 				probe_offsets.append(fwd * float(dist))
-				probe_radii.append(minf(radius * 0.58, maxf(1.5, pt.y - pt_gy - 0.35)))
+				probe_radii.append(minf(radius * 0.62, maxf(1.5, pt.y - pt_gy - 0.35)))
+	var flat_fwd := Vector3(fwd.x, 0.0, fwd.z)
+	if flat_fwd.length_squared() > 0.01:
+		var right_axis := flat_fwd.normalized().cross(Vector3.UP).normalized()
+		var rim_offsets: Array[Vector3] = [
+			right_axis * (radius * 0.70),
+			-right_axis * (radius * 0.70),
+			Vector3.UP * (radius * 0.60),
+			Vector3.DOWN * (radius * 0.60),
+		]
+		for off in rim_offsets:
+			var rpt: Vector3 = pos + off
+			var rgy := _find_ground_y(rpt.x, rpt.z)
+			if rpt.y - rgy >= 1.6:
+				probe_offsets.append(off)
+				probe_radii.append(1.35)
 	for pi in range(probe_offsets.size()):
 		var pt := pos + probe_offsets[pi]
 		var shape := SphereShape3D.new()
@@ -3556,6 +3656,7 @@ func _freestyle_gate_clear(pos: Vector3, radius: float,
 
 ## Lift / nudge a gate until its opening and entry/exit corridor are clear of trees, walls, cranes and water.
 func _freestyle_clear_gate_positions(specs: Array[Dictionary]) -> void:
+	_freestyle_landmark_aabbs = _collect_freestyle_landmark_aabbs()
 	var moves: Array[Vector3] = [
 		Vector3(3.5, 0.0, 0.0), Vector3(-3.5, 0.0, 0.0),
 		Vector3(0.0, 0.0, 3.5), Vector3(0.0, 0.0, -3.5),
@@ -3567,7 +3668,12 @@ func _freestyle_clear_gate_positions(specs: Array[Dictionary]) -> void:
 		Vector3(14.0, 2.0, -14.0), Vector3(-14.0, 2.0, 14.0),
 		Vector3(20.0, 2.5, 0.0), Vector3(-20.0, 2.5, 0.0),
 		Vector3(0.0, 2.5, 20.0), Vector3(0.0, 2.5, -20.0),
-		Vector3.UP * 3.5, Vector3.UP * 7.0, Vector3.UP * 11.0, Vector3.UP * 15.0,
+		Vector3(24.0, 3.0, 12.0), Vector3(-24.0, 3.0, -12.0),
+		Vector3(12.0, 3.0, -24.0), Vector3(-12.0, 3.0, 24.0),
+		Vector3(28.0, 3.5, 0.0), Vector3(-28.0, 3.5, 0.0),
+		Vector3(0.0, 3.5, 28.0), Vector3(0.0, 3.5, -28.0),
+		Vector3.UP * 3.5, Vector3.UP * 7.0, Vector3.UP * 11.0,
+		Vector3.UP * 15.0, Vector3.UP * 19.0, Vector3.UP * 24.0, Vector3.UP * 29.0,
 	]
 	var wl := _map_water_level()
 	for spec in specs:
@@ -3695,10 +3801,96 @@ func _build_freestyle_ring_positions() -> bool:
 	_freestyle_clear_gate_positions(specs)
 	if specs.size() < FreestyleCourseScript.RING_COUNT:
 		return false
+	_sweep_trees_near_freestyle_gates(specs)
 	_freestyle_ring_specs = specs
 	for spec in specs:
 		_training_ring_positions.append(spec["pos"])
 	return true
+
+
+func _sweep_trees_near_freestyle_gates(specs: Array[Dictionary]) -> void:
+	if specs.is_empty():
+		return
+	var clear_points: Array[Dictionary] = []
+	for sp in specs:
+		var gpos: Vector3 = sp.get("pos", Vector3.ZERO)
+		var gdir: Vector3 = sp.get("dir", Vector3.FORWARD)
+		var flat_dir := Vector3(gdir.x, 0.0, gdir.z)
+		var fdir := flat_dir.normalized() if flat_dir.length_squared() > 0.001 else Vector3.FORWARD
+		var r := maxf(8.5, float(sp.get("size", 4.6)) + 4.0)
+		clear_points.append({"xz": Vector2(gpos.x, gpos.z), "r": r})
+		clear_points.append({"xz": Vector2(gpos.x + fdir.x * 4.5, gpos.z + fdir.z * 4.5), "r": r * 0.85})
+		clear_points.append({"xz": Vector2(gpos.x - fdir.x * 4.5, gpos.z - fdir.z * 4.5), "r": r * 0.85})
+	var zero_xf := Transform3D(Basis(Vector3.ZERO, Vector3.ZERO, Vector3.ZERO), Vector3(0.0, -500.0, 0.0))
+	var stack: Array[Node] = [self]
+	while not stack.is_empty():
+		var cur: Node = stack.pop_back()
+		if cur == null or not is_instance_valid(cur):
+			continue
+		if cur is MultiMeshInstance3D:
+			var mmi := cur as MultiMeshInstance3D
+			var lname := String(mmi.name).to_lower()
+			var is_tree_mm := (lname.contains("tree") or lname.contains("oak") \
+					or lname.contains("pine") or lname.contains("_trunks") \
+					or lname.contains("_leaves") or lname.contains("bush") or lname.contains("shrub")) \
+					and not lname.contains("bghorizontreeline") \
+					and not lname.contains("grass") and not lname.contains("reed")
+			if is_tree_mm and mmi.multimesh != null:
+				var mm := mmi.multimesh
+				var xform_parent := mmi.global_transform
+				for idx in range(mm.instance_count):
+					var inst_xf := mm.get_instance_transform(idx)
+					if inst_xf.origin.y < -200.0:
+						continue
+					var wpos := xform_parent * inst_xf.origin
+					var p2 := Vector2(wpos.x, wpos.z)
+					for cp in clear_points:
+						if p2.distance_to(cp["xz"] as Vector2) < float(cp["r"]):
+							mm.set_instance_transform(idx, zero_xf)
+							break
+		elif cur is StaticBody3D:
+			var sb := cur as StaticBody3D
+			var bname := String(sb.name)
+			if bname == "HeroTreeTrunkCol":
+				var bpos := Vector2(sb.global_position.x, sb.global_position.z)
+				for cp in clear_points:
+					if bpos.distance_to(cp["xz"] as Vector2) < float(cp["r"]):
+						sb.queue_free()
+						break
+			elif bname.begins_with("TreeCollision_") or bname.begins_with("AirportTreeCol_"):
+				for child in sb.get_children():
+					if child is CollisionShape3D and (child as CollisionShape3D).shape is ConcavePolygonShape3D:
+						var cs := child as CollisionShape3D
+						var cshape := cs.shape as ConcavePolygonShape3D
+						var faces := cshape.get_faces()
+						var tri_count := faces.size() / 3
+						if tri_count <= 0:
+							continue
+						var kept := PackedVector3Array()
+						var bxf := cs.global_transform
+						var changed := false
+						for ti in range(tri_count):
+							var a := bxf * faces[ti * 3]
+							var b := bxf * faces[ti * 3 + 1]
+							var c := bxf * faces[ti * 3 + 2]
+							var ctr := Vector2((a.x + b.x + c.x) / 3.0, (a.z + b.z + c.z) / 3.0)
+							var drop_tri := false
+							for cp in clear_points:
+								if ctr.distance_to(cp["xz"] as Vector2) < float(cp["r"]):
+									drop_tri = true
+									changed = true
+									break
+							if not drop_tri:
+								kept.append(faces[ti * 3])
+								kept.append(faces[ti * 3 + 1])
+								kept.append(faces[ti * 3 + 2])
+						if changed:
+							if kept.is_empty():
+								cs.disabled = true
+							else:
+								cshape.set_faces(kept)
+		for ch in cur.get_children():
+			stack.append(ch)
 
 
 func _build_training_ring_positions() -> void:
@@ -4267,6 +4459,11 @@ func _on_kill_cam_finished() -> void:
 		call_deferred("_execute_kamikaze_respawn")
 	else:
 		_pending_kamikaze_respawn = false
+	if _pending_post_drop_rearm and not _mission_finished and not _victory_scheduled and not _pending_combat_complete:
+		_pending_post_drop_rearm = false
+		call_deferred("_execute_drop_rearm")
+	else:
+		_pending_post_drop_rearm = false
 
 
 func _on_vehicle_destroyed(points: int, kind: int, vehicle: Vehicle = null) -> void:
@@ -7702,6 +7899,10 @@ func _prewarm_scene_rendering() -> void:
 			blast_at.y = _ground_y + 0.4
 		var warm_explosion = fx_script.spawn(self, blast_at, 3.0, 0.0)
 		fx_script.smoke_column(self, blast_at + Vector3.UP * 2.0, 1.0)
+		fx_script.prewarm()
+		DestructionFx.prewarm(self, blast_at)
+		HitFx.prewarm()
+		ReconKillCamScript.prewarm()
 		cam.global_position = eye
 		cam.look_at(blast_at, Vector3.UP)
 		await get_tree().process_frame
@@ -7714,6 +7915,7 @@ func _prewarm_scene_rendering() -> void:
 	# for ~0.4 s.  Build the cache behind the loading card instead.
 	var sfx_script = load("res://combat/sfx.gd")
 	if sfx_script != null:
+		sfx_script.prewarm()
 		sfx_script.boom_stream()
 		sfx_script.shot_stream()
 		sfx_script.rifle_stream()
@@ -7930,6 +8132,7 @@ func _drop_heavy_bomb() -> void:
 		_set_flash("ЗАНИЗЬКО ДЛЯ СКИДУ" if not MenuUI.is_english() else "TOO LOW TO RELEASE")
 		return
 	_payload_drops += 1
+	_active_dropped_payloads += 1
 	var bomb: Node3D = _bomb_nodes[_bomb_nodes.size() - 1]
 	var state := _bomb_release_state(drone, _bomb_kind)
 	_bomb_nodes.pop_back()
@@ -8113,6 +8316,7 @@ func _drop_fpv_payload() -> void:
 			return
 		_payload_dropped = true
 		_bomb_cooldown = 0.35
+		_active_dropped_payloads += 1
 		_payload_ammo_left = int(cs.get("ammo"))
 		_hide_fpv_payload()
 		var cs_timer := get_tree().create_timer(0.75)
@@ -8124,12 +8328,14 @@ func _drop_fpv_payload() -> void:
 		return
 	_payload_dropped = true
 	_payload_drops += 1
+	_active_dropped_payloads += 1
 	_payload_ammo_left = maxi(_payload_ammo_left - 1, 0)
 	_bomb_cooldown = 0.35
 	_hide_fpv_payload()
 
 	var drone := get_node_or_null("Drone") as Drone
 	var payload := PayloadScript.new()
+	payload.exploded.connect(notify_payload_exploded)
 	var unit_mass := _preset_payload_unit_mass()
 	payload.kind = BombBallisticsScript.kind_for_mass(unit_mass)
 	payload.mass_override = unit_mass
@@ -8281,6 +8487,117 @@ func _execute_kamikaze_respawn() -> void:
 	_reset_fpv_payload()
 	_refresh_model_visibility()
 	_respawn_and_rearm()
+
+
+func notify_payload_exploded() -> void:
+	_active_dropped_payloads = maxi(0, _active_dropped_payloads - 1)
+	if _mission_finished or _victory_scheduled or _pending_combat_complete:
+		return
+	if Global.play_mode != Global.PlayMode.COMBAT and not Global.combat_training:
+		return
+	var rem := _bomb_nodes.size() if _heavy_bomber else _ammo_count()
+	if rem <= 0 and _active_dropped_payloads <= 0:
+		_schedule_post_drop_rearm()
+
+
+func _schedule_post_drop_rearm() -> void:
+	_set_flash(_txt("БЧ ВИКОРИСТАНО — АВТОПОВЕРНЕННЯ НА СТАРТ...",
+			"PAYLOAD EXPENDED — AUTO-RESETTING TO LAUNCH..."))
+	if _post_drop_rearm_timer == null or not is_instance_valid(_post_drop_rearm_timer):
+		_post_drop_rearm_timer = Timer.new()
+		_post_drop_rearm_timer.name = "PostDropRearmTimer"
+		_post_drop_rearm_timer.one_shot = true
+		_post_drop_rearm_timer.timeout.connect(_on_post_drop_rearm_timeout)
+		add_child(_post_drop_rearm_timer)
+	_post_drop_rearm_timer.start(1.8)
+
+
+func _on_post_drop_rearm_timeout() -> void:
+	if _mission_finished or _victory_scheduled or _pending_combat_complete:
+		return
+	if _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active():
+		_pending_post_drop_rearm = true
+		return
+	_execute_drop_rearm()
+
+
+func _execute_drop_rearm() -> void:
+	_pending_post_drop_rearm = false
+	if _mission_finished or _victory_scheduled:
+		return
+	_payload_dropped = false
+	_payload_ammo_left = int(DroneCatalog.preset(Global.drone_preset).get("payload", 0))
+	var cs := get_node_or_null("CombatSystem")
+	if cs != null:
+		cs.set("ammo", _payload_ammo_left)
+		cs.set("_lost", false)
+		if cs.has_method("_update_hud"):
+			cs.call("_update_hud")
+	_reset_fpv_payload()
+	_refresh_model_visibility()
+	_respawn_and_rearm()
+
+
+func open_drone_switcher() -> void:
+	if _mission_finished:
+		return
+	if _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active():
+		return
+	if _drone_switcher != null and is_instance_valid(_drone_switcher) \
+			and _drone_switcher.has_method("is_open") and bool(_drone_switcher.call("is_open")):
+		return
+	if _drone_switcher == null or not is_instance_valid(_drone_switcher):
+		_drone_switcher = MissionDroneSwitcherScript.new()
+		_drone_switcher.name = "MissionDroneSwitcher"
+		_drone_switcher.connect("drone_selected", Callable(self, "switch_drone_in_mission"))
+		add_child(_drone_switcher)
+	_drone_switcher.call("open", self, Global.drone_preset)
+
+
+func switch_drone_in_mission(new_preset: int) -> bool:
+	if new_preset < 0 or new_preset >= DroneCatalog.count():
+		return false
+	var is_combat_or_ct := Global.play_mode == Global.PlayMode.COMBAT \
+			or (Global.play_mode == Global.PlayMode.TRAINING and Global.combat_training)
+	if is_combat_or_ct and DroneCatalog.is_uman(new_preset):
+		return false
+	var drone := get_node_or_null("Drone") as Drone
+	if drone == null or not is_instance_valid(drone):
+		return false
+	Global.drone_preset = new_preset
+	_payload_dropped = false
+	_active_dropped_payloads = 0
+	_pending_post_drop_rearm = false
+	if _post_drop_rearm_timer != null and is_instance_valid(_post_drop_rearm_timer):
+		_post_drop_rearm_timer.stop()
+	DroneCatalog.apply_to_drone(drone, new_preset)
+	_sync_fpv_drone_model(true, true, false)
+	var p := DroneCatalog.preset(new_preset)
+	var is_combat_uav := bool(p.get("combat", false))
+	var has_drop := bool(p.get("has_drop", false))
+	var cs := get_node_or_null("CombatSystem")
+	if cs != null:
+		var new_count := int(p.get("payload", 3)) if (is_combat_uav and has_drop) else 0
+		cs.set("payload_count", new_count)
+		cs.set("ammo", new_count)
+		cs.set("_lost", false)
+		if cs.has_method("_update_hud"):
+			cs.call("_update_hud")
+	if _has_bomb_sight():
+		_setup_bomber_systems()
+		if _bomb_sight != null and is_instance_valid(_bomb_sight):
+			_bomb_kind = "82mm" if _heavy_bomber else BombBallisticsScript.kind_for_mass(_preset_payload_unit_mass())
+			_bomb_sight.kind = _bomb_kind
+			_bomb_sight.visible = true
+	elif _bomb_sight != null and is_instance_valid(_bomb_sight):
+		_bomb_sight.visible = false
+	_respawn_and_rearm()
+	if TouchControls != null and TouchControls.has_method("_sync_payload_buttons"):
+		TouchControls.call("_sync_payload_buttons")
+	_update_hud()
+	_set_flash(_txt("БОРТ ЗМІНЕНО: %s", "AIRCRAFT SWITCHED: %s")
+			% DroneCatalog.get_drone_name(new_preset))
+	return true
 
 
 func _reset_fpv_payload() -> void:
@@ -9553,6 +9870,9 @@ func _input(event: InputEvent) -> void:
 			_apply_fpv_rig()
 			_set_flash(_txt("FPV-ОБВІС: УВІМК" if _rig_visible else "FPV-ОБВІС: ВИМК",
 					"FPV RIG: ON" if _rig_visible else "FPV RIG: OFF"))
+		elif event.keycode == KEY_B:
+			open_drone_switcher()
+			get_viewport().set_input_as_handled()
 	if event.is_action_pressed("toggle_osd"):
 		_osd_visible = not _osd_visible
 		GameSettings.hud_config["osd"] = _osd_visible
@@ -9782,6 +10102,7 @@ func _setup_warhead_sensor() -> void:
 		return
 	var old := drone.get_node_or_null("WarheadSensor")
 	if old != null:
+		drone.remove_child(old)
 		old.queue_free()
 	var p := DroneCatalog.preset(Global.drone_preset)
 	var strike := bool(p.get("kamikaze", false)) and bool(p.get("combat", false)) \
@@ -9816,18 +10137,27 @@ func _setup_warhead_sensor() -> void:
 				" at ", cs.position, " monitoring=", area.monitoring)
 
 
+func _is_combat_target_body(body: Node) -> bool:
+	if body == null or not is_instance_valid(body):
+		return false
+	return body.is_in_group("combat_target") or body.is_in_group("enemy_infantry") \
+			or body.is_in_group("aa_gun") or body is Vehicle
+
+
 ## Public bridge used by CombatSystem.  It runs before the legacy crash/target
 ## handling so a strike airframe produces one authoritative area explosion
 ## instead of a small "crash" blast plus a second warhead blast.
-func try_strike_warhead_contact(_body: Node, speed: float) -> bool:
+func try_strike_warhead_contact(body: Node, speed: float) -> bool:
 	if not _payload_enabled or _payload_dropped or _mission_finished:
 		return false
 	var p := DroneCatalog.preset(Global.drone_preset)
 	var strike := bool(p.get("kamikaze", false)) and bool(p.get("combat", false)) \
 			and (not bool(p.get("has_drop", false)) or _ammo_count() > 0)
-	if not strike or speed < 7.0:
+	var hit_target := _is_combat_target_body(body)
+	var min_spd := 2.5 if hit_target else 7.0
+	if not strike or speed < min_spd:
 		return false
-	_try_kamikaze_impact(speed)
+	_try_kamikaze_impact(speed, hit_target)
 	return _payload_dropped
 
 
@@ -9842,7 +10172,7 @@ func _on_warhead_sensor_body_entered(body: Node) -> void:
 	var speed := _contact_speed(drone)
 	if OS.has_environment("DRONE_KAMIKAZE_TEST"):
 		print("[KAMTEST] sensor entered by ", body.name, " speed=", speed)
-	_try_kamikaze_impact(speed)
+	_try_kamikaze_impact(speed, _is_combat_target_body(body))
 
 
 func _contact_speed(drone: Drone) -> float:
@@ -9865,7 +10195,7 @@ func _on_drone_body_entered(body: Node) -> void:
 	var speed := _contact_speed(drone)
 	if OS.has_environment("DRONE_KAMIKAZE_TEST"):
 		print("[KAMTEST] rigid body contact with ", body.name, " speed=", speed)
-	_try_kamikaze_impact(speed)
+	_try_kamikaze_impact(speed, _is_combat_target_body(body))
 
 
 func _check_freestyle_gate_sweep(prev_pos: Vector3, drone_body: Drone) -> void:
@@ -9882,7 +10212,7 @@ func _check_freestyle_gate_sweep(prev_pos: Vector3, drone_body: Drone) -> void:
 		_on_ring_entered(drone_body, active_ring)
 
 
-func _try_kamikaze_impact(impact_speed: float) -> void:
+func _try_kamikaze_impact(impact_speed: float, target_hit: bool = false) -> void:
 	if Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training \
 			and not OS.has_environment("DRONE_KAMIKAZE_TEST"):
 		return
@@ -9902,10 +10232,10 @@ func _try_kamikaze_impact(impact_speed: float) -> void:
 	if bool(p.get("has_drop", false)) and _ammo_count() <= 0:
 		return
 	# Light contact with a fence, branch or ground bump must not trigger the
-	# warhead.  The active airframe has to be armed, airborne and closing at a
-	# meaningful speed; the spawn is frozen with zero velocity by design.
-	const KAMIKAZE_CONTACT_SPEED := 7.0
-	if impact_speed < KAMIKAZE_CONTACT_SPEED:
+	# warhead, while direct impacts against combat targets trigger reliably
+	# even at lower final-approach speeds (>= 2.5 m/s).
+	var min_spd := 2.5 if target_hit else 7.0
+	if impact_speed < min_spd:
 		return
 	var drone := get_node_or_null("Drone") as Drone
 	if drone == null or not drone.flight_controller.state_armed:

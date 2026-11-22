@@ -49,6 +49,8 @@ func _ready() -> void:
 	if not get_viewport().size_changed.is_connected(_layout):
 		get_viewport().size_changed.connect(_layout)
 	_apply_sticks()
+	if MenuUI.is_mobile_ui() or TouchControls.touch_mode:
+		visible = false
 
 
 func _make_caption(text: String) -> Label:

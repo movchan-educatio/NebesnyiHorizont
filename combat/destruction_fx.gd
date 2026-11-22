@@ -32,6 +32,10 @@ static var _shock_dome_shader: Shader = null
 static var _flame_shader: Shader = null
 static var _flame_atlas: ImageTexture = null
 static var _fx_cleanup_wired: bool = false
+static var _last_multi_pos: Vector3 = Vector3(1e9, 1e9, 1e9)
+static var _last_multi_ms: int = -10000
+static var _debris_chunk_mat: StandardMaterial3D = null
+static var _smoke_plume_quad: QuadMesh = null
 
 
 const MAX_ACTIVE_BURNS := 10
@@ -74,9 +78,64 @@ static func clear_caches() -> void:
 	_shock_dome_shader = null
 	_flame_shader = null
 	_flame_atlas = null
+	_debris_chunk_mat = null
+	_smoke_plume_quad = null
+	_last_multi_ms = -10000
 	_fx_cleanup_wired = false
 	_active_burns = 0
 	_active_particle_systems = 0
+
+
+static func prewarm(parent: Node = null, pos: Vector3 = Vector3.ZERO) -> void:
+	_wire_cache_cleanup()
+	create_cloud_puff_texture()
+	create_dust_ring_texture()
+	flame_atlas()
+	_flame_texture()
+	debris_mesh()
+	_get_shock_dome_shader()
+	_get_flame_shader()
+	_texture("spark")
+	_texture("smoke")
+	_texture("dust")
+	if DisplayServer.get_name() == "headless":
+		return
+	if parent == null or not is_instance_valid(parent) or not parent.is_inside_tree():
+		return
+	var warm_root := Node3D.new()
+	warm_root.name = "FxShaderPrewarm"
+	parent.add_child(warm_root)
+	warm_root.global_position = pos
+	warm_root.scale = Vector3.ONE * 0.02
+	var dome := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radial_segments = 8
+	sph.rings = 6
+	dome.mesh = sph
+	dome.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var dmat := ShaderMaterial.new()
+	dmat.shader = _get_shock_dome_shader()
+	dmat.set_shader_parameter("rim_power", 3.1)
+	dmat.set_shader_parameter("intensity", 0.05)
+	dmat.set_shader_parameter("rim_color", Color(1.0, 0.82, 0.52, 0.05))
+	dome.material_override = dmat
+	warm_root.add_child(dome)
+	var flame := MeshInstance3D.new()
+	var fquad := QuadMesh.new()
+	fquad.size = Vector2(0.5, 0.5)
+	flame.mesh = fquad
+	flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var fmat := ShaderMaterial.new()
+	fmat.shader = _get_flame_shader()
+	fmat.set_shader_parameter("flame_atlas", flame_atlas())
+	flame.material_override = fmat
+	warm_root.add_child(flame)
+	var t := Timer.new()
+	t.wait_time = 0.25
+	t.one_shot = true
+	t.autostart = true
+	warm_root.add_child(t)
+	t.timeout.connect(warm_root.queue_free)
 
 
 static func _wire_cache_cleanup() -> void:
@@ -96,7 +155,7 @@ static func create_cloud_puff_texture() -> ImageTexture:
 	_wire_cache_cleanup()
 	if _cloud_puff_tex != null:
 		return _cloud_puff_tex
-	var size := 64
+	var size := 48
 	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
 	var half := float(size) * 0.5
 	var rng := RandomNumberGenerator.new()
@@ -125,7 +184,7 @@ static func create_dust_ring_texture() -> ImageTexture:
 	_wire_cache_cleanup()
 	if _dust_ring_tex != null:
 		return _dust_ring_tex
-	var size := 64
+	var size := 48
 	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
 	var half := float(size) * 0.5
 	var rng := RandomNumberGenerator.new()
@@ -232,7 +291,7 @@ static func flame_atlas() -> ImageTexture:
 	if _flame_atlas != null:
 		return _flame_atlas
 	var frames := 8
-	var size := 64
+	var size := 32
 	var img := Image.create(size * frames, size, false, Image.FORMAT_RGBA8)
 	var rng := RandomNumberGenerator.new()
 	for f in range(frames):
@@ -340,6 +399,11 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 		ground_y: float = -1.0e9, is_aerial: bool = false) -> Node3D:
 	if parent == null or not is_instance_valid(parent) or not parent.is_inside_tree():
 		return null
+	var now_ms := Time.get_ticks_msec()
+	if (now_ms - _last_multi_ms) < 90 and pos.distance_to(_last_multi_pos) < 5.0:
+		return null
+	_last_multi_pos = pos
+	_last_multi_ms = now_ms
 	_wire_cache_cleanup()
 	var low := _low_quality()
 	var puff_tex := create_cloud_puff_texture()
@@ -495,18 +559,20 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 		ramp.gradient = grad
 		pmat.color_ramp = ramp
 		plume.process_material = pmat
-		var puff_quad := QuadMesh.new()
-		puff_quad.size = Vector2(1.4, 1.4)
-		var puff_mat := StandardMaterial3D.new()
-		puff_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		puff_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		puff_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-		puff_mat.billboard_keep_scale = true
-		puff_mat.vertex_color_use_as_albedo = true
-		puff_mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
-		puff_mat.albedo_texture = puff_tex
-		puff_quad.material = puff_mat
-		plume.draw_pass_1 = puff_quad
+		if _smoke_plume_quad == null:
+			var puff_quad := QuadMesh.new()
+			puff_quad.size = Vector2(1.4, 1.4)
+			var puff_mat := StandardMaterial3D.new()
+			puff_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			puff_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			puff_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+			puff_mat.billboard_keep_scale = true
+			puff_mat.vertex_color_use_as_albedo = true
+			puff_mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+			puff_mat.albedo_texture = puff_tex
+			puff_quad.material = puff_mat
+			_smoke_plume_quad = puff_quad
+		plume.draw_pass_1 = _smoke_plume_quad
 		fx_root.add_child(plume)
 		_track_particle_system(plume)
 
@@ -528,13 +594,15 @@ static func spawn_multiphase_explosion(parent: Node, pos: Vector3, scale_factor:
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = true
 	mm.instance_count = chunk_count
-	var chunk_mat := StandardMaterial3D.new()
-	chunk_mat.roughness = 0.88
-	chunk_mat.metallic = 0.12
-	chunk_mat.metallic_specular = 0.25
-	chunk_mat.vertex_color_use_as_albedo = true
+	if _debris_chunk_mat == null:
+		var chunk_mat := StandardMaterial3D.new()
+		chunk_mat.roughness = 0.88
+		chunk_mat.metallic = 0.12
+		chunk_mat.metallic_specular = 0.25
+		chunk_mat.vertex_color_use_as_albedo = true
+		_debris_chunk_mat = chunk_mat
 	var chunk_mesh := debris_mesh()
-	chunk_mesh.surface_set_material(0, chunk_mat)
+	chunk_mesh.surface_set_material(0, _debris_chunk_mat)
 	mm.mesh = chunk_mesh
 	debris_mmi.multimesh = mm
 	fx_root.add_child(debris_mmi)
@@ -858,7 +926,7 @@ static func _texture(kind: String) -> Texture2D:
 static func _flame_texture() -> ImageTexture:
 	if _flame_tex != null:
 		return _flame_tex
-	var size := 64
+	var size := 48
 	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 90210
