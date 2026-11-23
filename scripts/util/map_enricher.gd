@@ -23,24 +23,40 @@ const STUNTS := {
 			"yaw": 0.35, "reserve": 13.0, "clear": 20.0},
 		{"builder": "build_pipeline_overpass", "base": Vector2(-112.0, -34.0),
 			"yaw": 1.15, "reserve": 12.0, "clear": 18.0},
+		{"builder": "build_scaffolding_freestyle_cube", "base": Vector2(126.0, -118.0),
+			"yaw": 0.60, "reserve": 13.0, "clear": 20.0},
+		{"builder": "build_fpv_slalom_gate_course", "base": Vector2(-126.0, 128.0),
+			"yaw": 0.10, "reserve": 14.0, "clear": 22.0},
 	],
 	"village": [
 		{"builder": "build_fpv_slalom_gate_course", "base": Vector2(128.0, 118.0),
 			"yaw": 0.15, "reserve": 14.0, "clear": 22.0},
 		{"builder": "build_damaged_hangar_arch", "base": Vector2(-118.0, 92.0),
 			"yaw": -0.25, "reserve": 12.0, "clear": 18.0},
+		{"builder": "build_radar_relay_station", "base": Vector2(-124.0, -116.0),
+			"yaw": 0.50, "reserve": 12.0, "clear": 20.0},
+		{"builder": "build_concrete_pipe_culvert_course", "base": Vector2(132.0, -118.0),
+			"yaw": 0.30, "reserve": 13.0, "clear": 20.0},
 	],
 	"steppe": [
 		{"builder": "build_fpv_slalom_gate_course", "base": Vector2(-120.0, 110.0),
 			"yaw": 0.0, "reserve": 14.0, "clear": 22.0},
 		{"builder": "build_hardened_trench_bunker", "base": Vector2(118.0, -108.0),
 			"yaw": 0.8, "reserve": 12.0, "clear": 18.0},
+		{"builder": "build_bailey_truss_bridge", "base": Vector2(126.0, 120.0),
+			"yaw": 0.40, "reserve": 14.0, "clear": 22.0},
+		{"builder": "build_cooling_tower_dive_funnel", "base": Vector2(-126.0, -120.0),
+			"yaw": 0.20, "reserve": 12.0, "clear": 20.0},
 	],
 	"wetlands": [
 		{"builder": "build_concrete_pipe_culvert_course", "base": Vector2(-118.0, 96.0),
 			"yaw": 0.4, "reserve": 13.0, "clear": 20.0},
 		{"builder": "build_pipeline_overpass", "base": Vector2(116.0, -108.0),
 			"yaw": 1.8, "reserve": 12.0, "clear": 18.0},
+		{"builder": "build_radar_relay_station", "base": Vector2(128.0, 120.0),
+			"yaw": 0.70, "reserve": 12.0, "clear": 20.0},
+		{"builder": "build_pipeline_powerloop_arch", "base": Vector2(-128.0, -120.0),
+			"yaw": 0.90, "reserve": 13.0, "clear": 20.0},
 	],
 }
 
@@ -363,6 +379,16 @@ static func _build_stunt(military, builder: String, root: Node3D, pos: Vector3,
 			return military.build_hardened_trench_bunker(root, pos, yaw)
 		"build_concrete_pipe_culvert_course":
 			return military.build_concrete_pipe_culvert_course(root, pos, yaw)
+		"build_scaffolding_freestyle_cube":
+			return military.build_scaffolding_freestyle_cube(root, pos, yaw)
+		"build_radar_relay_station":
+			return military.build_radar_relay_station(root, pos, yaw)
+		"build_bailey_truss_bridge":
+			return military.build_bailey_truss_bridge(root, pos, yaw)
+		"build_pipeline_powerloop_arch":
+			return military.build_pipeline_powerloop_arch(root, pos, yaw)
+		"build_cooling_tower_dive_funnel":
+			return military.build_cooling_tower_dive_funnel(root, pos, yaw)
 	return null
 
 

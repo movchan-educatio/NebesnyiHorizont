@@ -499,6 +499,8 @@ func _ready() -> void:
 	# The flight-prep checkboxes must show the persisted aids, not just the
 	# in-memory defaults, even before a drone scene has loaded the config.
 	GameSettings.load_hud_config()
+	# Undo a mobile-owned rate mirror so desktop flights keep the PC feel.
+	GameSettings.restore_desktop_rates_if_mobile_owned()
 	Audio.play_menu_music()
 	_selected_mode = Global.sanitize_play_mode(
 			int(Global.menu_settings.get("selected_mode", Global.play_mode)))
@@ -1136,7 +1138,6 @@ func _select_mission(m_id: int) -> void:
 	Global.menu_settings["selected_special"] = 0
 	Global.save_menu_settings()
 	if not DroneCatalog.is_combat(Global.drone_preset):
-		QuadSettings.custom_rates = false
 		DroneCatalog.apply(DroneCatalog.first_combat_index())
 		_load_drone_model()
 	_update_selection_ui()
@@ -1155,7 +1156,6 @@ func _select_special_mission(mission_id: int) -> void:
 	Global.menu_settings["selected_special"] = mission_id
 	Global.save_menu_settings()
 	if not DroneCatalog.is_combat(Global.drone_preset):
-		QuadSettings.custom_rates = false
 		DroneCatalog.apply(DroneCatalog.first_combat_index())
 		_load_drone_model()
 	_update_selection_ui()
@@ -1699,7 +1699,6 @@ func _launch_current_selection(combat_training: bool = false) -> void:
 		_selected_mode = Global.PlayMode.TRAINING
 		_selected_map = "industrial"
 		Global.special_mission = 0
-		QuadSettings.custom_rates = false
 		DroneCatalog.apply(1)
 	# Умань або фрістайл-дрони — тільки фрістайл на обраній карті.
 	elif _selected_map == "uman" or DroneCatalog.is_uman(Global.drone_preset):
@@ -1712,7 +1711,6 @@ func _launch_current_selection(combat_training: bool = false) -> void:
 			Global.special_mission = _selected_special
 			Global.chain_briefing_pending = false
 			if not DroneCatalog.is_combat(Global.drone_preset):
-				QuadSettings.custom_rates = false
 				DroneCatalog.apply(DroneCatalog.first_combat_index())
 		else:
 			Global.special_mission = 0
@@ -1720,7 +1718,6 @@ func _launch_current_selection(combat_training: bool = false) -> void:
 				_selected_mission = 1 if Global.campaign_is_complete() else Global.campaign_unlocked_mission()
 			Global.combat_mission = clampi(_selected_mission, 1, 4)
 			if not DroneCatalog.is_combat(Global.drone_preset):
-				QuadSettings.custom_rates = false
 				DroneCatalog.apply(DroneCatalog.first_combat_index())
 	else:
 		Global.special_mission = 0
@@ -2114,8 +2111,8 @@ func _cycle_drone(dir: int) -> void:
 		Global.play_mode = Global.PlayMode.TRAINING
 		Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
 		Global.menu_settings["selected_special"] = 0
-	# Choosing a drone in the menu applies its parameters
-	QuadSettings.custom_rates = false
+	# Choosing a drone in the menu applies its parameters while keeping the
+	# pilot's custom rates/expo intact (DroneCatalog.apply honours that flag).
 	DroneCatalog.apply(new_idx)
 	Global.menu_settings["drone_preset"] = new_idx
 	Global.save_menu_settings()

@@ -7682,6 +7682,9 @@ static func _build_props(root: Node3D, map_name: String) -> void:
 	if not is_combat:
 		per_type = 1
 	var boxes: Array = []
+	# Thin / hollow props get exact per-instance trimesh bodies instead of a
+	# solid AABB that would plug the bore and create invisible walls.
+	var hollow_xfs: Array = []
 	var prop_base_pbr := _pbr("hall_metal", Color.WHITE, 0.30)
 	var prop_mat: StandardMaterial3D = null
 	if prop_base_pbr != null:
@@ -7729,12 +7732,21 @@ static func _build_props(root: Node3D, map_name: String) -> void:
 				continue
 			var s := rng.randf_range(0.85, 1.15)
 			var yaw := rng.randf_range(0.0, TAU)
-			xfs.append(Transform3D(Basis(Vector3.UP, yaw).scaled(Vector3(s, s, s)),
-					Vector3(x, h, z)))
+			var xf := Transform3D(Basis(Vector3.UP, yaw).scaled(Vector3(s, s, s)),
+					Vector3(x, h, z))
+			xfs.append(xf)
+			if prop_name == "prop_pipe":
+				hollow_xfs.append({"xf": xf, "mesh": mesh})
+				continue
+			var box_size := Vector3(half.x * 2.0 * s, half.y * 2.0 * s,
+					half.z * 2.0 * s)
+			if prop_name == "prop_antenna":
+				# A mast is ~0.5 m wide, not the 1.1 m generic envelope.
+				box_size = Vector3(0.45, half.y * 2.0 * s, 0.45)
 			boxes.append({
 				"pos": Vector3(x, h + half.y * s, z),
-				"size": Vector3(half.x * 2.0 * s, half.y * 2.0 * s,
-						half.z * 2.0 * s),
+				"size": box_size,
+				"yaw": yaw,
 			})
 		if xfs.is_empty():
 			continue
@@ -7742,6 +7754,27 @@ static func _build_props(root: Node3D, map_name: String) -> void:
 		if node != null:
 			node.visibility_range_end = 600.0
 			node.visibility_range_end_margin = 60.0
+	if boxes.is_empty() and hollow_xfs.is_empty():
+		return
+	# Hollow pipe props: one exact trimesh body per instance.  The bore stays
+	# genuinely pass-through and the mesh's own scale/yaw are reused verbatim.
+	if not hollow_xfs.is_empty():
+		var first_item: Dictionary = hollow_xfs[0]
+		var pipe_mesh := first_item["mesh"] as Mesh
+		var tri_shape := pipe_mesh.create_trimesh_shape() if pipe_mesh != null else null
+		if tri_shape != null:
+			tri_shape.backface_collision = true
+			for item in hollow_xfs:
+				var item_data: Dictionary = item
+				var pipe_body := StaticBody3D.new()
+				pipe_body.name = "PropPipeCollision"
+				pipe_body.collision_layer = 1
+				pipe_body.collision_mask = 1
+				pipe_body.transform = item_data["xf"]
+				var pipe_col := CollisionShape3D.new()
+				pipe_col.shape = tri_shape
+				pipe_body.add_child(pipe_col)
+				root.add_child(pipe_body)
 	if boxes.is_empty():
 		return
 	var body := StaticBody3D.new()
@@ -7756,6 +7789,7 @@ static func _build_props(root: Node3D, map_name: String) -> void:
 		col.shape = unit
 		col.position = data["pos"]
 		col.scale = data["size"]
+		col.rotation.y = float(data.get("yaw", 0.0))
 		body.add_child(col)
 	root.add_child(body)
 
@@ -9166,3 +9200,35 @@ static func _build_village_river_reeds(root: Node3D, map_name: String, wl: float
 		mmi.visibility_range_end = 185.0
 		mmi.visibility_range_end_margin = 20.0
 		mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+
+
+## QA-only: drop static resource caches so headless tests that load several
+## maps can exit without "resources still in use at exit" noise.  Never called
+## during normal play (level transitions reuse these caches on purpose).
+static func qa_clear_caches() -> void:
+	_trench_cache.clear()
+	_crater_cache.clear()
+	_hero_tree_slots["oak"].clear()
+	_hero_tree_slots["pine"].clear()
+	_placed_tree_positions.clear()
+	_poi_positions.clear()
+	_reserved_zones.clear()
+	_structure_exclusions.clear()
+	_structure_registry.clear()
+	_contact_shadow_tex_cache = null
+	_contact_shadow_mat_cache = null
+	_contact_shadow_quad_cache = null
+	_contact_shadow_queues.clear()
+	_height_tex_cache.clear()
+	_prop_detail_cache.clear()
+	_water_normal_cache = null
+	_shared_landmarks_cache.clear()
+	_forge_scene_cache.clear()
+	_pbr_cache.clear()
+	_village_kit = null
+	_cottage_mesh_cache.clear()
+	_shell_hole_tex_cache = null
+	_rust_streak_tex_cache = null
+	_crack_streak_tex_cache = null
+	_windbreak_positions.clear()
+	_low_canopy_cache.clear()

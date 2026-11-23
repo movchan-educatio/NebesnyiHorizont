@@ -650,7 +650,6 @@ func _on_quick_combat_training_pressed() -> void:
 	Global.special_mission = 0
 	Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
 	Global.menu_settings["selected_map"] = "industrial"
-	QuadSettings.custom_rates = false
 	# GRIM-7M: combat airframe with a physical payload release, ideal for the
 	# first "find, hover, drop" lesson.
 	DroneCatalog.apply(1)

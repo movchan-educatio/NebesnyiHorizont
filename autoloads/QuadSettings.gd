@@ -4,6 +4,12 @@ extends Node
 signal settings_updated
 
 
+func _ready() -> void:
+	# Load the pilot's saved flight feel at startup so every menu and the live
+	# drone see the same rates/expo/level values from the first frame on.
+	load_quad_settings()
+
+
 var quad_settings_path := "%s/Quad.cfg" % Global.config_dir
 
 var angle := -5
@@ -14,6 +20,8 @@ var payload_weight := 0.0
 var rate_pitch := 667
 var rate_roll := 667
 var rate_yaw := 667
+## 0 = Actual Rates, 1 = Betaflight, 2 = Quick (matches ControlProfile.RateType).
+var rate_type: int = 0
 var expo_pitch := 0.2
 var expo_roll := 0.2
 var expo_yaw := 0.2
@@ -29,7 +37,8 @@ var level_rate_limit := 3.5
 ## The name of the last flight-feel preset, "custom" after a slider edit.
 var flight_preset := "stable"
 ## When true, the pilot's rates/expo take priority over a drone preset's own
-## rates. Choosing a drone in the menu clears it so that drone's character wins.
+## rates. This survives menu navigation and drone selection; only an explicit
+## Reset Rates clears it, so a saved custom feel is never lost accidentally.
 var custom_rates := false
 
 const FLIGHT_PRESETS := [
@@ -105,6 +114,8 @@ func load_quad_settings() -> void:
 			rate_roll = int(clamp(config.get_value("rates", "roll"), 90, 1800))
 		if config.has_section_key("rates", "yaw"):
 			rate_yaw = int(clamp(config.get_value("rates", "yaw"), 90, 1800))
+		if config.has_section_key("rates", "rate_type"):
+			rate_type = clampi(int(config.get_value("rates", "rate_type")), 0, 2)
 		if config.has_section_key("expos", "pitch"):
 			expo_pitch = clamp(config.get_value("expos", "pitch"), 0.0, 1.0)
 		if config.has_section_key("expos", "roll"):
@@ -151,6 +162,7 @@ func save_quad_settings() -> void:
 		config.set_value("rates", "pitch", rate_pitch)
 		config.set_value("rates", "roll", rate_roll)
 		config.set_value("rates", "yaw", rate_yaw)
+		config.set_value("rates", "rate_type", clampi(rate_type, 0, 2))
 		config.set_value("expos", "pitch", expo_pitch)
 		config.set_value("expos", "roll", expo_roll)
 		config.set_value("expos", "yaw", expo_yaw)
@@ -174,4 +186,14 @@ func reset_quad() -> void:
 
 
 func reset_rates() -> void:
-	apply_flight_preset("sport")
+	# Only an explicit "Reset Rates" clears the pilot's custom-rate flag.
+	# Prefer the active drone's factory rate when the catalogue provides one;
+	# otherwise fall back to the neutral sport preset.
+	var p: Dictionary = DroneCatalog.preset(Global.drone_preset)
+	if not p.is_empty() and p.has("rate"):
+		rate_pitch = int(p["rate"])
+		rate_roll = int(p["rate"])
+		rate_yaw = int(p["rate"])
+	else:
+		apply_flight_preset("sport")  # sets custom_rates = true, undone below
+	custom_rates = false

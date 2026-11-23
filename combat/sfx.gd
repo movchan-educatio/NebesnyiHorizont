@@ -165,7 +165,10 @@ static func play_rifle(parent: Node, world_position: Vector3, volume_db: float =
 	if not _can_spawn_3d_voice(false):
 		return
 	var player := AudioStreamPlayer3D.new()
-	player.stream = rifle_stream()
+	# Three distinct weapon voices + a small pitch jitter stop a whole squad
+	# from sounding like one sample repeated on a timer.
+	player.stream = rifle_variant_stream(randi() % 3)
+	player.pitch_scale = randf_range(0.93, 1.08)
 	player.volume_db = volume_db
 	player.bus = "Combat"
 	player.unit_size = 9.0
@@ -175,6 +178,269 @@ static func play_rifle(parent: Node, world_position: Vector3, volume_db: float =
 	player.global_position = world_position
 	player.play()
 	player.finished.connect(player.queue_free)
+
+
+# ---------------------------------------------------------------------------
+#  Infantry detail: footsteps, reloads, suppressive bursts and squad barks.
+#  Every stream is cached procedurally; the play helpers are headless-safe.
+# ---------------------------------------------------------------------------
+static var _footstep_variants := {}
+static var _rifle_variants := {}
+static var _callout_variants := {}
+static var _reload_stream_cached: AudioStreamWAV = null
+static var _mg_burst_stream_cached: AudioStreamWAV = null
+static var _bullet_whiz_stream_cached: AudioStreamWAV = null
+static var _infantry_hit_stream_cached: AudioStreamWAV = null
+
+
+## 0 = gravel crunch, 1 = boot thump, 2 = dry grass / dirt scuff.
+static func footstep_stream(variant: int = 0) -> AudioStreamWAV:
+	var slot := clampi(variant, 0, 2)
+	if _footstep_variants.has(slot):
+		return _footstep_variants[slot] as AudioStreamWAV
+	var rate := 22050
+	var length := 0.22 if slot == 2 else 0.16
+	var count := int(rate * length)
+	var data := PackedByteArray()
+	data.resize(count * 2)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4200 + slot * 977
+	var lp := 0.0
+	var lp2 := 0.0
+	for i in range(count):
+		var t := float(i) / float(rate)
+		var env := exp(-t * (30.0 if slot == 1 else 20.0))
+		var n := rng.randf_range(-1.0, 1.0)
+		lp = lerpf(lp, n, 0.34 if slot == 0 else 0.14)
+		lp2 = lerpf(lp2, lp, 0.28)
+		var s := 0.0
+		match slot:
+			0:  # sharp gravel crunch with a few discrete stone clicks
+				s = lp * 0.95 + lp2 * 0.40 \
+						+ rng.randf_range(-0.45, 0.45) * exp(-t * 55.0)
+			1:  # heavy boot on packed earth
+				s = sin(TAU * 96.0 * t) * exp(-t * 32.0) * 0.95 + lp * 0.42
+			2:  # dry grass / loose dirt scuff (softer, longer)
+				s = (lp2 - lp) * 1.9 + lp * 0.85
+		data.encode_s16(i * 2, int(clampf(s * env, -1.0, 1.0) * 28000.0))
+	var stream := _make_stream(rate, data, false)
+	_footstep_variants[slot] = stream
+	return stream
+
+
+## Metallic magazine slap followed by a two-click bolt rack (~0.35 s).
+static func reload_stream() -> AudioStreamWAV:
+	if _reload_stream_cached != null:
+		return _reload_stream_cached
+	var rate := 22050
+	var count := int(rate * 0.35)
+	var data := PackedByteArray()
+	data.resize(count * 2)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 33117
+	var lp := 0.0
+	for i in range(count):
+		var t := float(i) / float(rate)
+		var s := 0.0
+		# Magazine snap.
+		if t < 0.075:
+			s += rng.randf_range(-1.0, 1.0) * exp(-t * 62.0) * 0.75
+			s += sin(TAU * 630.0 * t) * exp(-t * 48.0) * 0.35
+		# Bolt pulled back then driven home.
+		if t >= 0.16 and t < 0.29:
+			var dt := t - 0.16
+			s += sin(TAU * (1500.0 - 850.0 * dt) * dt) * exp(-dt * 42.0) * 0.55
+			s += rng.randf_range(-1.0, 1.0) * exp(-dt * 78.0) * 0.30
+		if t >= 0.21 and t < 0.31:
+			var dt2 := t - 0.21
+			s += sin(TAU * 1980.0 * dt2) * exp(-dt2 * 55.0) * 0.38
+		lp = lerpf(lp, rng.randf_range(-1.0, 1.0), 0.20)
+		s += lp * 0.10
+		data.encode_s16(i * 2, int(clampf(s, -1.0, 1.0) * 27000.0))
+	_reload_stream_cached = _make_stream(rate, data, false)
+	return _reload_stream_cached
+
+
+## Four rapid rounds with a short ringing tail (~0.42 s).
+static func mg_burst_stream() -> AudioStreamWAV:
+	if _mg_burst_stream_cached != null:
+		return _mg_burst_stream_cached
+	var rate := 22050
+	var count := int(rate * 0.42)
+	var data := PackedByteArray()
+	data.resize(count * 2)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 51503
+	var lp := 0.0
+	for i in range(count):
+		var t := float(i) / float(rate)
+		var s := 0.0
+		for k in range(4):
+			var dt := t - 0.11 * float(k)
+			if dt >= 0.0 and dt < 0.17:
+				s += sin(TAU * (1180.0 - 460.0 * dt) * dt) * exp(-dt * 40.0) * 0.40
+				s += rng.randf_range(-1.0, 1.0) * exp(-dt * 60.0) * 0.50
+		lp = lerpf(lp, rng.randf_range(-1.0, 1.0), 0.30)
+		s += lp * 0.20 * exp(-t * 6.0)
+		data.encode_s16(i * 2, int(clampf(s, -1.0, 1.0) * 29000.0))
+	_mg_burst_stream_cached = _make_stream(rate, data, false)
+	return _mg_burst_stream_cached
+
+
+## 0 = sharp AK-74 crack, 1 = punchy AKM, 2 = suppressed / distant thud.
+static func rifle_variant_stream(variant: int = 0) -> AudioStreamWAV:
+	var slot := clampi(variant, 0, 2)
+	if _rifle_variants.has(slot):
+		return _rifle_variants[slot] as AudioStreamWAV
+	var rate := 22050
+	var length := 0.30 if slot == 2 else 0.26
+	var count := int(rate * length)
+	var data := PackedByteArray()
+	data.resize(count * 2)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 8100 + slot * 313
+	var lp := 0.0
+	var lp2 := 0.0
+	for i in range(count):
+		var t := float(i) / float(rate)
+		var decay := 34.0 if slot == 2 else (38.0 if slot == 0 else 30.0)
+		var env := exp(-t * decay)
+		var n := rng.randf_range(-1.0, 1.0)
+		lp = lerpf(lp, n, 0.24 if slot == 2 else 0.55)
+		lp2 = lerpf(lp2, lp, 0.12)
+		var s := 0.0
+		match slot:
+			0:  # AK-74: bright, thin, sharp
+				s = lp * 1.70 + n * 0.28 + sin(TAU * 165.0 * t) * exp(-t * 44.0) * 0.35
+			1:  # AKM: heavier low-end punch
+				s = lp * 1.25 + n * 0.20 + sin(TAU * 118.0 * t) * exp(-t * 30.0) * 0.85
+			2:  # suppressed / far: dull thud, little high crack
+				s = lp2 * 1.55 + sin(TAU * 74.0 * t) * exp(-t * 22.0) * 0.65
+		if t > 0.11:
+			s += lp2 * exp(-(t - 0.11) * 11.0) * 0.30
+		data.encode_s16(i * 2, int(clampf(s * env, -1.0, 1.0) * 28500.0))
+	var stream := _make_stream(rate, data, false)
+	_rifle_variants[slot] = stream
+	return stream
+
+
+## Supersonic crack + descending zip as the round passes the listener (~0.16 s).
+static func bullet_whiz_stream() -> AudioStreamWAV:
+	if _bullet_whiz_stream_cached != null:
+		return _bullet_whiz_stream_cached
+	var rate := 22050
+	var count := int(rate * 0.16)
+	var data := PackedByteArray()
+	data.resize(count * 2)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 61133
+	var lp := 0.0
+	var phase := 0.0
+	for i in range(count):
+		var t := float(i) / float(rate)
+		var frac := t / 0.16
+		var hz := 900.0 - 6600.0 * frac
+		phase += TAU * maxf(hz, 120.0) / float(rate)
+		var n := rng.randf_range(-1.0, 1.0)
+		lp = lerpf(lp, n, 0.45)
+		var s := sin(phase) * 0.50 * exp(-t * 16.0)
+		s += (n - lp) * 0.55 * exp(-t * 34.0)
+		s += sin(TAU * 2100.0 * t) * exp(-t * 70.0) * 0.30
+		data.encode_s16(i * 2, int(clampf(s, -1.0, 1.0) * 29000.0))
+	_bullet_whiz_stream_cached = _make_stream(rate, data, false)
+	return _bullet_whiz_stream_cached
+
+
+## Webbing / kevlar impact: muffled body thud plus a small metal click (~0.12 s).
+static func infantry_hit_stream() -> AudioStreamWAV:
+	if _infantry_hit_stream_cached != null:
+		return _infantry_hit_stream_cached
+	var rate := 22050
+	var count := int(rate * 0.12)
+	var data := PackedByteArray()
+	data.resize(count * 2)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 77123
+	var lp := 0.0
+	for i in range(count):
+		var t := float(i) / float(rate)
+		var n := rng.randf_range(-1.0, 1.0)
+		lp = lerpf(lp, n, 0.18)
+		var s := sin(TAU * 132.0 * t) * exp(-t * 30.0) * 0.80
+		s += lp * 0.65 * exp(-t * 38.0)
+		if t < 0.025:
+			s += n * exp(-t * 150.0) * 0.55
+			s += sin(TAU * 720.0 * t) * exp(-t * 110.0) * 0.35
+		data.encode_s16(i * 2, int(clampf(s, -1.0, 1.0) * 27500.0))
+	_infantry_hit_stream_cached = _make_stream(rate, data, false)
+	return _infantry_hit_stream_cached
+
+
+## Three terse, non-verbal squad alerts: squelch + clipped formant barks.
+static func infantry_callout_stream(variant: int = 0) -> AudioStreamWAV:
+	var slot := clampi(variant, 0, 2)
+	if _callout_variants.has(slot):
+		return _callout_variants[slot] as AudioStreamWAV
+	var rate := 22050
+	var count := int(rate * 0.26)
+	var data := PackedByteArray()
+	data.resize(count * 2)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 99100 + slot * 719
+	var lp := 0.0
+	var roots := [410.0, 540.0, 330.0]
+	var formant := float(roots[slot])
+	for i in range(count):
+		var t := float(i) / float(rate)
+		var env := sin(clampf(t / 0.26, 0.0, 1.0) * PI)
+		# Gate into two short barks inside the 0.26 s window.
+		var gate := 0.12 if fmod(t, 0.13) > 0.085 else 1.0
+		var n := rng.randf_range(-1.0, 1.0)
+		lp = lerpf(lp, n, 0.22)
+		var voice := sin(TAU * formant * t) * 0.55 \
+				+ sin(TAU * formant * 2.4 * t) * 0.24 \
+				+ sin(TAU * formant * 4.1 * t) * 0.11
+		var s := (voice * 0.62 + (n - lp) * 0.40) * env * gate
+		if t < 0.02:
+			s += n * (1.0 - t / 0.02) * 0.45  # radio squelch onset
+		if t > 0.22:
+			s += n * ((t - 0.22) / 0.04) * 0.20  # release hiss
+		data.encode_s16(i * 2, int(clampf(s, -1.0, 1.0) * 27000.0))
+	var stream := _make_stream(rate, data, false)
+	_callout_variants[slot] = stream
+	return stream
+
+
+static func play_reload(parent: Node, world_position: Vector3,
+		volume_db: float = -14.0) -> void:
+	_play_3d(parent, reload_stream(), world_position, volume_db,
+			2.0, 60.0, randf_range(0.95, 1.05))
+
+
+static func play_mg_burst(parent: Node, world_position: Vector3,
+		volume_db: float = -7.0) -> void:
+	_play_3d(parent, mg_burst_stream(), world_position, volume_db,
+			9.0, 200.0, randf_range(0.93, 1.07))
+
+
+static func play_bullet_whiz(parent: Node, world_position: Vector3,
+		volume_db: float = -9.0) -> void:
+	_play_3d(parent, bullet_whiz_stream(), world_position, volume_db,
+			2.5, 55.0, randf_range(0.92, 1.10))
+
+
+static func play_infantry_hit(parent: Node, world_position: Vector3,
+		volume_db: float = -11.0) -> void:
+	_play_3d(parent, infantry_hit_stream(), world_position, volume_db,
+			1.6, 45.0, randf_range(0.94, 1.06))
+
+
+## `variant < 0` picks a random voice; callers may request a specific one.
+static func play_infantry_callout(parent: Node, world_position: Vector3,
+		volume_db: float = -12.0, variant: int = -1) -> void:
+	var slot := randi() % 3 if variant < 0 else clampi(variant, 0, 2)
+	_play_3d(parent, infantry_callout_stream(slot), world_position, volume_db,
+			4.0, 110.0, randf_range(0.94, 1.06))
 
 
 # ---------------------------------------------------------------------------
@@ -379,6 +645,135 @@ static func play_artillery(parent: Node, world_position: Vector3,
 	_play_3d(parent, artillery_stream(), world_position, volume_db, 55.0, 1500.0)
 
 
+# ---------------------------------------------------------------------------
+#  Wheeled-vehicle detail: tire roll, air brakes, armor hits and cook-offs
+# ---------------------------------------------------------------------------
+static var _wheel_roll_cached: AudioStreamWAV = null
+static var _air_brake_cached: AudioStreamWAV = null
+static var _armor_hit_cache := {}
+static var _cookoff_cached: AudioStreamWAV = null
+
+
+## Seamless gravel/tire roll, pitched by vehicle speed in vehicle.gd.
+static func wheel_roll_stream() -> AudioStreamWAV:
+	if _wheel_roll_cached != null:
+		return _wheel_roll_cached
+	var rate := 22050
+	var count := int(rate * 1.0)
+	var values := PackedFloat32Array()
+	values.resize(count)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 13801
+	var lp := 0.0
+	var lp2 := 0.0
+	for i in range(count):
+		var t := float(i) / float(rate)
+		var n := rng.randf_range(-1.0, 1.0)
+		lp = lerpf(lp, n, 0.12)
+		lp2 = lerpf(lp2, lp, 0.40)
+		# Regular tread clumps over loose gravel plus a low rolling rumble.
+		var tread := pow(maxf(0.0, sin(TAU * 17.0 * t)), 4.0)
+		var s := lp2 * 1.45 + lp * 0.35 + sin(TAU * 48.0 * t) * 0.14
+		s *= 0.82 + 0.18 * tread
+		values[i] = clampf(s, -1.0, 1.0)
+	_wheel_roll_cached = _finalise_loop(values, rate)
+	return _wheel_roll_cached
+
+
+## Pneumatic brake hiss with a short mechanical latch clank.
+static func air_brake_stream() -> AudioStreamWAV:
+	if _air_brake_cached != null:
+		return _air_brake_cached
+	var rate := 22050
+	var count := int(rate * 0.34)
+	var data := PackedByteArray()
+	data.resize(count * 2)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 24601
+	var hp := 0.0
+	for i in range(count):
+		var t := float(i) / float(rate)
+		var n := rng.randf_range(-1.0, 1.0)
+		hp = lerpf(hp, n, 0.55)
+		var hiss := (n - hp) * 0.70 * exp(-t * 6.0) * smoothstep(0.0, 0.025, t)
+		var clank := 0.0
+		if t >= 0.03 and t < 0.11:
+			clank = sin(TAU * 480.0 * (t - 0.03)) * exp(-(t - 0.03) * 48.0) * 0.45
+		data.encode_s16(i * 2, int(clampf(hiss + clank, -1.0, 1.0) * 27000.0))
+	_air_brake_cached = _make_stream(rate, data, false)
+	return _air_brake_cached
+
+
+## Metallic armor clang + spark crunch. Heavy armor gets a deeper ring.
+static func armor_hit_stream(heavy: bool = true) -> AudioStreamWAV:
+	var slot := 1 if heavy else 0
+	if _armor_hit_cache.has(slot):
+		return _armor_hit_cache[slot] as AudioStreamWAV
+	var rate := 22050
+	var count := int(rate * 0.22)
+	var data := PackedByteArray()
+	data.resize(count * 2)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 30601 + slot * 811
+	var base := 390.0 if heavy else 720.0
+	for i in range(count):
+		var t := float(i) / float(rate)
+		var env := exp(-t * (16.0 if heavy else 24.0))
+		var ring := sin(TAU * base * t) * 0.55 \
+				+ sin(TAU * base * 1.63 * t) * 0.30 \
+				+ sin(TAU * base * 2.71 * t) * 0.15
+		var crunch := rng.randf_range(-1.0, 1.0) * exp(-t * 70.0) * 0.65
+		var s := (ring * env + crunch) * 0.9
+		data.encode_s16(i * 2, int(clampf(s, -1.0, 1.0) * 28000.0))
+	var stream := _make_stream(rate, data, false)
+	_armor_hit_cache[slot] = stream
+	return stream
+
+
+## Secondary ammo crackle after a vehicle is destroyed (~0.85 s).
+static func cookoff_stream() -> AudioStreamWAV:
+	if _cookoff_cached != null:
+		return _cookoff_cached
+	var rate := 22050
+	var count := int(rate * 0.85)
+	var data := PackedByteArray()
+	data.resize(count * 2)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 41411
+	var lp := 0.0
+	for i in range(count):
+		var t := float(i) / float(rate)
+		var n := rng.randf_range(-1.0, 1.0)
+		lp = lerpf(lp, n, 0.16)
+		var s := lp * 0.35 * exp(-t * 2.6)
+		# Discrete rounds cooking off at irregular intervals.
+		var phase := fmod(t, 0.115)
+		if phase < 0.022 and rng.randf() < 0.22:
+			s += n * exp(-phase * 95.0) * 0.85
+			s += sin(TAU * 155.0 * phase) * exp(-phase * 70.0) * 0.40
+		data.encode_s16(i * 2, int(clampf(s, -1.0, 1.0) * 26500.0))
+	_cookoff_cached = _make_stream(rate, data, false)
+	return _cookoff_cached
+
+
+static func play_air_brake(parent: Node, world_position: Vector3,
+		volume_db: float = -14.0) -> void:
+	_play_3d(parent, air_brake_stream(), world_position, volume_db,
+			8.0, 140.0, randf_range(0.95, 1.05))
+
+
+static func play_armor_hit(parent: Node, world_position: Vector3,
+		heavy: bool = true, volume_db: float = -10.0) -> void:
+	_play_3d(parent, armor_hit_stream(heavy), world_position, volume_db,
+			7.0, 160.0, randf_range(0.94, 1.06))
+
+
+static func play_cookoff(parent: Node, world_position: Vector3,
+		volume_db: float = -6.0) -> void:
+	_play_3d(parent, cookoff_stream(), world_position, volume_db,
+			12.0, 220.0, randf_range(0.92, 1.08))
+
+
 ## Starts a burning-wreck loop and schedules a few secondary pops.  The player
 ## frees itself after `duration`.
 static func start_burning(parent: Node, world_position: Vector3,
@@ -427,7 +822,6 @@ static var _beeper_stream: AudioStreamWAV = null
 static var _drop_stream: AudioStreamWAV = null
 static var _music_stream: AudioStreamWAV = null
 static var _combat_music: AudioStreamWAV = null
-static var _footstep_stream: AudioStreamWAV = null
 static var _soldier_death_stream: AudioStreamWAV = null
 static var _drone_impact_stream: AudioStreamWAV = null
 static var _fpv_stream: AudioStreamWAV = null
@@ -437,13 +831,8 @@ static var _apc_stream: AudioStreamWAV = null
 static var _truck_stream: AudioStreamWAV = null
 static var _heli_stream: AudioStreamWAV = null
 static var _shahed_stream: AudioStreamWAV = null
-static var _motor_5in_stream: AudioStreamWAV = null
-static var _motor_8in_stream: AudioStreamWAV = null
-static var _motor_usv_stream: AudioStreamWAV = null
-static var _motor_pusher_stream: AudioStreamWAV = null
-static var _motor_jet_stream: AudioStreamWAV = null
-static var _motor_hexa_stream: AudioStreamWAV = null
-static var _motor_7in_stream: AudioStreamWAV = null
+static var _motor_streams := {}
+static var _propwash_stream: AudioStreamWAV = null
 static var _thunder_stream: AudioStreamWAV = null
 
 
@@ -578,7 +967,7 @@ static func _engine_loop(rate: int, length: float, base: float, harmonics: int,
 		if whine_hz > 0.0:
 			s += sin(TAU * whine_hz * t) * whine_mix
 		if pulse_hz > 0.0:
-			var p_mix := minf(pulse_mix, 0.04)
+			var p_mix := minf(pulse_mix, 0.24)
 			s *= 1.0 - p_mix * 0.5 + p_mix * 0.5 * sin(TAU * pulse_hz * t)
 		values[i] = clampf(s * 0.72, -1.0, 1.0)
 	return _finalise_loop(values, rate)
@@ -803,27 +1192,6 @@ static func combat_music_stream() -> AudioStreamWAV:
 	return _combat_music
 
 
-## Short boot-on-gravel footstep for AI infantry.
-static func footstep_stream() -> AudioStreamWAV:
-	if _footstep_stream != null:
-		return _footstep_stream
-	var rate := 22050
-	var count := int(rate * 0.16)
-	var data := PackedByteArray()
-	data.resize(count * 2)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 4242
-	var lp := 0.0
-	for i in range(count):
-		var t := float(i) / float(rate)
-		var env := exp(-t * 34.0)
-		lp = lerpf(lp, rng.randf_range(-1.0, 1.0), 0.35)
-		var s := lp * 0.55 * env
-		data.encode_s16(i * 2, int(clampf(s, -1.0, 1.0) * 18000.0))
-	_footstep_stream = _make_stream(rate, data, false)
-	return _footstep_stream
-
-
 ## Short shout + body-fall thud when an infantryman is killed.
 static func soldier_death_stream() -> AudioStreamWAV:
 	if _soldier_death_stream != null:
@@ -880,8 +1248,8 @@ static func drone_impact_stream() -> AudioStreamWAV:
 
 
 static func play_footstep(parent: Node, world_position: Vector3,
-		volume_db: float = -16.0) -> void:
-	_play_3d(parent, footstep_stream(), world_position, volume_db,
+		volume_db: float = -18.0) -> void:
+	_play_3d(parent, footstep_stream(randi() % 3), world_position, volume_db,
 			0.8, 34.0, randf_range(0.92, 1.12))
 
 
@@ -928,83 +1296,136 @@ static func play_drop(parent: Node, world_position: Vector3, volume_db: float = 
 	player.finished.connect(player.queue_free)
 
 
-## FPV Drone Motor Sound Synthesis (BLDC motors, multi-rotor beating & prop wash)
-## kind: 0 = 5-inch freestyle/racing, 1 = 7-8 inch heavy combat, 2 = USV naval,
-##       3 = fixed-wing pusher, 4 = jet turbine, 5 = heavy hexa bomber,
-##       6 = 7-inch long-range.
+## FPV Drone / vessel motor sound synthesis.  Each kind has its own harmonic
+## stack, blade-pass beat, whistle and aerodynamic wash.  Deterministic seeded
+## noise keeps the cached sample identical between runs (QA waveform hashes).
+##   0  5" combat quad       1  VTOL twin-prop      2  naval USV waterjet
+##   3  Leleka pusher        4  Chaklun jet         5  Baba Yaga hexacopter
+##   6  GRIM-7 long range    7  GRIM-7M high KV     8  Strila-8 tri-blade
+##   9  10" military lifter  10 Furia wing pusher   11 3" micro whoop
+##   12 5" juicy freestyle  13 7" cinematic cruiser
 static func drone_motor_stream(kind: int = 0) -> AudioStreamWAV:
+	if _motor_streams.has(kind):
+		return _motor_streams[kind] as AudioStreamWAV
+	var stream: AudioStreamWAV
 	match kind:
-		1:
-			if _motor_8in_stream != null:
-				return _motor_8in_stream
-			# 7-8" heavy drone: lower fundamental (142 Hz), 8 harmonics, throaty blade flutter
-			_motor_8in_stream = _synth_quad_motor(22050, 1.0, 142.0, 8, 0.18, 568.0, 0.14, 28.0, 0.22)
-			return _motor_8in_stream
-		2:
-			if _motor_usv_stream != null:
-				return _motor_usv_stream
-			# USV Naval Magura-X: marine diesel & waterjet turbine cavitation
-			_motor_usv_stream = _synth_quad_motor(22050, 1.0, 58.0, 5, 0.25, 1200.0, 0.08, 12.0, 0.30)
-			return _motor_usv_stream
-		3:
-			if _motor_pusher_stream != null:
-				return _motor_pusher_stream
-			# Fixed-wing pusher (Leleka/Furia): slower 2-blade prop, narrow buzz.
-			_motor_pusher_stream = _synth_quad_motor(22050, 1.0, 96.0, 4, 0.10, 390.0, 0.07, 16.0, 0.10)
-			return _motor_pusher_stream
-		4:
-			if _motor_jet_stream != null:
-				return _motor_jet_stream
-			# Chaklun jet: turbine whine + compressor wash, no prop beat.
-			_motor_jet_stream = _synth_quad_motor(22050, 1.0, 430.0, 3, 0.34, 1680.0, 0.30, 7.0, 0.06)
-			return _motor_jet_stream
-		5:
-			if _motor_hexa_stream != null:
-				return _motor_hexa_stream
-			# Baba Yaga 6-rotor heavy bomber: deep 22" blades.
-			_motor_hexa_stream = _synth_quad_motor(22050, 1.0, 74.0, 10, 0.22, 260.0, 0.12, 9.0, 0.26)
-			return _motor_hexa_stream
-		6:
-			if _motor_7in_stream != null:
-				return _motor_7in_stream
-			# 7" long-range / strike quad.
-			_motor_7in_stream = _synth_quad_motor(22050, 1.0, 118.0, 6, 0.16, 520.0, 0.11, 22.0, 0.18)
-			return _motor_7in_stream
-		_:
-			if _motor_5in_stream != null:
-				return _motor_5in_stream
-			# 5" Freestyle: screaming high-rev BLDC whine (245 Hz), sharp blade harmonics, prop wash
-			_motor_5in_stream = _synth_quad_motor(22050, 1.0, 245.0, 7, 0.14, 980.0, 0.20, 48.0, 0.15)
-			return _motor_5in_stream
+		1:  # 134 Hz twin-prop thrum + 40 Hz flutter
+			stream = _synth_quad_motor(22050, 1.0, 134.0, 7, 0.24, 536.0, 0.12,
+					40.0, 0.26, [1.0, 1.0075], 0.22)
+		2:  # 58 Hz marine diesel + cavitation wash + 1150 Hz waterjet whine
+			stream = _synth_quad_motor(22050, 1.0, 58.0, 5, 0.30, 1150.0, 0.10,
+					12.0, 0.30, [1.0, 1.02], 0.10)
+		3:  # 94 Hz steady 2-blade pusher buzz + 18 Hz pulse, thin wash
+			stream = _synth_quad_motor(22050, 1.0, 94.0, 4, 0.08, 376.0, 0.06,
+					18.0, 0.12, [1.0, 1.003], 0.12)
+		4:  # 460 Hz clean turbine + 1840 Hz compressor, no blade beat
+			stream = _synth_quad_motor(22050, 1.0, 460.0, 3, 0.42, 1840.0, 0.30,
+					0.0, 0.0, [1.0], 0.16)
+		5:  # 64 Hz six-rotor throb, 10 harmonics, 13 Hz chop, sub wash
+			stream = _synth_quad_motor(22050, 1.0, 64.0, 10, 0.28, 320.0, 0.12,
+					13.0, 0.30, [1.0, 0.992, 1.008], 0.09)
+		6:  # 118 Hz balanced endurance hum + 520 Hz whistle
+			stream = _synth_quad_motor(22050, 1.0, 118.0, 6, 0.16, 520.0, 0.11,
+					22.0, 0.18)
+		7:  # 156 Hz punchy high-KV snarl + 690 Hz tip bite
+			stream = _synth_quad_motor(22050, 1.0, 156.0, 6, 0.18, 690.0, 0.17,
+					31.0, 0.22, [1.0, 1.02])
+		8:  # 128 Hz crisp tri-blade chop (34 Hz, 0.28 mix)
+			stream = _synth_quad_motor(22050, 1.0, 128.0, 5, 0.16, 512.0, 0.14,
+					34.0, 0.28, [1.0, 1.01])
+		9:  # 86 Hz lugging low-KV groan + 16 Hz loaded wash
+			stream = _synth_quad_motor(22050, 1.0, 86.0, 8, 0.26, 344.0, 0.10,
+					16.0, 0.30, [1.0, 0.99])
+		10:  # 116 Hz higher-RPM pusher raspy buzz + 560 Hz airframe whistle
+			stream = _synth_quad_motor(22050, 1.0, 116.0, 5, 0.12, 560.0, 0.16,
+					20.0, 0.16, [1.0, 1.02])
+		11:  # 340 Hz frantic micro scream + 1480 Hz duct whine + 62 Hz chatter
+			stream = _synth_quad_motor(22050, 1.0, 340.0, 6, 0.12, 1480.0, 0.22,
+					62.0, 0.24, [1.0, 1.025], 0.24)
+		12:  # 215 Hz warm mid-rich chord + 32 Hz flip/throttle chop
+			stream = _synth_quad_motor(22050, 1.0, 215.0, 7, 0.18, 860.0, 0.12,
+					32.0, 0.30, [1.0, 1.005, 0.995], 0.20)
+		13:  # 106 Hz silky purr, soft low-pass wash, minimal harsh whistle
+			stream = _synth_quad_motor(22050, 1.0, 106.0, 5, 0.14, 424.0, 0.04,
+					11.0, 0.10, [1.0, 1.004], 0.06)
+		_:  # 245 Hz sharp BLDC scream + 980 Hz whistle + 48 Hz beat
+			stream = _synth_quad_motor(22050, 1.0, 245.0, 7, 0.14, 980.0, 0.20,
+					48.0, 0.15)
+	_motor_streams[kind] = stream
+	return stream
 
 
+## Shared loop synthesiser. `detunes` creates the small whole-Hz offsets that
+## make multiple motors beat against each other; `beat_hz` adds the real blade
+## chop amplitude envelope; `lp_cutoff` sets the aerodynamic wash brightness.
 static func _synth_quad_motor(rate: int, length: float, base_hz: float, harmonics: int,
 		wash_mix: float, whistle_hz: float, whistle_mix: float,
-		beat_hz: float, beat_mix: float) -> AudioStreamWAV:
+		beat_hz: float, beat_mix: float,
+		detunes: Array = [1.0, 1.015], lp_cutoff: float = 0.18) -> AudioStreamWAV:
 	var count := int(rate * (length + 0.05))
 	var values := PackedFloat32Array()
 	values.resize(count)
 	var lp := 0.0
-	# One coherent stack: detuned copies at 140/142/144/146 Hz beat at 2-6 Hz,
-	# which is the audible "tuk-tuk-tuk" pulsing in flight.
-	var detunes := [1.0]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(base_hz * 10.0) + int(whistle_hz) * 7 + harmonics * 131
+	var factors: Array[float] = []
+	for d in detunes:
+		factors.append(float(d))
+	if factors.is_empty():
+		factors.append(1.0)
+	var beat_rate := roundf(beat_hz)
 	for i in range(count):
 		var t := float(i) / float(rate)
 		var s := 0.0
-		# Harmonic stack of 4 motors using integer frequencies so there is no rhythmic beat
-		for d in detunes:
+		# Detuned harmonic stacks: rounded to whole Hz so the loop stays seamless.
+		for d in factors:
+			var share := 1.0 / float(factors.size())
 			for h in range(1, harmonics + 1):
 				var h_amp: float = 0.55 / float(h)
 				var hz := roundf(base_hz * d * float(h))
-				s += sin(TAU * hz * t) * h_amp * 0.6
-		# Aerodynamic propeller wash (filtered noise)
-		lp = lerpf(lp, randf_range(-1.0, 1.0), 0.18)
+				s += sin(TAU * hz * t) * h_amp * 0.6 * share
+		# Aerodynamic propeller wash (deterministic filtered noise).
+		lp = lerpf(lp, rng.randf_range(-1.0, 1.0), clampf(lp_cutoff, 0.01, 1.0))
 		s += lp * wash_mix
-		# Propeller blade tip whistle
+		# Blade-tip whistle plus distinct blade-pass harmonics.
 		if whistle_hz > 0.0:
-			s += sin(TAU * roundf(whistle_hz) * t) * whistle_mix
+			var w := roundf(whistle_hz)
+			s += sin(TAU * w * t) * whistle_mix
+			s += sin(TAU * roundf(w * 2.0) * t) * whistle_mix * 0.35
+			s += sin(TAU * maxf(roundf(w * 0.5), 1.0) * t) * whistle_mix * 0.18
+		# Real blade-chop amplitude modulation.
+		if beat_hz > 0.0 and beat_mix > 0.0:
+			var beat_env := 1.0 - beat_mix * 0.5 \
+					+ beat_mix * 0.5 * sin(TAU * beat_rate * t)
+			s *= beat_env
 		values[i] = clampf(s * 0.75, -1.0, 1.0)
 	return _finalise_loop(values, rate)
+
+
+## 1.2 s seamless dual-stage aerodynamic wash with turbulent prop flutter.
+static func drone_propwash_stream() -> AudioStreamWAV:
+	if _propwash_stream != null:
+		return _propwash_stream
+	var rate := 22050
+	var count := int(rate * 1.2)
+	var values := PackedFloat32Array()
+	values.resize(count)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 51500
+	var low := 0.0
+	var mid := 0.0
+	var high := 0.0
+	for i in range(count):
+		var t := float(i) / float(rate)
+		var n := rng.randf_range(-1.0, 1.0)
+		# Two-stage band-pass plus a turbulent high band.
+		low = lerpf(low, n, 0.04)
+		mid = lerpf(mid, n, 0.18) - low
+		high = lerpf(high, n, 0.55) - mid
+		var flutter := 0.72 + 0.28 * sin(TAU * 23.0 * t)
+		values[i] = clampf((low * 1.6 + mid * 1.25 + high * 0.55) * flutter, -1.0, 1.0)
+	_propwash_stream = _finalise_loop(values, rate)
+	return _propwash_stream
 
 
 ## Distant and near thunderclap for thunderstorms and storm operations.
@@ -1191,7 +1612,17 @@ static func clear_caches() -> void:
 	_drop_stream = null
 	_music_stream = null
 	_combat_music = null
-	_footstep_stream = null
+	_footstep_variants.clear()
+	_rifle_variants.clear()
+	_callout_variants.clear()
+	_reload_stream_cached = null
+	_mg_burst_stream_cached = null
+	_bullet_whiz_stream_cached = null
+	_infantry_hit_stream_cached = null
+	_wheel_roll_cached = null
+	_air_brake_cached = null
+	_armor_hit_cache.clear()
+	_cookoff_cached = null
 	_soldier_death_stream = null
 	_drone_impact_stream = null
 	_fpv_stream = null
@@ -1201,13 +1632,8 @@ static func clear_caches() -> void:
 	_truck_stream = null
 	_heli_stream = null
 	_shahed_stream = null
-	_motor_5in_stream = null
-	_motor_8in_stream = null
-	_motor_usv_stream = null
-	_motor_pusher_stream = null
-	_motor_jet_stream = null
-	_motor_hexa_stream = null
-	_motor_7in_stream = null
+	_motor_streams.clear()
+	_propwash_stream = null
 	_thunder_stream = null
 	_alert_streams.clear()
 	_ew_crackle_stream = null

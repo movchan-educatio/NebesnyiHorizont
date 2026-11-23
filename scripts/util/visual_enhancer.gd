@@ -46,16 +46,15 @@ static func setup_world_environment(env: Environment) -> void:
 	# The old 0.52/0.42 combination lifted every shadow to the same value as
 	# the lit faces, which is why the outdoor maps read as a painted carpet.
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_sky_contribution = 0.44
-	env.ambient_light_energy = 0.62
+	env.ambient_light_sky_contribution = 0.72
+	env.ambient_light_energy = 0.96
 
 	# 2. Tonemapping - ACES with a filmic white point and warm-key exposure.
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 1.02
+	env.tonemap_exposure = 1.18
 	env.tonemap_white = 1.0
-	# Slightly tame the HDR sky dome: the reference has a deep blue zenith and
-	# only the clouds near the sun blow out, not the entire upper hemisphere.
-	env.background_energy_multiplier = 0.72
+	# Keep the sky dome bright and crisp for readable daylight.
+	env.background_energy_multiplier = 1.02
 	
 	# 3. Screen Space Ambient Occlusion (SSAO) - soft contact shadows under bushes & structures
 	# The Mobile renderer does not implement the screen-space stack; setting
@@ -108,7 +107,7 @@ static func setup_world_environment(env: Environment) -> void:
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
 	
 	env.adjustment_enabled = true
-	env.adjustment_brightness = 1.01
+	env.adjustment_brightness = 1.05
 	env.adjustment_contrast = 1.07
 	env.adjustment_saturation = 1.10
 	var grade := Gradient.new()
@@ -131,9 +130,9 @@ static func setup_sun_lighting(sun: DirectionalLight3D) -> void:
 	# Warm late-afternoon key light: strong directional modelling, blue sky fill.
 	# A lower sun angle produces long, readable shadows across the village and
 	# reveals the PBR plaster/wood/brick instead of flat midday lighting.
-	sun.rotation_degrees = Vector3(-26.0, 45.0, 0.0)
+	sun.rotation_degrees = Vector3(-36.0, 45.0, 0.0)
 	sun.light_color = Color(1.0, 0.86, 0.70, 1.0)
-	sun.light_energy = 2.80
+	sun.light_energy = 2.95
 	sun.light_indirect_energy = 0.92
 	# God rays: the volumetric fog only shows light shafts when the light itself
 	# contributes strongly to the fog volume.

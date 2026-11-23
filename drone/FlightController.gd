@@ -685,7 +685,8 @@ func update_control(delta: float) -> void:
 
 
 func _compute_angle_axis_cmd(stick: float, expo: float, bank_limit: float,
-		angle_meas: float, ang_vel_meas: float, is_pitch: bool) -> float:
+		angle_meas: float, ang_vel_meas: float, is_pitch: bool,
+		rate_scale: float = 1.0) -> float:
 	var target := ((1.0 - expo) * stick + expo * pow(stick, 3)) * bank_limit
 	var error := target - angle_meas
 	var trim := 0.0
@@ -697,8 +698,11 @@ func _compute_angle_axis_cmd(stick: float, expo: float, bank_limit: float,
 		elif absf(stick) > 0.25:
 			_level_pitch_trim = move_toward(_level_pitch_trim, 0.0, 0.10 * dt)
 		trim = _level_pitch_trim
-	var rate_target := clampf(error * control_profile.level_angle_gain,
-			-control_profile.level_rate_limit, control_profile.level_rate_limit)
+	# The rate slider scales how quickly the quad snaps to the lean angle,
+	# on top of the per-axis bank limit computed by the caller.
+	var eff_angle_gain: float = float(control_profile.level_angle_gain) * clampf(rate_scale, 0.45, 2.0)
+	var eff_rate_limit: float = maxf(float(control_profile.level_rate_limit) * rate_scale, 1.8)
+	var rate_target := clampf(error * eff_angle_gain, -eff_rate_limit, eff_rate_limit)
 	var rate_gain: float = float(control_profile.level_rate_gain) * _level_inertia_scale
 	return clampf((rate_target - ang_vel_meas) * rate_gain + trim, -0.32, 0.32)
 
@@ -737,17 +741,26 @@ func update_command() -> Array:
 		motor_control[3] = _betaflight_pid(Controller.PITCH_SPEED, pitch_input, ang_vel.x, dt, pwr, ag)
 	
 	elif flight_mode == FlightMode.LEVEL:
+		# The rate sliders also drive self-levelling: a higher rate allows a
+		# deeper bank and a faster snap to it, not just a faster acro spin.
+		var rate_scale_r := clampf(rate_r / 600.0, 0.35, 1.90)
+		var rate_scale_p := clampf(rate_p / 600.0, 0.35, 1.90)
 		var prof_bank: float = float(control_profile.level_bank_deg)
 		var bank_deg: float = minf(prof_bank, 30.0) if _is_fixed_wing else prof_bank
-		var bank_limit := deg_to_rad(bank_deg)
+		var bank_limit_r := deg_to_rad(clampf(bank_deg * (0.50 + 0.50 * rate_scale_r),
+				14.0, 34.0 if _is_fixed_wing else 68.0))
+		var bank_limit_p := deg_to_rad(clampf(bank_deg * (0.50 + 0.50 * rate_scale_p),
+				14.0, 34.0 if _is_fixed_wing else 68.0))
 		motor_control[0] = throttle_to_motor_pwm(pwr)
 
-		var yaw_input := _rate_for_axis(2, -y) * (0.70 if control_profile.rate_yaw > 400.0 else 1.0)
+		var yaw_input := _rate_for_axis(2, -y)
 		pid_controllers[Controller.YAW_SPEED].set_target(yaw_input)
 		motor_control[1] = pid_controllers[Controller.YAW_SPEED].get_output(ang_vel.y, dt, false)
 
-		motor_control[2] = _compute_angle_axis_cmd(r, expo_r, bank_limit, -angles.z, -ang_vel.z, false)
-		motor_control[3] = _compute_angle_axis_cmd(p, expo_p, bank_limit, angles.x, ang_vel.x, true)
+		motor_control[2] = _compute_angle_axis_cmd(r, expo_r, bank_limit_r,
+				-angles.z, -ang_vel.z, false, rate_scale_r)
+		motor_control[3] = _compute_angle_axis_cmd(p, expo_p, bank_limit_p,
+				angles.x, ang_vel.x, true, rate_scale_p)
 
 	elif flight_mode == FlightMode.HORIZON:
 		# HORIZON: self-leveling (Angle) near stick centre with a smooth blend
@@ -762,12 +775,20 @@ func update_command() -> Array:
 		var yaw_input := _rate_for_axis(2, -y)
 		motor_control[1] = _betaflight_pid(Controller.YAW_SPEED, yaw_input, ang_vel.y, dt, pwr, ag)
 
+		# Same rate-driven scaling as LEVEL for the self-levelling half of
+		# HORIZON; the acro half already uses _rate_for_axis() directly.
+		var rate_scale_r := clampf(rate_r / 600.0, 0.35, 1.90)
+		var rate_scale_p := clampf(rate_p / 600.0, 0.35, 1.90)
 		var hz_bank_deg := minf(horizon_bank_deg, 32.0) if _is_fixed_wing else horizon_bank_deg
-		var bank_limit := deg_to_rad(hz_bank_deg)
+		var bank_limit_r := deg_to_rad(clampf(hz_bank_deg * (0.50 + 0.50 * rate_scale_r),
+				14.0, 34.0 if _is_fixed_wing else 68.0))
+		var bank_limit_p := deg_to_rad(clampf(hz_bank_deg * (0.50 + 0.50 * rate_scale_p),
+				14.0, 34.0 if _is_fixed_wing else 68.0))
 		var lo := maxf(horizon_threshold - 0.15, 0.30)
 		var hi := minf(horizon_threshold + 0.18, 0.96)
 
-		var roll_angle_cmd := _compute_angle_axis_cmd(r, expo_r, bank_limit, -angles.z, -ang_vel.z, false)
+		var roll_angle_cmd := _compute_angle_axis_cmd(r, expo_r, bank_limit_r,
+				-angles.z, -ang_vel.z, false, rate_scale_r)
 		var roll_blend := smoothstep(lo, hi, absf(r))
 		if roll_blend <= 0.001:
 			motor_control[2] = roll_angle_cmd
@@ -775,7 +796,8 @@ func update_command() -> Array:
 			var roll_acro_cmd := _betaflight_pid(Controller.ROLL_SPEED, _rate_for_axis(0, r), -ang_vel.z, dt, pwr, ag)
 			motor_control[2] = lerpf(roll_angle_cmd, roll_acro_cmd, roll_blend)
 
-		var pitch_angle_cmd := _compute_angle_axis_cmd(p, expo_p, bank_limit, angles.x, ang_vel.x, true)
+		var pitch_angle_cmd := _compute_angle_axis_cmd(p, expo_p, bank_limit_p,
+				angles.x, ang_vel.x, true, rate_scale_p)
 		var pitch_blend := smoothstep(lo, hi, absf(p))
 		if pitch_blend <= 0.001:
 			motor_control[3] = pitch_angle_cmd

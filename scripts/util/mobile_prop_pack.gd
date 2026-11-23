@@ -9,8 +9,8 @@ extends RefCounted
 ## Placement guarantees (also re-checked by qa_mobile_map_views):
 ##   * every object sits on the terrain height (no floating, no sinking),
 ##   * objects keep a real gap from each other and from existing POIs,
-##   * small props get box colliders, landmarks keep their hollow -colonly
-##     collision so the drone can fly inside and do stunts,
+##   * small props get mesh-accurate collisions (solid blocks keep tight boxes),
+##     landmarks keep their hollow -colonly collision so the drone can fly inside,
 ##   * low draw-call cost: one vertex-colour material per asset + distance LOD.
 const PROP_ROOT := "res://Assets/handcrafted/props_lowpoly/"
 const LANDMARK_ROOT := "res://Assets/handcrafted/landmarks/"
@@ -29,6 +29,21 @@ const LOD_END := {
 }
 
 const LANDMARK_LOD := 1500.0
+
+## Open / hollow / irregular small props must never receive a solid AABB wall:
+## their trimesh is their only honest collider.
+const OPEN_PROPS := [
+	"watchtower", "bus_stop", "greenhouse", "tent_military", "fence_section",
+	"ruined_wall", "truck_wreck", "apc_wreck", "tank_traps", "checkpoint_booth",
+	"power_pole", "antenna_mast", "billboard_ruined",
+]
+
+## Genuinely brick-shaped small props are the only ones allowed a box collider.
+const SOLID_BLOCK_PROPS := [
+	"container_stack", "ammo_crates", "haystack", "jersey_barriers",
+	"sandbag_nest", "fuel_barrels", "barn_small", "silo_small",
+	"well_house", "water_tower_small",
+]
 
 ## [prop, Vector2(x, z), yaw degrees, scale]
 const SITES := {
@@ -198,15 +213,31 @@ static func _place(root: Node3D, pack: Node3D, terrain, map_name: String,
 	# The cargo ship floats; every other object must stand on dry ground.
 	var floating := prop_name == "cargo_ship"
 	var site := Vector2.ZERO
+	var effective_scl := scl
 	if floating:
 		site = _find_water_site(terrain, map_name, base, radius, yaw, placed)
 		if site == Vector2.INF:
 			push_warning("[MobilePropPack] no water site for " + prop_name)
 			return
 	else:
-		site = _find_ground_site(terrain, map_name, base, radius, placed, root)
+		# Perimeter landmarks on dense maps may not fit at the authored corner
+		# and scale.  Try mirrored corners and smaller footprints before giving
+		# up so the landmark is not silently dropped (QA log warning).
+		var candidates := [base, Vector2(-base.x, base.y),
+				Vector2(base.x, -base.y), Vector2(-base.x, -base.y)]
+		for scale_factor in [1.0, 0.8, 0.65]:
+			for candidate in candidates:
+				radius = _radius(prop_name, large) * scl * float(scale_factor)
+				site = _find_ground_site(terrain, map_name, candidate, radius, placed, root)
+				if site != Vector2.INF:
+					effective_scl = scl * float(scale_factor)
+					break
+			if site != Vector2.INF:
+				break
 		if site == Vector2.INF:
-			push_warning("[MobilePropPack] no clear site for " + prop_name)
+			radius = _radius(prop_name, large) * scl
+			push_warning("[MobilePropPack] no clear site for " + prop_name +
+					" on " + map_name)
 			return
 	var ground: float = terrain.call("mesh_surface_height", map_name, site.x, site.y)
 	var base_y := ground + 0.02 if not floating else \
@@ -218,7 +249,7 @@ static func _place(root: Node3D, pack: Node3D, terrain, map_name: String,
 	pack.add_child(inst)
 	inst.position = Vector3(site.x, base_y, site.y)
 	inst.rotation.y = yaw
-	inst.scale = Vector3.ONE * scl
+	inst.scale = Vector3.ONE * effective_scl
 	if inst.is_inside_tree():
 		inst.force_update_transform()
 	_apply_material(inst, prop_name)
@@ -229,7 +260,10 @@ static func _place(root: Node3D, pack: Node3D, terrain, map_name: String,
 		mi.visibility_range_end_margin = 40.0
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	if not large:
-		_add_box_collider(inst, _local_aabb(inst))
+		if OPEN_PROPS.has(prop_name) or not SOLID_BLOCK_PROPS.has(prop_name):
+			_add_trimesh_collider(inst)
+		else:
+			_add_box_collider(inst, _local_aabb(inst))
 	inst.set_meta("pack_radius", radius)
 	inst.set_meta("pack_ground", ground)
 	inst.set_meta("pack_large", large)
@@ -291,10 +325,47 @@ static func _place_forge(root: Node3D, pack: Node3D, terrain, map_name: String,
 		mi.visibility_range_end = lod
 		mi.visibility_range_end_margin = 40.0
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
-	if _forge_has_opening(prop_name) or box.size.y > 14.0:
-		_add_base_collider(inst, box)
+	# Imported -colonly / -convcolonly bodies describe the real (often hollow)
+	# shape: keep them and just make sure they are on the physics layers.  A
+	# generated 2.8 m plinth box used to seal every bridge, arch and pipe rack
+	# at ground level, so never add a synthetic wall here.
+	var imported_bodies := inst.find_children("*", "StaticBody3D", true, false)
+	# Imported -convcolonly bodies wrap arches / pipe racks / portals in one
+	# convex hull, which plugs the opening completely.  For any forge asset
+	# with a known opening, drop those seals and rebuild exact per-mesh
+	# trimeshes so the portal stays 100% fly-through.
+	var has_convex_seal := false
+	if _forge_has_opening(prop_name):
+		for imported in imported_bodies:
+			var imported_body := imported as StaticBody3D
+			if imported_body == null:
+				continue
+			for cs_node in imported_body.find_children("*", "CollisionShape3D", true, false):
+				if (cs_node as CollisionShape3D).shape is ConvexPolygonShape3D:
+					has_convex_seal = true
+					break
+			if has_convex_seal:
+				break
+	if has_convex_seal:
+		for imported in imported_bodies:
+			var imported_body := imported as StaticBody3D
+			if imported_body == null:
+				continue
+			imported_body.collision_layer = 0
+			imported_body.collision_mask = 0
+			var parent := imported_body.get_parent()
+			if parent != null:
+				parent.remove_child(imported_body)
+			imported_body.queue_free()
+		_add_trimesh_collider(inst)
+	elif not imported_bodies.is_empty():
+		for imported in imported_bodies:
+			var imported_body := imported as StaticBody3D
+			if imported_body != null:
+				imported_body.collision_layer = 1
+				imported_body.collision_mask = 1
 	else:
-		_add_box_collider(inst, box)
+		_add_trimesh_collider(inst)
 	inst.set_meta("pack_radius", radius)
 	inst.set_meta("pack_height", box.size.y)
 	inst.set_meta("pack_ground", ground)
@@ -394,7 +465,9 @@ static func _find_ground_site(terrain, map_name: String, base: Vector2,
 	var water: float = float(terrain.call("water_level", map_name))
 	var water_margins := [0.7, 0.25] if map_name == "wetlands" else [0.7]
 	var a_seed := base.angle() if base.length_squared() > 1.0 else 0.0
-	var gap_tiers := [20.0, 14.0, 10.0] if radius >= 3.5 else [12.0, 8.0, 5.0]
+	# Final tight tier lets large perimeter landmarks find a legal corner on
+	# dense maps instead of silently disappearing with a "no clear site" warning.
+	var gap_tiers := [20.0, 14.0, 10.0, 6.0, 2.0] if radius >= 3.5 else [12.0, 8.0, 5.0, 3.0, 2.0]
 	for wm in water_margins:
 		var min_y := water + float(wm)
 		for c0 in [base, Vector2.ZERO]:
@@ -593,13 +666,31 @@ static func _local_aabb(node: Node3D) -> AABB:
 	return box
 
 
-## A low plinth keeps the asset solid at ground level while leaving portals,
-## decks and broken upper floors open for FPV passes.
-static func _add_base_collider(node: Node3D, box: AABB) -> void:
-	var height := minf(box.size.y, 2.8)
-	var base := AABB(box.position,
-			Vector3(box.size.x, maxf(height, 0.2), box.size.z))
-	_add_box_collider(node, base)
+## Exact per-mesh collision for open / irregular props.  Never collapse a GLB
+## into one convex hull or AABB: that seals doorways, bridges and pipe racks
+## with invisible walls.  Imported -col bodies are left untouched.
+static func _add_trimesh_collider(node: Node3D) -> void:
+	if not node.find_children("*", "StaticBody3D", true, false).is_empty():
+		return
+	for child in node.find_children("*", "MeshInstance3D", true, false):
+		var mi := child as MeshInstance3D
+		if mi == null or mi.mesh == null or not mi.visible:
+			continue
+		var mesh_name := String(mi.name).to_lower()
+		if mesh_name.contains("-col") or mesh_name.contains("-convcol"):
+			continue
+		var shape := mi.mesh.create_trimesh_shape()
+		if shape == null:
+			continue
+		shape.backface_collision = true
+		var body := StaticBody3D.new()
+		body.name = "PropTrimeshCollider"
+		body.collision_layer = 1
+		body.collision_mask = 1
+		var cs := CollisionShape3D.new()
+		cs.shape = shape
+		body.add_child(cs)
+		mi.add_child(body)
 
 
 static func _add_box_collider(node: Node3D, box: AABB) -> void:
@@ -616,3 +707,10 @@ static func _add_box_collider(node: Node3D, box: AABB) -> void:
 	cs.shape = shape
 	body.add_child(cs)
 	node.add_child(body)
+
+
+## QA-only: release cached scenes/materials at the end of a multi-map test.
+static func qa_clear_caches() -> void:
+	_scenes.clear()
+	_materials.clear()
+	_radii.clear()

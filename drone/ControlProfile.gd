@@ -55,19 +55,30 @@ func get_axis_rate(axis: int, stick: float) -> float:
 			max_rate = rate_roll
 			center = center_sensitivity_roll
 			expo = expo_roll
-	var expo_factor := 1.0 + expo * (a - 1.0)
+	# Expo flattens the centre and leaves the end points untouched: |shaped|
+	# is exactly 1 at full stick regardless of expo, so every mode can be
+	# normalised to hit the pilot's max_rate at the stick ends.
+	var shaped := s * (1.0 - expo) + s * a * a * expo
+	var expo_curve := (1.0 - expo) + a * a * expo
+	var eff_center := minf(center, max_rate * 0.45)
 	match rate_type:
 		RateType.BETAFLIGHT:
-			var rc := 200.0 * betaflight_rc_rate * s
-			var super_factor := 1.0 / clampf(1.0 - a * betaflight_super_rate, 0.01, 1.0)
-			return rc * expo_factor * super_factor
+			# Divide by the value at full stick so the peak is max_rate even
+			# when super rate/expo would otherwise push it higher.
+			var super_den := clampf(1.0 - a * betaflight_super_rate, 0.05, 1.0)
+			var peak_den := clampf(1.0 - betaflight_super_rate, 0.05, 1.0)
+			var rc := 200.0 * s / super_den
+			var peak := 200.0 / peak_den
+			return rc * (max_rate / peak) * expo_curve
 		RateType.QUICK:
-			return max_rate * s * a * a * expo_factor
+			# Faster rise than Actual, but the expo term still softens the
+			# middle of the travel and the end point stays at max_rate.
+			return eff_center * shaped + (max_rate - eff_center) \
+					* s * a * a * (1.0 + expo * (a - 1.0))
 		_:
-			# Actual Rates: linear centre + cubic towards max rate.
-			var eff_center := minf(center, max_rate * 0.72)
-			var r := eff_center * s + (max_rate - eff_center) * s * a * a
-			return r * expo_factor
+			# Actual Rates: expo-shaped centre + cubic rise to max_rate.
+			return eff_center * shaped + (max_rate - eff_center) \
+					* shaped * absf(shaped) * absf(shaped)
 
 
 func set_rate_type(t: int) -> void:

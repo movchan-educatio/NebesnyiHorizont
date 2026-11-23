@@ -79,21 +79,56 @@ static func spawn_prop(parent: Node3D, prop_name: String, pos: Vector3,
 	var bounds := visual_aabb(inst)
 	if bounds.size.y > 0.02:
 		inst.global_position.y += (support_y - 0.06) - bounds.position.y
-	var mi := inst as MeshInstance3D
-	if mi != null and mi.mesh != null:
-		_texture_prop(mi, prop_name)
-		var shape := mi.mesh.create_convex_shape(true, false)
-		if shape != null:
-			var body := StaticBody3D.new()
-			body.name = prop_name + "_col"
-			body.collision_layer = 1
-			body.collision_mask = 1
-			var cs := CollisionShape3D.new()
-			cs.shape = shape
-			body.add_child(cs)
-			inst.add_child(body)
-	for child_mi in inst.find_children("*", "MeshInstance3D", true, false):
-		_texture_prop(child_mi as MeshInstance3D, prop_name)
+	# Hollow/concave props must never get a single convex hull: that plugs pipe
+	# bores and inflates fences, wrecks, antennas and tyres into huge invisible
+	# walls.  Use exact trimeshes for those; only genuinely solid blocks keep a
+	# tight convex shape.  Walk *all* meshes, since the duplicated source is
+	# often a plain Node3D with the geometry on children.
+	var lower_name := prop_name.to_lower()
+	var need_trimesh := false
+	for token in ["pipe", "fence", "barrier", "wreck", "antenna", "tires",
+			"arch", "ring", "gate", "frame", "tent", "camo"]:
+		if lower_name.contains(token):
+			need_trimesh = true
+			break
+	var need_convex := false
+	for token in ["crate", "pallet", "barrel", "sandbag", "fuel_tank"]:
+		if lower_name.contains(token):
+			need_convex = true
+			break
+	# Any other prop (generator, ammo, logs, signs, oil drums, ...) is at least
+	# partly concave, so it also gets exact trimesh collision rather than a
+	# hull that would inflate its silhouette.
+	need_trimesh = need_trimesh or not need_convex
+	var meshes: Array[MeshInstance3D] = []
+	var root_mi := inst as MeshInstance3D
+	if root_mi != null and root_mi.mesh != null:
+		meshes.append(root_mi)
+	for child in inst.find_children("*", "MeshInstance3D", true, false):
+		var child_mi := child as MeshInstance3D
+		if child_mi != null and child_mi.mesh != null:
+			meshes.append(child_mi)
+	for mesh_mi in meshes:
+		_texture_prop(mesh_mi, prop_name)
+		var shape: Shape3D = null
+		if need_trimesh:
+			var tri := mesh_mi.mesh.create_trimesh_shape()
+			if tri != null:
+				tri.backface_collision = true
+				shape = tri
+		elif need_convex:
+			shape = mesh_mi.mesh.create_convex_shape(true, false)
+		if shape == null:
+			continue
+		var body := StaticBody3D.new()
+		body.name = prop_name + ("_trimesh_col" if need_trimesh else "_col")
+		body.collision_layer = 1
+		body.collision_mask = 1
+		var cs := CollisionShape3D.new()
+		cs.shape = shape
+		body.add_child(cs)
+		# Attach under the mesh so its local transform is inherited exactly.
+		mesh_mi.add_child(body)
 	library.queue_free()
 	return inst
 

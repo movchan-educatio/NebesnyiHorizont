@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<title>FPV Stream Overlay — Nebesnyi Horizont</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: transparent; overflow: hidden;
+    font-family: "Segoe UI", Arial, sans-serif;
+  }
+  .widget { position: absolute; background: transparent; border: 0; pointer-events: none; }
+  iframe { width: 100%; height: 100%; border: 0; background: transparent; }
+
+  /* Ліва колонка — події (зменшено, щоб не закривати дрон) */
+  #feed {
+    left: 10px; top: 10px; width: 280px; height: 360px;
+    transform: scale(.82); transform-origin: top left;
+    opacity: .72;
+  }
+
+  /* Права колонка — топ дарителів */
+  #top {
+    right: 10px; top: 10px; width: 250px; height: 260px;
+    transform: scale(.82); transform-origin: top right;
+    opacity: .72;
+  }
+
+  /* Низ — таймер і глядачі */
+  #timer {
+    left: 10px; bottom: 10px; width: 180px; height: 54px;
+    transform: scale(.85); transform-origin: bottom left;
+    opacity: .82;
+  }
+  #viewers {
+    right: 10px; bottom: 10px; width: 180px; height: 54px;
+    transform: scale(.85); transform-origin: bottom right;
+    opacity: .82;
+  }
+
+  /* Ціль — статична плашка; живий прогрес робить вбудований віджет LIVE Studio "Ціль" */
+  #goal {
+    left: 50%; top: 10px; transform: translateX(-50%);
+    z-index: 50; position: absolute;
+    width: 320px; padding: 8px 14px; box-sizing: border-box;
+    background: rgba(10, 12, 18, .88); border: 2px solid #ffd54a;
+    border-radius: 10px; color: #fff; text-align: center;
+    text-shadow: 0 1px 3px #000;
+    box-shadow: 0 3px 14px rgba(0,0,0,.55);
+  }
+  #goal .title { font-size: 14px; font-weight: 600; letter-spacing: .3px; }
+  #goal .amount { font-size: 22px; font-weight: 800; color: #ffd54a; margin-top: 2px; }
+  #goal .bar { height: 5px; background: rgba(255,255,255,.2); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+  #goal .fill { height: 100%; width: 0%; background: linear-gradient(90deg,#ff8a00,#ffd54a); }
+</style>
+</head>
+<body>
+
+  <!-- Ціль $100 на реліз у App Store -->
+  <div id="goal">
+    <div class="title">РЕЛІЗ В APP STORE</div>
+    <div class="amount">$100 GOAL</div>
+    <div class="bar"><div class="fill"></div></div>
+  </div>
+
+  <!-- Живі віджети TikFinity (потрібен активний LIVE і підключення TikFinity) -->
+  <div class="widget" id="feed">
+    <iframe src="https://tikfinity.zerody.one/widget/activity-feed?cid=0&did=1" allowtransparency="true"></iframe>
+  </div>
+  <div class="widget" id="top">
+    <iframe src="https://tikfinity.zerody.one/widget/topgifter?cid=0" allowtransparency="true"></iframe>
+  </div>
+  <div class="widget" id="timer">
+    <iframe src="https://tikfinity.zerody.one/widget/timer?cid=0" allowtransparency="true"></iframe>
+  </div>
+  <div class="widget" id="viewers">
+    <iframe src="https://tikfinity.zerody.one/widget/viewercount?cid=0" allowtransparency="true"></iframe>
+  </div>
+
+</body>
+</html>

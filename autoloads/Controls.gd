@@ -1,6 +1,11 @@
 extends Node
 
 
+## Emitted whenever persisted control tuning / bindings change, so every open
+## menu can refresh its sliders from the single authoritative autoload value.
+signal settings_updated
+
+
 var input_map_path := "%s/InputMap.cfg" % Global.config_dir
 var active_controller_guid := ""
 var default_controller_guid := ""
@@ -60,26 +65,37 @@ var _stick_filtered := {"throttle": 0.0, "yaw": 0.0, "pitch": 0.0, "roll": 0.0}
 var _stick_filter_frame := {"throttle": -1, "yaw": -1, "pitch": -1, "roll": -1}
 
 func _set_deadzone(value: float) -> void:
-	stick_deadzone = clampf(value, 0.0, 0.25)
+	var clamped := clampf(value, 0.0, 0.30)
+	if is_equal_approx(stick_deadzone, clamped):
+		return
+	stick_deadzone = clamped
+	settings_updated.emit()
+
 
 func _set_smoothing(value: float) -> void:
-	stick_smoothing = clampf(value, 0.0, 0.5)
+	var clamped := clampf(value, 0.0, 0.50)
+	if is_equal_approx(stick_smoothing, clamped):
+		return
+	stick_smoothing = clamped
+	settings_updated.emit()
 
 ## Apply deadband + smoothing to a stick value. Returns [-1..1].
 ## `frame_dt` is only used by tests; in game the value is refreshed at most
 ## once per physics frame so all readers see exactly the same filtered input.
 func apply_stick_filter(channel: String, raw: float, frame_dt: float = -1.0) -> float:
 	var value := clampf(raw, -1.0, 1.0)
+	var frame := Engine.get_physics_frames()
 	# Throttle is unipolar: a deadband in the middle of its travel would create
 	# a notch in the power curve, so only the self-centring axes get it.
-	# Values just outside the deadband are rescaled instead of jumping to 0.02,
-	# which keeps the centre-to-edge transition smooth.
+	# Inside the deadband the stick snaps cleanly to 0; outside it the remaining
+	# travel is rescaled to the full -1..+1 range so no range is lost.
 	if channel != "throttle":
-		if absf(value) < stick_deadzone:
-			value = 0.0
-		elif stick_deadzone > 0.0:
-			value = signf(value) * (absf(value) - stick_deadzone) / (1.0 - stick_deadzone)
-	var frame := Engine.get_physics_frames()
+		if absf(value) <= stick_deadzone:
+			_stick_filtered[channel] = 0.0
+			if frame_dt < 0.0:
+				_stick_filter_frame[channel] = frame
+			return 0.0
+		value = signf(value) * (absf(value) - stick_deadzone) / maxf(1.0 - stick_deadzone, 0.01)
 	if frame_dt < 0.0 and int(_stick_filter_frame.get(channel, -1)) == frame:
 		return clampf(_stick_filtered[channel], -1.0, 1.0)
 	_stick_filter_frame[channel] = frame
@@ -89,14 +105,11 @@ func apply_stick_filter(channel: String, raw: float, frame_dt: float = -1.0) -> 
 	if stick_smoothing <= 0.0001 or dt <= 0.0:
 		_stick_filtered[channel] = value
 		return value
-	# One-pole low-pass with a 0..75 ms time constant.  Large per-frame
-	# movements (a deliberate flick) raise alpha towards 1, so the filter only
-	# removes small jitter and never adds noticeable input lag.
-	var tau: float = stick_smoothing * 0.15
+	# Time-based one-pole low-pass: the slider always means the same lag at any
+	# FPS.  No delta-speed bypass: a deliberate flick must still be smoothed by
+	# exactly the amount the pilot selected on the smoothing slider.
+	var tau: float = stick_smoothing * 0.30
 	var alpha: float = 1.0 - exp(-dt / tau)
-	var speed: float = absf(value - float(_stick_filtered[channel]))
-	var fast: float = clampf((speed - 0.04) / 0.18, 0.0, 1.0)
-	alpha = maxf(alpha, fast)
 	_stick_filtered[channel] = _stick_filtered[channel] + alpha * (value - _stick_filtered[channel])
 	return clampf(_stick_filtered[channel], -1.0, 1.0)
 
@@ -211,14 +224,33 @@ const STICK_POSITIVE := {
 
 
 func _ready() -> void:
+	# Pick up the saved deadband/smoothing immediately, before any GUI reads
+	# them.  The full binding load is deferred because KeyboardControls is a
+	# later autoload and restore_keyboard_shortcuts() needs it to exist.
+	_load_stick_tuning_now()
 	create_action_list()
 	refresh_stick_bindings()
 	make_joypad_events_global()
 	# Guarantee the default keyboard shortcuts (M / Space / Backspace / H) even
 	# on a fresh install where InputMap.cfg does not exist yet.
 	restore_keyboard_shortcuts()
+	call_deferred("load_input_map")
 	if OS.has_environment("DRONE_INPUT_SELFTEST"):
 		call_deferred("_run_selftest")
+
+
+## Read only the global stick tuning values straight from InputMap.cfg.  The
+## full load_input_map() (device sections, migrations, shortcuts) is deferred.
+func _load_stick_tuning_now() -> void:
+	var config := ConfigFile.new()
+	if config.load(input_map_path) != OK:
+		return
+	if config.has_section_key("controls", "stick_deadzone"):
+		stick_deadzone = clampf(float(config.get_value("controls", "stick_deadzone",
+				stick_deadzone)), 0.0, 0.30)
+	if config.has_section_key("controls", "stick_smoothing"):
+		stick_smoothing = clampf(float(config.get_value("controls", "stick_smoothing",
+				stick_smoothing)), 0.0, 0.50)
 
 
 ## Godot 4 treats `device == -1` as "any device", while 0/1/... only match that
@@ -378,8 +410,8 @@ func load_input_map(update_controller: bool = false) -> String:
 
 	# Stick tuning is global (not per device): deadband, smoothing and inversion.
 	var tuning_version := int(config.get_value("controls", "stick_tuning_version", 0))
-	stick_deadzone = clampf(float(config.get_value("controls", "stick_deadzone", stick_deadzone)), 0.0, 0.25)
-	stick_smoothing = clampf(float(config.get_value("controls", "stick_smoothing", stick_smoothing)), 0.0, 0.5)
+	stick_deadzone = clampf(float(config.get_value("controls", "stick_deadzone", stick_deadzone)), 0.0, 0.30)
+	stick_smoothing = clampf(float(config.get_value("controls", "stick_smoothing", stick_smoothing)), 0.0, 0.50)
 	var mobile_tuning := MenuUI.is_mobile_ui()
 	if tuning_version < STICK_TUNING_VERSION:
 		# Old builds defaulted to 0, which felt twitchy on cheap radios.  Only
@@ -1164,6 +1196,13 @@ func save_bindings() -> void:
 	var err := config.save(input_map_path)
 	if err != OK:
 		Global.log_error(err, "Error while saving input bindings.")
+	settings_updated.emit()
+
+
+## Legacy name used by older GUI code.  All tuning is now written together by
+## save_bindings(), so this is just a compatibility alias.
+func save_input_map() -> void:
+	save_bindings()
 
 
 func _run_selftest() -> void:
@@ -1183,8 +1222,21 @@ func _run_selftest() -> void:
 	stick_invert["yaw"] = true
 	reset_stick_filters()
 	var deadband_ok := absf(apply_stick_filter("roll", 0.03)) < 0.0001
+	# Smoothing must converge over several physics frames (not jump on frame 1),
+	# but must still be monotonic: one frame with a stronger slider stays well
+	# below half of the raw target.  The old delta-speed bypass failed this.
+	var raw_target := 0.5
+	var converged := 0.0
 	reset_stick_filters()
-	var pass_ok := apply_stick_filter("roll", 0.5) > 0.3
+	for _i in range(5):
+		converged = apply_stick_filter("roll", raw_target, 1.0 / 60.0)
+	var five_frames_ok := converged > 0.3
+	stick_smoothing = 0.35
+	reset_stick_filters()
+	var one_frame := apply_stick_filter("roll", raw_target, 1.0 / 60.0)
+	var one_frame_ok := one_frame < 0.5 * raw_target
+	stick_smoothing = 0.15
+	var pass_ok := five_frames_ok and one_frame_ok
 
 	# Calibrated endpoints: full physical travel must map to exactly ±1, both
 	# for a normal and for a reversed axis.  This is what puts the HUD marker in
@@ -1232,6 +1284,8 @@ func _run_selftest() -> void:
 			and throttle_down_ok and throttle_up_ok
 	print("[INPUT-SELFTEST] live arm=", arm_live, " drop=", drop_live,
 			" stored=", stored, " deadband=", deadband_ok, " pass=", pass_ok,
+			" smooth1=", snappedf(one_frame, 0.001),
+			" converge5=", snappedf(converged, 0.001),
 			" tuning_stored=", tuning_stored, " horizon_key=", horizon_key,
 			" ranges=", ranges_ok, " ranges_stored=", ranges_stored,
 			" calibrated=", calibrated_range_ok, "/", calibrated_invert_cleared)

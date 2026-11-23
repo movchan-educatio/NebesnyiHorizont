@@ -21,9 +21,42 @@ func _process(delta: float) -> void:
 	if _timer > 0.0:
 		return
 	_timer = randf_range(7.0, 14.0) * rate_scale
-	_distant_gunfire()
+	# Rotate through small arms, suppressive bursts, autocannon and tank rounds
+	# so the horizon does not repeat one rifle loop forever.
+	var pick := randf()
+	if pick < 0.28:
+		_distant_gunfire()
+	elif pick < 0.52:
+		_distant_mg_burst()
+	elif pick < 0.76:
+		_distant_autocannon()
+	else:
+		_distant_cannon()
 	if randf() < 0.55:
 		_distant_artillery()
+
+
+## Random position on the horizon, relative to the player when available.
+func _distant_position(r_min: float, r_max: float) -> Vector3:
+	var base := drone.global_position if is_instance_valid(drone) else Vector3.ZERO
+	var angle := randf() * TAU
+	var radius := randf_range(r_min, r_max)
+	var p := Vector3(base.x + cos(angle) * radius, 0.0,
+			base.z + sin(angle) * radius)
+	p.y = TerrainScript.height_at(map_name, p.x, p.z) + 1.0
+	return p
+
+
+func _distant_mg_burst() -> void:
+	CombatSfxScript.play_mg_burst(self, _distant_position(180.0, 440.0), -19.0)
+
+
+func _distant_autocannon() -> void:
+	CombatSfxScript.play_autocannon(self, _distant_position(220.0, 480.0), -18.0)
+
+
+func _distant_cannon() -> void:
+	CombatSfxScript.play_cannon(self, _distant_position(260.0, 540.0), -17.0)
 
 
 ## Distant artillery audio only.  Spawning the full explosion/smoke VFX here

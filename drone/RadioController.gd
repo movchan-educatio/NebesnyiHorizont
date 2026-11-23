@@ -53,17 +53,11 @@ var _since_arm := 0.0
 ## were fed straight to the mixer and produced visible vertical jitter.
 var _throttle_filtered := 0.0
 var _throttle_filter_ready := false
-## Roll/pitch/yaw low-pass.  Keyboard sticks are digital (0 or ±1) and the
-## radio ADC is noisy; feeding either straight to the rate loop makes the
-## drone twitch.  A short 60 ms filter with a 7/s slew limit keeps the response
-## immediate while removing the on/off edge.
+## Roll/pitch/yaw low-pass for digital keyboard steps and raw touch sticks.
+## Its time constant comes from Controls.stick_smoothing; analog gamepad/ELRS
+## channels are already filtered in Controls.channel_value/apply_stick_filter.
 var _stick_filtered := Vector3.ZERO
 var _stick_filter_ready := false
-const STICK_FILTER_TAU := 0.06
-const STICK_SLEW := 7.0
-## The phone build gets a snappier filter; PC keeps the original feel.
-const MOBILE_STICK_FILTER_TAU := 0.045
-const MOBILE_STICK_SLEW := 9.0
 
 
 func _ready() -> void:
@@ -263,6 +257,12 @@ func read_input() -> void:
 			- (1.0 if Input.is_key_pressed(KEY_LEFT) else 0.0)
 	var kb_pitch: float = (1.0 if Input.is_key_pressed(KEY_DOWN) else 0.0) \
 			- (1.0 if Input.is_key_pressed(KEY_UP) else 0.0)
+	# Keyboard keys are digital steps.  Track which axes they drive so only
+	# those (plus raw touch) get the RadioController low-pass: ELRS and gamepad
+	# channels already carry the same smoothing slider via Controls.
+	var kb_used_yaw := absf(kb_yaw) > 0.01
+	var kb_used_roll := absf(kb_roll) > 0.01
+	var kb_used_pitch := absf(kb_pitch) > 0.01
 
 	# Radio/gamepad sticks come from the saved per-channel bindings, not from
 	# the InputMap actions.  This keeps one physical axis from driving two
@@ -292,13 +292,16 @@ func read_input() -> void:
 		pad_yaw = Controls.channel_value("yaw")
 		pad_roll = Controls.channel_value("roll")
 		pad_pitch = Controls.channel_value("pitch")
-	var yaw := kb_yaw if absf(kb_yaw) > 0.01 else (0.0 if is_nan(pad_yaw) else pad_yaw)
-	var roll := kb_roll if absf(kb_roll) > 0.01 else (0.0 if is_nan(pad_roll) else pad_roll)
-	var pitch := kb_pitch if absf(kb_pitch) > 0.01 else (0.0 if is_nan(pad_pitch) else pad_pitch)
+	var yaw := kb_yaw if kb_used_yaw else (0.0 if is_nan(pad_yaw) else pad_yaw)
+	var roll := kb_roll if kb_used_roll else (0.0 if is_nan(pad_roll) else pad_roll)
+	var pitch := kb_pitch if kb_used_pitch else (0.0 if is_nan(pad_pitch) else pad_pitch)
 
-	# Dynamic deadband (0.05) around stick centre: kills jitter and prevents
-	# the drone from drifting when the sticks are released.
-	# Filtered through Controls.channel_value (deadband + smoothing).
+	# Touch sticks apply deadband/expo but no smoothing; ELRS and gamepad sticks
+	# are already smoothed inside Controls (tau = sm * 0.30).  Filtering those
+	# again here would double the slider's lag, so smooth only raw sources.
+	var filter_yaw := kb_used_yaw or touch_active
+	var filter_roll := kb_used_roll or touch_active
+	var filter_pitch := kb_used_pitch or touch_active
 
 	if test_yaw <= 1.0:
 		yaw = test_yaw
@@ -325,6 +328,11 @@ func read_input() -> void:
 		pad_power = _calibrated_power(mobile, "elrs", float(wifi.throttle()))
 	else:
 		pad_power = _radio_throttle()
+	# Gamepad/radio throttle came through Controls.channel_value(), which has
+	# already applied the deadband and smoothing slider.  Keyboard, touch, ELRS
+	# and hover assist supply raw power and still need the low-pass below.
+	var throttle_from_controls := not touch_active and not wifi_active \
+			and pad_power >= 0.0 and not key_up and not key_down
 
 	var power := 0.0
 	if key_up:
@@ -350,28 +358,27 @@ func read_input() -> void:
 		_since_arm += get_physics_process_delta_time()
 		if _since_arm < 0.6:
 			power = minf(power, ASSIST_HOVER_THROTTLE)
-	# Throttle smoothing: radio ADC noise and keyboard steps both produce
-	# visible vertical jitter when the raw value is fed to the mixer.  A 90 ms
-	# low-pass plus a slew limit keeps the climb smooth without adding
-	# perceptible lag to throttle punches.
+	# Throttle smoothing: keyboard steps and touch/ELRS noise are low-passed
+	# with the same slider as the sticks.  Zero smoothing means zero lag, and
+	# the slew caps scale with the slider so a high setting never stalls climb
+	# response.  Cuts use a shorter tau and a larger cap so power drops fast.
 	var dt := maxf(get_physics_process_delta_time(), 0.0001)
-	var mobile_feel := MenuUI.is_mobile_ui()
-	var throttle_tau := 0.09 if mobile_feel else 0.12
-	if mobile_feel:
-		throttle_tau = 0.025 + float(Controls.get("stick_smoothing")) * 0.65
-	var throttle_slew_up := 3.2 if mobile_feel else 2.4
-	var throttle_slew_down := 7.0 if mobile_feel else 6.0
-	if not _throttle_filter_ready or not armed:
+	var sm := clampf(float(Controls.stick_smoothing), 0.0, 0.5)
+	if sm <= 0.001 or throttle_from_controls or not _throttle_filter_ready or not armed:
 		_throttle_filtered = power
 		_throttle_filter_ready = true
 	else:
-		_throttle_filtered = lerpf(_throttle_filtered, power,
-				1.0 - exp(-dt / throttle_tau))
-		# Climb changes are slewed gently; throttle cuts stay quick so the
-		# pilot can still drop power immediately.
-		var slew := throttle_slew_up if power > _throttle_filtered \
+		var mobile_feel := MenuUI.is_mobile_ui()
+		var throttle_tau := (0.015 if mobile_feel else 0.020) + sm * 0.35
+		var throttle_slew_up := maxf(1.0 / maxf(throttle_tau, 0.03), 6.0)
+		var throttle_slew_down := maxf(throttle_slew_up * 2.0, 20.0)
+		var tau := throttle_tau if power >= _throttle_filtered \
+				else minf(throttle_tau, 0.05)
+		var prev_thr := _throttle_filtered
+		var next_thr := lerpf(prev_thr, power, 1.0 - exp(-dt / tau))
+		var slew := throttle_slew_up if power > prev_thr \
 				else throttle_slew_down
-		_throttle_filtered = move_toward(_throttle_filtered, power, slew * dt)
+		_throttle_filtered = move_toward(prev_thr, next_thr, slew * dt)
 
 	# Roll/pitch/yaw smoothing.  The test hooks and the first armed frame must
 	# pass through untouched, otherwise the scripted QA probes see a ramp.
@@ -380,16 +387,31 @@ func read_input() -> void:
 	if test_sticks or not _stick_filter_ready or not armed:
 		_stick_filtered = target_sticks
 		_stick_filter_ready = true
+	elif sm <= 0.001:
+		_stick_filtered = target_sticks
 	else:
-		var filter_tau := MOBILE_STICK_FILTER_TAU if mobile_feel \
-				else STICK_FILTER_TAU
-		var slew_cap := MOBILE_STICK_SLEW if mobile_feel else STICK_SLEW
+		# Same time constant on PC and mobile: 0..0.5 on the slider predicts
+		# the exact lag.  Analog channels are already filtered by Controls,
+		# so only keyboard / raw touch axes are low-passed here.
+		var filter_tau := maxf(sm * 0.30, 0.005)
+		var slew_cap := lerpf(30.0, 2.2, clampf(sm / 0.5, 0.0, 1.0))
 		var blend := 1.0 - exp(-dt / filter_tau)
-		_stick_filtered = _stick_filtered.lerp(target_sticks, blend)
 		var max_step := slew_cap * dt
-		_stick_filtered.x = move_toward(_stick_filtered.x, target_sticks.x, max_step)
-		_stick_filtered.y = move_toward(_stick_filtered.y, target_sticks.y, max_step)
-		_stick_filtered.z = move_toward(_stick_filtered.z, target_sticks.z, max_step)
+		if filter_yaw:
+			_stick_filtered.x = move_toward(_stick_filtered.x,
+					lerpf(_stick_filtered.x, target_sticks.x, blend), max_step)
+		else:
+			_stick_filtered.x = target_sticks.x
+		if filter_roll:
+			_stick_filtered.y = move_toward(_stick_filtered.y,
+					lerpf(_stick_filtered.y, target_sticks.y, blend), max_step)
+		else:
+			_stick_filtered.y = target_sticks.y
+		if filter_pitch:
+			_stick_filtered.z = move_toward(_stick_filtered.z,
+					lerpf(_stick_filtered.z, target_sticks.z, blend), max_step)
+		else:
+			_stick_filtered.z = target_sticks.z
 	input = [_throttle_filtered, _stick_filtered.x, _stick_filtered.y,
 			_stick_filtered.z]
 	_apply_link_effects()
@@ -449,7 +471,7 @@ func _radio_throttle() -> float:
 		# small vertical-speed trim compensates for battery sag and preset mass
 		# differences, so releasing the stick settles instead of slowly
 		# climbing or sinking.  The correction is capped at ±5% throttle.
-		if is_armed and absf(value) < 0.06 and target_drone != null:
+		if is_armed and absf(value) < maxf(0.05, Controls.stick_deadzone) and target_drone != null:
 			power = clampf(power - target_drone.linear_velocity.y * 0.008,
 					0.40, 0.50)
 		return power
@@ -464,7 +486,7 @@ func _radio_throttle() -> float:
 static func centered_throttle_power(value: float, armed: bool) -> float:
 	if not armed:
 		return clampf(value, 0.0, 1.0)
-	if absf(value) < 0.06:
+	if absf(value) < maxf(0.05, Controls.stick_deadzone):
 		value = 0.0
 	if value < 0.0:
 		return clampf((value + 1.0) * ASSIST_HOVER_THROTTLE, 0.0,

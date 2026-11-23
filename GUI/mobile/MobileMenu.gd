@@ -2183,6 +2183,40 @@ func _load_profiles() -> void:
 		_rate_profiles["radio"] = {"rate_roll": 667, "rate_pitch": 667, "rate_yaw": 667, "expo_roll": 0.2, "expo_pitch": 0.2, "expo_yaw": 0.2}
 	if not _rate_profiles.has("touch"):
 		_rate_profiles["touch"] = {"rate_roll": 500, "rate_pitch": 500, "rate_yaw": 500, "expo_roll": 0.3, "expo_pitch": 0.3, "expo_yaw": 0.3}
+	if QuadSettings.custom_rates:
+		# Mirror QuadSettings back into the profile that owns the mirror only.
+		# Mirroring into "radio" unconditionally let a touch flight rewrite the
+		# radio tab (and vice versa); legacy desktop customs still land on radio.
+		var src := ""
+		if gs != null:
+			src = str(gs.mobile_rate_source())
+		var mirror_tab := src if (src == "radio" or src == "touch") else "radio"
+		if _rate_profiles.has(mirror_tab):
+			_rate_profiles[mirror_tab]["rate_roll"] = QuadSettings.rate_roll
+			_rate_profiles[mirror_tab]["rate_pitch"] = QuadSettings.rate_pitch
+			_rate_profiles[mirror_tab]["rate_yaw"] = QuadSettings.rate_yaw
+			_rate_profiles[mirror_tab]["expo_roll"] = QuadSettings.expo_roll
+			_rate_profiles[mirror_tab]["expo_pitch"] = QuadSettings.expo_pitch
+			_rate_profiles[mirror_tab]["expo_yaw"] = QuadSettings.expo_yaw
+
+
+## Mirror one mobile rate profile into the shared QuadSettings for flight and
+## record ownership so the other tab (and the desktop menu) stay untouched.
+func _sync_profile_to_quad(tab: String) -> void:
+	var prof: Dictionary = _rate_profiles.get(tab, {})
+	if prof.is_empty():
+		return
+	var gs := get_node_or_null("/root/GameSettings")
+	if gs != null:
+		gs.set_mobile_rate_source(tab)
+	QuadSettings.custom_rates = true
+	QuadSettings.rate_roll = float(prof.get("rate_roll", QuadSettings.rate_roll))
+	QuadSettings.rate_pitch = float(prof.get("rate_pitch", QuadSettings.rate_pitch))
+	QuadSettings.rate_yaw = float(prof.get("rate_yaw", QuadSettings.rate_yaw))
+	QuadSettings.expo_roll = float(prof.get("expo_roll", QuadSettings.expo_roll))
+	QuadSettings.expo_pitch = float(prof.get("expo_pitch", QuadSettings.expo_pitch))
+	QuadSettings.expo_yaw = float(prof.get("expo_yaw", QuadSettings.expo_yaw))
+	QuadSettings.save_quad_settings()
 
 
 func _build_rates() -> void:
@@ -2192,7 +2226,13 @@ func _build_rates() -> void:
 	v.add_theme_constant_override("separation", _gap(12))
 	screen.add_child(v)
 
-	v.add_child(_label("РЕЙТИ ТА ЕКСПОНЕНТА (BETAFLIGHT)", 32, MenuUI.TEXT))
+	# Name the curve mode actually used in flight (QuadSettings.rate_type), not
+	# a hard-coded "BETAFLIGHT" while the simulator defaults to ACTUAL rates.
+	var rate_mode_name := "ACTUAL RATES"
+	match int(QuadSettings.rate_type):
+		1: rate_mode_name = "BETAFLIGHT"
+		2: rate_mode_name = "QUICK"
+	v.add_child(_label("РЕЙТИ ТА ЕКСПОНЕНТА (%s)" % rate_mode_name, 32, MenuUI.TEXT))
 
 	var cols := HBoxContainer.new()
 	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -2296,7 +2336,9 @@ func _build_rates() -> void:
 		if gs != null:
 			var hud: Dictionary = gs.get("hud_config")
 			hud["mobile_rate_profiles"] = _rate_profiles.duplicate(true)
-			gs.save_config()
+			gs.save_hud_config()
+		# Apply exactly the tab the pilot edited, and mark it as the mirror owner.
+		_sync_profile_to_quad(_rate_tab)
 		save_rates_btn.text = MenuUI.translate_text("✓  ЗБЕРЕЖЕНО!")
 	)
 	right_v.add_child(save_rates_btn)
@@ -3028,7 +3070,6 @@ func _launch(combat_training: bool = false) -> void:
 		_selected_map = "industrial"
 		_selected_special = 0
 		Global.special_mission = 0
-		QuadSettings.custom_rates = false
 		DroneCatalog.apply(1)
 	# Умань або фрістайл-дрони — тільки режим фрістайлу на обраній карті.
 	elif _selected_map == "uman" or DroneCatalog.is_uman(Global.drone_preset):
@@ -3062,6 +3103,11 @@ func _launch(combat_training: bool = false) -> void:
 	}
 	var launch_map := "industrial" if (_selected_mode == Global.PlayMode.TUTORIAL and _selected_map != "airport") else _selected_map
 	var path: String = scenes.get(launch_map, "res://sceneries/IndustrialLevel.tscn")
+
+	# Ensure QuadSettings has the active mobile rate profile applied for flight
+	var tc := get_node_or_null("/root/TouchControls")
+	var active_tab: String = "touch" if (tc != null and bool(tc.get("touch_mode"))) else "radio"
+	_sync_profile_to_quad(active_tab)
 
 	# Stop menu ambient / music
 	Audio.stop_menu_music(0.5)

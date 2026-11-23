@@ -22,6 +22,10 @@ func _ready() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT_DIR))
 	var saved_no_rec := OS.get_environment("DRONE_NO_RECORD")
 	OS.set_environment("DRONE_NO_RECORD", "1")
+	# BigLevel disables Kill-Cam in headless unless this test flag is present;
+	# the payload-drone regressions below call _maybe_trigger_kill_cam directly.
+	var saved_killcam := OS.get_environment("DRONE_KILLCAM_TEST")
+	OS.set_environment("DRONE_KILLCAM_TEST", "1")
 	var saved_mobile := OS.get_environment("MOBILE_UI")
 	var saved_preset := Global.drone_preset
 	var saved_menu_preset := int(Global.menu_settings.get("drone_preset", 0))
@@ -60,6 +64,10 @@ func _ready() -> void:
 		OS.unset_environment("DRONE_NO_RECORD")
 	else:
 		OS.set_environment("DRONE_NO_RECORD", saved_no_rec)
+	if saved_killcam.is_empty():
+		OS.unset_environment("DRONE_KILLCAM_TEST")
+	else:
+		OS.set_environment("DRONE_KILLCAM_TEST", saved_killcam)
 
 	print("[QA_FIXES] failures=%d" % _failures)
 	if _failures == 0:

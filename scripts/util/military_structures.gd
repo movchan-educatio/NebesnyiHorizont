@@ -211,21 +211,26 @@ static func _get_mat(kind: String, tint: Color = Color.WHITE, rough: float = 0.7
 # =============================================================================
 
 static func _add_box(parent: Node3D, size: Vector3, pos: Vector3,
-		mat: Material, collide: bool = true) -> MeshInstance3D:
+		mat: Material, collide: bool = true, rot: Vector3 = Vector3.ZERO) -> Node3D:
 	var mi := MeshInstance3D.new()
 	var box := BoxMesh.new()
 	box.size = size
 	mi.mesh = box
 	mi.material_override = mat
 	mi.position = pos
+	mi.rotation = rot
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 
 	if collide:
+		# The body owns the whole transform so the collision shape and the
+		# visible mesh stay in lockstep even when the primitive is rotated.
 		var body := StaticBody3D.new()
 		body.position = pos
+		body.rotation = rot
 		body.collision_layer = 1
 		body.collision_mask = 1
 		mi.position = Vector3.ZERO
+		mi.rotation = Vector3.ZERO
 		body.add_child(mi)
 		var cs := CollisionShape3D.new()
 		var shape := BoxShape3D.new()
@@ -233,14 +238,14 @@ static func _add_box(parent: Node3D, size: Vector3, pos: Vector3,
 		cs.shape = shape
 		body.add_child(cs)
 		parent.add_child(body)
-		return mi
+		return body
 	else:
 		parent.add_child(mi)
 		return mi
 
 
 static func _add_cyl(parent: Node3D, radius: float, height: float,
-		pos: Vector3, mat: Material, rot: Vector3 = Vector3.ZERO, collide: bool = true) -> MeshInstance3D:
+		pos: Vector3, mat: Material, rot: Vector3 = Vector3.ZERO, collide: bool = true) -> Node3D:
 	var mi := MeshInstance3D.new()
 	var cyl := CylinderMesh.new()
 	cyl.top_radius = radius
@@ -260,6 +265,7 @@ static func _add_cyl(parent: Node3D, radius: float, height: float,
 		body.collision_layer = 1
 		body.collision_mask = 1
 		mi.position = Vector3.ZERO
+		mi.rotation = Vector3.ZERO
 		body.add_child(mi)
 		var cs := CollisionShape3D.new()
 		var shape := CylinderShape3D.new()
@@ -268,10 +274,50 @@ static func _add_cyl(parent: Node3D, radius: float, height: float,
 		cs.shape = shape
 		body.add_child(cs)
 		parent.add_child(body)
-		return mi
+		return body
 	else:
 		parent.add_child(mi)
 		return mi
+
+
+## True hollow pass-through pipe: faceted wall slabs only, no end caps, so a
+## drone can fly straight through the bore.  Wall slabs get matching rotated
+## collision; hazard rings (non-colliding) mark both mouths when requested.
+static func build_hollow_pipe(parent: Node3D, pos: Vector3, yaw: float,
+		length: float = 10.0, inner_radius: float = 2.2,
+		wall_thickness: float = 0.35, mat: Material = null,
+		rim_mat: Material = null, segs: int = 12) -> Node3D:
+	var root := Node3D.new()
+	root.name = "HollowPipe"
+	root.position = pos
+	root.rotation.y = yaw
+	parent.add_child(root)
+
+	var pipe_mat := mat if mat != null else \
+			_get_mat("concrete", Color(0.76, 0.74, 0.70))
+	var r_outer := inner_radius + wall_thickness
+	var r_mid := inner_radius + wall_thickness * 0.5
+	var seg_count := maxi(segs, 6)
+
+	for s in range(seg_count):
+		var a := float(s) * TAU / float(seg_count)
+		var seg_w := (TAU * r_outer / float(seg_count)) * 1.04
+		var px := sin(a) * r_mid
+		var py := cos(a) * r_mid
+		_add_box(root, Vector3(seg_w, wall_thickness, length),
+				Vector3(px, py, 0.0), pipe_mat, true, Vector3(0.0, 0.0, -a))
+
+	if rim_mat != null:
+		for end_z in [-length * 0.5, length * 0.5]:
+			for s in range(seg_count):
+				var a := float(s) * TAU / float(seg_count)
+				var seg_w := (TAU * r_outer / float(seg_count)) * 1.06
+				var px := sin(a) * r_outer
+				var py := cos(a) * r_outer
+				_add_box(root, Vector3(seg_w, 0.25, 0.25),
+						Vector3(px, py, end_z), rim_mat, false,
+						Vector3(0.0, 0.0, -a))
+	return root
 
 
 # =============================================================================
@@ -430,22 +476,25 @@ static func build_cooling_tower_dive_funnel(parent: Node3D, pos: Vector3, yaw: f
 
 		if is_breach:
 			var wall_h := h - 5.0
-			var mi := _add_box(root, Vector3(panel_w, wall_h, 0.55), Vector3(px, 5.0 + wall_h * 0.5, pz), concrete, true)
-			mi.rotation.y = ang
-			var hb := _add_box(root, Vector3(panel_w, 0.5, 0.6), Vector3(px, 5.0, pz), hazard, true)
-			hb.rotation.y = ang
+			_add_box(root, Vector3(panel_w, wall_h, 0.55),
+					Vector3(px, 5.0 + wall_h * 0.5, pz), concrete, true,
+					Vector3(0.0, ang, 0.0))
+			_add_box(root, Vector3(panel_w, 0.5, 0.6),
+					Vector3(px, 5.0, pz), hazard, true,
+					Vector3(0.0, ang, 0.0))
 		else:
 			var wall_h := h + 6.5
-			var mi := _add_box(root, Vector3(panel_w, wall_h, 0.55), Vector3(px, (h - 6.5) * 0.5, pz), concrete, true)
-			mi.rotation.y = ang
+			_add_box(root, Vector3(panel_w, wall_h, 0.55),
+					Vector3(px, (h - 6.5) * 0.5, pz), concrete, true,
+					Vector3(0.0, ang, 0.0))
 
 	for s in range(segs):
 		var ang := float(s) * TAU / float(segs)
 		var px := sin(ang) * r
 		var pz := cos(ang) * r
 		var panel_w := (TAU * r / float(segs)) * 1.08
-		var rim := _add_box(root, Vector3(panel_w, 0.6, 0.85), Vector3(px, h, pz), hazard, true)
-		rim.rotation.y = ang
+		_add_box(root, Vector3(panel_w, 0.6, 0.85), Vector3(px, h, pz),
+				hazard, true, Vector3(0.0, ang, 0.0))
 
 	_add_cyl(root, 0.45, h + 3.0, Vector3(r + 0.85, h * 0.5, 0.0), rust, Vector3.ZERO, true)
 	return root
@@ -515,10 +564,10 @@ static func build_concrete_pipe_culvert_course(parent: Node3D, pos: Vector3, yaw
 	var concrete := _get_mat("concrete", Color(0.76, 0.74, 0.70))
 	var hazard := _get_mat("hazard")
 
-	var r_outer := 1.9
-	var r_inner := 1.55
-	var pipe_len := 7.5
-	var segs := 12
+	var r_outer := 2.75
+	var r_inner := 2.40
+	var pipe_len := 8.0
+	var segs := 14
 
 	# 3 Concrete Culverts in a row with slight curve
 	for p in range(3):
@@ -531,8 +580,11 @@ static func build_concrete_pipe_culvert_course(parent: Node3D, pos: Vector3, yaw
 		pipe_node.rotation.y = pipe_yaw
 		root.add_child(pipe_node)
 
-		# Deep Concrete Support Cradle Base (embedded 5m into terrain)
-		_add_box(pipe_node, Vector3(r_outer * 2.4, 5.0, pipe_len * 0.95), Vector3(0.0, -r_outer - 1.7, 0.0), concrete, true)
+		# Deep Concrete Support Cradle Base.  With this offset its top is at
+		# -r_outer + 0.15 (-2.60), i.e. 0.20 m below the inner bore floor
+		# (-r_inner = -2.40), so the fly-through stays completely open.
+		_add_box(pipe_node, Vector3(r_outer * 2.4, 5.0, pipe_len * 0.95),
+				Vector3(0.0, -r_outer - 2.35, 0.0), concrete, true)
 
 		# Hollow Barrel Segments (Leaves interior bore completely open)
 		for s in range(segs):
@@ -540,8 +592,9 @@ static func build_concrete_pipe_culvert_course(parent: Node3D, pos: Vector3, yaw
 			var seg_w := (TAU * r_outer / float(segs)) * 1.04
 			var sx := sin(a) * ((r_outer + r_inner) * 0.5)
 			var sy := cos(a) * ((r_outer + r_inner) * 0.5)
-			var mi := _add_box(pipe_node, Vector3(seg_w, 0.35, pipe_len), Vector3(sx, sy, 0.0), concrete, true)
-			mi.rotation.z = -a
+			_add_box(pipe_node, Vector3(seg_w, 0.35, pipe_len),
+					Vector3(sx, sy, 0.0), concrete, true,
+					Vector3(0.0, 0.0, -a))
 
 		# High-visibility Hazard Lip at entrances
 		for end_z in [-pipe_len * 0.5, pipe_len * 0.5]:
@@ -550,8 +603,9 @@ static func build_concrete_pipe_culvert_course(parent: Node3D, pos: Vector3, yaw
 				var seg_w := (TAU * r_outer / float(segs)) * 1.06
 				var sx := sin(a) * r_outer
 				var sy := cos(a) * r_outer
-				var rim := _add_box(pipe_node, Vector3(seg_w, 0.25, 0.25), Vector3(sx, sy, end_z), hazard, false)
-				rim.rotation.z = -a
+				_add_box(pipe_node, Vector3(seg_w, 0.25, 0.25),
+						Vector3(sx, sy, end_z), hazard, false,
+						Vector3(0.0, 0.0, -a))
 	return root
 
 
@@ -577,10 +631,10 @@ static func build_high_voltage_pylon(parent: Node3D, pos: Vector3, yaw: float) -
 	# 4 Tapered Main Lattice Corner Girders (From 8m base to 3m neck at Y=16m)
 	for sx in [-1.0, 1.0]:
 		for sz in [-1.0, 1.0]:
-			var mi := _add_box(root, Vector3(0.35, 16.0, 0.35), Vector3(sx * 2.5, 8.0, sz * 2.5), steel, true)
-			# Splay slope
-			mi.rotation.x = -sz * 0.09
-			mi.rotation.z = sx * 0.09
+			# Splay slope: pass the rotation in so the collider follows it.
+			_add_box(root, Vector3(0.35, 16.0, 0.35),
+					Vector3(sx * 2.5, 8.0, sz * 2.5), steel, true,
+					Vector3(-sz * 0.09, 0.0, sx * 0.09))
 
 	# Horizontal Braces every 4m with open center
 	for y_lvl in [4.0, 8.0, 12.0, 16.0]:
@@ -632,10 +686,12 @@ static func build_damaged_hangar_arch(parent: Node3D, pos: Vector3, yaw: float) 
 		var rz := float(i - 4) * (length / 8.0)
 		_add_box(root, Vector3(0.55, 5.8, 0.55), Vector3(-w * 0.5, 2.9, rz), steel, true)
 		_add_box(root, Vector3(0.55, 5.8, 0.55), Vector3(w * 0.5, 2.9, rz), steel, true)
-		var mi1 := _add_box(root, Vector3(12.2, 0.45, 0.55), Vector3(-w * 0.25, 8.2, rz), steel, true)
-		mi1.rotation.z = -0.42
-		var mi2 := _add_box(root, Vector3(12.2, 0.45, 0.55), Vector3(w * 0.25, 8.2, rz), steel, true)
-		mi2.rotation.z = 0.42
+		_add_box(root, Vector3(12.2, 0.45, 0.55),
+				Vector3(-w * 0.25, 8.2, rz), steel, true,
+				Vector3(0.0, 0.0, -0.42))
+		_add_box(root, Vector3(12.2, 0.45, 0.55),
+				Vector3(w * 0.25, 8.2, rz), steel, true,
+				Vector3(0.0, 0.0, 0.42))
 
 	# Corrugated Roof Panels leaving 16m central skylight dive bay
 	_add_box(root, Vector3(w * 0.5, 0.16, 9.0), Vector3(-w * 0.26, 8.4, 12.5), corrugated, true)
@@ -681,8 +737,9 @@ static func build_radar_relay_station(parent: Node3D, pos: Vector3, yaw: float) 
 		var a := float(s) * TAU / 8.0
 		var px := sin(a) * ring_r
 		var py := cos(a) * ring_r
-		var seg := _add_box(root, Vector3(1.8, 0.28, 0.28), Vector3(px, h + 3.0 + py, 0.0), hazard, true)
-		seg.rotation.z = -a
+		_add_box(root, Vector3(1.8, 0.28, 0.28),
+				Vector3(px, h + 3.0 + py, 0.0), hazard, true,
+				Vector3(0.0, 0.0, -a))
 	return root
 
 
@@ -791,8 +848,8 @@ static func build_sandbag_mortar_pit(parent: Node3D, pos: Vector3, yaw: float) -
 	for i in range(count):
 		var a := float(i) * TAU / float(count)
 		var p := Vector3(sin(a) * r, 0.8, cos(a) * r)
-		var b := _add_box(root, Vector3(3.0, 1.6, 1.4), p, sandbag, true)
-		b.rotation.y = a
+		_add_box(root, Vector3(3.0, 1.6, 1.4), p, sandbag, true,
+				Vector3(0.0, a, 0.0))
 
 	_add_box(root, Vector3(1.4, 0.8, 1.0), Vector3(1.8, 0.4, 1.0), wood, true)
 	_add_box(root, Vector3(3.5, 0.1, 9.5), Vector3(-2.4, 2.6, 0.0), camo, false)
@@ -915,8 +972,8 @@ static func build_zu23_aa_emplacement(parent: Node3D, pos: Vector3, yaw: float) 
 	for i in range(8):
 		var a := float(i) * TAU / 8.0
 		var p := Vector3(sin(a) * r, 0.75, cos(a) * r)
-		var b := _add_box(root, Vector3(3.2, 1.5, 1.2), p, sandbag, true)
-		b.rotation.y = a
+		_add_box(root, Vector3(3.2, 1.5, 1.2), p, sandbag, true,
+				Vector3(0.0, a, 0.0))
 
 	# Gun Mount Pedestal & Dual Barrels
 	_add_cyl(root, 0.9, 1.2, Vector3(0.0, 0.6, 0.0), steel, Vector3.ZERO, true)
@@ -1393,8 +1450,9 @@ static func build_heavy_radar_gci_complex(parent: Node3D, pos: Vector3, yaw: flo
 
 	# Rotating GCI Radar Reflector Crown
 	_add_cyl(root, 1.6, 2.4, Vector3(0.0, base_y + tower_h + 1.2, 0.0), camo, Vector3.ZERO, true)
-	var dish := _add_box(root, Vector3(14.0, 5.2, 0.45), Vector3(0.0, base_y + tower_h + 4.4, 0.0), steel, true)
-	dish.rotation.x = -0.18
+	_add_box(root, Vector3(14.0, 5.2, 0.45),
+			Vector3(0.0, base_y + tower_h + 4.4, 0.0), steel, true,
+			Vector3(-0.18, 0.0, 0.0))
 	_add_box(root, Vector3(14.0, 0.4, 0.5), Vector3(0.0, base_y + tower_h + 6.9, -0.45), hazard, false)
 	return root
 
@@ -1432,7 +1490,183 @@ static func build_artillery_bunker_complex(parent: Node3D, pos: Vector3, yaw: fl
 
 
 # =============================================================================
-#  MAP SPAWNER: 35 DISTINCT STRUCTURES SPREAD ORGANICALLY WITHOUT CLUTTER
+#  CIVILIAN PARK / PROMENADE FREESTYLE KIT (Uman + urban maps)
+#  Warm limestone & sandstone, park timber, dark architectural steel, clean
+#  concrete and hazard trim.  No camo tarps, no sandbag bunkers.  Every portal,
+#  bore and oculus stays 100% fly-through clean; only real members get colliders.
+# =============================================================================
+
+## 36. Connected limestone + timber pergola arches on a gentle S-curve.
+## Four 6.5 m wide x 5.2 m tall open portals, linked by continuous top timber
+## beams for powerloops, consecutive gate flow and Split-S around the bars.
+static func build_park_pergola_arches(parent: Node3D, pos: Vector3, yaw: float) -> Node3D:
+	var root := Node3D.new()
+	root.name = "ParkPergolaArches"
+	root.position = pos
+	root.rotation.y = yaw
+	parent.add_child(root)
+
+	var limestone := _get_mat("concrete", Color(0.88, 0.83, 0.72))
+	var timber := _get_mat("wood", Color(0.74, 0.58, 0.40))
+	var steel := _get_mat("steel", Color(0.22, 0.24, 0.26))
+	var hazard := _get_mat("hazard")
+
+	var half_w := 3.25
+	var height := 5.2
+	for i in range(4):
+		var gz := float(i - 1.5) * 11.5
+		var gx := sin(float(i) * 0.85) * 2.0
+		var arch := Node3D.new()
+		arch.name = "PergolaArch_%d" % i
+		arch.position = Vector3(gx, 0.0, gz)
+		arch.rotation.y = sin(float(i) * 0.85) * 0.16
+		root.add_child(arch)
+
+		for side in [-1.0, 1.0]:
+			var px: float = side * half_w
+			# Deep limestone pier embedded in the park lawn (never floating).
+			_add_box(arch, Vector3(1.2, 4.5, 1.2), Vector3(px, -1.9, 0.0), limestone, true)
+			_add_box(arch, Vector3(0.9, height, 0.9), Vector3(px, height * 0.5, 0.0), limestone, true)
+			# Dark steel shoe where timber meets stone.
+			_add_box(arch, Vector3(1.05, 0.35, 1.05), Vector3(px, height - 0.25, 0.0), steel, true)
+			# Hazard trim on the inner face of each upright.
+			_add_box(arch, Vector3(0.12, 1.1, 0.16), Vector3(px - side * 0.5, 1.5, 0.0), hazard, false)
+
+		# Wide top timber lintel - the clear Split-S bar.
+		_add_box(arch, Vector3(half_w * 2.0 + 1.1, 0.5, 0.85),
+				Vector3(0.0, height, 0.0), timber, true)
+		# Diagonal knee braces, aligned with a rotated collider.
+		for side in [-1.0, 1.0]:
+			_add_box(arch, Vector3(1.9, 0.22, 0.22),
+					Vector3(side * (half_w - 0.7), height - 0.85, 0.0), timber, true,
+					Vector3(0.0, 0.0, side * 0.62))
+
+	# Continuous longitudinal timber runners tie the portals into one flow line.
+	for side in [-1.0, 1.0]:
+		_add_box(root, Vector3(0.55, 0.42, 37.0), Vector3(side * half_w, height + 0.15, 0.0),
+				timber, true)
+	return root
+
+
+## 37. Twin offset architectural conduit pipes in low limestone cradles.
+static func build_park_tunnel_pipes(parent: Node3D, pos: Vector3, yaw: float) -> Node3D:
+	var root := Node3D.new()
+	root.name = "ParkTunnelPipes"
+	root.position = pos
+	root.rotation.y = yaw
+	parent.add_child(root)
+
+	var limestone := _get_mat("concrete", Color(0.90, 0.85, 0.74))
+	var timber := _get_mat("wood", Color(0.72, 0.56, 0.38))
+	var steel := _get_mat("steel", Color(0.24, 0.26, 0.28))
+	var hazard := _get_mat("hazard")
+
+	var bore_y := 2.5
+	for side in [-1.0, 1.0]:
+		var px: float = side * 5.1
+		# Low cradle: top at y = 0, below the bore floor (bore_y - 2.3 = 0.2).
+		_add_box(root, Vector3(6.6, 1.4, 10.2), Vector3(px, -0.7, 0.0), limestone, true)
+		var pipe := build_hollow_pipe(root, Vector3(px, bore_y, 0.0), 0.0,
+				9.5, 2.3, 0.35, limestone, hazard, 14)
+		pipe.name = "ParkConduit_%s" % ("L" if side < 0.0 else "R")
+
+	# Connecting entry arch frame spanning both conduits (open central portal).
+	for side in [-1.0, 1.0]:
+		_add_box(root, Vector3(1.2, 8.6, 1.2), Vector3(side * 8.7, 1.4, -6.4), limestone, true)
+		_add_box(root, Vector3(1.2, 4.0, 1.2), Vector3(side * 8.7, -1.6, -6.4), limestone, true)
+	_add_box(root, Vector3(18.6, 0.7, 1.1), Vector3(0.0, 5.7, -6.4), timber, true)
+	_add_box(root, Vector3(18.6, 0.3, 0.3), Vector3(0.0, 6.25, -6.4), steel, false)
+	_add_box(root, Vector3(1.0, 0.25, 0.25), Vector3(0.0, 5.7, -6.4), hazard, false)
+	return root
+
+
+## 38. Open 16 m steel-and-timber observation / dive tower.
+## Multi-tier 7.5 m open-bay Split-S decks and a 4.5 m octagonal oculus.
+static func build_park_gazebo_tower(parent: Node3D, pos: Vector3, yaw: float) -> Node3D:
+	var root := Node3D.new()
+	root.name = "ParkGazeboDiveTower"
+	root.position = pos
+	root.rotation.y = yaw
+	parent.add_child(root)
+
+	var timber := _get_mat("wood", Color(0.76, 0.60, 0.42))
+	var steel := _get_mat("steel", Color(0.20, 0.22, 0.24))
+	var limestone := _get_mat("concrete", Color(0.88, 0.83, 0.72))
+	var hazard := _get_mat("hazard")
+
+	var half := 5.5
+	var total_h := 16.0
+	# 4 corner columns with deep stone footings.
+	for sx in [-1.0, 1.0]:
+		for sz in [-1.0, 1.0]:
+			_add_box(root, Vector3(1.4, 4.5, 1.4), Vector3(sx * half, -1.9, sz * half), limestone, true)
+			_add_box(root, Vector3(0.7, total_h, 0.7), Vector3(sx * half, total_h * 0.5, sz * half), steel, true)
+
+	# Two open 7.5 m bay decks: perimeter ring only, center fully open.
+	for y_lvl in [5.6, 10.8]:
+		_add_box(root, Vector3(half * 2.0 + 0.8, 0.45, 1.75), Vector3(0.0, y_lvl, half), timber, true)
+		_add_box(root, Vector3(half * 2.0 + 0.8, 0.45, 1.75), Vector3(0.0, y_lvl, -half), timber, true)
+		_add_box(root, Vector3(1.75, 0.45, 7.5), Vector3(half, y_lvl, 0.0), timber, true)
+		_add_box(root, Vector3(1.75, 0.45, 7.5), Vector3(-half, y_lvl, 0.0), timber, true)
+		# Open guardrail strips (non-colliding hazard trim).
+		for side in [-1.0, 1.0]:
+			_add_box(root, Vector3(half * 2.0, 0.16, 0.16), Vector3(0.0, y_lvl + 1.1, side * half), hazard, false)
+			_add_box(root, Vector3(0.16, 0.16, half * 2.0), Vector3(side * half, y_lvl + 1.1, 0.0), hazard, false)
+
+	# Top octagonal open-ring oculus (4.5 m clear inner aperture).
+	var r_in := 2.25
+	var r_out := 3.35
+	var r_mid := (r_in + r_out) * 0.5
+	var seg_w := (TAU * r_mid / 8.0) * 1.04
+	for s in range(8):
+		var a := float(s) * TAU / 8.0
+		_add_box(root, Vector3(seg_w, 0.5, r_out - r_in),
+				Vector3(sin(a) * r_mid, total_h, cos(a) * r_mid),
+				timber, true, Vector3(0.0, a, 0.0))
+	_add_box(root, Vector3(half * 2.0 + 1.2, 0.5, 0.5), Vector3(0.0, total_h, half), steel, true)
+	_add_box(root, Vector3(half * 2.0 + 1.2, 0.5, 0.5), Vector3(0.0, total_h, -half), steel, true)
+	return root
+
+
+## 39. Three graduated timber/steel goal frames on a staggered portal line.
+static func build_park_split_s_frames(parent: Node3D, pos: Vector3, yaw: float) -> Node3D:
+	var root := Node3D.new()
+	root.name = "ParkSplitSFrames"
+	root.position = pos
+	root.rotation.y = yaw
+	parent.add_child(root)
+
+	var timber := _get_mat("wood", Color(0.78, 0.62, 0.44))
+	var steel := _get_mat("steel", Color(0.22, 0.24, 0.26))
+	var limestone := _get_mat("concrete", Color(0.88, 0.83, 0.72))
+	var hazard := _get_mat("hazard")
+
+	var heights := [4.2, 6.2, 8.4]
+	var widths := [7.2, 6.8, 6.4]
+	for i in range(3):
+		var fz := float(i - 1.0) * 13.5
+		var fx := sin(float(i) * 1.1) * 2.6
+		var frame := Node3D.new()
+		frame.name = "SplitSFrame_%d" % i
+		frame.position = Vector3(fx, 0.0, fz)
+		frame.rotation.y = sin(float(i) * 1.1) * 0.12
+		root.add_child(frame)
+		var h: float = heights[i]
+		var w: float = widths[i]
+		for side in [-1.0, 1.0]:
+			var px: float = side * w * 0.5
+			_add_box(frame, Vector3(1.1, 4.2, 1.1), Vector3(px, -1.8, 0.0), limestone, true)
+			_add_box(frame, Vector3(0.55, h, 0.55), Vector3(px, h * 0.5, 0.0), timber, true)
+			_add_box(frame, Vector3(0.7, 0.3, 0.7), Vector3(px, h - 0.2, 0.0), steel, true)
+			_add_box(frame, Vector3(0.14, 1.0, 0.16), Vector3(px - side * 0.32, 1.4, 0.0), hazard, false)
+		# Clear top bar for Split-S / Trippy spins.
+		_add_box(frame, Vector3(w + 0.9, 0.5, 0.8), Vector3(0.0, h, 0.0), timber, true)
+		_add_box(frame, Vector3(w + 0.9, 0.22, 0.22), Vector3(0.0, h + 0.35, 0.0), hazard, false)
+	return root
+
+
+# =============================================================================
+#  MAP SPAWNER: DISTINCT STRUCTURES SPREAD ORGANICALLY WITHOUT CLUTTER
 # =============================================================================
 
 static func _is_valid_mil_spot(terrain, map_name: String, px: float, pz: float,
@@ -1470,24 +1704,32 @@ static func spawn_map_military_objects(root: Node3D, map_name: String) -> void:
 	if terrain == null:
 		return
 
-	const MAX_MIL_STRUCTS := 4
+	# Desktop gets the full seven-sector freestyle flow line; phones and LOW
+	# keep a lighter five-structure budget (LOWSPEC/mobile stays healthy).
+	var is_mobile := OS.get_name() == "iOS" or OS.has_feature("mobile") \
+			or OS.has_environment("MOBILE_UI")
+	var low_profile := QualityManager.get_active_level() == QualityManager.Level.LOW
+	var max_mil_structs := 5 if (is_mobile or low_profile) else 7
 	var site: Dictionary = terrain.HALL_SITES.get(map_name, {})
 	var hc: Vector2 = site.get("center", Vector2.ZERO)
 	var hhalf: Vector2 = site.get("half", Vector2(40.0, 28.0))
 	var sp: Vector2 = site.get("spawn", Vector2(88.0, 114.0))
 	var wl: float = terrain.water_level(map_name)
 
-	# 4 well-separated quadrant centers across the compacted ±158 m arena.
+	# 7 well-separated arena sectors across the compacted ±158 m playable field.
 	var sectors: Array[Vector2] = [
-		Vector2(-108.0, -96.0),
+		Vector2(-108.0, -98.0),
 		Vector2(108.0, -98.0),
 		Vector2(-112.0, 102.0),
 		Vector2(102.0, 108.0),
+		Vector2(-128.0, 4.0),
+		Vector2(126.0, -6.0),
+		Vector2(-4.0, -124.0),
 	]
 	var picked: Array[Vector2] = []
 
 	for sector_idx in range(sectors.size()):
-		if picked.size() >= MAX_MIL_STRUCTS:
+		if picked.size() >= max_mil_structs:
 			break
 		var base_c: Vector2 = sectors[sector_idx]
 		var found := false
@@ -1508,7 +1750,7 @@ static func spawn_map_military_objects(root: Node3D, map_name: String) -> void:
 				break
 
 	var fb_tries := 0
-	while picked.size() < MAX_MIL_STRUCTS and fb_tries < 220:
+	while picked.size() < max_mil_structs and fb_tries < 220:
 		fb_tries += 1
 		var fx := sin(float(fb_tries) * 11.3 + float(hash(map_name) % 7)) * 144.0
 		var fz := cos(float(fb_tries) * 17.7 + float(hash(map_name) % 11)) * 144.0
@@ -1520,11 +1762,13 @@ static func spawn_map_military_objects(root: Node3D, map_name: String) -> void:
 
 	spawned_positions[map_name] = picked
 
+	# Curated, map-themed freestyle pools: connected flow lines of powerloop
+	# arches -> slalom gates -> hollow pipes -> split-S frames -> dive towers.
 	var builder_pools := {
-		"industrial": [0, 3, 4, 24],
-		"village": [11, 12, 14, 22],
-		"steppe": [8, 9, 13, 26],
-		"wetlands": [5, 15, 19, 29],
+		"industrial": [0, 3, 5, 1, 4, 28, 2],
+		"wetlands": [5, 32, 19, 8, 14, 7, 2],
+		"village": [32, 5, 14, 22, 1, 7, 2],
+		"steppe": [6, 5, 33, 4, 1, 34, 2],
 	}
 	var pool: Array = builder_pools.get(map_name, [0, 8, 9, 14])
 
@@ -1572,5 +1816,9 @@ static func spawn_map_military_objects(root: Node3D, map_name: String) -> void:
 			32: build_bailey_truss_bridge(root, pos3, yaw)
 			33: build_heavy_radar_gci_complex(root, pos3, yaw)
 			34: build_artillery_bunker_complex(root, pos3, yaw)
+			35: build_park_pergola_arches(root, pos3, yaw)
+			36: build_park_tunnel_pipes(root, pos3, yaw)
+			37: build_park_gazebo_tower(root, pos3, yaw)
+			38: build_park_split_s_frames(root, pos3, yaw)
 
 	print("[MilitaryStructures] Spawned %d non-overlapping freestyle military structures on %s" % [picked.size(), map_name])

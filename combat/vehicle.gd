@@ -215,6 +215,8 @@ func _exit_tree() -> void:
 		_engine_player.stop()
 	if _track_player != null and is_instance_valid(_track_player):
 		_track_player.stop()
+	if _wheel_player != null and is_instance_valid(_wheel_player):
+		_wheel_player.stop()
 	if _cookoff_smoke != null and is_instance_valid(_cookoff_smoke):
 		_cookoff_smoke.emitting = false
 	for n in _fx_nodes:
@@ -239,8 +241,14 @@ var _halt_cd := 0.0
 var _halt_left := 0.0
 var _engine_player: AudioStreamPlayer3D = null
 var _track_player: AudioStreamPlayer3D = null
+var _wheel_player: AudioStreamPlayer3D = null
 var _engine_speed := 0.0
 var _base_engine_pitch := 1.0
+## Audio-only acceleration tracking. The physics suspension uses `_prev_speed`,
+## so the audio layer keeps its own sample to avoid fighting over that value.
+var _audio_prev_speed := 0.0
+var _accel_rev := 0.0
+var _brake_cd := 0.0
 var _backfire_cd := 2.0
 var _servo_cd := 0.6
 var _turn_rate := 1.8
@@ -1257,6 +1265,14 @@ func _setup_engine_audio() -> void:
 		add_child(_track_player)
 		_track_player.play()
 		_track_player.volume_db = -8.0
+	# Wheeled platforms get a tire/gravel roll layer pitched by road speed.
+	if kind == Kind.APC or kind == Kind.SAM or kind == Kind.TRUCK:
+		_wheel_player = CombatSfxScript.make_looping_player(
+				CombatSfxScript.wheel_roll_stream(), -24.0, 14.0, 170.0)
+		_wheel_player.bus = &"Combat"
+		_wheel_player.doppler_tracking = AudioStreamPlayer3D.DOPPLER_TRACKING_PHYSICS_STEP
+		add_child(_wheel_player)
+		_wheel_player.play()
 	if OS.has_environment("DRONE_AUDIO_DEBUG"):
 		print("[AUDIO] vehicle kind=", kind, " engine=", _engine_player != null,
 				" track=", _track_player != null)
@@ -1289,25 +1305,49 @@ func _update_engine_audio(delta: float) -> void:
 		_engine_player.stop()
 		if _track_player != null and is_instance_valid(_track_player):
 			_track_player.stop()
+		if _wheel_player != null and is_instance_valid(_wheel_player):
+			_wheel_player.stop()
 		return
 	if not _engine_player.playing:
 		_engine_player.play()
-	var speed_ratio := clampf(_engine_speed / maxf(move_speed, 0.1), 0.0, 1.0)
+	var speed := _engine_speed
+	var prev_speed := _audio_prev_speed
+	var dv := speed - prev_speed
+	_audio_prev_speed = speed
+	var speed_ratio := clampf(speed / maxf(move_speed, 0.1), 0.0, 1.0)
+
+	# Rev surge: a hard throttle input lifts the whole engine note briefly.
+	_accel_rev = maxf(_accel_rev - delta * 0.9, 0.0)
+	if dv > 0.8:
+		_accel_rev = minf(_accel_rev + clampf(dv * 0.06, 0.0, 0.35), 0.5)
+
 	var target_pitch := _base_engine_pitch
 	if kind == Kind.HELI:
 		target_pitch = 0.95 + speed_ratio * 0.12
 	elif kind == Kind.SHAHED:
 		target_pitch = 0.98 + speed_ratio * 0.10
 	else:
-		target_pitch = _base_engine_pitch + speed_ratio * 0.42
+		target_pitch = _base_engine_pitch + speed_ratio * 0.42 + _accel_rev
 	_engine_player.pitch_scale = lerpf(_engine_player.pitch_scale, target_pitch,
 			clampf(delta * 3.0, 0.0, 1.0))
 	var base_db := float(ENGINE_DB.get(kind, 2.0))
 	_engine_player.volume_db = base_db + speed_ratio * 4.0
+
 	if _track_player != null and is_instance_valid(_track_player):
-		var move_ratio := clampf(_engine_speed / maxf(move_speed, 0.1), 0.0, 1.0)
-		_track_player.volume_db = lerpf(-10.0, 3.0, move_ratio)
-		_track_player.pitch_scale = 0.92 + move_ratio * 0.26
+		_track_player.volume_db = lerpf(-10.0, 3.0, speed_ratio)
+		_track_player.pitch_scale = 0.92 + speed_ratio * 0.26
+	if _wheel_player != null and is_instance_valid(_wheel_player):
+		_wheel_player.volume_db = lerpf(-26.0, -6.0, speed_ratio)
+		_wheel_player.pitch_scale = 0.90 + speed_ratio * 0.35
+
+	# Pneumatic brake hiss on a sharp stop, if the player is close enough.
+	_brake_cd = maxf(_brake_cd - delta, 0.0)
+	if _brake_cd <= 0.0 and prev_speed > 3.5 and speed < 1.2:
+		_brake_cd = 1.4
+		var cam := get_viewport().get_camera_3d()
+		if cam != null and global_position.distance_squared_to(cam.global_position) < 120.0 * 120.0:
+			CombatSfxScript.play_air_brake(get_parent(), _muzzle_world(), -14.0)
+
 	# Occasional exhaust pop under acceleration (trucks and tanks only).
 	if kind == Kind.TRUCK or kind == Kind.TANK:
 		_backfire_cd -= delta
@@ -2778,6 +2818,8 @@ func take_damage(amount: float, hit_position: Vector3 = Vector3.ZERO) -> void:
 		DestructionFxScript.hit(get_parent(), self, hit_position, _fx_kind(),
 				clampf(applied / 70.0, 0.28, 1.0))
 		CombatSfxScript.play_hitmarker(get_parent(), false, -6.0)
+		CombatSfxScript.play_armor_hit(get_parent(), hit_position,
+				kind in [Kind.TANK, Kind.BMP, Kind.APC, Kind.SAM])
 	if health <= 0.0:
 		if multiplier >= 1.22:
 			set_meta("critical_weak_spot_kill", true)
@@ -2875,6 +2917,8 @@ func _destroy() -> void:
 		_engine_player.stop()
 	if _track_player != null and is_instance_valid(_track_player):
 		_track_player.stop()
+	if _wheel_player != null and is_instance_valid(_wheel_player):
+		_wheel_player.stop()
 	var parent := get_parent()
 	var aerial := kind == Kind.HELI or kind == Kind.SHAHED
 	var gy := _ground_y(global_position.x, global_position.z)
@@ -2893,6 +2937,16 @@ func _destroy() -> void:
 		if not aerial:
 			CombatSfxScript.start_burning(parent, global_position, 28.0)
 			_route_last_sfx_bus(parent, &"Combat")
+			# Secondary ammo crackle shortly after the main blast. Guarded so a
+			# destroyed vehicle freed before the timer fires stays silent.
+			if kind != Kind.TRUCK and get_tree() != null:
+				var cookoff_at := global_position
+				var cookoff_parent := parent
+				get_tree().create_timer(0.35).timeout.connect(func():
+					if is_inside_tree() and is_instance_valid(cookoff_parent) \
+							and cookoff_parent.is_inside_tree():
+						CombatSfxScript.play_cookoff(
+								cookoff_parent, cookoff_at, -6.0))
 
 	if aerial:
 		_start_crash_fall(gy)

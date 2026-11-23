@@ -456,8 +456,8 @@ func _apply_pending() -> void:
 		Global.special_mission = 0
 		Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
 		Global.menu_settings["selected_special"] = 0
-	# Choosing a drone in the menu opts back into that drone's factory rates.
-	QuadSettings.custom_rates = false
+	# Applying the drone keeps a pilot-tuned rate/expo profile intact; its
+	# factory rates are used only while custom_rates is false.
 	DroneCatalog.apply(_pending)
 	Global.drone_preset = _pending
 	Global.menu_settings["drone_preset"] = _pending

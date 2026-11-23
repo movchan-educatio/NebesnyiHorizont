@@ -280,7 +280,7 @@ static func _set_shadow(node: Node) -> void:
 
 
 static func _collide(off: Vector3, size: Vector3) -> void:
-	_colliders.append({"pos": _world(off), "size": size * _scale})
+	_colliders.append({"pos": _world(off), "size": size * _scale, "yaw": _yaw})
 
 
 static func _used_collider(cat: int, v: int) -> void:
@@ -308,6 +308,7 @@ static func _add_colliders() -> void:
 		shape.size = c["size"]
 		cs.shape = shape
 		cs.position = c["pos"]
+		cs.rotation.y = float(c.get("yaw", 0.0))
 		body.add_child(cs)
 	_root.add_child(body)
 

@@ -36,6 +36,30 @@ const SOUND_GAIN_DB := -2.0
 ## eight rotor loops for all four motors on every 120 Hz physics tick.
 var _sound_tick := 0.0
 var _sound_accum := 0.0
+## Per-airframe correction for the shared recorded 5" loop.  Kept as plain
+## floats so update_sound() never needs an autoload lookup in its hot path.
+var _recorded_pitch_mult := 1.0
+var _recorded_gain_db := 0.0
+var _recorded_profile_preset := -1
+
+
+func _recorded_motor_profile() -> Dictionary:
+	var catalog := get_node_or_null("/root/DroneCatalog")
+	if catalog == null or not catalog.has_method("get_recorded_motor_profile"):
+		return {"pitch_mult": 1.0, "gain_db": 0.0}
+	var result: Dictionary = catalog.call("get_recorded_motor_profile", int(Global.drone_preset))
+	return result
+
+
+## Re-read only when the selected airframe actually changes (30 Hz hot path).
+func _refresh_recorded_profile() -> void:
+	var preset := int(Global.drone_preset)
+	if preset == _recorded_profile_preset:
+		return
+	_recorded_profile_preset = preset
+	var profile := _recorded_motor_profile()
+	_recorded_pitch_mult = float(profile.get("pitch_mult", 1.0))
+	_recorded_gain_db = float(profile.get("gain_db", 0.0))
 
 
 func _ready() -> void:
@@ -82,6 +106,7 @@ func _ready() -> void:
 			sounds.append(player)
 		sound1 = sounds[0]
 		sound2 = sounds[1]
+	_refresh_recorded_profile()
 
 
 func _make_looping(stream: AudioStream) -> void:
@@ -203,6 +228,7 @@ func _on_armed(_mode) -> void:
 func update_sound(abs_rpm: float = 0.0, delta: float = 0.016) -> void:
 	if sounds.is_empty():
 		return
+	_refresh_recorded_profile()
 	var rpm_ratio: float = clampf(abs_rpm / maxf(MAX_RPM, 1.0), 0.0, 1.0)
 	var stage := 1
 	var level_start := 0.0
@@ -295,11 +321,11 @@ func update_sound(abs_rpm: float = 0.0, delta: float = 0.016) -> void:
 
 	if stage == 0:
 		for i in range(sounds.size()):
-			var target := -18.0 if (i == 0 and powered) else -80.0
+			var target := (-18.0 + _recorded_gain_db) if (i == 0 and powered) else -80.0
 			sounds[i].volume_db = move_toward(sounds[i].volume_db, target,
 					absf(delta) * 220.0)
 		if powered:
-			sounds[0].pitch_scale = 1.0
+			sounds[0].pitch_scale = 1.0 * _recorded_pitch_mult
 		return
 
 	sound_selector = stage
@@ -309,8 +335,8 @@ func update_sound(abs_rpm: float = 0.0, delta: float = 0.016) -> void:
 	sound2 = sounds[index2]
 	var span := maxf(level_end - level_start, 0.0001)
 	var blend := clampf((rpm_ratio - level_start) / span, 0.0, 1.0)
-	sound1.pitch_scale = lerpf(pitch_low1, pitch_high1, blend)
-	sound2.pitch_scale = lerpf(pitch_low2, pitch_high2, blend)
+	sound1.pitch_scale = lerpf(pitch_low1, pitch_high1, blend) * _recorded_pitch_mult
+	sound2.pitch_scale = lerpf(pitch_low2, pitch_high2, blend) * _recorded_pitch_mult
 
 	var levels := [0.0, -80.0]
 	if rpm_ratio <= volume_low:
@@ -326,9 +352,9 @@ func update_sound(abs_rpm: float = 0.0, delta: float = 0.016) -> void:
 	for i in range(sounds.size()):
 		var target := -80.0
 		if i == index1:
-			target = float(levels[0]) + SOUND_GAIN_DB
+			target = float(levels[0]) + SOUND_GAIN_DB + _recorded_gain_db
 		elif i == index2:
-			target = float(levels[1]) + SOUND_GAIN_DB
+			target = float(levels[1]) + SOUND_GAIN_DB + _recorded_gain_db
 		sounds[i].volume_db = move_toward(sounds[i].volume_db, target,
 				absf(delta) * 320.0)
 

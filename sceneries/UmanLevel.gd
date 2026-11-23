@@ -88,6 +88,9 @@ func _ready() -> void:
 
 func _load_map() -> void:
 	super._load_map()
+	# Replace any imported convex/AABB blocker on named open structures with the
+	# exact mesh shape *before* anything else queries physics for ground height.
+	_uman_audit_glb_colliders()
 	# Спочатку безпечні колізії — потім усе, що ставиться на землю.
 	_uman_build_safety_collision()
 	_uman_hide_static_jets()
@@ -98,6 +101,7 @@ func _load_map() -> void:
 	_uman_replace_vegetation()
 	_uman_spawn_cc0_models()
 	_uman_build_edge_world()
+	_uman_build_themed_freestyle_parks()
 	_uman_spawn_fountains()
 	_uman_spawn_freestyle_props()
 	_uman_populate_stunts()
@@ -245,10 +249,10 @@ func _tune_map_environment() -> void:
 		var env := we.environment
 		env.background_mode = Environment.BG_SKY
 		env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-		env.ambient_light_sky_contribution = 0.44
-		env.ambient_light_energy = 0.62
+		env.ambient_light_sky_contribution = 0.72
+		env.ambient_light_energy = 1.00
 		env.tonemap_mode = Environment.TONE_MAPPER_ACES
-		env.tonemap_exposure = 1.02
+		env.tonemap_exposure = 1.20
 		env.fog_enabled = true
 		env.fog_light_color = Color(0.66, 0.74, 0.86, 1.0)
 		env.fog_density = 0.00018
@@ -256,6 +260,9 @@ func _tune_map_environment() -> void:
 		env.glow_intensity = 0.30
 		env.glow_bloom = 0.09
 		env.glow_hdr_threshold = 1.05
+		env.adjustment_enabled = true
+		env.adjustment_brightness = 1.06
+		env.adjustment_contrast = 1.04
 		if ResourceLoader.exists(UMAN_SKY):
 			var hdr: Resource = load(UMAN_SKY)
 			if hdr is Texture2D:
@@ -264,14 +271,14 @@ func _tune_map_environment() -> void:
 				pano.panorama = hdr as Texture2D
 				sky.sky_material = pano
 				env.sky = sky
-				env.background_energy_multiplier = 0.72
+		env.background_energy_multiplier = 1.04
 	var sun := get_node_or_null("Sun") as DirectionalLight3D
 	if sun != null:
 		sun.shadow_enabled = true
 		sun.directional_shadow_max_distance = 800.0
-		sun.rotation_degrees = Vector3(-26.0, 45.0, 0.0)
+		sun.rotation_degrees = Vector3(-36.0, 45.0, 0.0)
 		sun.light_color = Color(1.0, 0.86, 0.70, 1.0)
-		sun.light_energy = 2.4
+		sun.light_energy = 3.10
 	var fill := get_node_or_null("UmanFill") as DirectionalLight3D
 	if fill == null:
 		fill = DirectionalLight3D.new()
@@ -279,7 +286,7 @@ func _tune_map_environment() -> void:
 		add_child(fill)
 	fill.rotation_degrees = Vector3(-26.0, -120.0, 0.0)
 	fill.light_color = Color(0.57, 0.70, 0.89, 1.0)
-	fill.light_energy = 0.28
+	fill.light_energy = 0.58
 	fill.shadow_enabled = false
 
 
@@ -871,7 +878,7 @@ func _uman_simple_model(path: String, pos: Vector3, yaw: float, s: float,
 		var raw_box := _uman_visual_aabb(inst)
 		if raw_box.size.y > 0.5:
 			inst.scale = Vector3.ONE * clampf(target_height / raw_box.size.y, 0.55, 1.8)
-	if solid > 0:
+	if solid == 1:
 		var box := _uman_visual_aabb(inst)
 		if box.size.length() > 0.05:
 			var body := StaticBody3D.new()
@@ -879,35 +886,35 @@ func _uman_simple_model(path: String, pos: Vector3, yaw: float, s: float,
 			body.collision_layer = 1
 			body.collision_mask = 1
 			var cs := CollisionShape3D.new()
-			if solid == 1:
-				var cyl := CylinderShape3D.new()
-				cyl.radius = clampf(box.size.x * 0.055, 0.35, 1.3)
-				cyl.height = minf(box.size.y * 0.62, 9.0)
-				cs.shape = cyl
-				body.position = Vector3(box.get_center().x,
-						box.position.y + cyl.height * 0.5, box.get_center().z)
-			else:
-				var shape := BoxShape3D.new()
-				shape.size = box.size * 0.86
-				cs.shape = shape
-				# Anchor the shrunken box at ground level.  Using the visual
-				# centre used to lift its bottom by ~1.3 m on tall buildings,
-				# leaving the ground floor without collision.
-				body.position = Vector3(box.get_center().x,
-						box.position.y + shape.size.y * 0.5,
-						box.get_center().z)
+			var cyl := CylinderShape3D.new()
+			cyl.radius = clampf(box.size.x * 0.055, 0.35, 1.3)
+			cyl.height = minf(box.size.y * 0.62, 9.0)
+			cs.shape = cyl
+			body.position = Vector3(box.get_center().x,
+					box.position.y + cyl.height * 0.5, box.get_center().z)
 			body.add_child(cs)
 			add_child(body)
 			_uman_prop_colliders.append(body.get_rid())
+	elif solid == 2:
+		# Buildings used to get one unrotated world-AABB box.  On a yawed GLB
+		# that box stuck out past the corners and sealed every doorway.  Exact
+		# per-mesh trimeshes follow the rotated walls instead.
+		_uman_attach_mesh_collider(inst)
 	return inst
 
 
 func _uman_visual_aabb(node: Node) -> AABB:
+	# A freshly add_child()'d GLB has a stale global_transform until the next
+	# physics tick.  Force it here so the AABB matches what physics will see.
+	if node is Node3D and (node as Node3D).is_inside_tree():
+		(node as Node3D).force_update_transform()
 	var result := AABB()
 	var first := true
 	var stack: Array[Node] = [node]
 	while not stack.is_empty():
 		var n: Node = stack.pop_back()
+		if n is Node3D and (n as Node3D).is_inside_tree():
+			(n as Node3D).force_update_transform()
 		if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
 			var mi := n as MeshInstance3D
 			var xf: Transform3D = mi.global_transform if mi.is_inside_tree() else mi.transform
@@ -973,9 +980,113 @@ func _uman_spawn_freestyle_props() -> void:
 			if _uman_box_overlaps_water(pbox):
 				inst.queue_free()
 				continue
-			_uman_attach_prop_collider(pbox)
+			_uman_attach_mesh_collider(inst)
 			count += 1
 	lib.queue_free()
+
+
+## Verified dry-land site for a 16 m park footprint.  Tests candidate offsets
+## around the zone anchor so the FULL footprint (centre + four corners) clears
+## every pond, landmark, spawn/course waypoint and already-placed park.
+func _uman_pick_park_site(base: Vector2, footprint: float) -> Vector3:
+	var half := footprint * 0.5
+	for ring in range(0, 7):
+		var radius := 0.0 if ring == 0 else 13.0 * float(ring)
+		var steps := 1 if ring == 0 else 16
+		for i in range(steps):
+			var a := TAU * float(i) / float(steps) + float(ring) * 0.31
+			var c := base + Vector2(cos(a), sin(a)) * radius
+			if absf(c.x) > 158.0 or absf(c.y) > 158.0:
+				continue
+			if Vector2(c.x - 120.0, c.y - 118.0).length() < 44.0:
+				continue
+			var center := Vector3(c.x, 0.0, c.y)
+			if _uman_is_water(center) or _uman_near_landmark(center):
+				continue
+			var box := AABB(Vector3(c.x - half, -1.0, c.y - half),
+					Vector3(footprint, 24.0, footprint))
+			if _uman_box_overlaps_water(box):
+				continue
+			var course_clear := true
+			for wp in COURSE_WAYPOINTS:
+				var w: Vector3 = wp
+				if Vector2(c.x - w.x, c.y - w.z).length() < 24.0:
+					course_clear = false
+					break
+			if not course_clear:
+				continue
+			var packed := false
+			for q in _uman_placed:
+				if q.y <= 0.0:
+					continue
+				if Vector2(c.x - q.x, c.y - q.z).length() < footprint + q.y:
+					packed = true
+					break
+			if packed:
+				continue
+			return Vector3(c.x, _uman_ground_y(center) - 0.12, c.y)
+	return Vector3(-9999.0, 0.0, -9999.0)
+
+
+## Five competitor-style, park-themed freestyle flow lines for Uman: connected
+## pergola arches -> hollow conduit tunnels -> dive tower -> Split-S frames ->
+## slalom sprint lane.  All use the low-poly military kit with true fly-through
+## collision, warm limestone/timber styling, and sit flush on verified lawn.
+func _uman_build_themed_freestyle_parks() -> void:
+	if get_node_or_null("UmanThemedFreestyleParks") != null:
+		return
+	var ms = load("res://scripts/util/military_structures.gd")
+	if ms == null:
+		return
+	var root := Node3D.new()
+	root.name = "UmanThemedFreestyleParks"
+	add_child(root)
+
+	var specs: Array = [
+		# [anchor, footprint, yaw, builder, id]
+		[Vector2(124.0, -92.0), 16.0, 0.35, "build_park_pergola_arches", "pergola"],
+		[Vector2(-140.0, 116.0), 16.0, -0.25, "build_park_tunnel_pipes", "tunnel_pipes"],
+		[Vector2(154.0, 86.0), 16.0, 0.60, "build_park_gazebo_tower", "gazebo_tower"],
+		[Vector2(8.0, -112.0), 16.0, 0.15, "build_park_split_s_frames", "split_s_frames"],
+		[Vector2(-124.0, -88.0), 16.0, -0.40, "build_fpv_slalom_gate_course", "slalom_lane"],
+	]
+	var placed := 0
+	for spec in specs:
+		var anchor: Vector2 = spec[0]
+		var footprint: float = float(spec[1])
+		var yaw: float = float(spec[2])
+		var builder: String = String(spec[3])
+		var id: String = String(spec[4])
+		var site := _uman_pick_park_site(anchor, footprint)
+		if site.x < -9000.0:
+			continue
+		var park := Node3D.new()
+		park.name = "UmanPark_" + id
+		park.position = site
+		park.rotation.y = yaw
+		root.add_child(park)
+		ms.call(builder, park, Vector3.ZERO, 0.0)
+		# All authored members must have final transforms before colliders are
+		# queried by the flight/physics broadphase.
+		park.force_update_transform()
+		for child in park.get_children(true):
+			if child is Node3D:
+				(child as Node3D).force_update_transform()
+		# Register the park's solid bodies so ground queries / later decoration
+		# do not plant props on a roof or collide with the fly-through frames.
+		var stack: Array[Node] = [park]
+		while not stack.is_empty():
+			var n: Node = stack.pop_back()
+			for ch in n.get_children():
+				stack.append(ch)
+			if n is StaticBody3D:
+				var body_rid: RID = (n as StaticBody3D).get_rid()
+				if not _uman_prop_colliders.has(body_rid):
+					_uman_prop_colliders.append(body_rid)
+		# y carries the reserve radius so small random stunts keep clear.
+		_uman_placed.append(Vector3(site.x, footprint * 0.5, site.z))
+		placed += 1
+	print("[UMAN] themed freestyle parks=", placed)
 
 
 func _uman_populate_stunts() -> void:
@@ -1006,7 +1117,12 @@ func _uman_populate_stunts() -> void:
 				continue
 			var too_close := false
 			for q in _uman_placed:
-				if p.distance_to(q) < 4.5:
+				# q.y > 0 marks a themed park and carries its reserve radius;
+				# plain small stunts keep the original 4.5 m spacing.
+				var keep_out := 4.5
+				if q.y > 0.0:
+					keep_out = q.y + 6.0
+				if Vector2(p.x - q.x, p.z - q.z).length() < keep_out:
 					too_close = true
 					break
 			if too_close or _uman_near_landmark(p):
@@ -1022,7 +1138,7 @@ func _uman_populate_stunts() -> void:
 					or _uman_box_overlaps_water(box):
 				inst.queue_free()
 				continue
-			_uman_attach_prop_collider(box)
+			_uman_attach_mesh_collider(inst)
 			_uman_placed.append(Vector3(p.x, 0.0, p.z))
 			made += 1
 			total += 1
@@ -1057,8 +1173,7 @@ func _uman_spawn_model(path: String, pos: Vector3, yaw: float, s: float,
 	inst.rotation.y = yaw
 	inst.scale = Vector3.ONE * s
 	if add_collider:
-		var box := _uman_visual_aabb(inst)
-		_uman_attach_prop_collider(box)
+		_uman_attach_mesh_collider(inst)
 	return inst
 
 
@@ -1082,6 +1197,152 @@ func _uman_attach_prop_collider(box: AABB) -> void:
 	body.position = box.get_center()
 	add_child(body)
 	_uman_prop_colliders.append(body.get_rid())
+
+
+## Exact mesh collision for every visible mesh under `inst`.  Attached as a
+## StaticBody child of the MeshInstance3D so the shape inherits the mesh's own
+## (possibly rotated / scaled) transform.  Never an unrotated AABB: that is
+## what used to plug pipes, arches, fences, ramps and rails.
+func _uman_attach_mesh_collider(inst: Node3D) -> void:
+	if inst == null:
+		return
+	if inst is Node3D and inst.is_inside_tree():
+		inst.force_update_transform()
+	for node in _uman_find_meshes(inst):
+		if node is MeshInstance3D:
+			_uman_add_trimesh_to_mesh(node as MeshInstance3D)
+
+
+func _uman_add_trimesh_to_mesh(mi: MeshInstance3D) -> bool:
+	if mi == null or mi.mesh == null or not mi.visible:
+		return false
+	if bool(mi.get_meta("uman_trimesh_col", false)):
+		return false
+	var mesh_name := String(mi.name).to_lower()
+	if mesh_name.contains("-col") or mesh_name.contains("-convcol"):
+		return false
+	var shape := _uman_combined_trimesh(mi.mesh)
+	if shape == null:
+		return false
+	shape.backface_collision = true
+	var body := StaticBody3D.new()
+	body.name = "uman_mesh_col_%d" % _uman_prop_colliders.size()
+	body.collision_layer = 1
+	body.collision_mask = 1
+	var cs := CollisionShape3D.new()
+	cs.shape = shape
+	body.add_child(cs)
+	mi.add_child(body)
+	mi.set_meta("uman_trimesh_col", true)
+	_uman_prop_colliders.append(body.get_rid())
+	return true
+
+
+## create_trimesh_shape() on a multi-surface ArrayMesh only keeps one surface
+## in some importer outputs; merge them explicitly so holes stay holes.
+func _uman_combined_trimesh(mesh: Mesh) -> ConcavePolygonShape3D:
+	if mesh == null:
+		return null
+	if mesh.get_surface_count() <= 1:
+		return mesh.create_trimesh_shape() as ConcavePolygonShape3D
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for s in range(mesh.get_surface_count()):
+		st.append_from(mesh, s, Transform3D.IDENTITY)
+	var merged := st.commit()
+	if merged == null:
+		return null
+	return merged.create_trimesh_shape() as ConcavePolygonShape3D
+
+
+## Authored GLB colliders on pipes / arches / rings / bridges are often a
+## single convex hull or box that seals the opening.  Swap those for the exact
+## visible mesh whenever the shape overlaps one.
+func _uman_audit_glb_colliders() -> void:
+	var root := get_node_or_null("MapRoot")
+	if root == null:
+		return
+	var keys := ["pipe", "tunnel", "arch", "gate", "ring", "rotunda",
+			"pavilion", "bridge", "stunt", "ramp", "pergola"]
+	var patched := 0
+	var stack: Array[Node] = [root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		var lname := String(n.name).to_lower()
+		var matched := false
+		for k in keys:
+			if lname.contains(k):
+				matched = true
+				break
+		if matched:
+			patched += _uman_replace_blocking_shapes(n)
+		for c in n.get_children():
+			stack.append(c)
+	if patched > 0:
+		print("[UMAN] glb blocker colliders replaced=", patched)
+
+
+func _uman_replace_blocking_shapes(node: Node) -> int:
+	var meshes: Array[MeshInstance3D] = []
+	if node is MeshInstance3D:
+		var self_mi := node as MeshInstance3D
+		if self_mi.visible and self_mi.mesh != null:
+			meshes.append(self_mi)
+	for found in node.find_children("*", "MeshInstance3D", true, false):
+		var mi := found as MeshInstance3D
+		if mi != null and mi.visible and mi.mesh != null:
+			meshes.append(mi)
+	if meshes.is_empty():
+		return 0
+	var removed := 0
+	for found in node.find_children("*", "CollisionShape3D", true, false):
+		var cs := found as CollisionShape3D
+		if cs == null or cs.shape == null:
+			continue
+		if not (cs.shape is ConvexPolygonShape3D or cs.shape is BoxShape3D):
+			continue
+		var sbox := _uman_shape_world_aabb(cs)
+		if sbox.size.length_squared() <= 0.0:
+			continue
+		var blocking := false
+		for mi in meshes:
+			if (mi.global_transform * mi.mesh.get_aabb()).intersects(sbox):
+				blocking = true
+				break
+		if not blocking:
+			continue
+		cs.disabled = true
+		cs.queue_free()
+		removed += 1
+	if removed == 0:
+		return 0
+	var added := 0
+	for mi in meshes:
+		if _uman_add_trimesh_to_mesh(mi):
+			added += 1
+	return added
+
+
+func _uman_shape_world_aabb(cs: CollisionShape3D) -> AABB:
+	var shp := cs.shape
+	var local := AABB()
+	if shp is BoxShape3D:
+		var sz := (shp as BoxShape3D).size
+		local = AABB(-sz * 0.5, sz)
+	elif shp is ConvexPolygonShape3D:
+		var pts := (shp as ConvexPolygonShape3D).get_points()
+		var first := true
+		for p in pts:
+			if first:
+				local = AABB(p, Vector3.ZERO)
+				first = false
+			else:
+				local = local.expand(p)
+	else:
+		return AABB()
+	if cs.is_inside_tree():
+		cs.force_update_transform()
+	return cs.global_transform * local
 
 
 func _uman_find_meshes(node: Node) -> Array:

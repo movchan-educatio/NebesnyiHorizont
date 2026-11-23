@@ -79,6 +79,9 @@ var _knee_r: Node3D = null
 var _anim: AnimationPlayer = null
 var _walk_phase := 0.0
 var _step_timer := 0.0
+## Per-unit and squad-wide cooldowns keep radio barks from stacking into noise.
+var _callout_cd := 0.0
+static var _last_callout_ms := 0
 var _stride := 0.0
 var _patrol_active := false
 var _patrol_origin := Vector3.ZERO
@@ -508,6 +511,8 @@ func _physics_process(delta: float) -> void:
 	_apply_recoil(delta)
 	if _reload_timer > 0.0:
 		_reload_timer = maxf(0.0, _reload_timer - delta)
+	if _callout_cd > 0.0:
+		_callout_cd = maxf(0.0, _callout_cd - delta)
 	if _suppress_timer > 0.0:
 		_suppress_timer = maxf(0.0, _suppress_timer - delta)
 	else:
@@ -560,7 +565,15 @@ func _physics_process(delta: float) -> void:
 		if _shot_cd <= 0.0:
 			_fire()
 			_burst_left -= 1
+			# Suppressive fire occasionally doubles into a rapid 4-round burst.
+			# Consume the extra round up front so the magazine never underflows.
+			var heavy_burst := _mag_rounds >= 4 and _suppress_timer > 0.0 \
+					and _distance <= 140.0 and _muzzle != null and randf() < 0.25
 			_mag_rounds -= 1
+			if heavy_burst:
+				CombatSfxScript.play_mg_burst(get_parent(),
+						_muzzle.global_position, -7.0)
+				_mag_rounds -= 1
 			_shot_cd = shot_interval
 			if _mag_rounds <= 0:
 				_burst_left = 0
@@ -568,6 +581,8 @@ func _physics_process(delta: float) -> void:
 				_reload_timer = 1.75
 				_recover = 1.9
 				_tactical_knee = true
+				CombatSfxScript.play_reload(get_parent(),
+						global_position + Vector3.UP * 1.3, -14.0)
 				if _detailed_rig != null:
 					_detailed_rig.start_reload(1.75)
 			elif _burst_left <= 0:
@@ -929,7 +944,38 @@ func _update_pose(delta: float) -> void:
 		_model.rotation.x = -1.25 * _prone_pose
 
 
+## Audio is a presentation layer: never spawn 3D voices for soldiers the
+## player cannot possibly hear.  Falls back to silence when no camera is active.
+func _sfx_camera_near(radius: float) -> bool:
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return false
+	return global_position.distance_squared_to(cam.global_position) < radius * radius
+
+
+## Rate-limited terse squad alert. Both a per-unit and a global cooldown apply.
+func _try_callout() -> void:
+	var now := Time.get_ticks_msec()
+	if _callout_cd > 0.0 or now - _last_callout_ms < 1800:
+		return
+	if not _sfx_camera_near(110.0):
+		return
+	_callout_cd = randf_range(2.4, 4.0)
+	_last_callout_ms = now
+	CombatSfxScript.play_infantry_callout(self,
+			global_position + Vector3.UP * 1.6, -12.0, randi() % 3)
+
+
 func _set_locomotion(delta: float, speed: float) -> void:
+	if speed > 0.35 and _panic_state != 2:
+		_step_timer -= delta
+		if _step_timer <= 0.0:
+			_step_timer = lerpf(0.46, 0.28, clampf(speed / 5.0, 0.0, 1.0))
+			if _sfx_camera_near(65.0):
+				CombatSfxScript.play_footstep(self,
+						global_position + Vector3.UP * 0.12, -18.0)
+	else:
+		_step_timer = 0.0
 	var target_stride := clampf(speed / 2.2, 0.0, 1.35)
 	_stride = lerpf(_stride, target_stride, clampf(delta * 6.0, 0.0, 1.0))
 	if _mobile_visual_lod_enabled() and (_using_proxy \
@@ -1007,6 +1053,7 @@ func _update_target() -> void:
 			var fc := _drone.get_node_or_null("FlightController") as FlightController
 			if fc != null and fc.state_armed:
 				_los_clear = true
+				_try_callout()
 				return
 	else:
 		_distance = 1e9
@@ -1021,6 +1068,7 @@ func _update_target() -> void:
 				_convoy_target = convoy
 				_distance = d
 				_los_clear = true
+				_try_callout()
 				return
 
 
@@ -1160,6 +1208,7 @@ func take_damage(amount: float, hit_position: Vector3 = Vector3.ZERO) -> void:
 		var fx_pos := hit_position if hit_position != Vector3.ZERO \
 				else global_position + Vector3.UP * 1.15
 		DestructionFxScript.hit(get_parent(), self, fx_pos, "infantry", 1.0)
+		CombatSfxScript.play_infantry_hit(get_parent(), fx_pos, -11.0)
 	_suppress_timer = 2.6
 	if _detailed_rig != null:
 		_detailed_rig.hit_react(amount >= 20.0)
@@ -1192,6 +1241,8 @@ func _react_to_alert(source_pos: Vector3) -> void:
 	if is_destroyed or _disabled:
 		return
 	_suppress_timer = maxf(_suppress_timer, 2.0)
+	if global_position.distance_to(source_pos) <= 110.0:
+		_try_callout()
 	if _panic_state == 0 and randf() < 0.35:
 		var away := global_position - source_pos
 		away.y = 0.0

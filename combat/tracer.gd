@@ -4,6 +4,7 @@ class_name AATracer
 extends Node3D
 
 const ExplosionScript = preload("res://combat/explosion.gd")
+const CombatSfxScript = preload("res://combat/sfx.gd")
 
 var velocity := Vector3.ZERO
 var damage := 8.5
@@ -13,6 +14,9 @@ var tracer_color := Color(1.0, 0.94, 0.55)
 var tracer_width := 1.0
 var _core: MeshInstance3D
 var _glow: MeshInstance3D
+var _whiz_played: bool = false
+## One whiz per listener per short window, even with dozens of tracers in flight.
+static var _last_whiz_ms: int = 0
 
 
 func setup(origin: Vector3, direction: Vector3, speed: float, hit_damage: float,
@@ -67,6 +71,14 @@ func _physics_process(delta: float) -> void:
 	if life <= 0.0:
 		queue_free()
 		return
+	if not _whiz_played:
+		var cam := get_viewport().get_camera_3d()
+		if cam != null and global_position.distance_squared_to(cam.global_position) < 9.5 * 9.5:
+			var now := Time.get_ticks_msec()
+			if now - _last_whiz_ms >= 160:
+				_last_whiz_ms = now
+				_whiz_played = true
+				CombatSfxScript.play_bullet_whiz(get_parent(), global_position, -9.0)
 	var from := global_position
 	var to := from + velocity * delta
 	var query := PhysicsRayQueryParameters3D.create(from, to)

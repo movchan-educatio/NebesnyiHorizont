@@ -69,6 +69,12 @@ var embedded := false
 
 var _device_option: OptionButton
 var _default_toggle: CheckButton
+## Stick tuning widgets are kept as members so switching the active device can
+## resync them with the authoritative Controls values.
+var _dz_slider: HSlider
+var _dz_val: Label
+var _sm_slider: HSlider
+var _sm_val: Label
 var _guid_label: Label
 var _status_label: Label
 var _message: Label
@@ -121,6 +127,10 @@ func _ready() -> void:
 		# The phone screen can be opened directly (and is the place where the
 		# stick tuning is read); apply the mobile defaults before building.
 		Controls.load_input_map(true)
+	else:
+		# Desktop used to rely on the level loading the map; read it here too so
+		# the tuning sliders show the saved deadband/smoothing immediately.
+		Controls.load_input_map()
 	_build()
 	Input.joy_connection_changed.connect(_on_joy_connection_changed)
 	_refresh_devices()
@@ -217,6 +227,60 @@ func _build_mobile() -> void:
 	calibrate.add_theme_font_size_override("font_size", 38)
 	calibrate.pressed.connect(_go_calibration)
 	column.add_child(calibrate)
+
+	# --- stick tuning: the phone layout must persist these too ---
+	column.add_child(MenuUI.section(
+			_ui_text("МЕРТВА ЗОНА ТА ЗГЛАДЖУВАННЯ", "DEADBAND & SMOOTHING"),
+			_ui_text("СТІКИ", "STICKS")))
+	var tuning_panel := _card()
+	column.add_child(tuning_panel)
+	var tuning_box := VBoxContainer.new()
+	tuning_box.add_theme_constant_override("separation", 12)
+	tuning_panel.add_child(tuning_box)
+
+	var dz_row := HBoxContainer.new()
+	dz_row.add_theme_constant_override("separation", 12)
+	tuning_box.add_child(dz_row)
+	dz_row.add_child(MenuUI.body(_ui_text("Мертва зона:", "Deadband:"), 30, MenuUI.TEXT))
+	_dz_slider = HSlider.new()
+	_dz_slider.min_value = 0.0
+	_dz_slider.max_value = 0.25
+	_dz_slider.step = 0.01
+	_dz_slider.value = clampf(Controls.stick_deadzone, 0.0, 0.25)
+	_dz_slider.custom_minimum_size = Vector2(0, 60)
+	_dz_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dz_row.add_child(_dz_slider)
+	_dz_val = MenuUI.body("%.2f" % _dz_slider.value, 30, MenuUI.FPV_CYAN)
+	_dz_val.custom_minimum_size = Vector2(100, 0)
+	_dz_val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	dz_row.add_child(_dz_val)
+	_dz_slider.value_changed.connect(func(v):
+		Controls.stick_deadzone = float(v)
+		_dz_val.text = "%.2f" % v
+		Controls.save_bindings())
+	_dz_slider.drag_ended.connect(func(_changed): Controls.save_bindings())
+
+	var sm_row := HBoxContainer.new()
+	sm_row.add_theme_constant_override("separation", 12)
+	tuning_box.add_child(sm_row)
+	sm_row.add_child(MenuUI.body(_ui_text("Згладжування:", "Smoothing:"), 30, MenuUI.TEXT))
+	_sm_slider = HSlider.new()
+	_sm_slider.min_value = 0.0
+	_sm_slider.max_value = 0.50
+	_sm_slider.step = 0.01
+	_sm_slider.value = clampf(Controls.stick_smoothing, 0.0, 0.50)
+	_sm_slider.custom_minimum_size = Vector2(0, 60)
+	_sm_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sm_row.add_child(_sm_slider)
+	_sm_val = MenuUI.body("%.2f" % _sm_slider.value, 30, MenuUI.FPV_CYAN)
+	_sm_val.custom_minimum_size = Vector2(100, 0)
+	_sm_val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	sm_row.add_child(_sm_val)
+	_sm_slider.value_changed.connect(func(v):
+		Controls.stick_smoothing = float(v)
+		_sm_val.text = "%.2f" % v
+		Controls.save_bindings())
+	_sm_slider.drag_ended.connect(func(_changed): Controls.save_bindings())
 
 	# --- live channels ---
 	column.add_child(MenuUI.body(_ui_text("ЖИВИЙ ВХІД", "LIVE INPUT"), 32, MenuUI.ACCENT))
@@ -621,20 +685,21 @@ func _build_device_bindings_column() -> Control:
 	var dz_label := MenuUI.body(_ui_text("Мертва зона:", "Deadband:"), 12, MenuUI.TEXT)
 	dz_label.tooltip_text = _ui_text("Значення навколо центру, яке ігнорується (за замовчуванням 0.02)", "Values near centre that are ignored (default 0.02)")
 	deadzone_row.add_child(dz_label)
-	var dz_slider := HSlider.new()
-	dz_slider.min_value = 0.0
-	dz_slider.max_value = 0.25
-	dz_slider.step = 0.01
-	dz_slider.value = Controls.stick_deadzone
-	dz_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	deadzone_row.add_child(dz_slider)
-	var dz_val := MenuUI.body("%.2f" % Controls.stick_deadzone, 11, MenuUI.MUTED)
-	dz_val.custom_minimum_size = Vector2(32, 0)
-	deadzone_row.add_child(dz_val)
-	dz_slider.value_changed.connect(func(v):
+	_dz_slider = HSlider.new()
+	_dz_slider.min_value = 0.0
+	_dz_slider.max_value = 0.25
+	_dz_slider.step = 0.01
+	_dz_slider.value = clampf(Controls.stick_deadzone, 0.0, 0.25)
+	_dz_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	deadzone_row.add_child(_dz_slider)
+	_dz_val = MenuUI.body("%.2f" % _dz_slider.value, 11, MenuUI.MUTED)
+	_dz_val.custom_minimum_size = Vector2(32, 0)
+	deadzone_row.add_child(_dz_val)
+	_dz_slider.value_changed.connect(func(v):
 		Controls.stick_deadzone = float(v)
-		dz_val.text = "%.2f" % v)
-	dz_slider.drag_ended.connect(func(_changed): Controls.save_bindings())
+		_dz_val.text = "%.2f" % v
+		Controls.save_bindings())
+	_dz_slider.drag_ended.connect(func(_changed): Controls.save_bindings())
 
 	var smooth_row := HBoxContainer.new()
 	smooth_row.add_theme_constant_override("separation", 8)
@@ -642,20 +707,21 @@ func _build_device_bindings_column() -> Control:
 	var sm_label := MenuUI.body(_ui_text("Згладжування:", "Smoothing:"), 12, MenuUI.TEXT)
 	sm_label.tooltip_text = _ui_text("0 — миттєвий відгук; більше значення додає інерцію та затримку", "0 = instant response; higher values add inertia and lag")
 	smooth_row.add_child(sm_label)
-	var sm_slider := HSlider.new()
-	sm_slider.min_value = 0.0
-	sm_slider.max_value = 0.5
-	sm_slider.step = 0.05
-	sm_slider.value = Controls.stick_smoothing
-	sm_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	smooth_row.add_child(sm_slider)
-	var sm_val := MenuUI.body("%.2f" % Controls.stick_smoothing, 11, MenuUI.MUTED)
-	sm_val.custom_minimum_size = Vector2(32, 0)
-	smooth_row.add_child(sm_val)
-	sm_slider.value_changed.connect(func(v):
+	_sm_slider = HSlider.new()
+	_sm_slider.min_value = 0.0
+	_sm_slider.max_value = 0.50
+	_sm_slider.step = 0.05
+	_sm_slider.value = clampf(Controls.stick_smoothing, 0.0, 0.50)
+	_sm_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	smooth_row.add_child(_sm_slider)
+	_sm_val = MenuUI.body("%.2f" % _sm_slider.value, 11, MenuUI.MUTED)
+	_sm_val.custom_minimum_size = Vector2(32, 0)
+	smooth_row.add_child(_sm_val)
+	_sm_slider.value_changed.connect(func(v):
 		Controls.stick_smoothing = float(v)
-		sm_val.text = "%.2f" % v)
-	sm_slider.drag_ended.connect(func(_changed): Controls.save_bindings())
+		_sm_val.text = "%.2f" % v
+		Controls.save_bindings())
+	_sm_slider.drag_ended.connect(func(_changed): Controls.save_bindings())
 
 	var inv_row := HBoxContainer.new()
 	inv_row.add_theme_constant_override("separation", 8)
@@ -847,6 +913,16 @@ func _apply_active_device(device: int) -> void:
 	Controls.update_active_device(device)
 	Controls.load_input_map()
 	Controls.refresh_stick_bindings()
+	# Tuning is global, but switching devices can run config migrations, so
+	# bring both sliders back in sync with the authoritative values.
+	if _dz_slider != null:
+		_dz_slider.set_value_no_signal(clampf(Controls.stick_deadzone, 0.0, 0.25))
+	if _dz_val != null:
+		_dz_val.text = "%.2f" % Controls.stick_deadzone
+	if _sm_slider != null:
+		_sm_slider.set_value_no_signal(clampf(Controls.stick_smoothing, 0.0, 0.50))
+	if _sm_val != null:
+		_sm_val.text = "%.2f" % Controls.stick_smoothing
 	var guid := Input.get_joy_guid(device)
 	if _guid_label != null:
 		_guid_label.text = "GUID: %s" % guid

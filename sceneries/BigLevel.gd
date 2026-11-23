@@ -629,7 +629,7 @@ func _ready() -> void:
 			elif cnode is CanvasItem:
 				(cnode as CanvasItem).visible = false
 	_setup_audio()
-	if _is_mobile_runtime():
+	if _is_mobile_runtime() and DisplayServer.get_name() != "headless":
 		DisplayServer.screen_set_orientation(DisplayServer.SCREEN_SENSOR_LANDSCAPE)
 	var vp_main := get_viewport()
 	if vp_main != null and not vp_main.size_changed.is_connected(_on_viewport_size_changed):
@@ -1213,21 +1213,21 @@ func _tune_map_environment() -> void:
 			env.fog_density = 0.00024
 			env.fog_aerial_perspective = 0.44
 			env.volumetric_fog_density = 0.0011
-			env.ambient_light_energy = 0.60
-			env.ambient_light_sky_contribution = 0.78
-			env.tonemap_exposure = 0.99
+			env.ambient_light_energy = 0.96
+			env.ambient_light_sky_contribution = 0.76
+			env.tonemap_exposure = 1.20
 			env.glow_intensity = 0.22
 			amb_col = Color(0.46, 0.53, 0.64)
-			bg_energy = 0.76
-			contrast = 1.11
-			saturation = 0.98
+			bg_energy = 1.02
+			contrast = 1.04
+			saturation = 1.04
 			fog_h = _ground_y + 15.0
 			fog_h_dens = 0.0095
 			fill_col = Color(0.54, 0.66, 0.86)
-			fill_energy = 0.30
+			fill_energy = 0.56
 			if sun != null:
-				sun.rotation_degrees = Vector3(-22.0, 70.0, 0.0)
-				sun.light_energy = 2.25
+				sun.rotation_degrees = Vector3(-34.0, 62.0, 0.0)
+				sun.light_energy = 2.95
 				sun.light_color = Color(0.95, 0.84, 0.72)
 				sun.light_volumetric_fog_energy = 3.4
 		"village":
@@ -1236,20 +1236,20 @@ func _tune_map_environment() -> void:
 			env.fog_density = 0.00016
 			env.fog_aerial_perspective = 0.36
 			env.volumetric_fog_density = 0.0010
-			env.ambient_light_energy = 0.64
+			env.ambient_light_energy = 0.96
 			env.ambient_light_sky_contribution = 0.76
-			env.tonemap_exposure = 1.03
+			env.tonemap_exposure = 1.18
 			amb_col = Color(0.48, 0.59, 0.76)
-			bg_energy = 1.00
-			contrast = 1.09
-			saturation = 1.12
+			bg_energy = 1.06
+			contrast = 1.04
+			saturation = 1.10
 			fog_h = _ground_y + 17.0
 			fog_h_dens = 0.0075
 			fill_col = Color(0.58, 0.70, 0.90)
-			fill_energy = 0.28
+			fill_energy = 0.54
 			if sun != null:
-				sun.rotation_degrees = Vector3(-28.0, 42.0, 0.0)
-				sun.light_energy = 2.55
+				sun.rotation_degrees = Vector3(-36.0, 42.0, 0.0)
+				sun.light_energy = 3.10
 				sun.light_color = Color(1.0, 0.90, 0.72)
 				sun.light_volumetric_fog_energy = 3.2
 		"steppe":
@@ -1258,20 +1258,20 @@ func _tune_map_environment() -> void:
 			env.fog_density = 0.00015
 			env.fog_aerial_perspective = 0.34
 			env.volumetric_fog_density = 0.0011
-			env.ambient_light_energy = 0.62
+			env.ambient_light_energy = 0.94
 			env.ambient_light_sky_contribution = 0.74
-			env.tonemap_exposure = 1.04
+			env.tonemap_exposure = 1.18
 			amb_col = Color(0.56, 0.54, 0.44)
-			bg_energy = 1.04
-			contrast = 1.10
-			saturation = 1.14
+			bg_energy = 1.08
+			contrast = 1.04
+			saturation = 1.12
 			fog_h = _ground_y + 14.0
 			fog_h_dens = 0.0065
 			fill_col = Color(0.58, 0.68, 0.86)
-			fill_energy = 0.26
+			fill_energy = 0.52
 			if sun != null:
-				sun.rotation_degrees = Vector3(-20.0, 52.0, 0.0)
-				sun.light_energy = 2.60
+				sun.rotation_degrees = Vector3(-34.0, 50.0, 0.0)
+				sun.light_energy = 3.15
 				sun.light_color = Color(1.0, 0.85, 0.64)
 				sun.light_volumetric_fog_energy = 3.5
 		"wetlands":
@@ -1280,26 +1280,26 @@ func _tune_map_environment() -> void:
 			env.fog_density = 0.00028
 			env.fog_aerial_perspective = 0.52
 			env.volumetric_fog_density = 0.0016
-			env.ambient_light_energy = 0.58
-			env.ambient_light_sky_contribution = 0.80
-			env.tonemap_exposure = 1.00
+			env.ambient_light_energy = 0.98
+			env.ambient_light_sky_contribution = 0.78
+			env.tonemap_exposure = 1.22
 			amb_col = Color(0.42, 0.55, 0.58)
-			bg_energy = 0.84
-			contrast = 1.07
-			saturation = 1.06
+			bg_energy = 1.04
+			contrast = 1.04
+			saturation = 1.08
 			fog_h = _ground_y + 12.5
 			fog_h_dens = 0.0145
 			fill_col = Color(0.52, 0.67, 0.84)
-			fill_energy = 0.32
+			fill_energy = 0.58
 			if sun != null:
-				sun.rotation_degrees = Vector3(-17.0, 32.0, 0.0)
-				sun.light_energy = 2.18
+				sun.rotation_degrees = Vector3(-32.0, 38.0, 0.0)
+				sun.light_energy = 2.90
 				sun.light_color = Color(0.96, 0.86, 0.68)
 				sun.light_volumetric_fog_energy = 3.5
 	# Unified ACES grade + per-map Height Fog: high key-to-fill separation keeps
 	# armour, trenches and bunkers sharp against grass and mud at FPV altitude.
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = clampf(env.tonemap_exposure, 0.96, 1.05)
+	env.tonemap_exposure = clampf(env.tonemap_exposure, 1.12, 1.28)
 	env.tonemap_white = 1.65
 	env.background_energy_multiplier = bg_energy
 	env.ambient_light_color = amb_col
@@ -1308,21 +1308,22 @@ func _tune_map_environment() -> void:
 	env.fog_height = fog_h
 	env.fog_height_density = fog_h_dens * 0.72
 	env.fog_aerial_perspective = maxf(env.fog_aerial_perspective, 0.34)
-	env.ambient_light_energy = clampf(env.ambient_light_energy, 0.54, 0.78)
+	env.ambient_light_energy = clampf(env.ambient_light_energy, 0.86, 1.12)
 	env.ambient_light_sky_contribution = maxf(env.ambient_light_sky_contribution, 0.72)
 	if OS.get_name() == "iOS" or OS.has_feature("mobile") or OS.has_environment("MOBILE_UI"):
 		env.glow_enabled = false
 	env.adjustment_enabled = true
 	env.adjustment_contrast = contrast
 	env.adjustment_saturation = saturation
-	env.adjustment_brightness = 1.0
+	env.adjustment_brightness = 1.06
 	if sun != null:
-		sun.light_energy = clampf(sun.light_energy, 1.8, 2.55)
+		sun.light_energy = clampf(sun.light_energy, 2.6, 3.35)
 		var mtn := get_node_or_null("FrontlineTerrain/MountainBackdrop") as MeshInstance3D
 		if mtn != null and mtn.material_override is ShaderMaterial:
 			var mmat := mtn.material_override as ShaderMaterial
 			mmat.set_shader_parameter("sun_dir", sun.basis.z.normalized())
 			mmat.set_shader_parameter("sun_scatter_color", sun.light_color)
+			mmat.set_shader_parameter("night_dim", 1.0)
 	# Cool sky-bounce fill opposing the key sun: shapes shaded walls/tumrets
 	# without flattening directional contrast.
 	var fill := get_node_or_null("FillLight") as DirectionalLight3D
@@ -1344,9 +1345,9 @@ func _tune_map_environment() -> void:
 	if OS.get_name() == "iOS" or OS.has_feature("mobile") or OS.has_environment("MOBILE_UI"):
 		env.adjustment_contrast = clampf(contrast - 0.03, 1.0, 1.12)
 		env.adjustment_saturation = clampf(saturation + 0.02, 1.0, 1.18)
-		env.adjustment_brightness = 1.035
-		env.tonemap_exposure = clampf(env.tonemap_exposure + 0.06, 1.02, 1.14)
-		env.ambient_light_energy = clampf(env.ambient_light_energy + 0.07, 0.62, 0.86)
+		env.adjustment_brightness = 1.07
+		env.tonemap_exposure = clampf(env.tonemap_exposure + 0.06, 1.16, 1.30)
+		env.ambient_light_energy = clampf(env.ambient_light_energy + 0.07, 0.90, 1.05)
 		env.ambient_light_color = amb_col
 		fill.light_color = fill_col
 		fill.light_energy = fill_energy + 0.06
@@ -4841,11 +4842,20 @@ func _apply_weather() -> void:
 				we.environment.fog_density = maxf(we.environment.fog_density, 0.0026)
 				we.environment.fog_light_color = Color(0.40, 0.45, 0.54)
 			3:
+				# Night missions (special missions 5 & 12): explicitly re-assert
+				# the dark palette after the brighter daytime grade above.
+				we.environment.tonemap_exposure = 1.0
+				we.environment.adjustment_brightness = 0.96
 				we.environment.ambient_light_energy = 0.14
 				we.environment.background_energy_multiplier = 0.08
 				we.environment.fog_light_color = Color(0.04, 0.06, 0.10)
 				if fill != null:
 					fill.light_energy = 0.04
+				# The unshaded mountain backdrop ignores lights/fog: dim it here
+				# or the ridges stay daylight-white under the night sky.
+				var mtn := get_node_or_null("FrontlineTerrain/MountainBackdrop") as MeshInstance3D
+				if mtn != null and mtn.material_override is ShaderMaterial:
+					(mtn.material_override as ShaderMaterial).set_shader_parameter("night_dim", 0.10)
 			4:
 				we.environment.fog_density = maxf(we.environment.fog_density, 0.0024)
 				we.environment.fog_light_color = Color(0.76, 0.65, 0.48)

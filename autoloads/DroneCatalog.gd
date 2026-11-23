@@ -59,7 +59,7 @@ const PRESETS := [
 	{
 		"id": "grim7m",
 		"parts_profile": 6,
-		"audio_kind": 6,
+		"audio_kind": 7,
 		"prop_tint": Color(0.17, 0.18, 0.20),
 		"motor_tint": Color(0.14, 0.15, 0.17),
 		"body_prop_tint": Color(0.20, 0.20, 0.22),
@@ -89,7 +89,7 @@ const PRESETS := [
 	{
 		"id": "strila8",
 		"parts_profile": 7,
-		"audio_kind": 6,
+		"audio_kind": 8,
 		"prop_tint": Color(0.68, 0.19, 0.02),
 		"motor_tint": Color(0.20, 0.16, 0.12),
 		"body_prop_tint": Color(0.22, 0.23, 0.25),
@@ -179,7 +179,7 @@ const PRESETS := [
 	{
 		"id": "military_fpv",
 		"parts_profile": 11,
-		"audio_kind": 6,
+		"audio_kind": 9,
 		"prop_tint": Color(0.24, 0.29, 0.20),
 		"motor_tint": Color(0.16, 0.19, 0.15),
 		"body_prop_tint": Color(0.22, 0.26, 0.19),
@@ -275,7 +275,7 @@ const PRESETS := [
 	{
 		"id": "furia",
 		"parts_profile": 14,
-		"audio_kind": 3,
+		"audio_kind": 10,
 		"prop_tint": Color(0.42, 0.45, 0.46),
 		"motor_tint": Color(0.20, 0.21, 0.22),
 		"pusher": true,
@@ -342,7 +342,7 @@ const PRESETS := [
 	# combat:false + uman_only:true — жодних бойових режимів і місій.
 	# fpv_show_airframe:true + зсув камери назад — у польоті видно обертові гвинти.
 	{
-		"id": "freestyle_3", "parts_profile": 0, "audio_kind": 0,
+		"id": "freestyle_3", "parts_profile": 0, "audio_kind": 11,
 		"prop_tint": Color(0.07, 0.09, 0.09),
 		"motor_tint": Color(0.12, 0.14, 0.16),
 		"body_prop_tint": Color(0.10, 0.12, 0.12),
@@ -368,7 +368,7 @@ const PRESETS := [
 		"keep_native_props": true, "uman_only": true,
 	},
 	{
-		"id": "freestyle_5", "parts_profile": 9, "audio_kind": 0,
+		"id": "freestyle_5", "parts_profile": 9, "audio_kind": 12,
 		"prop_tint": Color(0.10, 0.48, 0.24),
 		"motor_tint": Color(0.10, 0.18, 0.12),
 		"body_prop_tint": Color(0.20, 0.22, 0.24),
@@ -394,7 +394,7 @@ const PRESETS := [
 		"keep_native_props": true, "uman_only": true,
 	},
 	{
-		"id": "freestyle_7", "parts_profile": 6, "audio_kind": 0,
+		"id": "freestyle_7", "parts_profile": 6, "audio_kind": 13,
 		"prop_tint": Color(0.17, 0.18, 0.20),
 		"motor_tint": Color(0.14, 0.15, 0.17),
 		"body_prop_tint": Color(0.22, 0.24, 0.26),
@@ -427,6 +427,40 @@ func preset(index: int) -> Dictionary:
 	var result: Dictionary = custom_presets[index] \
 			if custom_presets.has(index) else PRESETS[idx]
 	return result
+
+
+## Recorded 5" motor loops are a single take.  Each airframe re-pitches and
+## re-levels that take so a jet, a pusher wing or a 28" hexacopter does not
+## sound like the same recorded 5" racer.  Jet/wings/USV are attenuated hard so
+## the distinctive synthesised turbine/pusher layer in Drone leads cleanly.
+func get_recorded_motor_profile(index: int) -> Dictionary:
+	var p := preset(index)
+	var kind := int(p.get("audio_kind", 0))
+	match kind:
+		4, 3, 10, 2:  # jet, fixed-wing pushers, USV waterjet
+			return {"pitch_mult": 1.00, "gain_db": -36.0}
+		5:  # heavy hexacopter bomber
+			return {"pitch_mult": 0.62, "gain_db": -22.0}
+		11:  # 3" micro cinewhoop
+			return {"pitch_mult": 1.38, "gain_db": -5.0}
+		0:  # 5" combat freestyle (baseline recording)
+			return {"pitch_mult": 1.00, "gain_db": 0.0}
+		12:  # 5" juicy freestyle
+			return {"pitch_mult": 1.06, "gain_db": -2.0}
+		6:  # GRIM-7 long range
+			return {"pitch_mult": 0.86, "gain_db": -3.0}
+		7:  # GRIM-7M high KV
+			return {"pitch_mult": 0.91, "gain_db": -3.0}
+		13:  # 7" cinematic cruiser
+			return {"pitch_mult": 0.83, "gain_db": -3.0}
+		8:  # STRILA-8 tri-blade
+			return {"pitch_mult": 0.76, "gain_db": -5.0}
+		9:  # 10" heavy military lifter
+			return {"pitch_mult": 0.69, "gain_db": -5.0}
+		1:  # VTOL twin-prop
+			return {"pitch_mult": 0.80, "gain_db": -5.0}
+		_:
+			return {"pitch_mult": 1.00, "gain_db": 0.0}
 
 
 func _is_mobile_platform() -> bool:
@@ -576,6 +610,28 @@ func _load_saved_builder_preset() -> void:
 		var twr: float = float(ttx.get("twr", 5.0))
 		var is_combat: bool = bool(ttx.get("is_combat", false))
 		var has_drop: bool = bool(ttx.get("has_drop", false))
+		# Custom builds must sound like their own airframe, not like the stock
+		# 5" recording.  Jets/wings and hexacopters get their dedicated profile;
+		# everything else is binned by prop diameter.
+		var motor_count: int = int(ttx.get("motor_count", 4))
+		var is_jet_custom: bool = bool(ttx.get("is_jet", false))
+		var fixed_wing_custom: bool = bool(ttx.get("fixed_wing", false))
+		var prop_in: float = float(prop.get("diameter_inch", 5.1))
+		var audio_kind: int = 9
+		if is_jet_custom:
+			audio_kind = 4
+		elif fixed_wing_custom:
+			audio_kind = 3
+		elif motor_count >= 6:
+			audio_kind = 5
+		elif prop_in <= 4.0:
+			audio_kind = 11
+		elif prop_in <= 5.8:
+			audio_kind = 12
+		elif prop_in <= 7.5:
+			audio_kind = 13
+		elif prop_in <= 9.0:
+			audio_kind = 8
 		
 		var p: Dictionary = {
 			"name": "«КАСТОМ БПЛА» [%s]" % str(frame.get("name", "5\"")),
@@ -590,7 +646,8 @@ func _load_saved_builder_preset() -> void:
 				frame.get("name_en", frame.get("name", "")), motor.get("name_en", motor.get("name", "")),
 				batt.get("name_en", batt.get("name", "")), payload.get("name_en", payload.get("name", ""))
 			],
-			"dry": float(ttx.get("dry_mass_g", 410.0)) / 1000.0,
+			"audio_kind": audio_kind,
+		"dry": float(ttx.get("dry_mass_g", 410.0)) / 1000.0,
 			"batt": float(ttx.get("battery_mass_g", 180.0)) / 1000.0,
 			"kv": int(motor.get("kv_rating", 2450)),
 			"torque": float(motor.get("thrust_g", 1600)) * 0.9,

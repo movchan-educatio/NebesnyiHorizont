@@ -108,10 +108,15 @@ var _curve_preview: _ResponseCurvePreview = null
 var _expo_slider: HSlider = null
 var _super_rate_slider: HSlider = null
 var _deadzone_slider: HSlider = null
+var _smooth_slider: HSlider = null
 var _expo_val_lbl: Label = null
 var _super_rate_val_lbl: Label = null
 var _deadzone_val_lbl: Label = null
+var _smooth_val_lbl: Label = null
 var _preset_feedback_lbl: Label = null
+## True while the curve sliders are being created / synchronised from saved
+## values, so building the UI never marks the pilot's rates as custom.
+var _loading_curves := false
 
 ## ELRS WiFi / touch-stick bridge.  When no USB joypad exists, the wizard
 ## reads the virtual AETR axes instead of Input.get_joy_axis().
@@ -682,9 +687,13 @@ func _build_presets_and_curves_panel(parent: VBoxContainer, compact: bool) -> vo
 	if not cur_preset.is_empty():
 		_preset_feedback_lbl.text = _ui_text("Активний пресет: ", "Active preset: ") + cur_preset.to_upper()
 
-	var cur_expo := clampf(float(GameSettings.hud_config.get("rc_expo", QuadSettings.expo_roll)), 0.0, 0.80)
-	var cur_super := clampf(float(GameSettings.hud_config.get("rc_super_rate", 0.70)), 0.0, 0.95)
-	var cur_dz := clampf(float(GameSettings.hud_config.get("rc_deadzone", Controls.stick_deadzone)), 0.0, 0.20)
+	# Start from the authoritative saved values (this screen used to read only
+	# GameSettings, so tuning made in Quad Settings was silently overwritten).
+	QuadSettings.load_quad_settings()
+	var cur_expo := clampf(QuadSettings.expo_roll, 0.0, 0.80)
+	var cur_super := clampf((float(QuadSettings.rate_roll) - 220.0) / 780.0, 0.0, 0.95)
+	var cur_dz := clampf(Controls.stick_deadzone, 0.0, 0.25)
+	var cur_smooth := clampf(Controls.stick_smoothing, 0.0, 0.50)
 
 	var curve_grid := GridContainer.new()
 	curve_grid.columns = 3
@@ -692,12 +701,16 @@ func _build_presets_and_curves_panel(parent: VBoxContainer, compact: bool) -> vo
 	curve_grid.add_theme_constant_override("v_separation", 4)
 	vb.add_child(curve_grid)
 
+	_loading_curves = true
 	_expo_val_lbl = _add_curve_slider_row(curve_grid, _ui_text("Експо", "Expo"), 0.0, 0.80, 0.01, cur_expo, func(v: float): _on_curve_sliders_changed())
 	_expo_slider = curve_grid.get_child(1) as HSlider
 	_super_rate_val_lbl = _add_curve_slider_row(curve_grid, _ui_text("СуперРейт", "SuperRate"), 0.0, 0.95, 0.01, cur_super, func(v: float): _on_curve_sliders_changed())
 	_super_rate_slider = curve_grid.get_child(4) as HSlider
-	_deadzone_val_lbl = _add_curve_slider_row(curve_grid, _ui_text("Мертва зона", "Deadzone"), 0.0, 0.20, 0.01, cur_dz, func(v: float): _on_curve_sliders_changed())
+	_deadzone_val_lbl = _add_curve_slider_row(curve_grid, _ui_text("Мертва зона", "Deadzone"), 0.0, 0.25, 0.01, cur_dz, func(v: float): _on_curve_sliders_changed())
 	_deadzone_slider = curve_grid.get_child(7) as HSlider
+	_smooth_val_lbl = _add_curve_slider_row(curve_grid, _ui_text("Згладжування", "Smoothing"), 0.0, 0.50, 0.01, cur_smooth, func(v: float): _on_curve_sliders_changed())
+	_smooth_slider = curve_grid.get_child(10) as HSlider
+	_loading_curves = false
 
 	_curve_preview = _ResponseCurvePreview.new()
 	_curve_preview.set_params(cur_expo, cur_super, cur_dz)
@@ -732,17 +745,22 @@ func _add_curve_slider_row(grid: GridContainer, title: String, min_v: float, max
 
 
 func _on_curve_sliders_changed() -> void:
+	# Building the panel sets slider values from the saved settings; those
+	# programmatic changes must not mark a perfectly good profile as custom.
+	if _loading_curves:
+		return
 	if _expo_slider == null or _super_rate_slider == null or _deadzone_slider == null:
 		return
 	var expo := clampf(_expo_slider.value, 0.0, 0.80)
 	var super_rate := clampf(_super_rate_slider.value, 0.0, 0.95)
-	var dz := clampf(_deadzone_slider.value, 0.0, 0.20)
+	var dz := clampf(_deadzone_slider.value, 0.0, 0.25)
 	GameSettings.hud_config["rc_expo"] = expo
 	GameSettings.hud_config["rc_super_rate"] = super_rate
 	GameSettings.hud_config["rc_deadzone"] = dz
 	GameSettings.save_hud_config()
 	Controls.stick_deadzone = dz
-	Controls.save_input_map()
+	if _smooth_slider != null:
+		Controls.stick_smoothing = clampf(_smooth_slider.value, 0.0, 0.50)
 	var target_rate := int(clampf(220.0 + super_rate * 780.0, 220.0, 1000.0))
 	QuadSettings.rate_pitch = target_rate
 	QuadSettings.rate_roll = target_rate
@@ -750,8 +768,11 @@ func _on_curve_sliders_changed() -> void:
 	QuadSettings.expo_pitch = expo
 	QuadSettings.expo_roll = expo
 	QuadSettings.expo_yaw = expo
+	QuadSettings.flight_preset = "custom"
 	QuadSettings.custom_rates = true
+	GameSettings.clear_mobile_rate_source()
 	QuadSettings.save_quad_settings()
+	Controls.save_bindings()
 	if _curve_preview != null:
 		_curve_preview.set_params(expo, super_rate, dz)
 
@@ -1403,12 +1424,8 @@ func _on_calibration_done() -> void:
 
 		for action in ["throttle_up", "throttle_down", "yaw_left", "yaw_right", "pitch_up", "pitch_down", "roll_left", "roll_right"]:
 			InputMap.action_set_deadzone(action, Controls.stick_deadzone)
-		# A correct calibration gives an exact neutral, so a huge deadband that was
-		# set to mask centre drift is no longer needed.  Leaving it at e.g. 0.25
-		# would itself feel like a dead spot for the first quarter of stick travel.
-		if Controls.stick_deadzone > 0.10:
-			Controls.stick_deadzone = Controls.MOBILE_STICK_DEADZONE \
-					if MenuUI.is_mobile_ui() else Controls.DEFAULT_STICK_DEADZONE
+		# The pilot's chosen deadband is preserved through calibration: forcing it
+		# back to the default here discarded a deliberately tuned setting.
 		Controls.refresh_stick_bindings()
 		Controls.reset_stick_filters()
 		Controls.restore_keyboard_shortcuts()

@@ -170,6 +170,60 @@ func save_hud_config() -> void:
 		Global.log_error(err, "Error while saving HUD config.")
 
 
+# ------------------------------------------- mobile rate-profile ownership --
+# The mobile menu mirrors its active rate profile into the shared Quad.cfg so
+# flight uses the phone profiles.  Track which tab owns that mirror, plus a
+# snapshot of the desktop feel it replaced, so the radio/touch tabs never
+# cross-contaminate and the desktop menu can restore its own rates.
+
+func mobile_rate_source() -> String:
+	return str(hud_config.get("mobile_rate_source", ""))
+
+
+## Called by MobileMenu BEFORE it overwrites QuadSettings with a phone profile.
+func set_mobile_rate_source(tab: String) -> void:
+	if not hud_config.has("mobile_prev_quad"):
+		hud_config["mobile_prev_quad"] = {
+			"custom_rates": QuadSettings.custom_rates,
+			"rate_roll": QuadSettings.rate_roll,
+			"rate_pitch": QuadSettings.rate_pitch,
+			"rate_yaw": QuadSettings.rate_yaw,
+			"expo_roll": QuadSettings.expo_roll,
+			"expo_pitch": QuadSettings.expo_pitch,
+			"expo_yaw": QuadSettings.expo_yaw,
+		}
+	hud_config["mobile_rate_source"] = tab
+	save_hud_config()
+
+
+## Desktop edits (sliders, calibration, reset) take ownership back.
+func clear_mobile_rate_source() -> void:
+	if not hud_config.has("mobile_rate_source") and not hud_config.has("mobile_prev_quad"):
+		return
+	hud_config.erase("mobile_rate_source")
+	hud_config.erase("mobile_prev_quad")
+	save_hud_config()
+
+
+## Desktop menu entry: undo a mobile-owned mirror so the PC keeps its own feel.
+func restore_desktop_rates_if_mobile_owned() -> bool:
+	var src := mobile_rate_source()
+	if src != "radio" and src != "touch":
+		return false
+	var snap: Dictionary = hud_config.get("mobile_prev_quad", {})
+	if not snap.is_empty():
+		QuadSettings.custom_rates = bool(snap.get("custom_rates", false))
+		QuadSettings.rate_roll = int(snap.get("rate_roll", QuadSettings.rate_roll))
+		QuadSettings.rate_pitch = int(snap.get("rate_pitch", QuadSettings.rate_pitch))
+		QuadSettings.rate_yaw = int(snap.get("rate_yaw", QuadSettings.rate_yaw))
+		QuadSettings.expo_roll = float(snap.get("expo_roll", QuadSettings.expo_roll))
+		QuadSettings.expo_pitch = float(snap.get("expo_pitch", QuadSettings.expo_pitch))
+		QuadSettings.expo_yaw = float(snap.get("expo_yaw", QuadSettings.expo_yaw))
+		QuadSettings.save_quad_settings()
+	clear_mobile_rate_source()
+	return true
+
+
 ## Derive the closest preset from the individual simulator aids.  Manual
 ## changes outside a preset are reported as "custom" so the menu can say so.
 func infer_realism_profile() -> String:

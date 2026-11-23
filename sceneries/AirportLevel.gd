@@ -30,7 +30,7 @@ func _map_path() -> String:
 func _apply_map_materials(node: Node) -> void:
 	if node == null:
 		return
-	var tarmac_mat := (FrontlineTerrainScript._pbr("hall_concrete", Color(0.56, 0.55, 0.52), 0.06) as StandardMaterial3D).duplicate() as StandardMaterial3D
+	var tarmac_mat := (FrontlineTerrainScript._pbr("hall_concrete", Color(0.65, 0.64, 0.61), 0.06) as StandardMaterial3D).duplicate() as StandardMaterial3D
 	tarmac_mat.uv1_triplanar = true
 	tarmac_mat.uv1_world_triplanar = true
 	tarmac_mat.uv1_scale = Vector3(0.06, 0.06, 0.06)
@@ -80,6 +80,7 @@ func _ensure_airport_props_built() -> void:
 	_replace_trees()
 	_spawn_detailed_props()
 	_build_airport_historical_landmarks()
+	_build_airport_freestyle_zones()
 
 
 func _ready() -> void:
@@ -570,14 +571,23 @@ func _apply_airport_grade() -> void:
 		var env := we.environment
 		env.fog_enabled = true
 		env.fog_light_color = Color(0.74, 0.67, 0.57, 1.0)
-		env.fog_density = 0.0013
-		env.tonemap_exposure = 0.95
-		env.background_energy_multiplier = 0.72
+		env.fog_density = 0.00055
+		env.tonemap_mode = Environment.TONE_MAPPER_ACES
+		env.tonemap_exposure = 1.20
+		env.ambient_light_energy = 0.96
+		env.ambient_light_sky_contribution = 0.76
+		env.background_energy_multiplier = 1.04
+		env.adjustment_enabled = true
+		env.adjustment_brightness = 1.06
+		env.adjustment_contrast = 1.04
 	var sun := get_node_or_null("Sun") as DirectionalLight3D
 	if sun != null:
-		sun.rotation_degrees = Vector3(-42.0, -28.0, 18.0)
+		sun.rotation_degrees = Vector3(-38.0, -28.0, 12.0)
 		sun.light_color = Color(1.0, 0.86, 0.72, 1.0)
-		sun.light_energy = 2.1
+		sun.light_energy = 3.05
+	var fill := get_node_or_null("FillLight") as DirectionalLight3D
+	if fill != null:
+		fill.light_energy = 0.56
 
 
 func _build_airport_collision() -> void:
@@ -592,7 +602,7 @@ func _build_airport_collision() -> void:
 	var flat_cells: Dictionary = {}
 	var has_floor := false
 	for mi in meshes:
-		if mi.name in HIDDEN_DEC:
+		if mi.name in HIDDEN_DEC or mi.name == "COL__M_Glass":
 			continue
 		if mi.name in ["DEC__M_Hill", "DEC__M_FarHill", "DEC__M_FarConc",
 			"DEC__M_Green", "DEC__M_Ground"]:
@@ -970,8 +980,10 @@ func _build_airport_historical_landmarks() -> void:
 
 	var depot_mesh := _get_airport_landmark_mesh("FuelDepot")
 	if depot_mesh != null:
-		_add_sculpted_landmark_mesh(depot, "FuelDepotCisterns", depot_mesh, mat_depot_vcol, true)
-	_add_airport_landmark_collider(depot, Vector3(0.0, 2.5, 0.0), Vector3(24.0, 5.0, 16.0))
+		var depot_mi := _add_sculpted_landmark_mesh(depot, "FuelDepotCisterns",
+				depot_mesh, mat_depot_vcol, true)
+		# An exact trimesh keeps the passages between / above the cisterns open.
+		_add_trimesh_collider_to_mesh(depot_mi)
 	FrontlineTerrainScript.register_structure_exclusion(
 			Vector2(depot_pos.x, depot_pos.z), Vector2(13.0, 9.0), 6.0)
 
@@ -1040,7 +1052,9 @@ func _build_airport_historical_landmarks() -> void:
 
 	var hangar_mesh := _get_airport_landmark_mesh("RuinedHangarFrame")
 	if hangar_mesh != null:
-		_add_sculpted_landmark_mesh(wrecks, "RuinedHangarFrame", hangar_mesh, mat_hangar_vcol, true)
+		var hangar_mi := _add_sculpted_landmark_mesh(wrecks, "RuinedHangarFrame",
+				hangar_mesh, mat_hangar_vcol, true)
+		_add_trimesh_collider_to_mesh(hangar_mi)
 
 	var aircraft_mesh := _get_airport_landmark_mesh("AircraftWreck")
 	if aircraft_mesh != null:
@@ -1054,13 +1068,89 @@ func _build_airport_historical_landmarks() -> void:
 			var yaw: float = float(p_spec[1])
 			var xf := Transform3D(Basis(Vector3.UP, yaw), p_off)
 			st_planes.append_from(aircraft_mesh, 0, xf)
-		_commit_st_mesh(wrecks, "RuinedAircraftBodies", st_planes, mat_aircraft_vcol, true)
-	_add_airport_landmark_collider(wrecks, Vector3(-5.5, 2.2, -3.5), Vector3(8.0, 4.4, 16.5))
-	_add_airport_landmark_collider(wrecks, Vector3(6.2, 2.2, 4.5), Vector3(8.0, 4.4, 16.5))
-	_add_airport_landmark_collider(wrecks, Vector3(-14.0, 5.2, 0.0), Vector3(1.0, 10.4, 25.0))
-	_add_airport_landmark_collider(wrecks, Vector3(14.0, 5.2, 0.0), Vector3(1.0, 10.4, 25.0))
+		var bodies_mi := _commit_st_mesh(wrecks, "RuinedAircraftBodies",
+				st_planes, mat_aircraft_vcol, true)
+		_add_trimesh_collider_to_mesh(bodies_mi)
 	FrontlineTerrainScript.register_structure_exclusion(
 			Vector2(wrecks_pos.x, wrecks_pos.z), Vector2(15.5, 13.5), 12.5)
+
+
+## Aviation / airfield-themed freestyle flow zones across the open apron and
+## field sectors.  Each site is verified by _pick_clear_airport_landmark_pos
+## (spawn, runway corridor, units and existing colliders) and anchored at
+## _ground_y - 0.15 so foundations sit flush in the tarmac.  Exclusions keep
+## later world-detail passes from growing through the fly-through structures.
+func _build_airport_freestyle_zones() -> void:
+	if get_node_or_null("AirportFreestyleZones") != null:
+		return
+	var ms = load("res://scripts/util/military_structures.gd")
+	if ms == null:
+		return
+	var zones := Node3D.new()
+	zones.name = "AirportFreestyleZones"
+	add_child(zones)
+
+	var specs: Array = [
+		# [anchor, footprint radius, builder name, id]
+		[Vector2(-165.0, -75.0), 16.0, "build_fpv_slalom_gate_course", "slalom"],
+		[Vector2(165.0, -75.0), 18.0, "build_fortified_helipad_hangar", "helipad"],
+		[Vector2(-165.0, 90.0), 16.0, "build_pipeline_powerloop_arch", "powerloop"],
+		[Vector2(165.0, 95.0), 16.0, "build_concrete_pipe_culvert_course", "culverts"],
+		[Vector2(-90.0, 170.0), 18.0, "build_heavy_radar_gci_complex", "radar_dive"],
+		[Vector2(110.0, 175.0), 16.0, "build_damaged_hangar_arch", "hangar_arch"],
+		[Vector2(0.0, 75.0), 16.0, "build_scaffolding_freestyle_cube", "scaffold_cube"],
+	]
+	for spec in specs:
+		var anchor: Vector2 = spec[0]
+		var radius: float = float(spec[1])
+		var builder: String = String(spec[2])
+		var id: String = String(spec[3])
+		var site := _pick_clear_airport_landmark_pos(anchor, radius)
+		var pos := Vector3(site.x, _ground_y - 0.15, site.z)
+		var zone := Node3D.new()
+		zone.name = "AirportFreestyle_" + id
+		zone.position = pos
+		zones.add_child(zone)
+		zone.rotation.y = atan2(anchor.x, anchor.y)
+		ms.call(builder, zone, Vector3.ZERO, 0.0)
+		FrontlineTerrainScript.register_structure_exclusion(
+				Vector2(pos.x, pos.z), Vector2(radius, radius), 34.0)
+	return
+
+
+## Exact hollow collision for the sculpted landmark meshes: a single convex /
+## AABB hull used to seal the gaps between fuel cisterns and the whole interior
+## bay of the ruined hangar.  All surfaces are merged so multi-material GLBs
+## keep every opening, and the shape lives under the mesh it describes.
+func _add_trimesh_collider_to_mesh(mi: MeshInstance3D) -> void:
+	if mi == null or mi.mesh == null or not mi.is_inside_tree():
+		return
+	if mi.find_child("LandmarkTrimeshCol", true, false) != null:
+		return
+	mi.force_update_transform()
+	var mesh := mi.mesh
+	var shape: ConcavePolygonShape3D = null
+	if mesh.get_surface_count() <= 1:
+		shape = mesh.create_trimesh_shape() as ConcavePolygonShape3D
+	else:
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for s in range(mesh.get_surface_count()):
+			st.append_from(mesh, s, Transform3D.IDENTITY)
+		var merged := st.commit()
+		if merged != null:
+			shape = merged.create_trimesh_shape() as ConcavePolygonShape3D
+	if shape == null:
+		return
+	shape.backface_collision = true
+	var body := StaticBody3D.new()
+	body.name = "LandmarkTrimeshCol"
+	body.collision_layer = 1
+	body.collision_mask = 1
+	var cs := CollisionShape3D.new()
+	cs.shape = shape
+	body.add_child(cs)
+	mi.add_child(body)
 
 
 func _add_airport_landmark_collider(parent: Node3D, local_pos: Vector3,

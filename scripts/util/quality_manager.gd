@@ -334,7 +334,7 @@ static func _apply_static_sky(env: Environment) -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.ambient_light_color = Color(0.46, 0.58, 0.78)
 	env.ambient_light_sky_contribution = 0.78
-	env.ambient_light_energy = 0.72
+	env.ambient_light_energy = 0.95
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 
 
@@ -385,10 +385,11 @@ static func apply_environment(env: Environment) -> void:
 		env.ssil_intensity = 1.15 if p["ssil"] else 0.0
 		env.volumetric_fog_enabled = p["volumetric_fog"]
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env.tonemap_exposure = 1.18
 	env.adjustment_enabled = true
 	env.adjustment_contrast = 1.07
 	env.adjustment_saturation = 1.10
-	env.adjustment_brightness = 1.01
+	env.adjustment_brightness = 1.05
 	env.glow_enabled = p["glow"]
 	if p["volumetric_fog"]:
 		# Height fog over the steppe: dense near the ground, thin at altitude,
@@ -528,3 +529,8 @@ static func apply_to_scene(scene_root: Node, _override_lvl: int = -1) -> void:
 	if scene_root.has_method("on_quality_applied"):
 		scene_root.call("on_quality_applied")
 	print("[Quality] preset=", NAMES[level()], " scale3d=", p["scale_3d"])
+
+
+## QA-only: drop the static sky material cache before a headless test exits.
+static func qa_clear_caches() -> void:
+	_static_sky_materials.clear()

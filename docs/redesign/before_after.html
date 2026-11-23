@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Точковий before/after — мобільне меню «Небесний горизонт»</title>
+<style>
+  :root{--bg:#070b0a;--card:#0e1613;--stroke:#283c32;--ink:#e9f0ea;--dim:#9aab9f;--amber:#e2b96a;--green:#bcd59b}
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1000px 500px at 50% -10%,#15231b,#070b0a 60%);
+       color:var(--ink);font:15px/1.55 "Segoe UI",system-ui,sans-serif}
+  .wrap{max-width:1500px;margin:0 auto;padding:26px 22px 80px}
+  header{padding:26px 0 16px;border-bottom:1px solid var(--stroke);margin-bottom:20px}
+  h1{margin:0 0 6px;font-size:28px;font-weight:650}
+  header p{margin:0;color:var(--dim);max-width:1000px}
+  .note{background:#1e1a0c;border:1px solid #6d5a26;border-radius:11px;padding:12px 16px;
+        margin:16px 0 26px;color:#f1e2b4;font-size:13.5px}
+  .note b{color:#ffd77a}
+  nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:30px}
+  nav a{text-decoration:none;color:var(--ink);border:1px solid var(--stroke);background:var(--card);
+        padding:7px 13px;border-radius:999px;font-size:12.5px}
+  nav a:hover{border-color:var(--amber);color:var(--amber)}
+  section{margin-bottom:48px;scroll-margin-top:18px}
+  h2{font-size:21px;margin:0 0 4px;font-weight:650}
+  h2 .n{color:var(--amber);font-size:13px;margin-right:9px;vertical-align:3px}
+  .sub{color:var(--dim);margin:0 0 14px;max-width:980px;font-size:14px}
+  .cmp{background:var(--card);border:1px solid var(--stroke);border-radius:13px;padding:14px}
+  .cmp-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+  .cmp-head .lab{font-size:12px;letter-spacing:.8px;text-transform:uppercase;color:var(--dim)}
+  .cmp-head .lab b{color:var(--green)}
+  .slider-row{display:flex;align-items:center;gap:12px;margin-top:12px;font-size:12px;color:var(--dim)}
+  .slider-row input{flex:1;accent-color:var(--amber)}
+  .stage{position:relative;width:100%;aspect-ratio:2340/1080;overflow:hidden;border-radius:8px;background:#000}
+  .stage img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+  .stage img.top{clip-path:inset(0 50% 0 0)}
+  .stage .tag{position:absolute;top:10px;left:10px;background:#000b;border:1px solid #ffffff33;
+       border-radius:6px;padding:4px 9px;font-size:11px;letter-spacing:1px;z-index:3}
+  .stage .tag.r{left:auto;right:10px;color:var(--amber);border-color:var(--amber)}
+  .divider{position:absolute;top:0;bottom:0;width:2px;background:var(--amber);z-index:2;pointer-events:none;
+       box-shadow:0 0 12px var(--amber)}
+  ul.changes{margin:12px 0 0;padding-left:20px;color:var(--dim);font-size:13px}
+  ul.changes li{margin:4px 0}
+  ul.changes b{color:var(--ink);font-weight:600}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .mini{background:var(--card);border:1px solid var(--stroke);border-radius:11px;padding:12px}
+  .mini img{width:100%;display:block;border-radius:6px;border:1px solid #ffffff18}
+  .mini .cap{font-size:12px;color:var(--dim);margin-bottom:8px}
+  .mini .cap b{color:var(--green)}
+  .table{width:100%;border-collapse:collapse;font-size:13px;background:var(--card);border:1px solid var(--stroke)}
+  th,td{border-bottom:1px solid var(--stroke);padding:10px 12px;text-align:left}
+  th{color:var(--amber);font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+  td:first-child{color:var(--dim);width:25%}
+  code{background:#0008;padding:1px 5px;border-radius:4px;color:var(--green)}
+  .endnote{color:var(--dim);font-size:12px;margin-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Точковий before/after — мобільне меню</h1>
+  <p>Усі зображення нижче — ваші реальні скріншоти з поточної версії гри. «ПІСЛЯ» —Rolls ті самі PNG
+     з точковими правками, зробленими поверх зображення. Це ті самі PNG. Гра, сцени та код не змінені.</p>
+</header>
+<div class="note"><b>Лише пропозиція.</b> Це окремий HTML-файл <code>docs/redesign/before_after.html</code>.
+  Жодного рядка в <code>MobileMenu.gd</code>, <code>.tscn</code> чи іконках не змінено.
+  Розкладка, кількість кнопок і всі функції лишаються незмінними.</div>
+
+<nav>
+  <a href="#font">1. Шрифт</a>
+  <a href="#chips">2. Чіпи ELRS / ВХІД</a>
+  <a href="#cta">3. Головна дія</a>
+  <a href="#buttons">4. Форма кнопок</a>
+  <a href="#full">5. Повні екрани</a>
+  <a href="#code">6. Що саме зміниться в коді</a>
+</nav>
+
+<section id="font">
+  <h2><span class="n">01</span>Дрібний шрифт у «Керуванні» та «Рейтах»</h2>
+  <p class="sub">Розкладка не змінюється. Збільшено лише кегль підписів каналів/функцій і значень рейтів —
+     ті самі рядки на тих самих місцях. Тягніть повзунок, щоб порівняти.</p>
+  <div class="two">
+    <div class="cmp">
+      <div class="cmp-head"><span class="lab">КЕРУВАННЯ · <b>ДО / ПІСЛЯ</b></span></div>
+      <div class="stage" data-pair="controls">
+        <img src="current/mobile/controls.png" alt="до">
+        <img class="top" src="after/controls.png" alt="після">
+        <span class="tag">ДО</span><span class="tag r">ПІСЛЯ</span><div class="divider"></div>
+      </div>
+      <div class="slider-row"><span>ДО</span><input type="range" min="0" max="100" value="50"><span>ПІСЛЯ</span></div>
+    </div>
+    <div class="cmp">
+      <div class="cmp-head"><span class="lab">РЕЙТИ · <b>ДО / ПІСЛЯ</b></span></div>
+      <div class="stage" data-pair="rates">
+        <img src="current/mobile/rates.png" alt="до">
+        <img class="top" src="after/rates.png" alt="після">
+        <span class="tag">ДО</span><span class="tag r">ПІСЛЯ</span><div class="divider"></div>
+      </div>
+      <div class="slider-row"><span>ДО</span><input type="range" min="0" max="100" value="50"><span>ПІСЛЯ</span></div>
+    </div>
+  </div>
+  <ul class="changes">
+    <li><b>Керування:</b> <code>ОСНОВНІ КАНАЛИ СТІКІВ</code>, <code>КРЕН (ROLL)</code>, <code>ТАНГАЖ (PITCH)</code>,
+        <code>ГАЗ (THROTTLE)</code>, <code>РИСКАННЯ (YAW)</code>, блок <code>БОЙОВІ ФУНКЦІЇ…</code> — +~25% до кегля.</li>
+    <li><b>Рейти:</b> <code>ROLL/PITCH/YAW RATE</code> і <code>… EXPO</code> — +~25% до кегля.</li>
+    <li>Слайдери, поля <code>CH 1..4</code>, кнопки <code>АВТО / ІНВЕРТ</code> і пресони не рухаються.</li>
+  </ul>
+</section>
+
+<section id="chips">
+  <h2><span class="n">02</span>Контраст чіпів ELRS / ВХІД</h2>
+  <p class="sub">Ті самі 4 чіпи у правому куті. Замість темного напівпрозорого тла — щільне тло,
+     яскрава рамка й більший текст. Статус підключення читається з першого погляду.</p>
+  <div class="cmp">
+    <div class="cmp-head"><span class="lab">ГОЛОВНА · <b>ДО / ПІСЛЯ</b></span></div>
+    <div class="stage" data-pair="main">
+      <img src="current/mobile/main.png" alt="до">
+      <img class="top" src="after/main.png" alt="після">
+      <span class="tag">ДО</span><span class="tag r">ПІСЛЯ</span><div class="divider"></div>
+    </div>
+    <div class="slider-row"><span>ДО</span><input type="range" min="0" max="100" value="50"><span>ПІСЛЯ</span></div>
+  </div>
+  <ul class="changes">
+    <li><b>РЕКОРДИ</b> — бурштинова рамка, текст крупніший.</li>
+    <li><b>UA</b> — зелений акцент.</li>
+    <li><b>ELRS: НЕМАЄ / ВХІД: —</b> — щільне тло + яскрава обводка; у грі кольори синхронізуються зі станом (підключено = зелений).</li>
+  </ul>
+</section>
+
+<section id="cta">
+  <h2><span class="n">03</span>ПОЧАТИ ВИЛІТ як єдина головна дія</h2>
+  <p class="sub">Жодної нової кнопки. Існуюча кнопка отримує світлу обводку й м'яке світіння —
+     вона стає очевидним наступним кроком серед 16 елементів екрана «Операції».</p>
+  <div class="cmp">
+    <div class="cmp-head"><span class="lab">ОПЕРАЦІЇ · <b>ДО / ПІСЛЯ</b></span></div>
+    <div class="stage" data-pair="play">
+      <img src="current/mobile/play.png" alt="до">
+      <img class="top" src="after/play.png" alt="після">
+      <span class="tag">ДО</span><span class="tag r">ПІСЛЯ</span><div class="divider"></div>
+    </div>
+    <div class="slider-row"><span>ДО</span><input type="range" min="0" max="100" value="50"><span>ПІСЛЯ</span></div>
+  </div>
+  <ul class="changes">
+    <li>Обводка <code>2–4 px</code> кольору <code>#e2b96a</code> + <code>blur 9 px</code> навколо.</li>
+    <li>Розмір, позиція, текст і <code>pressed.connect(_launch)</code> не змінюються.</li>
+  </ul>
+</section>
+
+<section id="buttons">
+  <h2><span class="n">04</span>Форма й розмір кнопок між екранами</h2>
+  <p class="sub">Кнопки вже мають схожий стиль, але на різних екранах радіус і товщина межі трохи «плавають».
+     Нижче — приклад вирівнювання до єдиного радіуса <code>14 px</code> і межі <code>3 px</code> без зміни розташування.</p>
+  <div class="two">
+    <div class="mini"><div class="cap"><b>ДО</b> · кнопки з різними межами</div>
+      <img src="current/mobile/controls.png" alt="до"></div>
+    <div class="mini"><div class="cap"><b>ПІСЛЯ</b> · єдиний радіус/межа (див. підсвічені кнопки)</div>
+      <img src="after/controls.png" alt="після"></div>
+    <div class="mini"><div class="cap"><b>ДО</b> · Рейти</div>
+      <img src="current/mobile/rates.png" alt="до"></div>
+    <div class="mini"><div class="cap"><b>ПІСЛЯ</b> · Рейти</div>
+      <img src="after/rates.png" alt="після"></div>
+  </div>
+</section>
+
+<section id="full">
+  <h2><span class="n">05</span>Повні екрани — будь-який знімок</h2>
+  <p class="sub">Оберіть екран і порівняйте цілий кадр. Ліворуч — оригінал, праворуч — пропозиція.</p>
+  <div class="cmp">
+    <div class="cmp-head">
+      <span class="lab" id="fullLabel">ГОЛОВНА</span>
+      <span class="lab" style="display:flex;gap:6px;flex-wrap:wrap" id="tabs"></span>
+    </div>
+    <div class="stage" data-pair="full">
+      <img id="fullBefore" src="current/mobile/main.png" alt="до">
+      <img id="fullAfter" class="top" src="after/main.png" alt="після">
+      <span class="tag">ДО</span><span class="tag r">ПІСЛЯ</span><div class="divider"></div>
+    </div>
+    <div class="slider-row"><span>ДО</span><input type="range" min="0" max="100" value="50"><span>ПІСЛЯ</span></div>
+  </div>
+</section>
+
+<section id="code">
+  <h2><span class="n">06</span>Що саме зміниться в коді (після вашого OK)</h2>
+  <table>
+    <thead><tr><th>Зміна</th><th>Де в коді</th><th>Що НЕ змінюється</th></tr></thead>
+    <tbody>
+      <tr><td>Кегль підписів каналів/рейтів +25%</td><td><code>_label(..., 12)</code> → <code>_label(..., 15)</code> у відповідних блоках <code>MobileMenu.gd</code></td><td>Позиції рядків, слайдери, значення</td></tr>
+      <tr><td>Чіпи ELRS/ВХІД</td><td>стиль <code>_chip_panel()</code> + колір <code>_label(...)</code></td><td>Тексти станів і логіка <code>_update_status()</code></td></tr>
+      <tr><td>Обводка CTA</td><td>стиль <code>_apply_button_primary_style()</code> для кнопки запуску</td><td>Сигнал <code>pressed → _launch()</code>, розмір</td></tr>
+      <tr><td>Радіус/межа кнопок</td><td>єдиний <code>_panel_style(...)</code> / <code>StyleBoxFlat</code></td><td>Кількість і призначення кнопок</td></tr>
+    </tbody>
+  </table>
+  <p class="endnote">Після застосування — повторні скріншоти тих самих 9 станів і прогон
+     <code>qa_mobile_menus_smoke</code>, <code>qa_mobile_hangar_scroll</code>,
+     <code>qa_english_localization_full</code>.</p>
+</section>
+</div>
+
+<script>
+document.querySelectorAll('.stage').forEach(stage=>{
+  const input=stage.parentElement.querySelector('input[type=range]');
+  const top=stage.querySelector('.top');
+  const div=stage.querySelector('.divider');
+  const apply=()=>{
+    const v=Number(input.value);
+    top.style.clipPath=`inset(0 ${100-v}% 0 0)`;
+    div.style.left=`calc(${v}% - 1px)`;
+  };
+  input.addEventListener('input',apply);
+  apply();
+});
+
+const FULL=[
+  ["main","ГОЛОВНА"],["play","ОПЕРАЦІЇ"],["controls","КЕРУВАННЯ"],
+  ["rates","РЕЙТИ"],["hangar","АНГАР"],["settings","НАЛАШТУВАННЯ"]
+];
+const tabs=document.getElementById('tabs');
+tabs.innerHTML=FULL.map((f,i)=>`<button data-k="${f[0]}" style="cursor:pointer;background:#0f1a15;color:#e9f0ea;border:1px solid #283c32;border-radius:6px;padding:4px 9px;font-size:11px" class="${i===0?'on':''}">${f[1]}</button>`).join('');
+tabs.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+  tabs.querySelectorAll('button').forEach(x=>{x.style.borderColor='#283c32';x.style.color='#e9f0ea'});
+  b.style.borderColor='#e2b96a';b.style.color='#e2b96a';
+  document.getElementById('fullBefore').src='current/mobile/'+b.dataset.k+'.png';
+  document.getElementById('fullAfter').src='after/'+b.dataset.k+'.png';
+  document.getElementById('fullLabel').textContent=FULL.find(f=>f[0]===b.dataset.k)[1];
+});
+</script>
+</body>
+</html>

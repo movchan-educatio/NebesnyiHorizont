@@ -45,6 +45,15 @@ var _header_right: Label = null
 var _title_label: Label = null
 var _rates_title: Label = null
 
+## Suppresses slider callbacks while the UI is refreshed from saved values.
+## Without this, opening the menu (or switching language) would look like a
+## pilot edit and silently mark a clean rate profile as custom.
+var _syncing_ui: bool = false
+var _dz_slider: HSlider = null
+var _dz_val: Label = null
+var _sm_slider: HSlider = null
+var _sm_val: Label = null
+
 
 func _ui_text(uk: String, en: String) -> String:
 	return en if MenuUI.is_english() else uk
@@ -71,13 +80,24 @@ func _ready() -> void:
 
 	_build_flight_preset_strip()
 	_build_left_telemetry_card()
+	_build_stick_tuning_section()
+	if not Controls.settings_updated.is_connected(_sync_stick_tuning_ui):
+		Controls.settings_updated.connect(_sync_stick_tuning_ui)
 
+	# A mobile flight may own the shared Quad.cfg mirror; give the desktop its
+	# own saved feel back before the sliders read it.
+	GameSettings.restore_desktop_rates_if_mobile_owned()
 	QuadSettings.load_quad_settings()
 	update_QuadGUI()
 	update_RatesGUI()
 	rate_graph.set_rates(Vector3(pitch_slider.value, roll_slider.value, yaw_slider.value),
 			Vector3(pitch_expo_slider.value, roll_expo_slider.value, yaw_expo_slider.value))
 	MenuUI.localize_tree(self)
+
+
+func _exit_tree() -> void:
+	if Controls.settings_updated.is_connected(_sync_stick_tuning_ui):
+		Controls.settings_updated.disconnect(_sync_stick_tuning_ui)
 
 
 func _apply_military_styling() -> void:
@@ -274,6 +294,75 @@ func _refresh_summary_card() -> void:
 			float(p.get("prop_p", 4.0)), int(p.get("blades", 3)), drop_info]
 
 
+## Compact deadband / smoothing controls in the aircraft (left) column so the
+## whole flight feel can be tuned in one place.  Values live in Controls and
+## are persisted with Controls.save_bindings().
+func _build_stick_tuning_section() -> void:
+	if quad_grid == null:
+		return
+	quad_grid.add_child(MenuUI.body(
+			_ui_text("МЕРТВА ЗОНА / ЗГЛАДЖУВАННЯ", "DEADBAND / SMOOTHING"),
+			13, MenuUI.FPV_GREEN))
+	quad_grid.add_child(MenuUI.body("", 13, MenuUI.TEXT))
+	quad_grid.add_child(MenuUI.body("", 13, MenuUI.TEXT))
+
+	quad_grid.add_child(MenuUI.body(_ui_text("Мертва зона:", "Deadband:"), 13, MenuUI.TEXT))
+	_dz_slider = HSlider.new()
+	_dz_slider.min_value = 0.0
+	_dz_slider.max_value = 0.30
+	_dz_slider.step = 0.01
+	_dz_slider.custom_minimum_size = Vector2(200, 0)
+	_dz_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	quad_grid.add_child(_dz_slider)
+	_dz_val = MenuUI.body("%.2f" % Controls.stick_deadzone, 13, MenuUI.FPV_CYAN)
+	_dz_val.custom_minimum_size = Vector2(70, 0)
+	quad_grid.add_child(_dz_val)
+	_dz_slider.value_changed.connect(_on_dz_changed)
+
+	quad_grid.add_child(MenuUI.body(_ui_text("Згладжування:", "Smoothing:"), 13, MenuUI.TEXT))
+	_sm_slider = HSlider.new()
+	_sm_slider.min_value = 0.0
+	_sm_slider.max_value = 0.50
+	_sm_slider.step = 0.01
+	_sm_slider.custom_minimum_size = Vector2(200, 0)
+	_sm_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	quad_grid.add_child(_sm_slider)
+	_sm_val = MenuUI.body("%.2f" % Controls.stick_smoothing, 13, MenuUI.FPV_CYAN)
+	_sm_val.custom_minimum_size = Vector2(70, 0)
+	quad_grid.add_child(_sm_val)
+	_sm_slider.value_changed.connect(_on_sm_changed)
+	_sync_stick_tuning_ui()
+
+
+func _sync_stick_tuning_ui() -> void:
+	if _dz_slider == null or _sm_slider == null:
+		return
+	_dz_slider.set_value_no_signal(clampf(Controls.stick_deadzone, 0.0, 0.30))
+	if _dz_val != null:
+		_dz_val.text = "%.2f" % Controls.stick_deadzone
+	_sm_slider.set_value_no_signal(clampf(Controls.stick_smoothing, 0.0, 0.50))
+	if _sm_val != null:
+		_sm_val.text = "%.2f" % Controls.stick_smoothing
+
+
+func _on_dz_changed(value: float) -> void:
+	if _syncing_ui:
+		return
+	Controls.stick_deadzone = clampf(value, 0.0, 0.30)
+	if _dz_val != null:
+		_dz_val.text = "%.2f" % Controls.stick_deadzone
+	Controls.save_bindings()
+
+
+func _on_sm_changed(value: float) -> void:
+	if _syncing_ui:
+		return
+	Controls.stick_smoothing = clampf(value, 0.0, 0.50)
+	if _sm_val != null:
+		_sm_val.text = "%.2f" % Controls.stick_smoothing
+	Controls.save_bindings()
+
+
 func _build_flight_preset_strip() -> void:
 	if rates == null:
 		return
@@ -367,7 +456,8 @@ func _refresh_language_ui() -> void:
 
 
 func update_QuadGUI() -> void:
-	angle_slider.value = QuadSettings.angle
+	_syncing_ui = true
+	angle_slider.set_value_no_signal(QuadSettings.angle)
 	angle_text.text = "%d°" % [angle_slider.value]
 	var dry_g := QuadSettings.dry_weight * 1000.0
 	weight_slider.max_value = maxf(1500.0, ceil(dry_g * 1.4 / 500.0) * 500.0)
@@ -379,22 +469,36 @@ func update_QuadGUI() -> void:
 	batt_slider.step = 50.0 if batt_slider.max_value > 2500.0 else 10.0
 	batt_slider.set_value_no_signal(clampf(batt_g, batt_slider.min_value, batt_slider.max_value))
 	batt_text.text = "%d %s" % [batt_slider.value, _ui_text("г", "g")]
+	_syncing_ui = false
 	_refresh_summary_card()
+	_sync_stick_tuning_ui()
 
 
 func update_RatesGUI() -> void:
-	pitch_slider.value = QuadSettings.rate_pitch
+	_syncing_ui = true
+	# Ranges must match the values QuadSettings persists, otherwise merely
+	# opening this menu could clamp a saved rate and fire a change callback.
+	for sl in [pitch_slider, roll_slider, yaw_slider]:
+		sl.min_value = 90.0
+		sl.max_value = 1800.0
+		sl.step = 1.0
+	for sl in [pitch_expo_slider, roll_expo_slider, yaw_expo_slider]:
+		sl.min_value = 0.0
+		sl.max_value = 1.0
+		sl.step = 0.01
+	pitch_slider.set_value_no_signal(clampi(QuadSettings.rate_pitch, 90, 1800))
 	pitch_text.text = "%d %s" % [pitch_slider.value, _ui_text("град/с", "deg/s")]
-	pitch_expo_slider.value = QuadSettings.expo_pitch
+	pitch_expo_slider.set_value_no_signal(clampf(QuadSettings.expo_pitch, 0.0, 1.0))
 	pitch_expo_text.text = "%s %3.2f" % [_ui_text("Експо", "Expo"), pitch_expo_slider.value]
-	roll_slider.value = QuadSettings.rate_roll
+	roll_slider.set_value_no_signal(clampi(QuadSettings.rate_roll, 90, 1800))
 	roll_text.text = "%d %s" % [roll_slider.value, _ui_text("град/с", "deg/s")]
-	roll_expo_slider.value = QuadSettings.expo_roll
+	roll_expo_slider.set_value_no_signal(clampf(QuadSettings.expo_roll, 0.0, 1.0))
 	roll_expo_text.text = "%s %3.2f" % [_ui_text("Експо", "Expo"), roll_expo_slider.value]
-	yaw_slider.value = QuadSettings.rate_yaw
+	yaw_slider.set_value_no_signal(clampi(QuadSettings.rate_yaw, 90, 1800))
 	yaw_text.text = "%d %s" % [yaw_slider.value, _ui_text("град/с", "deg/s")]
-	yaw_expo_slider.value = QuadSettings.expo_yaw
+	yaw_expo_slider.set_value_no_signal(clampf(QuadSettings.expo_yaw, 0.0, 1.0))
 	yaw_expo_text.text = "%s %3.2f" % [_ui_text("Експо", "Expo"), yaw_expo_slider.value]
+	_syncing_ui = false
 	_refresh_preset_buttons()
 
 
@@ -404,18 +508,24 @@ func save_quad_settings() -> void:
 
 
 func _on_angle_changed(value: float) -> void:
+	if _syncing_ui:
+		return
 	QuadSettings.angle = int(value)
 	angle_text.text = "%d°" % [angle_slider.value]
 	save_quad_settings()
 
 
 func _on_weight_changed(value: float) -> void:
+	if _syncing_ui:
+		return
 	QuadSettings.dry_weight = value / 1000.0
 	weight_text.text = "%d г" % [weight_slider.value]
 	save_quad_settings()
 
 
 func _on_batt_changed(value: float) -> void:
+	if _syncing_ui:
+		return
 	QuadSettings.battery_weight = value / 1000.0
 	batt_text.text = "%d г" % [batt_slider.value]
 	save_quad_settings()
@@ -424,10 +534,13 @@ func _on_batt_changed(value: float) -> void:
 func _mark_custom_rates() -> void:
 	QuadSettings.flight_preset = "custom"
 	QuadSettings.custom_rates = true
+	GameSettings.clear_mobile_rate_source()
 	_refresh_preset_buttons()
 
 
 func _on_pitch_rate_changed(value: float) -> void:
+	if _syncing_ui:
+		return
 	QuadSettings.rate_pitch = int(value)
 	pitch_text.text = "%d град/с" % [pitch_slider.value]
 	rate_graph.set_rates(Vector3(value, roll_slider.value, yaw_slider.value),
@@ -437,6 +550,8 @@ func _on_pitch_rate_changed(value: float) -> void:
 
 
 func _on_pitch_expo_changed(value: float) -> void:
+	if _syncing_ui:
+		return
 	QuadSettings.expo_pitch = value
 	pitch_expo_text.text = "Експо %3.2f" % [pitch_expo_slider.value]
 	rate_graph.set_rates(Vector3(pitch_slider.value, roll_slider.value, yaw_slider.value),
@@ -446,6 +561,8 @@ func _on_pitch_expo_changed(value: float) -> void:
 
 
 func _on_roll_rate_changed(value: float) -> void:
+	if _syncing_ui:
+		return
 	QuadSettings.rate_roll = int(value)
 	roll_text.text = "%d град/с" % [roll_slider.value]
 	rate_graph.set_rates(Vector3(pitch_slider.value, value, yaw_slider.value),
@@ -455,6 +572,8 @@ func _on_roll_rate_changed(value: float) -> void:
 
 
 func _on_roll_expo_changed(value: float) -> void:
+	if _syncing_ui:
+		return
 	QuadSettings.expo_roll = value
 	roll_expo_text.text = "Експо %3.2f" % [roll_expo_slider.value]
 	rate_graph.set_rates(Vector3(pitch_slider.value, roll_slider.value, yaw_slider.value),
@@ -464,6 +583,8 @@ func _on_roll_expo_changed(value: float) -> void:
 
 
 func _on_yaw_rate_changed(value: float) -> void:
+	if _syncing_ui:
+		return
 	QuadSettings.rate_yaw = int(value)
 	yaw_text.text = "%d град/с" % [yaw_slider.value]
 	rate_graph.set_rates(Vector3(pitch_slider.value, roll_slider.value, value),
@@ -473,6 +594,8 @@ func _on_yaw_rate_changed(value: float) -> void:
 
 
 func _on_yaw_expo_changed(value: float) -> void:
+	if _syncing_ui:
+		return
 	QuadSettings.expo_yaw = value
 	yaw_expo_text.text = "Експо %3.2f" % [yaw_expo_slider.value]
 	rate_graph.set_rates(Vector3(pitch_slider.value, roll_slider.value, yaw_slider.value),
@@ -488,8 +611,19 @@ func _on_reset_quad_pressed() -> void:
 
 
 func _on_reset_rates_pressed() -> void:
-	QuadSettings.reset_rates()
+	# Reset is the only place that clears the pilot's custom-rate flag.  Apply
+	# the active airframe's factory rates so the button agrees with what a drone
+	# change would do; fall back to the generic reset when no rate is catalogued.
+	QuadSettings.custom_rates = false
+	GameSettings.clear_mobile_rate_source()
+	var p := DroneCatalog.preset(Global.drone_preset)
+	if not p.is_empty() and p.has("rate"):
+		DroneCatalog.apply(Global.drone_preset)
+	else:
+		QuadSettings.reset_rates()
 	update_RatesGUI()
+	rate_graph.set_rates(Vector3(pitch_slider.value, roll_slider.value, yaw_slider.value),
+			Vector3(pitch_expo_slider.value, roll_expo_slider.value, yaw_expo_slider.value))
 	save_quad_settings()
 
 

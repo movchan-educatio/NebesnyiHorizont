@@ -107,6 +107,9 @@ var _motor_audio_pitch: float = 0.70
 var _motor_audio_vol: float = -45.0
 var _motor_audio_tick: float = 0.0
 var _motor_audio_accum: float = 0.0
+## Aerodynamic wash bed. Deliberately owned by Drone (never a Motor) so the
+## engine-audio regression keeps its exact one-owner / eight-player contract.
+var _propwash_audio: AudioStreamPlayer3D = null
 
 ## Mass the propeller model was tuned for. Thrust is scaled by the actual mass
 ## divided by this, so heavy presets (combat bomber) can still hover and climb.
@@ -352,6 +355,16 @@ func _setup_motor_audio() -> void:
 		_motor_audio.max_distance = 350.0
 		_motor_audio.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
 		add_child(_motor_audio)
+
+	if _propwash_audio == null:
+		_propwash_audio = AudioStreamPlayer3D.new()
+		_propwash_audio.name = "PropwashAudio3D"
+		_propwash_audio.bus = "Engine"
+		_propwash_audio.unit_size = 10.0
+		_propwash_audio.max_distance = 180.0
+		_propwash_audio.volume_db = -55.0
+		_propwash_audio.stream = CombatSfx.drone_propwash_stream()
+		add_child(_propwash_audio)
 	refresh_motor_audio()
 
 
@@ -379,6 +392,7 @@ func _update_motor_audio(delta: float) -> void:
 	delta = _motor_audio_accum
 	_motor_audio_accum = 0.0
 	var armed: bool = flight_controller != null and flight_controller.state_armed
+	_update_propwash_audio(delta, armed)
 	if not armed:
 		_motor_audio_vol = lerpf(_motor_audio_vol, -65.0, delta * 14.0)
 		_motor_audio.volume_db = _motor_audio_vol
@@ -410,6 +424,35 @@ func _update_motor_audio(delta: float) -> void:
 
 	_motor_audio.pitch_scale = clampf(_motor_audio_pitch, 0.45, 2.75)
 	_motor_audio.volume_db = clampf(_motor_audio_vol, -45.0, -3.5)
+
+
+## Airflow layer: idle hiss to fast-flight roar. Kept completely separate from
+## _motor_audio so the idle/full-throttle pitch & dB regression stays intact.
+func _update_propwash_audio(delta: float, armed: bool) -> void:
+	if _propwash_audio == null:
+		return
+	if not armed:
+		_propwash_audio.volume_db = lerpf(_propwash_audio.volume_db, -70.0,
+				clampf(delta * 14.0, 0.0, 1.0))
+		if _propwash_audio.volume_db <= -58.0 and _propwash_audio.playing:
+			_propwash_audio.stop()
+		return
+	if not _propwash_audio.playing:
+		_propwash_audio.volume_db = -55.0
+		_propwash_audio.play()
+	var speed := linear_velocity.length()
+	var dive := maxf(-linear_velocity.y, 0.0)
+	var spin := angular_velocity.length()
+	var activity := clampf(speed / 22.0, 0.0, 1.0)
+	activity = maxf(activity, clampf((dive - 4.0) / 8.0, 0.0, 1.0))
+	activity = maxf(activity, clampf((spin - 3.5) / 5.0, 0.0, 1.0))
+	var target_db := lerpf(-55.0, -10.5, activity)
+	var target_pitch := lerpf(0.75, 1.55, clampf(speed / 28.0, 0.0, 1.0)) \
+			+ clampf(spin * 0.04, 0.0, 0.15)
+	_propwash_audio.volume_db = lerpf(_propwash_audio.volume_db, target_db,
+			clampf(delta * 8.0, 0.0, 1.0))
+	_propwash_audio.pitch_scale = clampf(lerpf(_propwash_audio.pitch_scale,
+			target_pitch, clampf(delta * 6.0, 0.0, 1.0)), 0.7, 1.75)
 
 
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
@@ -1206,6 +1249,7 @@ func _on_quad_settings_updated() -> void:
 			parent_level.call("_sync_fpv_drone_model", false, false, true)
 	control_profile.set_rates(QuadSettings.rate_pitch, QuadSettings.rate_roll, QuadSettings.rate_yaw)
 	control_profile.set_expo(QuadSettings.expo_pitch, QuadSettings.expo_roll, QuadSettings.expo_yaw)
+	control_profile.set_rate_type(QuadSettings.rate_type)
 	control_profile.set_level_control(QuadSettings.level_bank,
 			QuadSettings.level_angle_gain, QuadSettings.level_rate_gain,
 			QuadSettings.level_rate_limit)
@@ -1286,6 +1330,9 @@ func _hide_all_visuals(node: Node) -> void:
 
 
 func _exit_tree() -> void:
+	if _propwash_audio != null and is_instance_valid(_propwash_audio):
+		_propwash_audio.stop()
+		_propwash_audio.stream = null
 	if QuadSettings != null and QuadSettings.settings_updated.is_connected(_on_quad_settings_updated):
 		QuadSettings.settings_updated.disconnect(_on_quad_settings_updated)
 	if GameSettings != null and GameSettings.hud_config_updated.is_connected(_on_hud_config_updated):

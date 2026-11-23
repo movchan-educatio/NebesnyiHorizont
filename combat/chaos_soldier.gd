@@ -48,6 +48,8 @@ func _physics_process(delta: float) -> void:
 	_update_lod(delta)
 	if _reload_timer > 0.0:
 		_reload_timer = maxf(0.0, _reload_timer - delta)
+	if _callout_cd > 0.0:
+		_callout_cd = maxf(0.0, _callout_cd - delta)
 	if _suppress_timer > 0.0:
 		_suppress_timer = maxf(0.0, _suppress_timer - delta)
 	if target == null or not is_instance_valid(target) \
@@ -55,6 +57,10 @@ func _physics_process(delta: float) -> void:
 		target = battle.call("assign_target", self)
 		_chaos_burst = 0
 		_chaos_recover = randf_range(0.4, 1.1)
+		if target != null:
+			# Footsteps and hit sounds come from EnemyRifleman._set_locomotion /
+			# take_damage; the chaos layer only adds the initial squad alert.
+			_try_callout()
 	_apply_recoil(delta)
 	if target == null:
 		_crouching = false
@@ -205,3 +211,13 @@ func _fire_at_target(t: Node3D) -> void:
 	CombatSfxScript.play_rifle(get_parent(), muzzle_pos, -9.0)
 	_muzzle_flash(muzzle_pos)
 	_recoil = 0.065
+
+
+## Parent already plays the infantry hit thud; a heavy hit also triggers a
+## terse squad alert, rate-limited by the shared callout cooldown.
+func take_damage(amount: float, hit_position: Vector3 = Vector3.ZERO) -> void:
+	if is_destroyed:
+		return
+	if amount >= 15.0:
+		_try_callout()
+	super.take_damage(amount, hit_position)

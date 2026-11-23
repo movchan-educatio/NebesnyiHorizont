@@ -14,6 +14,9 @@ uniform vec3 sun_dir = vec3(-0.62, 0.38, -0.68);
 uniform float scatter_strength : hint_range(0.0, 1.0) = 0.55;
 uniform vec3 sun_scatter_color : source_color = vec3(1.0, 0.84, 0.62);
 uniform vec3 shadow_tint : source_color = vec3(0.48, 0.60, 0.78);
+// Night dimmer: the backdrop is unshaded, so weather/night must scale it here
+// or the ridges stay daylight-bright under a dark sky (BigLevel sets this).
+uniform float night_dim : hint_range(0.0, 1.0) = 1.0;
 
 varying vec3 v_world_pos;
 
@@ -44,5 +47,5 @@ void fragment() {
 	float valley_mist = (1.0 - smoothstep(0.0, 0.44, t)) * 0.52;
 	float ridge_cloud = sin(v_world_pos.x * 0.0042 + v_world_pos.z * 0.0038 + TIME * 0.01) * 0.5 + 0.5;
 	c = mix(c * mix(0.88, 1.04, ridge_cloud), mix(color_haze, sun_haze, 0.28), valley_mist);
-	ALBEDO = c;
+	ALBEDO = c * night_dim;
 }
