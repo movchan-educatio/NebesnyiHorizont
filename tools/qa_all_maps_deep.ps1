@@ -2,7 +2,7 @@ param(
     [string]$Godot = ".\Godot_v4.6.1-stable_win64_console.exe",
     [string]$Project = ".",
     [string]$OutDir = "qa_shots/deep_all_maps",
-    [string[]]$Maps = @("steppe", "village", "industrial", "wetlands", "airport")
+    [string[]]$Maps = @("steppe", "village", "industrial", "wetlands", "airport", "lis_forest_freestyle")
 )
 
 $ErrorActionPreference = "Continue"

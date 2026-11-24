@@ -14,6 +14,7 @@ const LEVELS := {
 	"industrial": "res://sceneries/IndustrialLevel.tscn",
 	"wetlands": "res://sceneries/WetlandsLevel.tscn",
 	"airport": "res://sceneries/AirportLevel.tscn",
+	"lis_forest_freestyle": "res://sceneries/LisLevel.tscn",
 }
 const STEP := 0.05
 
@@ -212,7 +213,7 @@ func _test_escort(level: Node) -> void:
 	# On the airport the corridor is planned at runtime, so verify no procedural
 	# props/trees were spawned into it afterwards.  Other maps use authored
 	# routes tuned for their terrain and are checked by continuous movement.
-	if _map == "airport":
+	if _map == "airport" or _map == "lis_forest_freestyle":
 		var blocked := 0
 		for i in range(route.size() - 1):
 			var a := route[i]
@@ -268,8 +269,9 @@ func _test_escort(level: Node) -> void:
 
 func _test_missiles(level: Node) -> void:
 	var missiles: Array = level.get("_intercept_missiles")
-	_check(int(level.get("_mission_targets_total")) == 6,
-			"missile: six targets/waves spawned")
+	var kamikaze_count := get_tree().get_nodes_in_group("enemy_kamikaze").size()
+	_check(int(level.get("_mission_targets_total")) == 6 + kamikaze_count,
+			"missile: six targets/waves + %d kamikaze spawned" % kamikaze_count)
 	level.call("_start_mission")
 	level.set("_intercept_timer", 9999.0)
 	var speed_ok := true
@@ -291,8 +293,8 @@ func _test_missiles(level: Node) -> void:
 		var alt: float = missile.global_position.y
 		# Airport missiles are scaled to the 900 m field; other maps keep the
 		# deliberately interceptable 11-15.5 m/s / 20-34 m envelope.
-		var min_speed := 25.0 if _map == "airport" else 10.0
-		var min_alt_agl := 55.0 if _map == "airport" else 15.0
+		var min_speed := 25.0 if _map == "airport" else (18.0 if _map == "lis_forest_freestyle" else 10.0)
+		var min_alt_agl := 55.0 if _map == "airport" else (24.0 if _map == "lis_forest_freestyle" else 15.0)
 		if speed < min_speed:
 			speed_ok = false
 		# Compare against local terrain: frontline maps have valleys, so an
@@ -335,10 +337,13 @@ func _check_shaheds(level: Node) -> void:
 	_check(shaheds.size() == 2, "campaign 4: two Shaheds spawned (%d)" % shaheds.size())
 	var alt_ok := true
 	var route_ok := true
-	var min_alt := 55.0 if _map == "airport" else 12.0
-	var min_loop := 200.0 if _map == "airport" else 80.0
+	var min_alt := 55.0 if _map == "airport" else (35.0 if _map == "lis_forest_freestyle" else 12.0)
+	var min_loop := 200.0 if _map == "airport" else (160.0 if _map == "lis_forest_freestyle" else 80.0)
 	for s in shaheds:
-		if s.global_position.y < min_alt:
+		var gy := 0.0
+		if _map == "lis_forest_freestyle" and level.has_method("_find_ground_y"):
+			gy = float(level.call("_find_ground_y", s.global_position.x, s.global_position.z))
+		if s.global_position.y - gy < min_alt:
 			alt_ok = false
 		var wps: PackedVector3Array = s.get("_waypoints")
 		if wps.size() < 4 or Vector2(wps[0].x, wps[0].z).length() < min_loop:

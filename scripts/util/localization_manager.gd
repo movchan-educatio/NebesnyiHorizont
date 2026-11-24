@@ -32,6 +32,11 @@ const DICT: Dictionary = {
 	"BTN_NEXT": {Language.UA: "НАСТУПНА МІСІЯ", Language.EN: "NEXT MISSION"},
 	"BTN_QUIT": {Language.UA: "ВИХІД", Language.EN: "EXIT"},
 	"BTN_LANG_TOGGLE": {Language.UA: "МОВА: UA / EN", Language.EN: "LANG: EN / UA"},
+	"MAP_OILRIG": {Language.UA: "НАФТОВА ПЛАТФОРМА", Language.EN: "OIL RIG"},
+	"MAP_FOREST": {Language.UA: "ЛІС", Language.EN: "FOREST"},
+	"THREAT_KAMIKAZE": {Language.UA: "ВОРОЖИЙ КАМІКАДЗЕ", Language.EN: "ENEMY KAMIKAZE"},
+	"PROFILE_COINS": {Language.UA: "МОНЕТИ", Language.EN: "COINS"},
+	"PROFILE_UNLOCK": {Language.UA: "ВІДКРИТИ", Language.EN: "UNLOCK"},
 	"BTN_QUICK_TUTORIAL": {Language.UA: "▶ ШВИДКИЙ СТАРТ: ТУТОРІАЛ (60с)", Language.EN: "▶ QUICK START: TUTORIAL (60s)"},
 
 	# Modes & Headers

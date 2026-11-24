@@ -23,6 +23,8 @@ var _specs: Label = null
 var _info: Label = null
 var _choose: Button = null
 var _confirm: Label = null
+var _coins_lbl: Label = null
+var _pending_unlock_id: String = ""
 
 
 func _ready() -> void:
@@ -93,9 +95,45 @@ func _build() -> void:
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	list.add_theme_constant_override("separation", 8)
 	list_scroll.add_child(list)
-	# Ангар показує тільки ті дрони, які дозволені на поточній карті.
-	for i in DroneCatalog.allowed_for_map(str(Global.menu_settings.get("selected_map", "uman"))):
+	_coins_lbl = MenuUI.body("", 15, MenuUI.ACCENT)
+	_update_coins_label()
+	if not Progress.coins_changed.is_connected(_on_coins_changed):
+		Progress.coins_changed.connect(_on_coins_changed)
+	list.add_child(_coins_lbl)
+	for i in DroneCatalog.allowed_for_map(str(Global.menu_settings.get("selected_map", "oilrig"))):
 		list.add_child(_make_row(i))
+	# Locked airframes are offered for 2-tap unlock with locally earned coins.
+	for i in range(DroneCatalog.count()):
+		var uid := Progress.drone_unlock_id(i)
+		var cost := Progress.price_of(uid)
+		if Progress.is_unlocked(uid) or cost <= 0:
+			continue
+		var drone_idx := i
+		var buy := MenuUI.button("", 40)
+		_refresh_buy_btn_text(buy, drone_idx, cost, false)
+		buy.pressed.connect(func() -> void:
+			var is_en := MenuUI.is_english()
+			if Progress.coins < cost:
+				_pending_unlock_id = ""
+				_refresh_buy_btn_text(buy, drone_idx, cost, false)
+				if _coins_lbl != null:
+					_coins_lbl.text = ("◈ NEED %d COINS (HAVE %d)" if is_en else "◈ ПОТРІБНО %d МОНЕТ (Є %d)") % [cost, Progress.coins]
+				if _confirm != null:
+					_confirm.text = ("Need ◈ %d coins to unlock %s." if is_en else "Потрібно ◈ %d монет для відкриття %s.") % [cost, DroneCatalog.get_drone_name(drone_idx)]
+				return
+			if _pending_unlock_id != uid:
+				_pending_unlock_id = uid
+				_refresh_buy_btn_text(buy, drone_idx, cost, true)
+				if _coins_lbl != null:
+					_coins_lbl.text = ("CLICK AGAIN TO UNLOCK FOR ◈ %d" if is_en else "НАТИСНІТЬ ЩЕ РАЗ: ВІДКРИТИ ЗА ◈ %d?") % cost
+				return
+			_pending_unlock_id = ""
+			if Progress.try_unlock(uid):
+				list.add_child(_make_row(drone_idx))
+				_update_coins_label()
+				buy.queue_free()
+				_on_row_clicked(drone_idx))
+		list.add_child(buy)
 
 	# right: 3D preview + caption
 	var right := VBoxContainer.new()
@@ -363,8 +401,29 @@ func _make_row(index: int) -> Control:
 	mark.custom_minimum_size = Vector2(60 if MenuUI.is_mobile_ui() else 90, 0)
 	mark.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	hbox.add_child(mark)
-	_rows.append({"mark": mark})
+	_rows.append({"index": index, "mark": mark})
 	return row
+
+
+func _update_coins_label() -> void:
+	if _coins_lbl != null and is_instance_valid(_coins_lbl):
+		var lbl := "COINS" if MenuUI.is_english() else "МОНЕТИ"
+		_coins_lbl.text = "◈ %s: %d" % [lbl, maxi(0, Progress.coins)]
+
+
+func _on_coins_changed(_value: int) -> void:
+	_update_coins_label()
+
+
+func _refresh_buy_btn_text(btn: Button, drone_idx: int, cost: int, confirm_step: bool) -> void:
+	if btn == null or not is_instance_valid(btn):
+		return
+	var is_en := MenuUI.is_english()
+	var dname := DroneCatalog.get_drone_name(drone_idx)
+	if confirm_step:
+		btn.text = ("CONFIRM: %s (◈ %d)?" if is_en else "ПІДТВЕРДИТИ: %s (◈ %d)?") % [dname, cost]
+	else:
+		btn.text = ("🔒 UNLOCK %s — ◈ %d" if is_en else "🔒 ВІДКРИТИ %s — ◈ %d") % [dname, cost]
 
 
 func _qa_select_preset(index: int) -> void:
@@ -513,9 +572,12 @@ func _show_model(index: int) -> void:
 	_holder.add_child(model)
 	# The hangar preview instantiates the PackedScene directly instead of going
 	# through DroneCatalog.attach_model(), so it needs the same material wrapper.
-	GlbMaterialUtilsScript.ensure_pbr(model)
+	if not bool(p.get("keep_authored_colors", false)):
+		GlbMaterialUtilsScript.ensure_pbr(model)
 	if index >= 10 and index <= 12:
 		DroneCatalog.apply_uman_drone_materials(model, index)
+	if bool(p.get("keep_authored_colors", false)):
+		DroneCatalog.apply_pack_colors(model)
 	model.rotation.y = float(p.get("model_yaw", 0.0))
 	model.rotation_degrees.x = float(p.get("model_pitch", 0.0))
 	DronePropellerSystem.setup_propellers(model, index,
@@ -601,12 +663,17 @@ func _combined_aabb(node: Node3D) -> AABB:
 
 
 func _refresh() -> void:
-	for i in range(_rows.size()):
-		var mark: Label = _rows[i]["mark"]
+	var is_en := MenuUI.is_english()
+	for rec in _rows:
+		var idx: int = int(rec.get("index", -1))
+		var mark: Label = rec.get("mark", null) as Label
 		if mark != null:
-			mark.text = ("SELECTED" if i == Global.drone_preset else ("PREVIEW" if i == _pending else "")) if MenuUI.is_english() else ("ОБРАНО" if i == Global.drone_preset else ("ГЛЯНУ" if i == _pending else ""))
+			mark.text = ("SELECTED" if idx == Global.drone_preset else ("PREVIEW" if idx == _pending else "")) if is_en \
+					else ("ОБРАНО" if idx == Global.drone_preset else ("ГЛЯНУ" if idx == _pending else ""))
 	if _choose != null:
-		_choose.text = ("SELECTED ✓" if _pending == Global.drone_preset else "SELECT THIS DRONE") if MenuUI.is_english() else ("ОБРАНО ✓" if _pending == Global.drone_preset else "ОБРАТИ ЦЕЙ ДРОН")
+		_choose.text = ("SELECTED ✓" if _pending == Global.drone_preset else "SELECT THIS DRONE") if is_en \
+				else ("ОБРАНО ✓" if _pending == Global.drone_preset else "ОБРАТИ ЦЕЙ ДРОН")
+	_update_coins_label()
 
 
 func _process(delta: float) -> void:

@@ -93,7 +93,7 @@ const COMBAT_TIME_LIMIT := 1200.0
 ## Small set of menu-only preferences (haptics, defaults, ...).
 var menu_settings := {"haptics_enabled": true, "drone_preset": 0,
 		"selected_mode": PlayMode.TUTORIAL, "selected_mission": 1, "selected_special": 0,
-		"selected_map": "uman", "difficulty": 1,
+		"selected_map": "oilrig", "difficulty": 1,
 		"radio_chatter_mode": 2,
 		"touch_floating_sticks": false, "touch_left_spring": false,
 		"touch_input_mode": "auto",
@@ -390,11 +390,15 @@ func _record_entry(sec: String, score: int, time_taken: float, diff: int) -> Dic
 
 
 func record_mission_result(mission_id: int, score: int, time_taken: float, diff: int) -> Dictionary:
-	return _record_entry("mission_%d" % mission_id, score, time_taken, diff)
+	var rec := _record_entry("mission_%d" % mission_id, score, time_taken, diff)
+	Progress.award_mission("mission", mission_id, 0, true, int(rec.get("stars", 1)), diff)
+	return rec
 
 
 func record_special_mission_result(mission_id: int, score: int, time_taken: float, diff: int) -> Dictionary:
-	return _record_entry("special_%d" % mission_id, score, time_taken, diff)
+	var rec := _record_entry("special_%d" % mission_id, score, time_taken, diff)
+	Progress.award_mission("special", 0, mission_id, true, int(rec.get("stars", 1)), diff)
+	return rec
 
 
 func get_mission_record(mission_id: int) -> Dictionary:
@@ -584,15 +588,15 @@ func get_daily_challenge() -> Dictionary:
 	var seed_idx := absi(y * 372 + m * 31 + day)
 	var pool := [
 		{
-			"id": "daily_uman_freestyle",
-			"map": "uman",
+			"id": "daily_oilrig_freestyle",
+			"map": "oilrig",
 			"mode": PlayMode.TRAINING,
 			"mission": 1,
 			"bonus_score": 350,
-			"title_ua": "УМАНСЬКИЙ ФРІСТАЙЛ",
-			"title_en": "UMAN FREESTYLE",
-			"desc_ua": "Пройдіть фрістайл-маршрут Умані з рангом A або S",
-			"desc_en": "Complete the Uman freestyle course with Rank A or S",
+			"title_ua": "НАФТОВА ПЛАТФОРМА · ФРІСТАЙЛ",
+			"title_en": "OIL RIG FREESTYLE",
+			"desc_ua": "Пролетіть маршрутом платформи з рангом A або S",
+			"desc_en": "Complete the Oil Rig freestyle run with Rank A or S",
 		},
 		{
 			"id": "daily_industrial_gates",

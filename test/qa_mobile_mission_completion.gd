@@ -101,10 +101,11 @@ func _run_mission(mission: int) -> void:
 				if child is CollisionShape3D:
 					soldier_collider = child as CollisionShape3D
 					break
-			_check(soldier != null and is_equal_approx(soldier.scale.x, 1.20),
-					"mobile infantry model uses +20% scale")
+			# 1.20 global readability scale × 1.20 mobile target scale.
+			_check(soldier != null and is_equal_approx(soldier.scale.x, 1.44),
+					"mobile infantry model uses combined readability scale")
 			_check(soldier_collider != null and is_equal_approx(
-					soldier_collider.global_transform.basis.get_scale().x, 1.20),
+					soldier_collider.global_transform.basis.get_scale().x, 1.44),
 					"mobile infantry hitbox scales with its model")
 		else:
 			_check(false, "mobile infantry targets are present for scale QA")
@@ -117,10 +118,10 @@ func _run_mission(mission: int) -> void:
 				if child is CollisionShape3D:
 					vehicle_collider = child as CollisionShape3D
 					break
-			_check(vehicle != null and is_equal_approx(vehicle.scale.x, 1.20),
-					"mobile vehicle model uses +20% scale")
+			_check(vehicle != null and is_equal_approx(vehicle.scale.x, 1.44),
+					"mobile vehicle model uses combined readability scale")
 			_check(vehicle_collider != null and is_equal_approx(
-					vehicle_collider.global_transform.basis.get_scale().x, 1.20),
+					vehicle_collider.global_transform.basis.get_scale().x, 1.44),
 					"mobile vehicle hitbox scales with its model")
 		else:
 			_check(false, "mobile vehicles are present for scale QA")

@@ -38,6 +38,7 @@ func _ready() -> void:
 		await get_tree().create_timer(3.0).timeout
 		get_tree().paused = false
 		var label: String = Global.get_special_mission_name(mission_id)
+		var kamikaze_extra := get_tree().get_nodes_in_group("enemy_kamikaze").size()
 		match mission_id:
 			1:
 				var zones: Array = level.get("_special_zones")
@@ -93,7 +94,7 @@ func _ready() -> void:
 				else:
 					print("[SPECIAL] PASS EW breach targets=2 domes=", reb.ew_domes.size())
 			7:
-				if int(level.get("_mission_targets_total")) != 5 \
+				if int(level.get("_mission_targets_total")) != 5 + kamikaze_extra \
 						or not _has_vehicle_variant(level, "btr8") \
 						or not _has_vehicle_variant(level, "mtsm") \
 						or not _has_vehicle_variant(level, "ural") \
@@ -104,7 +105,7 @@ func _ready() -> void:
 				else:
 					print("[SPECIAL] PASS rear convoy spawns btr8+mtsm+ural+spetsnaz targets=5")
 			8:
-				if int(level.get("_mission_targets_total")) != 3 \
+				if int(level.get("_mission_targets_total")) != 3 + kamikaze_extra \
 						or not _has_vehicle_variant(level, "oreshnik") \
 						or not _has_vehicle_variant(level, "btr8") \
 						or not _has_vehicle_variant(level, "ural"):
@@ -115,7 +116,7 @@ func _ready() -> void:
 					print("[SPECIAL] PASS oreshnik strike spawns oreshnik+btr8+ural targets=3")
 			9:
 				var reb9: RebSystem = level.get("_reb")
-				if int(level.get("_mission_targets_total")) != 6 \
+				if int(level.get("_mission_targets_total")) != 6 + kamikaze_extra \
 						or reb9 == null or reb9.ew_domes.size() < 4 \
 						or not _has_vehicle_variant(level, "oreshnik") \
 						or not _has_vehicle_variant(level, "mtsm") \
@@ -144,7 +145,7 @@ func _ready() -> void:
 			10:
 				# Six announced waves of one cruise missile each; none have
 				# launched yet while the briefing banner is up.
-				if int(level.get("_mission_targets_total")) != 6 \
+				if int(level.get("_mission_targets_total")) != 6 + kamikaze_extra \
 						or int(level.get("_intercept_wave")) != 0:
 					printerr("[SPECIAL] FAIL missile intercept setup: ",
 							level.get("_mission_targets_total"), "/",
@@ -190,7 +191,7 @@ func _ready() -> void:
 				else:
 					print("[SPECIAL] PASS dual convoy completes when both trucks arrive")
 			12:
-				if int(level.get("_mission_targets_total")) != 4 \
+				if int(level.get("_mission_targets_total")) != 4 + kamikaze_extra \
 						or int(level.get("_weather")) != 3 \
 						or level.get("_dawn_defense_beacon") == null:
 					printerr("[SPECIAL] FAIL hold until dawn setup: ",

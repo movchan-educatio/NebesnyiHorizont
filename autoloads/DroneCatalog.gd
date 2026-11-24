@@ -419,6 +419,90 @@ const PRESETS := [
 		"fpv_show_airframe": true,
 		"keep_native_props": true, "uman_only": true,
 	},
+	# --- Три нові керовані дрони з пакета FPV kamikaze (KT-0 / KT-3 / KT-5) ---
+	# Моделі метричні, ніс -Z, upper +Y. Їхні GLB мають окремі лопаті без
+	# півотів, тому native_blade_pivots:true створює півоти в рантаймі.
+	{
+		"id": "wraith", "parts_profile": 3, "audio_kind": 14,
+		"prop_tint": Color(0.10, 0.18, 0.16),
+		"motor_tint": Color(0.08, 0.10, 0.10),
+		"body_prop_tint": Color(0.12, 0.16, 0.15),
+		"name": "«ПРИВИД-0»", "name_en": "WRAITH-0",
+		"tag": "STEALTH FLYING WING", "tag_en": "STEALTH FLYING WING",
+		"desc": "Летюче крило з чотирма відкритими та двома канальними гвинтами",
+		"desc_en": "Flying wing with four open props and two ducted fans",
+		"info": "Стелс-планер із вирізаними в крилі каналами, чотирма відкритими пропелерами та збільшеною бойовою частиною. Добре тримає швидкість; БЧ і гвинти видно в польоті.",
+		"info_en": "Low-observable flying wing with through-holes, four open propellers and an enlarged warhead. Fast and stable; warhead and spinning props stay visible in FPV.",
+		"dry": 0.62, "batt": 0.32, "kv": 1900, "torque": 2100.0, "rpm": 32000.0,
+		"prop_d": 5.0, "prop_p": 4.0, "blades": 3, "rate": 720, "motor_size": 2207,
+		"payload": 1, "payload_mass": 0.65, "combat": true, "has_drop": false,
+		"kamikaze": true, "twr": 5.2,
+		"battery_chemistry": 1, "battery_mah": 3000.0,
+		"battery_resistance": 0.030, "battery_max_current": 110.0,
+		"cog_offset": Vector3(0.0, -0.01, -0.02),
+		"dimensions": Vector3(0.51, 0.10, 0.47),
+		"drag_area": Vector3(0.020, 0.012, 0.014),
+		"model": "res://Assets/enemy_drones/KT0_Wraith.glb",
+		"model_size": 0.51, "model_fit": false,
+		"fpv_cam_pos": Vector3(0.0, 0.16, -0.10), "fpv_cam_pitch": -13.0,
+		"fpv_show_airframe": true,
+		"keep_native_props": true, "native_blade_pivots": true,
+		"keep_authored_colors": true,
+	},
+	{
+		"id": "komar", "parts_profile": 0, "audio_kind": 15,
+		"prop_tint": Color(0.06, 0.30, 0.36),
+		"motor_tint": Color(0.10, 0.12, 0.15),
+		"body_prop_tint": Color(0.16, 0.20, 0.24),
+		"name": "«КОМАР-3»", "name_en": "KOMAR-3",
+		"tag": "МІКРО 3\" DUCTED", "tag_en": "MICRO 3\" DUCTED",
+		"desc": "Мініатюрний дрон із кільцями захисту гвинтів",
+		"desc_en": "Miniature quad with ducted prop guards",
+		"info": "Найменший і найвертлявіший дрон пакета. Кільця захищають гвинти, але лопаті залишаються видимими й обертаються разом із двигунами.",
+		"info_en": "Smallest and most agile drone in the pack. Duct guards protect the props while the blades remain visible and spin with the motors.",
+		"dry": 0.16, "batt": 0.09, "kv": 15000, "torque": 400.0, "rpm": 44000.0,
+		"prop_d": 3.0, "prop_p": 3.0, "blades": 3, "rate": 1050, "motor_size": 1104,
+		"payload": 1, "payload_mass": 0.18, "combat": true, "has_drop": false,
+		"kamikaze": true, "twr": 7.4,
+		"battery_chemistry": 1, "battery_mah": 1100.0,
+		"battery_resistance": 0.048, "battery_max_current": 55.0,
+		"cog_offset": Vector3(0.0, 0.004, 0.0),
+		"dimensions": Vector3(0.22, 0.07, 0.22),
+		"drag_area": Vector3(0.007, 0.008, 0.005),
+		"model": "res://Assets/enemy_drones/KT3_Komar.glb",
+		"model_size": 0.22, "model_fit": false,
+		"fpv_cam_pos": Vector3(0.0, 0.09, -0.02), "fpv_cam_pitch": -15.0,
+		"fpv_show_airframe": true,
+		"keep_native_props": true, "native_blade_pivots": true,
+		"keep_authored_colors": true,
+	},
+	{
+		"id": "shmel", "parts_profile": 5, "audio_kind": 16,
+		"prop_tint": Color(0.20, 0.05, 0.06),
+		"motor_tint": Color(0.12, 0.10, 0.10),
+		"body_prop_tint": Color(0.16, 0.14, 0.15),
+		"name": "«ДЖМІЛЬ-5»", "name_en": "SHMEL-5",
+		"tag": "ШВИДКИЙ 5\" QUAD", "tag_en": "FAST 5\" QUAD",
+		"desc": "Швидкий квадрокоптер із трилопатевими гвинтами",
+		"desc_en": "Fast quadcopter with three-blade propellers",
+		"info": "Чорний квад із червоними акцентами, трилопатеві гвинти та компактна БЧ. Виразний звук двигунів, гвинти добре видно з камери.",
+		"info_en": "Black quad with oxblood accents, three-blade props and a compact warhead. Distinct engine note and clearly visible spinning blades.",
+		"dry": 0.42, "batt": 0.26, "kv": 2300, "torque": 1600.0, "rpm": 36000.0,
+		"prop_d": 5.0, "prop_p": 4.3, "blades": 3, "rate": 900, "motor_size": 2207,
+		"payload": 1, "payload_mass": 0.42, "combat": true, "has_drop": false,
+		"kamikaze": true, "twr": 6.1,
+		"battery_chemistry": 1, "battery_mah": 1800.0,
+		"battery_resistance": 0.036, "battery_max_current": 105.0,
+		"cog_offset": Vector3(0.0, 0.006, 0.0),
+		"dimensions": Vector3(0.31, 0.09, 0.31),
+		"drag_area": Vector3(0.013, 0.014, 0.007),
+		"model": "res://Assets/enemy_drones/KT5_Shmel.glb",
+		"model_size": 0.31, "model_fit": false,
+		"fpv_cam_pos": Vector3(0.0, 0.13, -0.035), "fpv_cam_pitch": -14.0,
+		"fpv_show_airframe": true,
+		"keep_native_props": true, "native_blade_pivots": true,
+		"keep_authored_colors": true,
+	},
 ]
 
 
@@ -459,6 +543,12 @@ func get_recorded_motor_profile(index: int) -> Dictionary:
 			return {"pitch_mult": 0.69, "gain_db": -5.0}
 		1:  # VTOL twin-prop
 			return {"pitch_mult": 0.80, "gain_db": -5.0}
+		14:  # Wraith flying wing
+			return {"pitch_mult": 0.74, "gain_db": -4.0}
+		15:  # Komar micro whoop
+			return {"pitch_mult": 1.42, "gain_db": -5.0}
+		16:  # Shmel fast 5" quad
+			return {"pitch_mult": 1.02, "gain_db": -3.0}
 		_:
 			return {"pitch_mult": 1.00, "gain_db": 0.0}
 
@@ -530,7 +620,8 @@ func is_freestyle_only(index: int) -> bool:
 func allowed_for_map(_map_id: String = "") -> Array[int]:
 	var out: Array[int] = []
 	for i in range(count()):
-		out.append(i)
+		if i < 13 or Progress.is_unlocked(Progress.drone_unlock_id(i)):
+			out.append(i)
 	return out
 
 
@@ -540,14 +631,14 @@ func allowed_for_mode(mode: int) -> Array[int]:
 	var out: Array[int] = []
 	var freestyle := (mode == Global.PlayMode.TRAINING)
 	for i in range(count()):
-		if freestyle or not is_uman(i):
+		if (freestyle or not is_uman(i)) and (i < 13 or Progress.is_unlocked(Progress.drone_unlock_id(i))):
 			out.append(i)
 	return out
 
 
 ## Базовий дрон за замовчуванням для карти (для Умані — перший фрістайл-дрон).
 func first_for_map(map_id: String) -> int:
-	if map_id == "uman" and count() > 10:
+	if (map_id == "uman" or map_id == "oilrig") and count() > 10:
 		return 10
 	return 0
 
@@ -1002,9 +1093,14 @@ func attach_model(parent: Node3D, index: int) -> Node3D:
 	parent.add_child(model)
 	# Inherited GLBs may predate the PBR library; upgrade at generation time
 	# so the menu stage, hangar preview and in-game model agree.
-	GlbMaterialUtilsScript.ensure_pbr(model)
+	# New pack drones ship finished PBR pigments; the generic legacy upgrader
+	# replaces their dark carbon palette with light industrial textures.
+	if not bool(p.get("keep_authored_colors", false)):
+		GlbMaterialUtilsScript.ensure_pbr(model)
 	if index >= 10 and index <= 12:
 		apply_uman_drone_materials(model, index)
+	if bool(p.get("keep_authored_colors", false)):
+		apply_pack_colors(model)
 	model.rotation.y = float(p.get("model_yaw", 0.0))
 	model.rotation_degrees.x = float(p.get("model_pitch", 0.0))
 	for v in _visuals(model):
@@ -1027,6 +1123,44 @@ func attach_model(parent: Node3D, index: int) -> Node3D:
 	_strip_ukraine_markings(model)
 	print("[DroneCatalog] model '", path.get_file(), "' preset=", index)
 	return model
+
+
+## The kamikaze-pack GLBs export "Carbon_Weave" with no base colour/texture,
+## so Godot renders those airframe panels pure white (Blender previews had a
+## checker texture that never made it into the GLB).  Give it a dark carbon
+## finish both in the hangar and in flight.
+static func apply_pack_colors(model: Node3D) -> void:
+	if model == null:
+		return
+	for child in model.find_children("*", "MeshInstance3D", true, false):
+		var mi := child as MeshInstance3D
+		if mi == null or mi.mesh == null:
+			continue
+		for surface in range(mi.mesh.get_surface_count()):
+			var mat: Material = mi.get_surface_override_material(surface)
+			if mat == null:
+				mat = mi.mesh.surface_get_material(surface)
+			if mat is StandardMaterial3D and String(mat.resource_name) == "Carbon_Weave":
+				# Preserve any authored albedo_texture if present; otherwise apply
+				# the procedural checker carbon pattern from carbon_checker.png.
+				if (mat as StandardMaterial3D).albedo_texture != null:
+					continue
+				var carbon := (mat as StandardMaterial3D).duplicate() as StandardMaterial3D
+				# Bake of the source Blender ShaderNodeTexChecker (colours taken
+				# verbatim from build_kamikaze_drones.py:53-68).  glTF cannot
+				# export procedural nodes, so the stock GLB lost this pattern.
+				var checker := load("res://Assets/Drones/enemy_pack/carbon_checker.png")
+				if checker is Texture2D:
+					carbon.albedo_texture = checker as Texture2D
+					carbon.albedo_color = Color(1.0, 1.0, 1.0, 1.0)
+					carbon.uv1_scale = Vector3(48.0, 48.0, 48.0)
+					carbon.uv1_triplanar = true
+					carbon.uv1_triplanar_sharpness = 6.0
+				else:
+					carbon.albedo_color = Color(0.055, 0.065, 0.078, 1.0)
+				carbon.roughness = 0.52
+				carbon.metallic = 0.25
+				mi.set_surface_override_material(surface, carbon)
 
 
 ## Shared material tuning for Uman freestyle drones (presets 10..12) so the

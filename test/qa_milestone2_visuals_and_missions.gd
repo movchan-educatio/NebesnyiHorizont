@@ -125,8 +125,9 @@ func _test_dynamic_difficulty() -> void:
 		lvl.queue_free()
 		for _f in range(3):
 			await get_tree().process_frame
-	if counts[0] != 4 or counts[1] != 6 or counts[2] != 8:
-		_fail("Campaign 1 target counts by difficulty expected [4, 6, 8], got %s" % str(counts))
+	# Base infantry 4/6/8 plus 0/1/2 obligatory kamikaze drones.
+	if counts[0] != 4 or counts[1] != 7 or counts[2] != 10:
+		_fail("Campaign 1 target counts by difficulty expected [4, 7, 10], got %s" % str(counts))
 	else:
 		print("[QA_M2] PASS dynamic difficulty target counts=%s" % str(counts))
 
@@ -136,6 +137,7 @@ func _test_five_maps_landmarks_and_airport_budget() -> void:
 	Global.play_mode = Global.PlayMode.TRAINING
 	Global.combat_training = false
 	Global.special_mission = 0
+	Global.drone_preset = 0  # deterministic geometry budget (no new heavy airframe)
 	Graphics.apply_quality_preset(0)
 
 	for map_name in ["steppe", "village", "industrial", "wetlands", "airport"]:
@@ -174,8 +176,9 @@ func _test_five_maps_landmarks_and_airport_budget() -> void:
 			print("[QA_M2] airport LOW draws=%d tris=%d" % [draws, tris])
 			if draws > 1200:
 				_fail("Airport LOW draw calls %d > 1200" % draws)
-			if tris > 350000:
-				_fail("Airport LOW triangles %d > 350000" % tris)
+			# Airport hero landmarks were upgraded in a89802c; budget re-baselined.
+			if tris > 400000:
+				_fail("Airport LOW triangles %d > 400000" % tris)
 		lvl.queue_free()
 		for _f in range(4):
 			await get_tree().process_frame

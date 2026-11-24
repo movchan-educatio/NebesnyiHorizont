@@ -76,6 +76,39 @@ const HALL_SITES := {
 	},
 }
 
+## River on lis_forest_freestyle.  Water surface y=-12 (from terrain.glb
+## river_water), centreline sampled from the authored mesh every 100 m.
+const FOREST_WATER_Y := -12.0
+const FOREST_RIVER_POINTS := [
+	Vector2(-500.0, -25.0), Vector2(-400.0, 20.5), Vector2(-300.0, 78.9),
+	Vector2(-200.0, 66.1), Vector2(-100.0, 51.9), Vector2(0.0, 33.3),
+	Vector2(100.0, -31.8), Vector2(200.0, -45.5), Vector2(300.0, -11.4),
+	Vector2(400.0, -0.5), Vector2(500.0, 46.0),
+]
+const FOREST_RIVER_HALF_WIDTH := 36.0
+
+
+static func forest_river_x(z: float) -> float:
+	var pts := FOREST_RIVER_POINTS
+	if z <= pts[0].x:
+		return pts[0].y
+	if z >= pts[pts.size() - 1].x:
+		return pts[pts.size() - 1].y
+	for i in range(pts.size() - 1):
+		var a: Vector2 = pts[i]
+		var b: Vector2 = pts[i + 1]
+		if z >= a.x and z <= b.x:
+			var t := (z - a.x) / maxf(b.x - a.x, 0.001)
+			return lerpf(a.y, b.y, t)
+	return pts[0].y
+
+
+static func forest_is_water(x: float, z: float, ground: float) -> bool:
+	if ground >= FOREST_WATER_Y + 0.42:
+		return false
+	return absf(x - forest_river_x(z)) < FOREST_RIVER_HALF_WIDTH
+
+
 static var _trench_cache := {}
 static var _crater_cache := {}
 static var _hero_tree_slots := {"oak": [], "pine": []}

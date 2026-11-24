@@ -640,7 +640,13 @@ func _can_step(move_dir: Vector3, step_len: float) -> bool:
 	var scene := _find_level_scene()
 	if scene != null and scene.get("frontline_map") != null:
 		var map := String(scene.get("frontline_map"))
-		if not map.is_empty() and map != "airport":
+		if map == "lis_forest_freestyle":
+			var river_ground := FrontlineTerrainScript.FOREST_WATER_Y
+			if scene.has_method("_find_ground_y"):
+				river_ground = float(scene.call("_find_ground_y", to.x, to.z))
+			if FrontlineTerrainScript.forest_is_water(to.x, to.z, river_ground):
+				return false
+		if not map.is_empty() and map != "airport" and map != "lis_forest_freestyle" and map != "oilrig":
 			var cur_h := FrontlineTerrainScript.height_at(map, global_position.x, global_position.z)
 			var next_h := FrontlineTerrainScript.height_at(map, to.x, to.z)
 			var on_bridge := false
@@ -889,9 +895,9 @@ func _snap_to_ground() -> void:
 	var scene := _find_level_scene()
 	if scene != null and scene.get("frontline_map") != null:
 		var map := String(scene.get("frontline_map"))
-		if map == "airport":
-			# Same fix as vehicle.gd: the merged GLB colliders return random
-			# roof/tarmac heights, so snap soldiers to the flat apron instead.
+		if map == "airport" or map == "lis_forest_freestyle" or map == "oilrig":
+			# Same fix as vehicle.gd: authored GLB colliders override the
+			# procedural height field, so raycast via _find_ground_y().
 			var gy := 0.12
 			if scene.has_method("_find_ground_y"):
 				gy = float(scene.call("_find_ground_y",

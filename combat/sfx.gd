@@ -11,6 +11,9 @@ static var _shot_stream: AudioStreamWAV = null
 static var _rifle_stream: AudioStreamWAV = null
 static var _radio_stream: AudioStreamWAV = null
 static var _hitmarker_stream: AudioStreamWAV = null
+static var _kamikaze_engines: Dictionary = {}
+static var _kamikaze_warning_stream: AudioStreamWAV = null
+static var _kamikaze_fall_stream: AudioStreamWAV = null
 
 
 static func _can_spawn_3d_voice(priority: bool = false) -> bool:
@@ -947,6 +950,68 @@ static func shahed_engine_stream() -> AudioStreamWAV:
 	return _shahed_stream
 
 
+## Large enemy FPV kamikaze drones: two distinct electric props + airframe hum.
+## Cached per model id; identical to the other combat streams (no audio assets).
+static func kamikaze_engine_stream(variant: int = 0) -> AudioStreamWAV:
+	if _kamikaze_engines.has(variant):
+		return _kamikaze_engines[variant] as AudioStreamWAV
+	var base := 148.0 if variant == 0 else 116.0
+	var whine := 940.0 if variant == 0 else 720.0
+	var stream := _engine_loop(22050, 1.0, base, 8, 0.10, whine, 0.055, 22.0, 0.22)
+	_kamikaze_engines[variant] = stream
+	return stream
+
+
+## Two short rising tones: proximity warning while the drone lines up a dive.
+static func kamikaze_warning_stream() -> AudioStreamWAV:
+	if _kamikaze_warning_stream != null:
+		return _kamikaze_warning_stream
+	var rate := 22050
+	var count := int(rate * 0.55)
+	var data := PackedByteArray()
+	data.resize(count * 2)
+	for i in range(count):
+		var t := float(i) / float(rate)
+		var hz := 620.0 if t < 0.22 else 930.0
+		var env := sin(clampf(fmod(t, 0.22) / 0.22, 0.0, 1.0) * PI) * 0.45
+		data.encode_s16(i * 2, int(clampf(sin(TAU * hz * t) * env, -1.0, 1.0) * 24000.0))
+	_kamikaze_warning_stream = _make_stream(rate, data, false)
+	return _kamikaze_warning_stream
+
+
+## Falling/whistling airframe after a kill — descending pitch, no loop.
+static func kamikaze_fall_stream() -> AudioStreamWAV:
+	if _kamikaze_fall_stream != null:
+		return _kamikaze_fall_stream
+	var rate := 22050
+	var count := int(rate * 1.2)
+	var data := PackedByteArray()
+	data.resize(count * 2)
+	var lp := 0.0
+	for i in range(count):
+		var t := float(i) / float(rate)
+		var k := float(i) / float(count)
+		var hz := lerpf(1250.0, 180.0, k)
+		lp = lerpf(lp, randf_range(-1.0, 1.0), 0.18)
+		var env := (1.0 - k) * 0.42
+		var s := (sin(TAU * hz * t) * 0.7 + lp * 0.3) * env
+		data.encode_s16(i * 2, int(clampf(s, -1.0, 1.0) * 22000.0))
+	_kamikaze_fall_stream = _make_stream(rate, data, false)
+	return _kamikaze_fall_stream
+
+
+static func play_kamikaze_warning(parent: Node, world_position: Vector3,
+		volume_db: float = -6.0) -> void:
+	_play_3d(parent, kamikaze_warning_stream(), world_position, volume_db,
+			18.0, 260.0, 1.0, "Warning", true)
+
+
+static func play_kamikaze_fall(parent: Node, world_position: Vector3,
+		volume_db: float = -8.0) -> void:
+	_play_3d(parent, kamikaze_fall_stream(), world_position, volume_db,
+			20.0, 320.0, 1.0, "Combat")
+
+
 ## Shared diesel synthesiser: a harmonic stack plus filtered noise and an
 ## optional turbo whine. Frequencies are whole numbers so the 1 s loop is
 ## musically seamless; a short crossfade hides the noise seam.
@@ -1348,6 +1413,15 @@ static func drone_motor_stream(kind: int = 0) -> AudioStreamWAV:
 		13:  # 106 Hz silky purr, soft low-pass wash, minimal harsh whistle
 			stream = _synth_quad_motor(22050, 1.0, 106.0, 5, 0.14, 424.0, 0.04,
 					11.0, 0.10, [1.0, 1.004], 0.06)
+		14:  # Wraith: low flying-wing throb + ducted-fan whistle
+			stream = _synth_quad_motor(22050, 1.0, 96.0, 7, 0.20, 720.0, 0.15,
+					19.0, 0.22, [1.0, 0.996], 0.12)
+		15:  # Komar: high-pitched micro whoop + duct chatter
+			stream = _synth_quad_motor(22050, 1.0, 355.0, 6, 0.11, 1520.0, 0.20,
+					58.0, 0.22, [1.0, 1.03], 0.20)
+		16:  # Shmel: aggressive 5" tri-blade snarl
+			stream = _synth_quad_motor(22050, 1.0, 168.0, 7, 0.19, 810.0, 0.17,
+					36.0, 0.28, [1.0, 1.012], 0.16)
 		_:  # 245 Hz sharp BLDC scream + 980 Hz whistle + 48 Hz beat
 			stream = _synth_quad_motor(22050, 1.0, 245.0, 7, 0.14, 980.0, 0.20,
 					48.0, 0.15)

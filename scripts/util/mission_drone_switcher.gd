@@ -226,6 +226,8 @@ func _scan_threats(level_root: Node) -> Dictionary:
 					counts["armor"] += 1
 				Vehicle.Kind.TRUCK:
 					counts["soft"] += 1
+		elif node.is_in_group("enemy_kamikaze"):
+			counts["air"] += 1
 		elif node.is_in_group("enemy_infantry"):
 			counts["infantry"] += 1
 		elif node.is_in_group("aa_gun"):

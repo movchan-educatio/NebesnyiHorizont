@@ -1,0 +1,85 @@
+[gd_scene load_steps=10 format=3]
+
+[ext_resource type="PackedScene" path="res://maps/lis_forest_freestyle/meshes/terrain.glb" id="1_terrain"]
+[ext_resource type="PackedScene" path="res://maps/lis_forest_freestyle/meshes/structures.glb" id="2_structures"]
+[ext_resource type="PackedScene" path="res://maps/lis_forest_freestyle/meshes/freestyle_protos.glb" id="6_freestyle"]
+[ext_resource type="Script" path="res://maps/lis_forest_freestyle/scripts/free_fpv_preview_cam.gd" id="3_cam"]
+[ext_resource type="Script" path="res://maps/lis_forest_freestyle/scripts/scatter_multimesh.gd" id="4_scatter"]
+[ext_resource type="Script" path="res://maps/lis_forest_freestyle/scripts/setup_collisions.gd" id="5_collisions"]
+
+[sub_resource type="ProceduralSkyMaterial" id="SkyMat_lis"]
+sky_top_color = Color(0.16, 0.30, 0.56, 1)
+sky_horizon_color = Color(0.63, 0.68, 0.64, 1)
+sky_ground_color = Color(0.24, 0.23, 0.20, 1)
+sun_angle_max = 14.0
+sun_curve = 0.14
+
+[sub_resource type="Sky" id="Sky_lis"]
+sky_material = SubResource("SkyMat_lis")
+
+[sub_resource type="Environment" id="Env_lis"]
+background_mode = 1
+sky = SubResource("Sky_lis")
+ambient_light_source = 2
+ambient_light_energy = 0.55
+fog_enabled = true
+fog_density = 0.0016
+fog_sky_affect = 0.3
+tonemap_mode = 2
+glow_enabled = false
+ssao_enabled = false
+ssr_enabled = false
+
+[node name="LisFreestyleMap" type="Node3D"]
+script = ExtResource("5_collisions")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Env_lis")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(38, -32, 24)
+light_color = Color(1, 0.88, 0.73, 1)
+light_energy = 2.3
+shadow_enabled = true
+directional_shadow_max_distance = 240.0
+
+[node name="Terrain" parent="." instance=ExtResource("1_terrain")]
+
+[node name="Structures" parent="." instance=ExtResource("2_structures")]
+
+[node name="FreestyleGeometry" parent="." instance=ExtResource("6_freestyle")]
+
+[node name="ScatterMultiMesh" type="Node3D" parent="."]
+script = ExtResource("4_scatter")
+
+[node name="SpawnPoints" type="Node3D" parent="."]
+groups = ["lis_spawnpoints"]
+
+[node name="Spawn_Z01" type="Marker3D" parent="SpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -215, 8, -205)
+
+[node name="Spawn_Z02" type="Marker3D" parent="SpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -70, 10, -120)
+
+[node name="Spawn_Z03" type="Marker3D" parent="SpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 35, -8, 45)
+
+[node name="Spawn_Z04" type="Marker3D" parent="SpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 195, 58, 165)
+
+[node name="Spawn_Z05" type="Marker3D" parent="SpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -20, 16, 195)
+
+[node name="Spawn_Z06" type="Marker3D" parent="SpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -190, 24, 95)
+
+[node name="Spawn_Z07" type="Marker3D" parent="SpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 150, 16, -95)
+
+[node name="Spawn_Z08" type="Marker3D" parent="SpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 95, 14, -235)
+
+[node name="FPVCamera" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -215, 11, -205)
+script = ExtResource("3_cam")
+current = true

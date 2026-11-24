@@ -28,6 +28,7 @@ driver/max_voices=64
 [autoload]
 
 Global="*res://autoloads/Global.gd"
+Progress="*res://autoloads/Progress.gd"
 Controls="*res://autoloads/Controls.gd"
 QuadSettings="*res://autoloads/QuadSettings.gd"
 GameSettings="*res://autoloads/GameSettings.gd"

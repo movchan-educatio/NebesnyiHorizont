@@ -654,6 +654,8 @@ static func kamikaze_hit_radius(node: Node) -> float:
 				return KAMIKAZE_RADIUS_VEHICLE
 	if node.is_in_group("enemy_infantry"):
 		return 2.16
+	if node.is_in_group("enemy_kamikaze"):
+		return KAMIKAZE_RADIUS_SHAHED + 1.6
 	return 0.0
 
 

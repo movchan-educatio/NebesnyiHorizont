@@ -97,10 +97,10 @@ static func kind_for_mass(mass_kg: float) -> String:
 static func ground_at(level: Node, map_name: String, x: float, z: float) -> float:
 	if level == null:
 		return -100.0
-	if map_name == "airport":
+	if map_name == "airport" or map_name == "lis_forest_freestyle" or map_name == "oilrig":
 		if level.has_method("_find_ground_y"):
 			return float(level.call("_find_ground_y", x, z))
-		return 0.12
+		return 0.12 if map_name == "airport" else 0.0
 	if not map_name.is_empty():
 		return FRONTLINE_TERRAIN.height_at(map_name, x, z)
 	if level.has_method("_find_ground_y"):

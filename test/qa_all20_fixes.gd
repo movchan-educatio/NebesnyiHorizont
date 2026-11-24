@@ -368,8 +368,9 @@ func _run() -> void:
 	await get_tree().create_timer(2.2).timeout
 	get_tree().paused = false
 	var prim_nodes := get_tree().get_nodes_in_group("primary_combat_target")
-	_check(prim_nodes.size() == 6 and int(lvl.get("_mission_targets_total")) == 6,
-			"#8 Combat Mission 1 spawns 6 primary infantry targets",
+	var k_extra := get_tree().get_nodes_in_group("enemy_kamikaze").size()
+	_check(prim_nodes.size() == 6 + k_extra and int(lvl.get("_mission_targets_total")) == 6 + k_extra,
+			"#8 Combat Mission 1 spawns 6 primary infantry targets + kamikaze",
 			"prim=%d total=%s" % [prim_nodes.size(), str(lvl.get("_mission_targets_total"))])
 	var lvl_drone := lvl.get_node_or_null("Drone") as Drone
 	if lvl_drone != null and lvl_drone.flight_controller != null:
@@ -422,14 +423,17 @@ func _run() -> void:
 				_check(int(lvl.get("_mission_phase")) == 1,
 						"#8 First primary kill during Phase 0 auto-advances to Strike (phase 1)",
 						"phase=%s" % str(lvl.get("_mission_phase")))
+	for kz in get_tree().get_nodes_in_group("enemy_kamikaze"):
+		if kz.has_method("take_damage"):
+			kz.call("take_damage", 999.0, (kz as Node3D).global_position)
 	await get_tree().process_frame
 	var extract_cleared := not bool(lvl.get("_mission_phase_active"))
 	await get_tree().create_timer(1.0).timeout
 	get_tree().paused = false
 	var pinfo_done: Dictionary = lvl.call("get_mission_phase_info")
-	_check(int(lvl.get("_mission_targets_destroyed")) == 6 and extract_cleared \
+	_check(int(lvl.get("_mission_targets_destroyed")) == 6 + k_extra and extract_cleared \
 			and bool(lvl.get("_mission_finished")) and pinfo_done.is_empty(),
-			"#8 Killing all 6 primary infantry completes mission directly with no Extract marker",
+			"#8 Killing all primary targets (including kamikaze) completes mission directly",
 			"destroyed=%s finished=%s phase_active=%s" % [
 				str(lvl.get("_mission_targets_destroyed")),
 				str(lvl.get("_mission_finished")),

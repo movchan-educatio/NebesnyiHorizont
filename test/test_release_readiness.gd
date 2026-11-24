@@ -64,7 +64,7 @@ func _run() -> void:
 
 
 func _test_fleet_and_campaign() -> void:
-	_check(DroneCatalog.count() >= 13, "DroneCatalog has 10 combat + 3 Uman freestyle presets")
+	_check(DroneCatalog.count() >= 16, "DroneCatalog has 10 combat + 3 freestyle + 3 new combat presets")
 	var has_magura_id := false
 	for i in range(DroneCatalog.count()):
 		var p := DroneCatalog.preset(i)
@@ -72,12 +72,12 @@ func _test_fleet_and_campaign() -> void:
 		var pid := String(p.get("id", "")).to_lower()
 		if pid.contains("magura"):
 			has_magura_id = true
-		# Перші 10 — бойові; останні 3 — фрістайл-дрони карти Умань.
-		if i < 10:
+		# 0..9 — бойові; 10..12 — фрістайл; 13..15 — нові керовані бойові.
+		if i < 10 or i >= 13:
 			_check(DroneCatalog.is_combat(i), "preset %d (%s) is combat" % [i, dname])
 		else:
 			_check(DroneCatalog.is_uman(i) and not DroneCatalog.is_combat(i),
-					"preset %d (%s) is Uman freestyle (non-combat)" % [i, dname])
+					"preset %d (%s) is freestyle (non-combat)" % [i, dname])
 		_check(not bool(p.get("is_naval", false)),
 				"preset %d (%s) has no is_naval flag" % [i, dname])
 		_check(not dname.to_lower().contains("магура")

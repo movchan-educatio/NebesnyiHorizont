@@ -2677,6 +2677,8 @@ func _is_water_hazard(x: float, z: float) -> bool:
 	var fmap := _frontline_map()
 	if fmap.is_empty() or fmap == "airport":
 		return false
+	if fmap == "lis_forest_freestyle":
+		return FrontlineTerrainScript.forest_is_water(x, z, _ground_y(x, z))
 	var h := FrontlineTerrainScript.height_at(fmap, x, z)
 	if fmap == "industrial":
 		var on_bridge := absf(x) < 18.0
@@ -2718,7 +2720,10 @@ func _frontline_map() -> String:
 ## ground units; only fall back to raycasts on the legacy GLB maps.
 func _terrain_ground(x: float, z: float) -> Dictionary:
 	var map := _frontline_map()
-	if map == "airport":
+	if map == "airport" or map == "lis_forest_freestyle":
+		# Airport and the forest use authored GLB terrain; the analytic
+		# height field returns 0 and would make vehicles float over the river.
+		# The level owns a physics raycast ground probe for both.
 		# The airport GLB merges every material into a few huge concave
 		# colliders.  A downward ray therefore alternates between tarmac,
 		# paint, wreckage and roof faces as the vehicle drives, which made

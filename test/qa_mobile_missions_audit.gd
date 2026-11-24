@@ -19,6 +19,7 @@ const LEVELS := {
 	"industrial": "res://sceneries/IndustrialLevel.tscn",
 	"wetlands": "res://sceneries/WetlandsLevel.tscn",
 	"airport": "res://sceneries/AirportLevel.tscn",
+	"lis_forest_freestyle": "res://sceneries/LisLevel.tscn",
 }
 const STEP := 0.05
 
@@ -187,7 +188,7 @@ func _check_infantry(level: Node, units: Array, label: String, when: String) -> 
 func _check_vehicles(level: Node, units: Array, label: String, when: String) -> void:
 	var ground_bad := 0
 	var air_bad := 0
-	var min_shahed := 55.0 if _map == "airport" else 10.0
+	var min_shahed := 55.0 if _map == "airport" else (35.0 if _map == "lis_forest_freestyle" else 10.0)
 	for v in units:
 		if not is_instance_valid(v):
 			continue
@@ -196,17 +197,17 @@ func _check_vehicles(level: Node, units: Array, label: String, when: String) -> 
 			ground_bad += 1
 			continue
 		var kind := int(v.get("kind"))
+		var gy := _ground_at(level, p.x, p.z)
+		var agl := p.y - gy
 		if kind == 5:
-			# Campaign 3 helicopter is intentionally inside a strike-quad
-			# climb band (qa_air_kill caps it at 32 m); just keep it airborne.
-			if p.y < 6.0 or p.y > 60.0:
+			# Campaign 3 helicopter climbs clear of valley hills / tree canopies.
+			if agl < 6.0 or agl > 80.0:
 				air_bad += 1
 		elif kind == 6:
-			# Shaheds clear the airport ruins; on smaller maps they stay inside
-			# the interceptable 12-34 m band.
-			if p.y < min_shahed or p.y > 200.0:
+			# Shaheds clear the airport ruins / forest canopy.
+			if agl < min_shahed or agl > 200.0:
 				air_bad += 1
-		elif absf(p.y - _ground_at(level, p.x, p.z)) > 2.0:
+		elif absf(p.y - gy) > 2.0:
 			ground_bad += 1
 	_check(ground_bad == 0 and air_bad == 0,
 			"%s: %s — %d vehicles grounded, %d air units at correct altitude" % [

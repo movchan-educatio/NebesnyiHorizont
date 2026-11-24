@@ -171,6 +171,12 @@ static func setup_propellers(model: Node3D, preset_index: int, prop_d: float = 5
 			else:
 				_apply_motor_tint(motor_node, prop_node, preset_index)
 
+	# Fallback for authored GLBs that export individual blades instead of
+	# motor_FL / propeller_FL empties (the enemy-drone pack uses
+	# Prop_00_Blade_*, Fan_Prop_* and Front/RearProp_*).  Group the blades of
+	# each rotor under a generated pivot so the standard RPM animation works.
+	if pivots.size() < 4 and bool(p.get("native_blade_pivots", false)):
+		_setup_blade_pivots(model, pivots)
 	model.set_meta("prop_pivots", pivots)
 	model.set_meta("preset_index", preset_index)
 	if OS.has_environment("PROP_DEBUG"):
@@ -181,6 +187,84 @@ static func setup_propellers(model: Node3D, preset_index: int, prop_d: float = 5
 						" scale=", mi.global_transform.basis.get_scale(),
 						" mat=", mi.material_override)
 	return pivots
+
+
+static func _native_rotor_prefix(node_name: String) -> String:
+	if not (node_name.begins_with("Prop_") or node_name.begins_with("Fan_Prop_")
+			or node_name.begins_with("FrontProp_") or node_name.begins_with("RearProp_")):
+		return ""
+	for token in ["_Blade_", "_Tip_", "_Stripe_", "_HubScrew_", "_RootFairing_"]:
+		var idx := node_name.find(token)
+		if idx > 0:
+			return node_name.substr(0, idx + 1)
+	for suffix in ["_HubUpper", "_HubLower", "_Nut"]:
+		if node_name.ends_with(suffix):
+			return node_name.substr(0, node_name.length() - suffix.length() + 1)
+	return ""
+
+
+## Groups exported per-rotor meshes (blades, tips, stripes, hubs, nuts, fairings)
+## under one pivot placed at *_HubUpper.transform.origin so rotating the pivot
+## spins the entire rotor cleanly around its motor hub instead of (0, 0, 0).
+static func _setup_blade_pivots(model: Node3D, pivots: Array[Node3D]) -> void:
+	var groups: Dictionary = {}
+	var stack: Array[Node] = [model]
+	while not stack.is_empty():
+		var node: Node = stack.pop_back()
+		for c in node.get_children():
+			stack.append(c)
+			if not (c is MeshInstance3D):
+				continue
+			var n := String(c.name)
+			var prefix := _native_rotor_prefix(n)
+			if prefix.is_empty():
+				continue
+			var p := c.get_parent()
+			if p == null:
+				continue
+			var key := "%d:%s" % [p.get_instance_id(), prefix]
+			if not groups.has(key):
+				groups[key] = {"parent": p, "prefix": prefix, "parts": [], "hub": null}
+			var g: Dictionary = groups[key]
+			(g["parts"] as Array).append(c)
+			if n.ends_with("_HubUpper"):
+				g["hub"] = c
+	var keys := groups.keys()
+	keys.sort()
+	for key in keys:
+		var g: Dictionary = groups[key]
+		var parent := g["parent"] as Node
+		var parts: Array = g["parts"]
+		if parent == null or parts.is_empty():
+			continue
+		var hub_node := g["hub"] as Node3D
+		var hub_origin := Vector3.ZERO
+		if hub_node != null:
+			hub_origin = hub_node.transform.origin
+		else:
+			var sum := Vector3.ZERO
+			for part in parts:
+				var mi := part as MeshInstance3D
+				sum += mi.transform * mi.get_aabb().get_center()
+			hub_origin = sum / float(parts.size())
+		var pivot := Node3D.new()
+		var clean_prefix := String(g["prefix"]).trim_suffix("_").replace("-", "_")
+		pivot.name = "NativeProp_%s" % clean_prefix
+		pivot.transform = Transform3D(Basis.IDENTITY, hub_origin)
+		parent.add_child(pivot)
+		for part in parts:
+			var nd := part as Node3D
+			var xf := nd.transform
+			parent.remove_child(nd)
+			nd.owner = null  # injected pivot is runtime-only, not a scene owner
+			pivot.add_child(nd)
+			nd.transform = Transform3D(xf.basis, xf.origin - hub_origin)
+		pivot.set_meta("spin_dir", 1.0 if pivots.size() % 2 == 0 else -1.0)
+		pivot.set_meta("spin_axis", Vector3.UP)
+		pivot.add_to_group("drone_prop_pivot")
+		pivots.append(pivot)
+	if OS.has_environment("PROP_DEBUG"):
+		print("[PROP-NATIVE] generated pivots=", pivots.size(), " groups=", keys)
 
 
 ## Real props turn at 15-25k RPM, which aliases into a frozen or strobing disc

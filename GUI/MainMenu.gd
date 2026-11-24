@@ -12,10 +12,16 @@ const FRONTLINE_LEVELS := {
 	"wetlands": "res://sceneries/WetlandsLevel.tscn",
 	"airport": "res://sceneries/AirportLevel.tscn",
 	"uman": "res://sceneries/UmanLevel.tscn",
+	"oilrig": "res://sceneries/OilRigLevel.tscn",
+	"lis_forest_freestyle": "res://sceneries/LisLevel.tscn",
 }
-## Steppe і Village видалені з гри. Умань — фрістайл-карта, доступна тільки
-## з трьома власними дронами (див. DroneCatalog.allowed_for_map).
-const SELECTABLE_MAPS := ["uman", "industrial", "wetlands", "airport"]
+## Steppe і Village видалені з гри. Нафтова платформа замінила Умань як
+## фрістайл-карту; Ліс — повноцінна карта з усіма місіями.
+const FREESTYLE_ONLY_MAPS := ["oilrig"]
+const SELECTABLE_MAPS := ["oilrig", "lis_forest_freestyle", "industrial", "wetlands", "airport"]
+
+static func _is_freestyle_map(id: String) -> bool:
+	return FREESTYLE_ONLY_MAPS.has(id)
 const SPECIAL_MISSIONS := [
 	{"id": 1, "code": "REC-01", "name": "Розвідка", "name_en": "Reconnaissance", "desc": "Пройти 3 зони спостереження", "desc_en": "Survey all three observation zones.", "diff": "Легка", "diff_en": "Easy", "col": Color("79a58a")},
 	{"id": 2, "code": "ESC-02", "name": "Супровід", "name_en": "Convoy Escort", "desc": "Провести дружню колону", "desc_en": "Escort the friendly convoy to its destination.", "diff": "Середня", "diff_en": "Medium", "col": Color("e2c276")},
@@ -46,7 +52,9 @@ const MenuDioramaStageScript = preload("res://scripts/util/MenuDioramaStage.gd")
 # Selection state
 var _selected_mode: int = Global.PlayMode.TUTORIAL
 var _selected_mission: int = 1
-var _selected_map := "uman"
+var _selected_map := "oilrig"
+var _coin_lbl: Label = null
+var _pending_unlock_id: String = ""
 
 # UI Element references for live updates
 var _mode_buttons: Dictionary = {}
@@ -506,12 +514,20 @@ func _ready() -> void:
 			int(Global.menu_settings.get("selected_mode", Global.play_mode)))
 	Global.play_mode = _selected_mode
 	_selected_mission = clampi(int(Global.menu_settings.get("selected_mission", 1)), 1, 5)
-	_selected_map = str(Global.menu_settings.get("selected_map", "uman"))
+	_selected_map = str(Global.menu_settings.get("selected_map", "oilrig"))
+	if _is_freestyle_map(_selected_map):
+		_selected_map = "oilrig"  # legacy збереження
 	if not SELECTABLE_MAPS.has(_selected_map):
-		_selected_map = "uman"
+		_selected_map = "oilrig"
+	if not Progress.is_unlocked(Progress.map_unlock_id(_selected_map)):
+		_selected_map = "oilrig"
+		Global.menu_settings["selected_map"] = "oilrig"
 	_selected_special = int(Global.menu_settings.get("selected_special", 0))
 	if _selected_special < 1 or _selected_special > SPECIAL_MISSIONS.size():
 		_selected_special = 0
+	if _selected_special > 0 and not Progress.is_unlocked("mode_special_%d" % _selected_special):
+		_selected_special = 0
+		Global.menu_settings["selected_special"] = 0
 	if _selected_mode != Global.PlayMode.COMBAT:
 		_selected_special = 0
 	if OS.has_environment("DRONE_COMBAT_MISSION"):
@@ -531,7 +547,7 @@ func _ready() -> void:
 		_selected_mission = mini(_selected_mission, Global.campaign_unlocked_mission())
 	_selected_mission = clampi(_selected_mission, 1, 4)
 	# Умань або фрістайл-дрони — тільки режим фрістайлу (без бою та туторіалу).
-	if _selected_map == "uman" or DroneCatalog.is_uman(Global.drone_preset):
+	if _is_freestyle_map(_selected_map) or DroneCatalog.is_uman(Global.drone_preset):
 		_selected_mode = Global.PlayMode.TRAINING
 		Global.play_mode = Global.PlayMode.TRAINING
 		Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
@@ -635,11 +651,19 @@ func _build() -> void:
 	# Frontline map selector.  The four procedural Ukrainian maps live in
 	# sceneries/*Level.tscn; "valley" keeps the original map.
 	left_box.add_child(MenuUI.feel_section("Карта / Frontline"))
+	_coin_lbl = Label.new()
+	_coin_lbl.text = "◈ МОНЕТИ: %d" % Progress.coins
+	_coin_lbl.add_theme_font_size_override("font_size", 18)
+	_coin_lbl.add_theme_color_override("font_color", Color("e2c276"))
+	left_box.add_child(_coin_lbl)
+	if not Progress.coins_changed.is_connected(_on_coins_changed):
+		Progress.coins_changed.connect(_on_coins_changed)
 	var map_row := HBoxContainer.new()
 	map_row.add_theme_constant_override("separation", 4)
 	left_box.add_child(map_row)
 	var map_defs := [
-		{"id": "uman", "uk": "Умань", "en": "Uman"},
+		{"id": "oilrig", "uk": "Нафтова платформа", "en": "Oil Rig"},
+		{"id": "lis_forest_freestyle", "uk": "Ліс", "en": "Forest"},
 		{"id": "industrial", "uk": "Промзона", "en": "Industry"},
 		{"id": "wetlands", "uk": "Плавні", "en": "Wetlands"},
 		{"id": "airport", "uk": "Аеропорт", "en": "Airport"},
@@ -648,6 +672,8 @@ func _build() -> void:
 	for md in map_defs:
 		var map_btn := MenuUI.feel_button(
 				str(md["en"]) if MenuUI.is_english() else str(md["uk"]), 30, false)
+		map_btn.set_meta("map_label_uk", str(md["uk"]))
+		map_btn.set_meta("map_label_en", str(md["en"]))
 		map_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		map_btn.add_theme_font_size_override("font_size", 10)
 		map_btn.toggle_mode = true
@@ -1107,7 +1133,7 @@ func _special_mission_def(mission_id: int) -> Dictionary:
 func _select_mode(mode: int) -> void:
 	mode = Global.sanitize_play_mode(mode)
 	# Умань та фрістайл-дрони літають виключно у фрістайлі.
-	if (_selected_map == "uman" or DroneCatalog.is_uman(Global.drone_preset)) and mode != Global.PlayMode.TRAINING:
+	if (_is_freestyle_map(_selected_map) or DroneCatalog.is_uman(Global.drone_preset)) and mode != Global.PlayMode.TRAINING:
 		mode = Global.PlayMode.TRAINING
 	_selected_mode = mode
 	Global.play_mode = mode
@@ -1122,7 +1148,7 @@ func _select_mode(mode: int) -> void:
 
 
 func _select_mission(m_id: int) -> void:
-	if _selected_map == "uman":
+	if _is_freestyle_map(_selected_map):
 		return
 	m_id = clampi(m_id, 1, 4)
 	if not Global.is_mission_unlocked(m_id):
@@ -1143,11 +1169,42 @@ func _select_mission(m_id: int) -> void:
 	_update_selection_ui()
 
 
+func _try_confirm_unlock(uid: String) -> bool:
+	if Progress.is_unlocked(uid):
+		_pending_unlock_id = ""
+		return true
+	var cost := Progress.price_of(uid)
+	if cost <= 0:
+		return false
+	var is_en := MenuUI.is_english()
+	if Progress.coins < cost:
+		_pending_unlock_id = ""
+		if _coin_lbl != null:
+			_coin_lbl.text = ("◈ NEED %d COINS (HAVE %d)" if is_en else "◈ ПОТРІБНО %d МОНЕТ (Є %d)") % [cost, Progress.coins]
+		return false
+	if _pending_unlock_id != uid:
+		_pending_unlock_id = uid
+		if _coin_lbl != null:
+			_coin_lbl.text = ("CLICK AGAIN: UNLOCK FOR ◈ %d?" if is_en else "НАТИСНІТЬ ЩЕ РАЗ: ВІДКРИТИ ЗА ◈ %d?") % cost
+		return false
+	_pending_unlock_id = ""
+	if Progress.try_unlock(uid):
+		_on_coins_changed(Progress.coins)
+		return true
+	return false
+
+
 func _select_special_mission(mission_id: int) -> void:
-	if _selected_map == "uman":
+	if _is_freestyle_map(_selected_map):
 		return
 	if mission_id < 1 or mission_id > SPECIAL_MISSIONS.size():
 		return
+	if mission_id >= 11:
+		var uid := "mode_special_%d" % mission_id
+		if not _try_confirm_unlock(uid):
+			return
+	else:
+		_pending_unlock_id = ""
 	_selected_mode = Global.PlayMode.COMBAT
 	Global.play_mode = Global.PlayMode.COMBAT
 	_selected_special = mission_id
@@ -1162,7 +1219,7 @@ func _select_special_mission(mission_id: int) -> void:
 
 
 func _continue_campaign() -> void:
-	if _selected_map == "uman":
+	if _is_freestyle_map(_selected_map):
 		return
 	# Continue at the first incomplete mission.  The briefing opens first, so
 	# the player still chooses difficulty and sees the objectives.
@@ -1184,10 +1241,18 @@ func _continue_campaign() -> void:
 func _select_map(map_id: String) -> void:
 	if not SELECTABLE_MAPS.has(map_id):
 		return
+	var unlock_id := "map_" + map_id
+	if not _try_confirm_unlock(unlock_id):
+		for key in _map_buttons.keys():
+			var b: Button = _map_buttons[key]
+			if b != null and is_instance_valid(b):
+				b.button_pressed = (str(key) == _selected_map)
+		_update_selection_ui()
+		return
 	_selected_map = map_id
 	Global.menu_settings["selected_map"] = map_id
-	# Умань або фрістайл-дрони — тільки режим фрістайлу (без скидання дрона на іншій карті).
-	if map_id == "uman" or DroneCatalog.is_uman(Global.drone_preset):
+	# Нафтова платформа або фрістайл-дрони — тільки режим фрістайлу.
+	if _is_freestyle_map(map_id) or DroneCatalog.is_uman(Global.drone_preset):
 		_selected_mode = Global.PlayMode.TRAINING
 		Global.play_mode = Global.PlayMode.TRAINING
 		Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
@@ -1202,9 +1267,26 @@ func _select_map(map_id: String) -> void:
 	_update_selection_ui()
 
 
+func _on_coins_changed(value: int) -> void:
+	if _coin_lbl != null:
+		var lbl := "COINS" if MenuUI.is_english() else "МОНЕТИ"
+		_coin_lbl.text = "◈ %s: %d" % [lbl, maxi(0, value)]
+
+
 func _update_selection_ui() -> void:
 	if _map_title_lbl == null:
 		return
+	for key in _map_buttons.keys():
+		var mb: Button = _map_buttons[key]
+		if mb == null or not is_instance_valid(mb):
+			continue
+		var uid := Progress.map_unlock_id(str(key))
+		var base_lbl := str(mb.get_meta("map_label_en" if MenuUI.is_english() else "map_label_uk", mb.text))
+		if not Progress.is_unlocked(uid) and Progress.price_of(uid) > 0:
+			mb.text = "%s 🔒 ◈%d" % [base_lbl, Progress.price_of(uid)]
+		else:
+			mb.text = base_lbl
+		mb.button_pressed = (str(key) == _selected_map)
 	# Update mode buttons style
 	for m in _mode_buttons.keys():
 		var b: Button = _mode_buttons[m]
@@ -1284,8 +1366,14 @@ func _update_selection_ui() -> void:
 		var s_diff := sb.get_node_or_null("HBox/DifficultyBadge/Difficulty") as Label
 		var s_def := _special_mission_def(int(sid))
 		if s_title != null and not s_def.is_empty():
-			s_title.text = str(s_def.get("name_en" if MenuUI.is_english() else "name",
+			var base_stitle := str(s_def.get("name_en" if MenuUI.is_english() else "name",
 					s_def.get("name", "")))
+			if int(sid) >= 11:
+				var suid := "mode_special_%d" % int(sid)
+				var scost := Progress.price_of(suid)
+				if not Progress.is_unlocked(suid) and scost > 0:
+					base_stitle += " · 🔒 ◈%d" % scost
+			s_title.text = base_stitle
 		if s_desc != null and not s_def.is_empty():
 			s_desc.text = str(s_def.get("desc_en" if MenuUI.is_english() else "desc",
 					s_def.get("desc", "")))
@@ -1335,8 +1423,8 @@ func _update_selection_ui() -> void:
 		if bool(trec.get("completed", false)):
 			var s_str := "★".repeat(int(trec.get("stars", 1)))
 			rank_info = ("  •  COURSE BEST: %.1fs %s [%s]" if is_en else "  •  РЕКОРД ТРАСИ: %.1f с %s [%s]") % [float(trec.get("best_time", 0.0)), s_str, str(trec.get("rank", trec.get("best_rank", "B")))]
-		_map_title_lbl.text = ("UMAN · FREESTYLE" if is_en else "УМАНЬ · ФРІСТАЙЛ") if _selected_map == "uman" else ("FREESTYLE · PROVING GROUND & COURSE" if is_en else "ФРІСТАЙЛ · ПОЛІГОН ТА ТРАСА")
-		_map_obj_lbl.text = ("Freestyle flight over Sofiyivka and the waterfront, three dedicated drones, no combat." if is_en else "Фрістайл над Софіївкою та набережною, три власні дрони, без бою.") if _selected_map == "uman" else ("Free freestyle flight, stick calibration, checkpoint course timer and Ghost replay." if is_en else "Вільний фрістайл, калібрування стіків, тренувальна траса на час і політ із Привидом.")
+		_map_title_lbl.text = ("OIL RIG · FREESTYLE" if is_en else "НАФТОВА ПЛАТФОРМА · ФРІСТАЙЛ") if _is_freestyle_map(_selected_map) else ("FREESTYLE · PROVING GROUND & COURSE" if is_en else "ФРІСТАЙЛ · ПОЛІГОН ТА ТРАСА")
+		_map_obj_lbl.text = ("Freestyle above the offshore platform and open sea, no combat." if is_en else "Фрістайл над нафтовою платформою та відкритим морем, без бою.") if _is_freestyle_map(_selected_map) else ("Free freestyle flight, stick calibration, checkpoint course timer and Ghost replay." if is_en else "Вільний фрістайл, калібрування стіків, тренувальна траса на час і політ із Привидом.")
 		_map_stats_lbl.text = ("TIME LIMIT: UNLIMITED  •  DAMAGE: DISABLED" if is_en else "ЧАС: БЕЗЛІМІТ  •  ПОШКОДЖЕННЯ: ВИМКНЕНО") + rank_info
 		_launch_btn.text = "▶  START FREESTYLE" if is_en else "▶  ПОЧАТИ ФРІСТАЙЛ"
 	elif _selected_special > 0:
@@ -1412,7 +1500,7 @@ func _update_selection_ui() -> void:
 		_foot_status_lbl.text = "NEBESNYI HORIZONT · TACTICAL FPV SIMULATOR · v1.19.0" if is_en else "НЕБЕСНИЙ ГОРИЗОНТ · ТАКТИЧНИЙ FPV-СИМУЛЯТОР · v1.19.0"
 
 	# На фрістайл-карті Умань або з фрістайл-дронами доступний виключно Фрістайл.
-	var hide_combat_ui := _selected_map == "uman" or DroneCatalog.is_uman(Global.drone_preset)
+	var hide_combat_ui := _is_freestyle_map(_selected_map) or DroneCatalog.is_uman(Global.drone_preset)
 	if _combat_section != null:
 		_combat_section.visible = not hide_combat_ui
 	if _special_section != null:
@@ -1701,7 +1789,7 @@ func _launch_current_selection(combat_training: bool = false) -> void:
 		Global.special_mission = 0
 		DroneCatalog.apply(1)
 	# Умань або фрістайл-дрони — тільки фрістайл на обраній карті.
-	elif _selected_map == "uman" or DroneCatalog.is_uman(Global.drone_preset):
+	elif _is_freestyle_map(_selected_map) or DroneCatalog.is_uman(Global.drone_preset):
 		_selected_mode = Global.PlayMode.TRAINING
 		Global.special_mission = 0
 		Global.combat_training = false
@@ -2706,7 +2794,7 @@ func _begin_loading(path: String) -> void:
 	_loading_done = false
 	Audio.stop_menu_music(0.6)
 	var overlay: Dictionary = LoadingScreen.build(_selected_mode, _selected_mission,
-			str(Global.menu_settings.get("selected_map", "uman")),
+			str(Global.menu_settings.get("selected_map", "oilrig")),
 			Global.get_difficulty_name(), true)
 	_loading_layer = overlay["layer"] as CanvasLayer
 	_loading_bar = overlay["bar"] as ProgressBar

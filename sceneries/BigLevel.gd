@@ -16,6 +16,7 @@ const PayloadScript = preload("res://combat/payload.gd")
 const BombBallisticsScript = preload("res://combat/ballistics.gd")
 const EnemyRiflemanScript = preload("res://combat/enemy_infantry.gd")
 const AAGunScript = preload("res://combat/aa_gun.gd")
+const KamikazeDroneScript = preload("res://combat/enemy_kamikaze_drone.gd")
 const CombatSfxScript = preload("res://combat/sfx.gd")
 const ExplosionScript = preload("res://combat/explosion.gd")
 const StickOverlayScript = preload("res://HUD/StickOverlay.gd")
@@ -38,11 +39,20 @@ const MOBILE_MENU := "res://GUI/mobile/MobileMenu.tscn"
 
 ## Змінні (не const), щоб великі карти (наприклад аеропорт) могли збільшити
 ## безпечну зону, не змінюючи логіку базового рівня.
+## Authored maps (oil rig / forest) ship their own materials/shaders; the
+## legacy material upgrader would replace the ocean shader with flat white PBR.
+var skip_material_upgrade := false
 var MAP_FLIGHT_BOUND := 182.0
 var MAP_GROUND_SAFE := 152.0
 var MAP_AIR_SAFE := 172.0
 const MIN_ENEMY_SPAWN_DIST_GROUND := 80.0
 const MIN_ENEMY_SPAWN_DIST_AIR := 95.0
+
+## Cached per-map sky materials for the authored forest map.  The global
+## QualityManager forces the warm baked panorama on every level, so the forest
+## needs its own override; keep one material per resolution to avoid rebuilding
+## it on every quality change.
+static var _forest_sky_materials := {}
 
 ## Air-target engagement envelope for campaign missions 3 and 4.
 ## Both sorties are kinetic-intercept missions flown with a stock strike quad,
@@ -1274,6 +1284,83 @@ func _tune_map_environment() -> void:
 				sun.light_energy = 3.15
 				sun.light_color = Color(1.0, 0.85, 0.64)
 				sun.light_volumetric_fog_energy = 3.5
+		"lis_forest_freestyle":
+			# Authored forest map: cool overcast/city grade instead of the global
+			# golden-hour panorama.  QualityManager swaps every map's sky to a warm
+			# baked HDRI, so restore one of the repo's ORIGINAL midday panoramas
+			# here (no new textures, no extra render passes) with a neutral key.
+			# Return early below: the common warm-grade clamps would otherwise
+			# force sun energy >= 2.6 and exposure >= 1.12 and wash the sky out.
+			var sky := env.sky
+			var hi_sky := QualityManager.level() >= QualityManager.Level.MEDIUM \
+					and not (OS.get_name() == "iOS" or OS.has_feature("mobile") \
+					or OS.has_environment("MOBILE_UI"))
+			if sky != null:
+				var sky_key := "hi" if hi_sky else "compact"
+				if not _forest_sky_materials.has(sky_key):
+					var tex_path := "res://Assets/textures/sky_mountains.png" if hi_sky \
+							else "res://Assets/textures/sky_static.png"
+					var tex := load(tex_path) as Texture2D
+					if tex != null:
+						var mat := PanoramaSkyMaterial.new()
+						mat.panorama = tex
+						mat.filter = true
+						_forest_sky_materials[sky_key] = mat
+				var fmat := _forest_sky_materials.get(sky_key) as PanoramaSkyMaterial
+				if fmat != null:
+					sky.sky_material = fmat
+					sky.process_mode = Sky.PROCESS_MODE_INCREMENTAL
+					# Azimuth of the sun glow in the original midday panoramas.
+					sky.set_meta("lowspec_sky_sun_azimuth", 147.6 if hi_sky else 302.4)
+			env.background_mode = Environment.BG_SKY
+			env.background_energy_multiplier = 0.60
+			# Keep the blue panorama purely as a backdrop: sky-driven ambient
+			# would push the authored forest floor from olive toward cold grey.
+			env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+			env.ambient_light_color = Color(0.58, 0.55, 0.45)
+			env.ambient_light_energy = 1.05
+			env.ambient_light_sky_contribution = 0.0
+			env.tonemap_mode = Environment.TONE_MAPPER_ACES
+			env.tonemap_exposure = 1.12
+			env.tonemap_white = 1.65
+			env.fog_enabled = true
+			env.fog_light_color = Color(0.70, 0.75, 0.80)
+			env.fog_light_energy = 0.52
+			env.fog_density = 0.00042
+			env.fog_aerial_perspective = 0.42
+			env.volumetric_fog_density = 0.0008
+			env.fog_height = _ground_y + 18.0
+			env.fog_height_density = 0.006
+			env.adjustment_enabled = true
+			env.adjustment_brightness = 1.06
+			env.adjustment_contrast = 1.08
+			env.adjustment_saturation = 1.10
+			if OS.get_name() == "iOS" or OS.has_feature("mobile") or OS.has_environment("MOBILE_UI"):
+				env.glow_enabled = false
+				env.adjustment_contrast = 1.05
+				env.adjustment_saturation = 1.12
+				env.tonemap_exposure = 1.16
+				env.ambient_light_energy = 1.05
+			if sun != null:
+				# Keep the sun/surface grade the forest floor tint was calibrated
+				# against (the source preview has warm daylight under a cool sky).
+				sun.rotation_degrees = Vector3(-24.0, 118.8, 0.0)
+				sun.light_color = Color(1.0, 0.85, 0.68)
+				sun.light_energy = 2.80
+				sun.light_volumetric_fog_energy = 1.0
+			var fill := get_node_or_null("FillLight") as DirectionalLight3D
+			if fill == null:
+				fill = DirectionalLight3D.new()
+				fill.name = "FillLight"
+				add_child(fill)
+			fill.rotation_degrees = Vector3(-48.0,
+					(sun.rotation_degrees.y - 165.0) if sun != null else -46.0, 0.0)
+			fill.light_color = Color(0.60, 0.70, 0.88)
+			fill.light_energy = 0.24
+			fill.shadow_enabled = false
+			fill.light_volumetric_fog_energy = 0.0
+			QualityManager.align_sky_to_sun(env, sun)
+			return
 		"wetlands":
 			env.fog_light_color = Color(0.60, 0.72, 0.74)
 			env.fog_light_energy = 0.58
@@ -1538,8 +1625,7 @@ func _run_ground_audit() -> void:
 			continue
 		if v.kind == Vehicle.Kind.HELI or v.kind == Vehicle.Kind.SHAHED:
 			continue
-		var terrain := FrontlineTerrainScript.height_at(frontline_map,
-				v.global_position.x, v.global_position.z)
+		var terrain := _terrain_height_at(v.global_position.x, v.global_position.z)
 		var diff := v.global_position.y - terrain
 		var ok := absf(diff) < 1.2
 		if not ok:
@@ -1549,8 +1635,7 @@ func _run_ground_audit() -> void:
 	for u in _infantry_units:
 		if not is_instance_valid(u):
 			continue
-		var terrain := FrontlineTerrainScript.height_at(frontline_map,
-				u.global_position.x, u.global_position.z)
+		var terrain := _terrain_height_at(u.global_position.x, u.global_position.z)
 		var diff := u.global_position.y - terrain
 		var ok := absf(diff) < 1.2
 		if not ok:
@@ -1673,7 +1758,7 @@ func _load_map() -> void:
 	# Legacy GLB maps (city / valley) get the same map-wide material upgrade
 	# as the handmade frontline maps, so their flat placeholder materials pick
 	# up PBR normals, roughness and close-range detail automatically.
-	if not OS.has_environment("QA_NO_MATERIAL_UPGRADE"):
+	if not skip_material_upgrade and not OS.has_environment("QA_NO_MATERIAL_UPGRADE"):
 		var upgrader = load("res://scripts/util/material_upgrader.gd")
 		if upgrader != null:
 			upgrader.upgrade(instance, "legacy", QualityManagerScript.get_active_level())
@@ -1792,7 +1877,7 @@ func _find_ground_y(x: float, z: float) -> float:
 	# high downward ray used to hit warehouse roofs, spawning targets,
 	# vehicles and infantry on rooftops.  Only legacy maps need a physics
 	# probe here.
-	if not frontline_map.is_empty():
+	if not frontline_map.is_empty() and not _is_authored_glb_map():
 		return FrontlineTerrainScript.height_at(frontline_map, x, z) + 0.02
 	var space := get_world_3d().direct_space_state
 	var from := Vector3(x, 400.0, z)
@@ -1806,6 +1891,20 @@ func _find_ground_y(x: float, z: float) -> float:
 	if hit.is_empty():
 		return 0.0
 	return (hit["position"] as Vector3).y
+
+
+func _is_authored_glb_map() -> bool:
+	return frontline_map == "lis_forest_freestyle" \
+			or frontline_map == "oilrig" \
+			or frontline_map == "airport"
+
+
+func _terrain_height_at(x: float, z: float) -> float:
+	if frontline_map.is_empty():
+		return _ground_y
+	if _is_authored_glb_map():
+		return _find_ground_y(x, z)
+	return FrontlineTerrainScript.height_at(frontline_map, x, z)
 
 
 ## Water surface for the current frontline map (very low on non-frontline maps).
@@ -1831,7 +1930,7 @@ func _is_ground_spot_clear(x: float, z: float) -> bool:
 			var sc3: Vector3 = sc
 			if p2.distance_to(Vector2(sc3.x, sc3.y)) < sc3.z + 2.0:
 				return false
-		var h := FrontlineTerrainScript.height_at(frontline_map, x, z)
+		var h := _terrain_height_at(x, z)
 		if frontline_map == "industrial":
 			var on_bridge := absf(x) < 16.0
 			var riv_z := -170.0 + 10.0 * sin(x * 0.015)
@@ -1988,7 +2087,7 @@ func _pick_combat_spawn() -> Vector2:
 		var p := centre + Vector2(cos(angle), sin(angle)) * radius
 		if absf(p.x) > MAP_GROUND_SAFE or absf(p.y) > MAP_GROUND_SAFE:
 			continue
-		var h := FrontlineTerrainScript.height_at(frontline_map, p.x, p.y)
+		var h := _terrain_height_at(p.x, p.y)
 		if h < water + 1.2:
 			continue
 		var phys := _find_ground_y(p.x, p.y)
@@ -2013,7 +2112,7 @@ const SPAWN_CLEAR_RADIUS := 0.62
 ## wreck directly overhead cannot be mistaken for the ground.
 func _spawn_ground_height(x: float, z: float) -> float:
 	var surface := 0.0
-	if not frontline_map.is_empty():
+	if not frontline_map.is_empty() and not _is_authored_glb_map():
 		surface = maxf(FrontlineTerrainScript.height_at(frontline_map, x, z),
 				FrontlineTerrainScript.mesh_surface_height(frontline_map, x, z))
 	else:
@@ -2081,6 +2180,10 @@ func _spawn_overlaps_geometry(x: float, z: float, ground: float) -> bool:
 ## using water_level() as a world-wide height wrongly rejected the dry hall
 ## apron (which sits only ~0.6 m above the river surface).
 func _spawn_is_wet(x: float, z: float, ground: float) -> bool:
+	# The forest river is authored in the terrain GLB, not in the analytic
+	# frontline height field, so check it before the generic water guard.
+	if frontline_map == "lis_forest_freestyle":
+		return FrontlineTerrainScript.forest_is_water(x, z, ground)
 	var water := _map_water_level()
 	if water < -900.0 or ground >= water + 0.30:
 		return false
@@ -2662,6 +2765,9 @@ func _start_mission() -> void:
 		_ghost_node.reset_replay()
 		_ghost_node.start_replay()
 	if Global.play_mode == Global.PlayMode.COMBAT:
+		for kd in get_tree().get_nodes_in_group("enemy_kamikaze"):
+			if is_instance_valid(kd) and kd.has_method("activate"):
+				kd.call("activate")
 		if Global.special_mission > 0:
 			_play_radio_callout(
 				_txt("Штаб, я Борт-01. Операція «%s» — заходжу на курс. Прийом." % Global.get_special_mission_name(Global.special_mission),
@@ -3441,7 +3547,7 @@ func _training_ring_ground_height(x: float, z: float) -> float:
 		for offset_z in [-8.0, 0.0, 8.0]:
 			var sx := x + float(offset_x)
 			var sz := z + float(offset_z)
-			if frontline_map.is_empty():
+			if frontline_map.is_empty() or _is_authored_glb_map():
 				highest = maxf(highest, _find_ground_y(sx, sz))
 			else:
 				highest = maxf(highest,
@@ -3780,26 +3886,31 @@ func _build_freestyle_ring_positions() -> bool:
 	var ground_fn := Callable(self, "_find_ground_y")
 	var specs: Array[Dictionary] = []
 	var map := frontline_map
-	if map == "uman":
-		specs = FreestyleCourseScript.loop_waypoints(
-				FreestyleCourseScript.UMAN_WAYPOINTS, ground_fn)
-	elif map == "airport" or not FrontlineTerrainScript.HALL_SITES.get(map, {}).is_empty():
-		if map == "airport":
-			var landmarks: Array = []
-			for node in find_children("AirportLandmark_*", "Node3D", true, false):
-				landmarks.append((node as Node3D).global_position)
-			specs = FreestyleCourseScript.airport_waypoints(landmarks, ground_fn)
+	if has_method("_authored_freestyle_waypoints"):
+		var authored: Array = call("_authored_freestyle_waypoints")
+		if authored.size() >= 8:
+			specs = FreestyleCourseScript.loop_waypoints(authored, ground_fn)
+	if specs.is_empty():
+		if map == "uman":
+			specs = FreestyleCourseScript.loop_waypoints(
+					FreestyleCourseScript.UMAN_WAYPOINTS, ground_fn)
+		elif map == "airport" or not FrontlineTerrainScript.HALL_SITES.get(map, {}).is_empty():
+			if map == "airport":
+				var landmarks: Array = []
+				for node in find_children("AirportLandmark_*", "Node3D", true, false):
+					landmarks.append((node as Node3D).global_position)
+				specs = FreestyleCourseScript.airport_waypoints(landmarks, ground_fn)
+			else:
+				specs = FreestyleCourseScript.hall_waypoints(map, ground_fn)
 		else:
-			specs = FreestyleCourseScript.hall_waypoints(map, ground_fn)
-	else:
-		# Valley / legacy: weave between the industrial props instead of the
-		# old high-altitude donut course.
-		var loop: Array = []
-		for i in range(24):
-			var a := TAU * float(i) / 24.0
-			var r := 78.0 + 14.0 * sin(a * 3.0 + 0.4)
-			loop.append(Vector3(cos(a) * r, 0.0, sin(a) * r * 0.88))
-		specs = FreestyleCourseScript.loop_waypoints(loop, ground_fn)
+			# Valley / legacy: weave between the industrial props instead of the
+			# old high-altitude donut course.
+			var loop: Array = []
+			for i in range(24):
+				var a := TAU * float(i) / 24.0
+				var r := 78.0 + 14.0 * sin(a * 3.0 + 0.4)
+				loop.append(Vector3(cos(a) * r, 0.0, sin(a) * r * 0.88))
+			specs = FreestyleCourseScript.loop_waypoints(loop, ground_fn)
 	# Pull any gate away from dynamic props, trees, cranes or walls across every map.
 	_freestyle_clear_gate_positions(specs)
 	if specs.size() < FreestyleCourseScript.RING_COUNT:
@@ -4172,9 +4283,15 @@ func _update_training_ring_highlight(delta: float) -> void:
 		var ring := _training_rings[i]
 		if ring == null or not is_instance_valid(ring):
 			continue
-		var frame_mat := ring.get_meta("ring_frame_mat", null) as StandardMaterial3D
-		var glow_mat := ring.get_meta("ring_glow_mat", null) as StandardMaterial3D
-		var base_col: Color = ring.get_meta("ring_base_color", Color(0.08, 0.92, 0.88))
+		var frame_mat: StandardMaterial3D = null
+		var glow_mat: StandardMaterial3D = null
+		var base_col := Color(0.08, 0.92, 0.88)
+		if ring.has_meta("ring_frame_mat"):
+			frame_mat = ring.get_meta("ring_frame_mat") as StandardMaterial3D
+		if ring.has_meta("ring_glow_mat"):
+			glow_mat = ring.get_meta("ring_glow_mat") as StandardMaterial3D
+		if ring.has_meta("ring_base_color"):
+			base_col = ring.get_meta("ring_base_color") as Color
 		if frame_mat != null:
 			if course_live and i == next_idx and ring.visible:
 				frame_mat.albedo_color = base_col.lightened(0.18)
@@ -4685,6 +4802,8 @@ func _advance_phase_after_kill(is_primary: bool, defer_for_kill_cam: bool) -> vo
 func _check_combat_mission_complete() -> void:
 	if _mission_finished or _victory_scheduled or _mission_targets_total <= 0:
 		return
+	if Global.special_mission in [1, 2, 3, 4, 11, 13]:
+		return
 	if _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active():
 		_pending_combat_complete = true
 		return
@@ -5142,6 +5261,80 @@ func _spawn_special_or_campaign() -> void:
 		_spawn_special_mission(Global.special_mission)
 	else:
 		_spawn_combat_mission(Global.combat_mission)
+	_spawn_kamikaze_drones()
+
+
+## Один виклик для всіх 17 місій: OPERATOR — 1 дрон, ACE — 2, RECRUIT — 0.
+## Дрони є обов'язковими цілями й реально заважають (переслідують і завдають
+## шкоди), але не ламають завершення місії через kill-cam.
+func _spawn_kamikaze_drones() -> void:
+	var count := 0
+	match Global.difficulty:
+		Global.Difficulty.OPERATOR:
+			count = 1
+		Global.Difficulty.ACE:
+			count = 2
+	if count <= 0 or Global.play_mode != Global.PlayMode.COMBAT:
+		return
+	var is_elim_sortie := (Global.special_mission <= 0 \
+			or Global.special_mission in [5, 6, 7, 8, 9, 10, 12])
+	var level_center := Vector3.ZERO
+	var respawn := get_node_or_null("Respawn") as Node3D
+	if respawn != null:
+		level_center = respawn.global_position
+	for i in range(count):
+		var drone := KamikazeDroneScript.new()
+		drone.variant = i % 2
+		drone.name = "EnemyKamikaze%d" % i
+		var angle := TAU * float(i) / float(maxi(count, 1)) + 0.8
+		var radius: float = 120.0 + float(i) * 22.0
+		var sx := clampf(level_center.x + cos(angle) * radius, -MAP_AIR_SAFE, MAP_AIR_SAFE)
+		var sz := clampf(level_center.z + sin(angle) * radius, -MAP_AIR_SAFE, MAP_AIR_SAFE)
+		var clear := _ensure_enemy_xz_clearance(Vector2(sx, sz),
+				MIN_ENEMY_SPAWN_DIST_AIR, MAP_AIR_SAFE, true)
+		var gy := _find_ground_y(clear.x, clear.y)
+		var sy := maxf(level_center.y + 42.0 + float(i) * 12.0,
+				gy + 48.0 + float(i) * 12.0)
+		var spawn_pos := Vector3(clear.x, sy, clear.y)
+		drone.set_primary_target(is_elim_sortie)
+		add_child(drone)
+		drone.global_position = spawn_pos
+		if _mission_started:
+			drone.activate()
+		drone.destroyed.connect(_on_kamikaze_destroyed.bind(drone))
+		if is_elim_sortie:
+			_mission_targets_total += 1
+		print("[KAMIKAZE] spawned: ", drone.name, " primary=", is_elim_sortie, " at ", spawn_pos)
+
+
+func _on_kamikaze_destroyed(points: int, unit: Node = null) -> void:
+	var valid_unit := unit != null and is_instance_valid(unit)
+	var is_primary := bool(unit.get("is_primary_target")) if valid_unit else false
+	var hit_player := bool(unit.get("impacted_player")) if valid_unit else false
+	if hit_player:
+		_set_flash(_txt("ВОРОЖИЙ КАМІКАДЗЕ АТАКУВАВ!", "ENEMY KAMIKAZE IMPACT!"))
+		if is_primary:
+			_mission_targets_destroyed += 1
+			var kc_hit := _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active()
+			_advance_phase_after_kill(true, kc_hit and _mission_targets_destroyed >= _mission_targets_total)
+		return
+	_score += points
+	_payload_hits += 1
+	CombatSfxScript.play_hitmarker(self, true)
+	var strike_pos := Vector3.ZERO
+	if valid_unit and unit is Node3D:
+		strike_pos = (unit as Node3D).global_position
+		_last_strike_pos = strike_pos
+	if not is_primary:
+		_set_flash(_txt("ВОРОЖИЙ КАМІКАДЗЕ ЗБИТО +%d" % points,
+				"ENEMY KAMIKAZE DOWN +%d" % points))
+		return
+	_mission_targets_destroyed += 1
+	_set_flash(_txt("ВОРОЖИЙ КАМІКАДЗЕ ЗБИТО", "ENEMY KAMIKAZE DOWN") + " %d/%d" % [
+			_mission_targets_destroyed, _mission_targets_total])
+	var triggered := _maybe_trigger_kill_cam(strike_pos, true) if valid_unit else false
+	var kc_active := triggered or (_kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active())
+	_advance_phase_after_kill(true, kc_active and _mission_targets_destroyed >= _mission_targets_total)
 
 
 func _special_ground_point(x: float, z: float) -> Vector3:
@@ -5152,7 +5345,7 @@ func _special_ground_point(x: float, z: float) -> Vector3:
 			var dry := _find_dry_spot(px, pz)
 			px = dry.x
 			pz = dry.y
-		var gy := FrontlineTerrainScript.height_at(frontline_map, px, pz)
+		var gy := _terrain_height_at(px, pz)
 		return Vector3(px, gy + 0.05, pz)
 	return Vector3(px, _find_ground_y(px, pz) + 0.05, pz)
 
@@ -5448,6 +5641,10 @@ func _setup_special_escort() -> void:
 				raw_pts = [Vector2(-115.0, -24.0), Vector2(-65.0, -29.0), Vector2(-16.0, -34.0), Vector2(52.0, -29.0), Vector2(115.0, -26.0)]
 			"wetlands":
 				raw_pts = [Vector2(-128.0, 70.0), Vector2(-108.0, 12.0), Vector2(-42.0, -18.0), Vector2(54.0, -8.0), Vector2(124.0, 20.0)]
+			"lis_forest_freestyle":
+				# Western ridge, clear of the river centreline at every Z.
+				raw_pts = [Vector2(-220.0, -230.0), Vector2(-210.0, -120.0),
+					Vector2(-200.0, 0.0), Vector2(-210.0, 120.0), Vector2(-220.0, 230.0)]
 			_:
 				raw_pts = [Vector2(-95.0, 122.0), Vector2(-40.0, 96.0), Vector2(22.0, 42.0), Vector2(56.0, -28.0), Vector2(64.0, -110.0)]
 		var raw_route: Array = []
@@ -5482,7 +5679,8 @@ func _setup_special_escort() -> void:
 	vehicle.track_drone = false
 	# The planned airport corridor is much longer than the 230 m village route.
 	# Keep the crossing duration in the same 1-2 minute band as other maps.
-	vehicle.move_speed = 11.0 if frontline_map == "airport" else 8.0
+	vehicle.move_speed = 11.0 if (frontline_map == "airport" \
+			or frontline_map == "lis_forest_freestyle") else 8.0
 	add_child(vehicle)
 	vehicle.max_health = 480.0
 	vehicle.health = 480.0
@@ -5494,7 +5692,7 @@ func _setup_special_escort() -> void:
 	_special_convoy = vehicle
 	_special_convoy_start = route[0]
 	_special_convoy_dest = route[route.size() - 1]
-	if frontline_map == "airport":
+	if frontline_map == "airport" or frontline_map == "lis_forest_freestyle":
 		# Spread the ambush along the planned corridor; the old centre-map
 		# guards never even saw the truck on the 900 m arena.
 		var guard_spots: Array = []
@@ -5987,6 +6185,20 @@ func _setup_special_dual_escort() -> void:
 			if planned.size() >= 2 and planned[0].distance_to(_special_convoy_start) > 25.0:
 				route_b = planned
 				break
+	elif frontline_map == "lis_forest_freestyle":
+		var lis_candidates_b := [
+			[Vector2(175.0, -210.0), Vector2(185.0, 210.0)],
+			[Vector2(215.0, 200.0), Vector2(205.0, -200.0)],
+		]
+		for pair in lis_candidates_b:
+			var a: Vector2 = pair[0]
+			var b: Vector2 = pair[1]
+			var planned := GroundRoutePlanner.plan(self,
+					_special_ground_point(a.x, a.y),
+					_special_ground_point(b.x, b.y), 11.0, MAP_GROUND_SAFE - 12.0)
+			if planned.size() >= 2 and planned[0].distance_to(_special_convoy_start) > 30.0:
+				route_b = planned
+				break
 	if route_b.size() < 2:
 		var base_pts: Array = [
 			Vector2(-108.0, 14.0), Vector2(-52.0, 24.0),
@@ -6019,7 +6231,8 @@ func _setup_special_dual_escort() -> void:
 	vehicle_b.kind = Vehicle.Kind.TRUCK
 	vehicle_b.hostile = false
 	vehicle_b.track_drone = false
-	vehicle_b.move_speed = 10.5 if frontline_map == "airport" else 7.8
+	vehicle_b.move_speed = 10.5 if (frontline_map == "airport" \
+			or frontline_map == "lis_forest_freestyle") else 7.8
 	add_child(vehicle_b)
 	vehicle_b.max_health = 480.0
 	vehicle_b.health = 480.0
@@ -6233,7 +6446,17 @@ func _spawn_combat_mission(mission_id: int) -> void:
 			# МІСІЯ 1: Знайти і знищити піхоту (Легка складність)
 			var sector_roll := randi() % 3
 			var base_center := Vector3(0.0, 0.0, 75.0) + _mission_offset
-			if sector_roll == 1:
+			if frontline_map == "lis_forest_freestyle":
+				var lis_centers := [
+					Vector3(-175.0, 0.0, 45.0),
+					Vector3(165.0, 0.0, -35.0),
+					Vector3(135.0, 0.0, 125.0),
+				]
+				base_center = (lis_centers[sector_roll] as Vector3) + _mission_offset
+				var dry_bc := _find_dry_spot(base_center.x, base_center.z)
+				base_center.x = dry_bc.x
+				base_center.z = dry_bc.y
+			elif sector_roll == 1:
 				base_center = Vector3(-65.0, 0.0, 55.0) + _mission_offset
 			elif sector_roll == 2:
 				base_center = Vector3(65.0, 0.0, 65.0) + _mission_offset
@@ -6251,7 +6474,8 @@ func _spawn_combat_mission(mission_id: int) -> void:
 				inf_count = 8
 			for i in range(inf_count):
 				var angle := (float(i) / float(inf_count)) * TAU + randf_range(-0.22, 0.22)
-				var dist := randf_range(9.0, 21.0)
+				var dist := randf_range(12.0, 26.0) if frontline_map == "lis_forest_freestyle" \
+						else randf_range(9.0, 21.0)
 				var pos := base_center + Vector3(cos(angle) * dist, 0.0, sin(angle) * dist)
 				var patrol_angle := randf() * TAU
 				var axis := Vector3(cos(patrol_angle), 0.0, sin(patrol_angle))
@@ -6270,15 +6494,28 @@ func _spawn_combat_mission(mission_id: int) -> void:
 				Vector3(48.0, 0.0, -14.0).rotated(Vector3.UP, tank_rot) + _mission_offset,
 				Vector3(-48.0, 0.0, -14.0).rotated(Vector3.UP, tank_rot) + _mission_offset,
 			]
-			_add_vehicle(Vehicle.Kind.TANK, tank_box, randf_range(5.2, 6.2), true, true)
-			_mission_targets_total += 1
-
 			var apc_box := [
 				Vector3(62.0, 0.0, 76.0).rotated(Vector3.UP, apc_rot) + _mission_offset,
 				Vector3(-62.0, 0.0, 76.0).rotated(Vector3.UP, apc_rot) + _mission_offset,
 				Vector3(-62.0, 0.0, 16.0).rotated(Vector3.UP, apc_rot) + _mission_offset,
 				Vector3(62.0, 0.0, 16.0).rotated(Vector3.UP, apc_rot) + _mission_offset,
 			]
+			if frontline_map == "lis_forest_freestyle":
+				# Розводимо колони на сухі західний і східний гребені долини Лісу.
+				tank_box = [
+					Vector3(-210.0, 0.0, -70.0) + _mission_offset,
+					Vector3(-125.0, 0.0, -70.0) + _mission_offset,
+					Vector3(-125.0, 0.0, 95.0) + _mission_offset,
+					Vector3(-210.0, 0.0, 95.0) + _mission_offset,
+				]
+				apc_box = [
+					Vector3(120.0, 0.0, -85.0) + _mission_offset,
+					Vector3(205.0, 0.0, -85.0) + _mission_offset,
+					Vector3(205.0, 0.0, 105.0) + _mission_offset,
+					Vector3(120.0, 0.0, 105.0) + _mission_offset,
+				]
+			_add_vehicle(Vehicle.Kind.TANK, tank_box, randf_range(5.2, 6.2), true, true)
+			_mission_targets_total += 1
 			_add_vehicle(Vehicle.Kind.APC, apc_box, randf_range(9.8, 11.2), true, true)
 			_mission_targets_total += 1
 
@@ -6287,15 +6524,24 @@ func _spawn_combat_mission(mission_id: int) -> void:
 					Vector3(-56.0, 0.0, 18.0) + _mission_offset,
 					Vector3(56.0, 0.0, 18.0) + _mission_offset,
 				]
+				if frontline_map == "lis_forest_freestyle":
+					bmp_box = [
+						Vector3(140.0, 0.0, -145.0) + _mission_offset,
+						Vector3(220.0, 0.0, -45.0) + _mission_offset,
+					]
 				_add_vehicle(Vehicle.Kind.BMP, bmp_box, 8.6, true, true)
 				_mission_targets_total += 1
 
 			var p1_pos := Vector3(randf_range(-42.0, -18.0), 0.0, randf_range(48.0, 80.0)) + _mission_offset
 			var p2_pos := Vector3(randf_range(18.0, 42.0), 0.0, randf_range(48.0, 80.0)) + _mission_offset
+			if frontline_map == "lis_forest_freestyle":
+				p1_pos = Vector3(-165.0, 0.0, 15.0) + _mission_offset
+				p2_pos = Vector3(165.0, 0.0, 20.0) + _mission_offset
 			_add_mission_infantry(p1_pos, Vector3(1.0, 0.0, 0.0), 14.0, 1.7, false)
 			if Global.difficulty != Global.Difficulty.RECRUIT:
 				_add_mission_infantry(p2_pos, Vector3(-1.0, 0.0, 0.0), 14.0, 1.7, false)
-			_add_aa_gun(Vector3(0.0, 0.0, 32.0), false)
+			_add_aa_gun(Vector3(-135.0, 0.0, -55.0) if frontline_map == "lis_forest_freestyle" \
+					else Vector3(0.0, 0.0, 32.0), false)
 
 		3:
 			# МІСІЯ 3: Гелікоптер (Важка складність — повітряна ціль + мобільна ППО)
@@ -6303,10 +6549,16 @@ func _spawn_combat_mission(mission_id: int) -> void:
 			var h_center_z := randf_range(15.0, 42.0) + _mission_offset.z
 			var h_radius := randf_range(65.0, 88.0)
 			var h_height := randf_range(AIR_MISSION_HELI_ALT.x, AIR_MISSION_HELI_ALT.y)
+			var h_speed := randf_range(AIR_MISSION_HELI_SPEED.x, AIR_MISSION_HELI_SPEED.y)
+			if frontline_map == "lis_forest_freestyle":
+				# На лісистій гористій карті Мі-24/Ка-52 тримає курс над кронами та яром.
+				h_center_x = randf_range(-30.0, 30.0)
+				h_center_z = randf_range(-20.0, 35.0)
+				h_radius = randf_range(95.0, 130.0)
+				h_height = randf_range(38.0, 54.0)
+				h_speed *= 1.06
 			var heli_pts := _loop_waypoints(h_center_x, h_center_z, h_radius, 8, 0.2)
-			_add_vehicle(Vehicle.Kind.HELI, heli_pts,
-					randf_range(AIR_MISSION_HELI_SPEED.x, AIR_MISSION_HELI_SPEED.y),
-					true, true, h_height)
+			_add_vehicle(Vehicle.Kind.HELI, heli_pts, h_speed, true, true, h_height)
 			_mission_targets_total += 1
 
 			var sam_rot := randf_range(-0.4, 0.4)
@@ -6316,16 +6568,29 @@ func _spawn_combat_mission(mission_id: int) -> void:
 				Vector3(55.0, 0.0, -22.0).rotated(Vector3.UP, sam_rot) + _mission_offset,
 				Vector3(-55.0, 0.0, -22.0).rotated(Vector3.UP, sam_rot) + _mission_offset,
 			]
+			if frontline_map == "lis_forest_freestyle":
+				sam_box = [
+					Vector3(135.0, 0.0, -45.0) + _mission_offset,
+					Vector3(210.0, 0.0, -45.0) + _mission_offset,
+					Vector3(210.0, 0.0, 75.0) + _mission_offset,
+					Vector3(135.0, 0.0, 75.0) + _mission_offset,
+				]
 			_add_vehicle(Vehicle.Kind.SAM, sam_box, 4.2, true, true)
 			_mission_targets_total += 1
 			if Global.difficulty == Global.Difficulty.ACE:
-				_add_vehicle(Vehicle.Kind.BMP, [
+				var m3_bmp := [
+					Vector3(-200.0, 0.0, -40.0) + _mission_offset,
+					Vector3(-120.0, 0.0, 60.0) + _mission_offset,
+				] if frontline_map == "lis_forest_freestyle" else [
 					Vector3(-62.0, 0.0, 14.0) + _mission_offset,
 					Vector3(62.0, 0.0, 14.0) + _mission_offset,
-				], 8.4, true, true)
+				]
+				_add_vehicle(Vehicle.Kind.BMP, m3_bmp, 8.4, true, true)
 				_mission_targets_total += 1
-			_add_aa_gun(Vector3(-56.0, 0.0, 42.0), false)
-			_add_aa_gun(Vector3(56.0, 0.0, 12.0), false)
+			_add_aa_gun(Vector3(-175.0, 0.0, 45.0) if frontline_map == "lis_forest_freestyle" \
+					else Vector3(-56.0, 0.0, 42.0), false)
+			_add_aa_gun(Vector3(165.0, 0.0, -75.0) if frontline_map == "lis_forest_freestyle" \
+					else Vector3(56.0, 0.0, 12.0), false)
 
 		4:
 			# МІСІЯ 4: Шахед (Максимальна складність — швидкісні повітряні цілі + ЗРК та БМП прикриття)
@@ -6335,13 +6600,20 @@ func _spawn_combat_mission(mission_id: int) -> void:
 			var air_scale := 1.0
 			if frontline_map == "airport":
 				air_scale = clampf(MAP_AIR_SAFE / 168.0, 1.0, 2.6)
+			elif frontline_map == "lis_forest_freestyle":
+				air_scale = clampf(MAP_AIR_SAFE / 180.0, 1.0, 2.2)
 			var sh1_alt := randf_range(AIR_MISSION_SHAHED_ALT_1.x,
 					AIR_MISSION_SHAHED_ALT_1.y)
 			var sh2_alt := randf_range(AIR_MISSION_SHAHED_ALT_2.x,
 					AIR_MISSION_SHAHED_ALT_2.y)
+			var sh_speed_mul := 1.0
 			if frontline_map == "airport":
 				sh1_alt = clampf(maxf(sh1_alt * air_scale, 62.0), 20.0, 105.0)
 				sh2_alt = clampf(maxf(sh2_alt * air_scale, 62.0), 20.0, 105.0)
+			elif frontline_map == "lis_forest_freestyle":
+				sh1_alt = randf_range(44.0, 58.0)
+				sh2_alt = randf_range(52.0, 68.0)
+				sh_speed_mul = 1.08
 			var ang := randf_range(-0.25, 0.25)
 			var p_pts1 := [
 				Vector3(-115.0, 0.0, 62.0).rotated(Vector3.UP, ang) + _mission_offset,
@@ -6353,9 +6625,16 @@ func _spawn_combat_mission(mission_id: int) -> void:
 				for i in range(p_pts1.size()):
 					p_pts1[i] = Vector3(p_pts1[i].x * air_scale, 0.0,
 							p_pts1[i].z * air_scale)
+			elif frontline_map == "lis_forest_freestyle":
+				p_pts1 = [
+					Vector3(-230.0, 0.0, -180.0),
+					Vector3(210.0, 0.0, -110.0),
+					Vector3(190.0, 0.0, 170.0),
+					Vector3(-210.0, 0.0, 95.0),
+				]
 			_add_vehicle(Vehicle.Kind.SHAHED, p_pts1,
 					randf_range(AIR_MISSION_SHAHED_SPEED.x,
-							AIR_MISSION_SHAHED_SPEED.y),
+							AIR_MISSION_SHAHED_SPEED.y) * sh_speed_mul,
 					true, false, sh1_alt)
 			_mission_targets_total += 1
 
@@ -6369,32 +6648,53 @@ func _spawn_combat_mission(mission_id: int) -> void:
 				for i in range(p_pts2.size()):
 					p_pts2[i] = Vector3(p_pts2[i].x * air_scale, 0.0,
 							p_pts2[i].z * air_scale)
+			elif frontline_map == "lis_forest_freestyle":
+				p_pts2 = [
+					Vector3(220.0, 0.0, -170.0),
+					Vector3(-195.0, 0.0, -135.0),
+					Vector3(-225.0, 0.0, 185.0),
+					Vector3(205.0, 0.0, 120.0),
+				]
 			_add_vehicle(Vehicle.Kind.SHAHED, p_pts2,
 					randf_range(AIR_MISSION_SHAHED_SPEED.x,
-							AIR_MISSION_SHAHED_SPEED.y),
+							AIR_MISSION_SHAHED_SPEED.y) * sh_speed_mul,
 					true, false, sh2_alt)
 			_mission_targets_total += 1
 
-			_add_vehicle(Vehicle.Kind.SAM, [
+			var m4_sam := [
+				Vector3(-210.0, 0.0, -80.0) + _mission_offset,
+				Vector3(-130.0, 0.0, 70.0) + _mission_offset,
+			] if frontline_map == "lis_forest_freestyle" else [
 				Vector3(randf_range(-72.0, -50.0), 0.0, randf_range(40.0, 65.0)) + _mission_offset,
 				Vector3(randf_range(50.0, 72.0), 0.0, randf_range(40.0, 65.0)) + _mission_offset,
-			], 4.5, true, true)
+			]
+			_add_vehicle(Vehicle.Kind.SAM, m4_sam, 4.5, true, true)
 			_mission_targets_total += 1
 
 			if Global.difficulty != Global.Difficulty.RECRUIT:
-				_add_vehicle(Vehicle.Kind.BMP, [
+				var m4_bmp := [
+					Vector3(145.0, 0.0, -90.0) + _mission_offset,
+					Vector3(215.0, 0.0, 70.0) + _mission_offset,
+				] if frontline_map == "lis_forest_freestyle" else [
 					Vector3(randf_range(58.0, 82.0), 0.0, randf_range(12.0, 32.0)) + _mission_offset,
 					Vector3(randf_range(-82.0, -58.0), 0.0, randf_range(12.0, 32.0)) + _mission_offset,
-				], 9.2, true, true)
+				]
+				_add_vehicle(Vehicle.Kind.BMP, m4_bmp, 9.2, true, true)
 				_mission_targets_total += 1
 			if Global.difficulty == Global.Difficulty.ACE:
-				_add_vehicle(Vehicle.Kind.APC, [
+				var m4_apc := [
+					Vector3(-185.0, 0.0, 120.0) + _mission_offset,
+					Vector3(-115.0, 0.0, 190.0) + _mission_offset,
+				] if frontline_map == "lis_forest_freestyle" else [
 					Vector3(-68.0, 0.0, -18.0) + _mission_offset,
 					Vector3(68.0, 0.0, -18.0) + _mission_offset,
-				], 9.6, true, true, 0.0, true, "btr8")
+				]
+				_add_vehicle(Vehicle.Kind.APC, m4_apc, 9.6, true, true, 0.0, true, "btr8")
 				_mission_targets_total += 1
-			_add_aa_gun(Vector3(-68.0, 0.0, 26.0), false)
-			_add_aa_gun(Vector3(68.0, 0.0, 48.0), false)
+			_add_aa_gun(Vector3(-180.0, 0.0, 25.0) if frontline_map == "lis_forest_freestyle" \
+					else Vector3(-68.0, 0.0, 26.0), false)
+			_add_aa_gun(Vector3(185.0, 0.0, 50.0) if frontline_map == "lis_forest_freestyle" \
+					else Vector3(68.0, 0.0, 48.0), false)
 
 	_offset_targets = false
 	if frontline_map != "" and mission_id != 1:
@@ -6760,7 +7060,7 @@ func _spawn_destructible_buildings(count: int, radius_min: float,
 			z = centre.y + sin(angle) * radius
 			if absf(x) > MAP_GROUND_SAFE or absf(z) > MAP_GROUND_SAFE:
 				continue
-			var h := FrontlineTerrainScript.height_at(frontline_map, x, z)
+			var h := _terrain_height_at(x, z)
 			if h < water + 1.2:
 				continue
 			gy = _find_ground_y(x, z)
@@ -6981,6 +7281,8 @@ func _setup_hud() -> void:
 
 
 func _terrain_y(x: float, z: float) -> float:
+	if _is_authored_glb_map():
+		return _find_ground_y(x, z)
 	if frontline_map != "":
 		var builder = load("res://scripts/util/frontline_terrain.gd")
 		if builder != null:
@@ -7012,6 +7314,11 @@ func _setup_reb() -> void:
 	# to the procedural terrain so the masts always sit on the ground.
 	var domes: Array = []
 	match frontline_map:
+		"lis_forest_freestyle":
+			domes = [
+				{"p": Vector2(-150, -90), "r": 205.0, "s": 0.85, "dir": false, "yaw": 0.0, "fov": 75.0},
+				{"p": Vector2(165, 70), "r": 225.0, "s": 0.90, "dir": true, "yaw": -140.0, "fov": 80.0},
+			]
 		"airport":
 			domes = [
 				{"p": Vector2(-165, -90), "r": 190.0, "s": 0.85, "dir": false, "yaw": 0.0, "fov": 75.0},
@@ -7962,8 +8269,7 @@ func _prewarm_scene_rendering() -> void:
 	if fx_script != null:
 		var blast_at: Vector3 = eye + Vector3(0.0, 0.0, -45.0)
 		if not frontline_map.is_empty():
-			blast_at.y = FrontlineTerrainScript.height_at(frontline_map,
-					blast_at.x, blast_at.z) + 0.4
+			blast_at.y = _terrain_height_at(blast_at.x, blast_at.z) + 0.4
 		else:
 			blast_at.y = _ground_y + 0.4
 		var warm_explosion = fx_script.spawn(self, blast_at, 3.0, 0.0)
@@ -8052,7 +8358,7 @@ func _prewarm_scene_rendering() -> void:
 			points.append(Vector2(c2.x + h2.x + 66.0, c2.y - 30.0))
 			points.append(Vector2(c2.x + h2.x + 44.0, c2.y - h2.y - 10.0))
 		for p in points:
-			var gy: float = FrontlineTerrainScript.height_at(frontline_map, p.x, p.y)
+			var gy: float = _terrain_height_at(p.x, p.y)
 			cam.global_position = Vector3(p.x + 38.0, gy + 42.0, p.y + 38.0)
 			cam.look_at(Vector3(p.x, gy + 8.0, p.y), Vector3.UP)
 			var t3 := Time.get_ticks_usec()
@@ -8065,8 +8371,7 @@ func _prewarm_scene_rendering() -> void:
 		var corridor_x := clampf(eye.x, -165.0, 165.0)
 		for i in range(12):
 			var cz := clampf(eye.z + 90.0 - float(i) * 28.0, -165.0, 165.0)
-			var cy: float = FrontlineTerrainScript.height_at(frontline_map,
-					corridor_x, cz)
+			var cy: float = _terrain_height_at(corridor_x, cz)
 			cam.global_position = Vector3(corridor_x, cy + 30.0, cz)
 			cam.look_at(Vector3(corridor_x, cy + 18.0, clampf(cz - 80.0, -175.0, 175.0)), Vector3.UP)
 			var t4 := Time.get_ticks_usec()
@@ -8077,8 +8382,7 @@ func _prewarm_scene_rendering() -> void:
 			var mid_x: float = clampf((site["center"] as Vector2).x, -165.0, 165.0)
 			for i in range(14):
 				var cz2 := clampf(165.0 - float(i) * 24.0, -165.0, 165.0)
-				var cy2: float = FrontlineTerrainScript.height_at(frontline_map,
-						mid_x, cz2)
+				var cy2: float = _terrain_height_at(mid_x, cz2)
 				cam.global_position = Vector3(mid_x, cy2 + 30.0, cz2)
 				cam.look_at(Vector3(mid_x, cy2 + 16.0, clampf(cz2 - 80.0, -175.0, 175.0)), Vector3.UP)
 				var t6 := Time.get_ticks_usec()
@@ -8168,7 +8472,7 @@ func _bomber_qa_demo() -> void:
 	var drone := get_node_or_null("Drone") as Drone
 	if drone == null:
 		return
-	var ground := FrontlineTerrainScript.height_at(frontline_map, 30.0, 0.0) \
+	var ground := _terrain_height_at(30.0, 0.0) \
 			if not frontline_map.is_empty() else _ground_y
 	drone.freeze = true
 	drone.global_position = Vector3(30.0, ground + 180.0, 0.0)
@@ -8194,8 +8498,8 @@ func _drop_heavy_bomb() -> void:
 		_set_flash("БОЄКОМПЛЕКТ ВИЧЕРПАНО — R ДЛЯ ПЕРЕЗАРЯДКИ" if not MenuUI.is_english()
 				else "BOMBS EXPENDED — R TO REARM")
 		return
-	var altitude := drone.global_position.y - FrontlineTerrainScript.height_at(
-			frontline_map, drone.global_position.x, drone.global_position.z) \
+	var altitude := drone.global_position.y - _terrain_height_at(
+			drone.global_position.x, drone.global_position.z) \
 			if not frontline_map.is_empty() else drone.global_position.y - _ground_y
 	if altitude < 8.0:
 		_set_flash("ЗАНИЗЬКО ДЛЯ СКИДУ" if not MenuUI.is_english() else "TOO LOW TO RELEASE")
@@ -9637,12 +9941,12 @@ func _physics_process(delta: float) -> void:
 			if dtest != null:
 				var pp := dtest.global_position
 				dtest.global_position = Vector3(pp.x,
-						FrontlineTerrainScript.height_at(frontline_map, pp.x, pp.z) - 5.0,
+						_terrain_height_at(pp.x, pp.z) - 5.0,
 						pp.z)
 		elif gf == 150:
 			var dcheck := get_node_or_null("Drone") as Drone
 			if dcheck != null:
-				var gy := FrontlineTerrainScript.height_at(frontline_map,
+				var gy := _terrain_height_at(
 						dcheck.global_position.x, dcheck.global_position.z)
 				print("[GUARD] y=%.2f ground=%.2f %s" % [dcheck.global_position.y, gy,
 						"PASS" if dcheck.global_position.y >= gy - 1.0 else "FAIL"])
@@ -9714,6 +10018,20 @@ func _enforce_ground_clearance(_delta: float) -> void:
 	if drone_body == null or not is_instance_valid(drone_body):
 		return
 	var p := drone_body.global_position
+	if frontline_map == "oilrig":
+		if p.y <= 0.25:
+			request_respawn()
+		return
+	if frontline_map == "lis_forest_freestyle":
+		if not drone_body.freeze and p.y <= FrontlineTerrainScript.FOREST_WATER_Y + 0.15 \
+				and FrontlineTerrainScript.forest_is_water(p.x, p.z, p.y):
+			request_respawn()
+			return
+		if p.y < -13.5:
+			drone_body.global_position = Vector3(p.x, -13.0, p.z)
+			if drone_body.linear_velocity.y < 0.0:
+				drone_body.linear_velocity.y = 0.0
+		return
 	# Outside the 1024 m clipmap the analytic field is still defined, so the
 	# guard also catches a drone that escaped past the terrain edge.
 	var gy := maxf(FrontlineTerrainScript.height_at(frontline_map, p.x, p.z),
@@ -9847,9 +10165,12 @@ func _update_hud() -> void:
 					if next_gate != null and is_instance_valid(next_gate):
 						dist_text = " · %dm" % int(flyer.global_position.distance_to(
 								next_gate.global_position))
-				_hud_label.text = "%s\n%s · %s %d/%d · %d%s" % [
-						short_name, time_str, _txt("ВОРОТА", "GATES"),
-						_rings_passed, _rings_total, _score, dist_text]
+				if _rings_total <= 0:
+					_hud_label.text = "%s\n%s · %d" % [short_name, time_str, _score]
+				else:
+					_hud_label.text = "%s\n%s · %s %d/%d · %d%s" % [
+							short_name, time_str, _txt("ВОРОТА", "GATES"),
+							_rings_passed, _rings_total, _score, dist_text]
 		_:
 			var combat_time_limit: float = Global.get_difficulty_time_limit()
 			var time_left := maxf(0.0, combat_time_limit - _mission_time)

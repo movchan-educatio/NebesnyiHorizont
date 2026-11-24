@@ -35,11 +35,17 @@ var _bg_tex: Texture2D
 var _bg_blur_tex: Texture2D
 var _knob_tex: Texture2D
 const MAP_META := [
-	{"id": "uman", "name": "УМАНЬ", "name_en": "UMAN", "tag": "ФРІСТАЙЛ", "tag_en": "FREESTYLE", "diff": "ЛЕГКА", "diff_en": "EASY", "col": "79a58a"},
+	{"id": "oilrig", "name": "НАФТОВА ПЛАТФОРМА", "name_en": "OIL RIG", "tag": "ФРІСТАЙЛ", "tag_en": "FREESTYLE", "diff": "ЛЕГКА", "diff_en": "EASY", "col": "79a58a"},
+	{"id": "lis_forest_freestyle", "name": "ЛІС", "name_en": "FOREST", "tag": "ВСІ МІСІЇ", "tag_en": "ALL MISSIONS", "diff": "СЕРЕДНЯ", "diff_en": "MEDIUM", "col": "79a58a"},
 	{"id": "industrial", "name": "ПРОМЗОНА", "name_en": "INDUSTRIAL ZONE", "tag": "ЗАВОДИ Й ТРУБИ", "tag_en": "FACTORY COMPLEX", "diff": "СКЛАДНА", "diff_en": "HARD", "col": "c96f67"},
 	{"id": "wetlands", "name": "БОЛОТА", "name_en": "WETLANDS", "tag": "ВОДА Й ОЧЕРЕТ", "tag_en": "WATER & REEDS", "diff": "СКЛАДНА", "diff_en": "HARD", "col": "79a58a"},
 	{"id": "airport", "name": "АЕРОПОРТ", "name_en": "AIRPORT", "tag": "ФРІСТАЙЛ", "tag_en": "FREESTYLE", "diff": "СЕРЕДНЯ", "diff_en": "MEDIUM", "col": "e2c276"},
 ]
+const FREESTYLE_ONLY_MAPS := ["oilrig"]
+
+static func _is_freestyle_map(id: String) -> bool:
+	return FREESTYLE_ONLY_MAPS.has(id)
+
 const MODE_META := [
 	{"id": 3, "name": "ТУТОРІАЛ", "name_en": "TUTORIAL"},
 	{"id": 0, "name": "ФРІСТАЙЛ", "name_en": "FREESTYLE"},
@@ -80,6 +86,9 @@ var _elrs_chip: PanelContainer
 var _elrs_label: Label
 var _input_chip: PanelContainer
 var _input_label: Label
+var _coin_chip: PanelContainer = null
+var _coin_label: Label = null
+var _pending_unlock_id: String = ""
 
 # --- 3D Drone Hero Turntable ---
 var _hero_container: SubViewportContainer
@@ -95,7 +104,7 @@ var _hero_perf_bars: Dictionary = {}
 var _is_dragging_hero := false
 
 # --- Sortie Setup (Play) ---
-var _selected_map := "uman"
+var _selected_map := "oilrig"
 var _selected_mode := Global.PlayMode.TUTORIAL
 var _selected_mission := 1
 var _selected_special := 0
@@ -392,10 +401,16 @@ func _ready() -> void:
 		if str(mp["id"]) == _selected_map:
 			map_valid = true
 			break
+	if _is_freestyle_map(_selected_map):
+		_selected_map = "oilrig"  # legacy збереження
+		map_valid = true
 	if not map_valid:
-		_selected_map = "uman"
-	# Умань або фрістайл-дрони — тільки фрістайл-режим (без бою й туторіалу).
-	if not embedded and (_selected_map == "uman" or DroneCatalog.is_uman(Global.drone_preset)):
+		_selected_map = "oilrig"
+	if not Progress.is_unlocked(Progress.map_unlock_id(_selected_map)):
+		_selected_map = "oilrig"
+		Global.menu_settings["selected_map"] = "oilrig"
+	# Нафтова платформа або фрістайл-дрони — тільки фрістайл (без бою й туторіалу).
+	if not embedded and (_is_freestyle_map(_selected_map) or DroneCatalog.is_uman(Global.drone_preset)):
 		_selected_mode = Global.PlayMode.TRAINING
 		Global.combat_training = false
 		_selected_special = 0
@@ -405,7 +420,17 @@ func _ready() -> void:
 	if Global.menu_settings.has("selected_mission"):
 		_selected_mission = clampi(int(Global.menu_settings["selected_mission"]), 1, 4)
 	if Global.menu_settings.has("selected_special"):
-		_selected_special = clampi(int(Global.menu_settings["selected_special"]), 0, 10)
+		_selected_special = clampi(int(Global.menu_settings["selected_special"]), 0, 13)
+	if _selected_special > 0 and not Progress.is_unlocked("mode_special_%d" % _selected_special):
+		_selected_special = 0
+		Global.special_mission = 0
+		Global.menu_settings["selected_special"] = 0
+	if not embedded and (_is_freestyle_map(_selected_map) or DroneCatalog.is_uman(Global.drone_preset)):
+		_selected_special = 0
+		Global.special_mission = 0
+		Global.menu_settings["selected_special"] = 0
+	if not Progress.coins_changed.is_connected(_on_mobile_coins_changed):
+		Progress.coins_changed.connect(_on_mobile_coins_changed)
 	if not Global.is_mission_unlocked(_selected_mission):
 		_selected_mission = 1 if Global.campaign_is_complete() else Global.campaign_unlocked_mission()
 	if not embedded:
@@ -1031,6 +1056,12 @@ func _build_root() -> void:
 	chips.add_theme_constant_override("separation", _gap(6))
 	top.add_child(chips)
 
+	_coin_chip = _chip_panel(Color(0.88, 0.72, 0.34, 0.85))
+	_coin_chip.name = "CoinsChip"
+	_coin_label = _label(Progress.coins_text(), 12, MenuUI.FPV_AMBER)
+	_coin_chip.add_child(_coin_label)
+	chips.add_child(_coin_chip)
+
 	var gc_top_label := ("GC" if Global.is_game_center_available() else "RECORDS") \
 			if MenuUI.is_english() else "РЕКОРДИ"
 	_gc_top_btn = _button(gc_top_label, 32, false)
@@ -1315,7 +1346,7 @@ func _build_main() -> void:
 	var dc := Global.get_daily_challenge()
 	var dc_title := str(dc.get("title_en" if is_en else "title_ua", dc.get("title_uk", "")))
 	var dc_line := ("★ ВИКЛИК ДНЯ: %s (+%d)" if not is_en else "★ DAILY CHALLENGE: %s (+%d)") % [dc_title, int(dc.get("bonus_score", 500))]
-	var trec := Global.get_training_record(str(Global.menu_settings.get("selected_map", "uman")))
+	var trec := Global.get_training_record(str(Global.menu_settings.get("selected_map", "oilrig")))
 	var course_line := "• Freestyle track: gates ★ / S–B (with Ghost)" if is_en \
 			else "• Траса тренування: ворота на ★ / S–B (з Привидом)"
 	if bool(trec.get("completed", false)):
@@ -2366,7 +2397,7 @@ func _build_play() -> void:
 		var btn := _button(m_title, 40, int(m["id"]) == _selected_mode)
 		btn.pressed.connect(func():
 			var m_id := Global.sanitize_play_mode(int(m["id"]))
-			if (_selected_map == "uman" or DroneCatalog.is_uman(Global.drone_preset)) and m_id != Global.PlayMode.TRAINING:
+			if (_is_freestyle_map(_selected_map) or DroneCatalog.is_uman(Global.drone_preset)) and m_id != Global.PlayMode.TRAINING:
 				m_id = Global.PlayMode.TRAINING
 			_selected_mode = m_id
 			_update_play_modes(modes_row)
@@ -2410,7 +2441,7 @@ func _build_play() -> void:
 	var dc := Global.get_daily_challenge()
 	var dc_title := str(dc.get("title_en" if is_en else "title_ua", dc.get("title_uk", "")))
 	var dc_done := " ✓" if bool(dc.get("completed", false)) else ""
-	var trec := Global.get_training_record(str(Global.menu_settings.get("selected_map", "uman")))
+	var trec := Global.get_training_record(str(Global.menu_settings.get("selected_map", "oilrig")))
 	var rec_suffix := ""
 	if bool(trec.get("completed", false)):
 		rec_suffix = ("  ·  Course: %.1fs %s [%s]" if is_en else "  ·  Траса: %.1f с %s [%s]") % [
@@ -2530,11 +2561,51 @@ func _build_play() -> void:
 	_build_mobile_briefing_modal(self, is_en)
 
 
+func _on_mobile_coins_changed(value: int) -> void:
+	if _coin_label != null and is_instance_valid(_coin_label):
+		_coin_label.text = "◈ %d" % maxi(0, value)
+
+
+func _try_confirm_unlock(uid: String, status_lbl: Label = null) -> bool:
+	if Progress.is_unlocked(uid):
+		_pending_unlock_id = ""
+		return true
+	var cost := Progress.price_of(uid)
+	if cost <= 0:
+		return false
+	var is_en := MenuUI.is_english()
+	if Progress.coins < cost:
+		_pending_unlock_id = ""
+		var need_msg := ("◈ NEED %d COINS (HAVE %d)" if is_en else "◈ ПОТРІБНО %d МОНЕТ (Є %d)") % [cost, Progress.coins]
+		if status_lbl != null and is_instance_valid(status_lbl):
+			status_lbl.text = need_msg
+		if _coin_label != null and is_instance_valid(_coin_label):
+			_coin_label.text = "◈ %d / %d" % [Progress.coins, cost]
+		return false
+	if _pending_unlock_id != uid:
+		_pending_unlock_id = uid
+		var tap_msg := ("TAP AGAIN TO UNLOCK FOR ◈ %d" if is_en else "ТАПНІТЬ ЩЕ РАЗ: ВІДКРИТИ ЗА ◈ %d") % cost
+		if status_lbl != null and is_instance_valid(status_lbl):
+			status_lbl.text = tap_msg
+		return false
+	_pending_unlock_id = ""
+	if Progress.try_unlock(uid):
+		_on_mobile_coins_changed(Progress.coins)
+		return true
+	return false
+
+
 func _select_map(card_id: String, row: HBoxContainer = null) -> void:
+	var unlock_id := "map_" + card_id
+	var target_row: HBoxContainer = row if row != null else _maps_row
+	if not _try_confirm_unlock(unlock_id, _play_caption):
+		if target_row != null:
+			_update_map_cards(target_row)
+		return
 	_selected_map = card_id
 	Global.menu_settings["selected_map"] = _selected_map
-	# Умань або фрістайл-дрони — тільки режим Фрістайл, але на будь-якій обраній карті.
-	if card_id == "uman" or DroneCatalog.is_uman(Global.drone_preset):
+	# Нафтова платформа або фрістайл-дрони — тільки режим Фрістайл, але на будь-якій обраній карті.
+	if _is_freestyle_map(card_id) or DroneCatalog.is_uman(Global.drone_preset):
 		_selected_mode = Global.PlayMode.TRAINING
 		Global.play_mode = Global.PlayMode.TRAINING
 		Global.combat_training = false
@@ -2543,7 +2614,6 @@ func _select_map(card_id: String, row: HBoxContainer = null) -> void:
 		Global.special_mission = 0
 		Global.menu_settings["selected_special"] = 0
 	Global.save_menu_settings()
-	var target_row: HBoxContainer = row if row != null else _maps_row
 	if target_row != null:
 		_update_map_cards(target_row)
 	if _play_modes_row != null:
@@ -2663,9 +2733,17 @@ func _build_mobile_mission_strip(parent: VBoxContainer, is_en: bool) -> void:
 
 
 func _select_mobile_mission(mission_id: int, special_id: int) -> void:
+	var target_special := clampi(special_id, 0, 13)
+	if target_special >= 11:
+		var uid := "mode_special_%d" % target_special
+		if not _try_confirm_unlock(uid, _play_caption):
+			_refresh_mobile_mission_strip()
+			return
+	else:
+		_pending_unlock_id = ""
 	if mission_id >= 1:
 		_selected_mission = clampi(mission_id, 1, 4)
-	_selected_special = clampi(special_id, 0, 13)
+	_selected_special = target_special
 	if _selected_special == 0 and not Global.is_mission_unlocked(_selected_mission):
 		_selected_mission = 1 if Global.campaign_is_complete() else Global.campaign_unlocked_mission()
 	Global.menu_settings["selected_mission"] = _selected_mission
@@ -2707,7 +2785,14 @@ func _refresh_mobile_mission_strip() -> void:
 			var srec := Global.get_special_mission_record(s_id) if Global.has_method("get_special_mission_record") else {}
 			var s_stars := int(srec.get("stars", 0)) if bool(srec.get("completed", false)) else 0
 			var suffix := (" " + "★".repeat(s_stars)) if s_stars > 0 else ""
-			b.text = "%s-%02d · %s%s" % [op_prefix, s_id, Global.get_special_mission_name(s_id), suffix]
+			var lock_txt := ""
+			if s_id >= 11:
+				var suid := "mode_special_%d" % s_id
+				var scost := Progress.price_of(suid)
+				if not Progress.is_unlocked(suid) and scost > 0:
+					lock_txt = (" · CONFIRM ◈%d?" if is_en else " · ЩЕ РАЗ ◈%d?") % scost \
+							if _pending_unlock_id == suid else (" · 🔒 ◈%d" % scost)
+			b.text = "%s-%02d · %s%s%s" % [op_prefix, s_id, Global.get_special_mission_name(s_id), suffix, lock_txt]
 			_apply_button_primary_style(b, _selected_special == s_id)
 
 
@@ -2993,7 +3078,7 @@ func _update_play_caption() -> void:
 	if _play_caption == null:
 		return
 	var is_en := MenuUI.is_english()
-	var map_name := "UMAN" if is_en else "УМАНЬ"
+	var map_name := "OIL RIG" if is_en else "НАФТОВА ПЛАТФОРМА"
 	for mp in MAP_META:
 		if str(mp["id"]) == _selected_map:
 			map_name = str(mp.get("name_en" if is_en else "name", mp["name"])).to_upper()
@@ -3019,7 +3104,7 @@ func _update_play_caption() -> void:
 
 
 func _update_play_modes(row: HBoxContainer) -> void:
-	var only_freestyle := (_selected_map == "uman" or DroneCatalog.is_uman(Global.drone_preset))
+	var only_freestyle := (_is_freestyle_map(_selected_map) or DroneCatalog.is_uman(Global.drone_preset))
 	if only_freestyle and _selected_mode != Global.PlayMode.TRAINING:
 		_selected_mode = Global.PlayMode.TRAINING
 		_selected_special = 0
@@ -3049,8 +3134,16 @@ func _update_map_cards(row: HBoxContainer) -> void:
 		))
 		var b: Button = c.get_meta("btn", null) as Button
 		if b != null:
-			b.text = ("SELECTED ✓" if is_sel else "SELECT") if is_en \
-					else ("ОБРАНО ✓" if is_sel else "ОБРАТИ")
+			var uid := Progress.map_unlock_id(mid)
+			var cost := Progress.price_of(uid)
+			if not Progress.is_unlocked(uid) and cost > 0:
+				if _pending_unlock_id == uid:
+					b.text = ("TAP · ◈ %d?" if is_en else "ЩЕ РАЗ · ◈ %d?") % cost
+				else:
+					b.text = ("🔒 ◈ %d" % cost)
+			else:
+				b.text = ("SELECTED ✓" if is_sel else "SELECT") if is_en \
+						else ("ОБРАНО ✓" if is_sel else "ОБРАТИ")
 			_apply_button_primary_style(b, is_sel)
 		var card_content := c.get_child(0) as VBoxContainer if c.get_child_count() > 0 else null
 		if card_content != null:
@@ -3072,7 +3165,7 @@ func _launch(combat_training: bool = false) -> void:
 		Global.special_mission = 0
 		DroneCatalog.apply(1)
 	# Умань або фрістайл-дрони — тільки режим фрістайлу на обраній карті.
-	elif _selected_map == "uman" or DroneCatalog.is_uman(Global.drone_preset):
+	elif _is_freestyle_map(_selected_map) or DroneCatalog.is_uman(Global.drone_preset):
 		_selected_mode = Global.PlayMode.TRAINING
 		Global.combat_training = false
 		_selected_special = 0
@@ -3100,9 +3193,11 @@ func _launch(combat_training: bool = false) -> void:
 		"wetlands": "res://sceneries/WetlandsLevel.tscn",
 		"airport": "res://sceneries/AirportLevel.tscn",
 		"uman": "res://sceneries/UmanLevel.tscn",
+		"oilrig": "res://sceneries/OilRigLevel.tscn",
+		"lis_forest_freestyle": "res://sceneries/LisLevel.tscn",
 	}
-	var launch_map := "industrial" if (_selected_mode == Global.PlayMode.TUTORIAL and _selected_map != "airport") else _selected_map
-	var path: String = scenes.get(launch_map, "res://sceneries/IndustrialLevel.tscn")
+	var launch_map := "industrial" if (_selected_mode == Global.PlayMode.TUTORIAL and not _is_freestyle_map(_selected_map) and _selected_map != "airport") else _selected_map
+	var path: String = scenes.get(launch_map, "res://sceneries/LisLevel.tscn")
 
 	# Ensure QuadSettings has the active mobile rate profile applied for flight
 	var tc := get_node_or_null("/root/TouchControls")
@@ -3183,8 +3278,15 @@ func _build_drone() -> void:
 	if allowed.find(Global.drone_preset) < 0:
 		DroneCatalog.apply(allowed[0])
 	_hangar_preview_idx = Global.drone_preset
+	# Include locked purchasable airframes (presets 13-15) in the showroom list
+	# so mobile players can inspect and unlock them with local coins.
+	var hangar_list: Array[int] = allowed.duplicate()
+	for idx_all in range(DroneCatalog.count()):
+		var duid := Progress.drone_unlock_id(idx_all)
+		if Progress.price_of(duid) > 0 and hangar_list.find(idx_all) < 0:
+			hangar_list.append(idx_all)
 
-	for i in allowed:
+	for i in hangar_list:
 		var btn := Button.new()
 		btn.custom_minimum_size = Vector2(0, _fs(58))
 		btn.focus_mode = Control.FOCUS_NONE
@@ -3223,12 +3325,13 @@ func _build_drone() -> void:
 			# not select the drone under the finger.
 			if _hangar_scroll_drag_dist > 12.0:
 				return
+			if _hangar_preview_idx != cur_i:
+				_pending_unlock_id = ""
 			_hangar_preview_idx = cur_i
-			var list := DroneCatalog.allowed_for_map(_selected_map)
-			var total := list.size()
-			var pos: int = maxi(list.find(cur_i), 0)
-			DroneCatalog.prefetch_model(list[(pos + 1) % total])
-			DroneCatalog.prefetch_model(list[(pos - 1 + total) % total])
+			var total := hangar_list.size()
+			var pos: int = maxi(hangar_list.find(cur_i), 0)
+			DroneCatalog.prefetch_model(hangar_list[(pos + 1) % total])
+			DroneCatalog.prefetch_model(hangar_list[(pos - 1 + total) % total])
 			_load_hangar_model(cur_i)
 			_update_hangar_list_styles()
 		)
@@ -3491,7 +3594,19 @@ func _update_hangar_info(preset_idx: int) -> void:
 			_hangar_specs_lbl.text = "МАСА: %d г • TWR: %.1f:1 • МОТОРИ: %d KV • КУТ КАМЕРИ: %d°" % [mass, twr, kv, tilt]
 	_update_perf_bars(_hangar_perf_bars, p)
 	if _hangar_select_btn != null and is_instance_valid(_hangar_select_btn):
-		if preset_idx == Global.drone_preset:
+		var duid := Progress.drone_unlock_id(preset_idx)
+		var dcost := Progress.price_of(duid)
+		if not Progress.is_unlocked(duid) and dcost > 0:
+			if _pending_unlock_id == duid:
+				_hangar_select_btn.text = ("CONFIRM UNLOCK · ◈ %d?" if is_en else "ПІДТВЕРДИТИ · ◈ %d?") % dcost
+				_hangar_select_btn.modulate = Color(1.0, 0.92, 0.55)
+			elif Progress.coins < dcost:
+				_hangar_select_btn.text = ("🔒 NEED ◈ %d COINS" if is_en else "🔒 ПОТРІБНО ◈ %d") % dcost
+				_hangar_select_btn.modulate = Color(0.95, 0.72, 0.55)
+			else:
+				_hangar_select_btn.text = ("🔒 UNLOCK FOR ◈ %d" if is_en else "🔒 ВІДКРИТИ ЗА ◈ %d") % dcost
+				_hangar_select_btn.modulate = Color(1.0, 0.90, 0.65)
+		elif preset_idx == Global.drone_preset:
 			_hangar_select_btn.text = "SELECTED FOR SORTIES" if is_en else "ОБРАНО ДЛЯ ВИЛЬОТІВ"
 			_hangar_select_btn.modulate = Color(0.75, 1.0, 0.75)
 		else:
@@ -3508,7 +3623,11 @@ func _update_hangar_list_styles() -> void:
 			var idx: int = int(c.get_meta("drone_idx", -1))
 			var is_sel := (idx == _hangar_preview_idx)
 			var is_cur := (idx == Global.drone_preset)
-			var mark := ("  [ SELECTED ✓ ]" if is_en else "  [ ОБРАНО ✓ ]") if is_cur else ""
+			var duid := Progress.drone_unlock_id(idx)
+			var dcost := Progress.price_of(duid)
+			var is_locked := (not Progress.is_unlocked(duid) and dcost > 0)
+			var mark := ("  🔒 ◈%d" % dcost) if is_locked \
+					else (("  [ SELECTED ✓ ]" if is_en else "  [ ОБРАНО ✓ ]") if is_cur else "")
 
 			var title_lbl := c.find_child("TitleLabel", true, false) as Label
 			var tag_lbl := c.find_child("TagLabel", true, false) as Label
@@ -3553,6 +3672,12 @@ func _update_hangar_list_styles() -> void:
 
 
 func _on_hangar_choose_pressed() -> void:
+	var uid := Progress.drone_unlock_id(_hangar_preview_idx)
+	if not Progress.is_unlocked(uid):
+		if not _try_confirm_unlock(uid, _hangar_specs_lbl):
+			_update_hangar_info(_hangar_preview_idx)
+			_update_hangar_list_styles()
+			return
 	Global.drone_preset = _hangar_preview_idx
 	Global.menu_settings["drone_preset"] = _hangar_preview_idx
 	DroneCatalog.apply(_hangar_preview_idx)
@@ -4584,6 +4709,9 @@ func _reset_screen_refs() -> void:
 	_hangar_load_token += 1
 	_is_dragging_hero = false
 	_is_dragging_hangar = false
+	_coin_chip = null
+	_coin_label = null
+	_pending_unlock_id = ""
 	_main_logo = null
 	_main_hero = null
 	_hero_container = null
