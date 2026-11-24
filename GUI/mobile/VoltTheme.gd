@@ -192,7 +192,7 @@ static func pill_box(bg: Color = SURFACE, border: Color = BORDER, pad_h: int = 1
 
 
 static func capsule_box() -> StyleBoxFlat:
-	return panel_box(Color(0.067, 0.067, 0.075, 0.90), BORDER_STRONG, 1, 999, 6, 8, 14)
+	return panel_box(Color(0.067, 0.067, 0.075, 0.90), BORDER_STRONG, 1, 999, 8, 10, 14)
 
 
 static func segment_box() -> StyleBoxFlat:

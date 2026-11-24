@@ -10,7 +10,7 @@ extends Node3D
 
 const MODEL_PATH := "res://Assets/combat/soldier_detailed_merged.glb"
 const SPETSNAZ_MODEL_PATH := "res://Assets/combat/spetsnaz_soldier.glb"
-const HEIGHT := 1.88
+const HEIGHT := 2.26
 const EnemyMarkingsScript = preload("res://combat/enemy_markings.gd")
 const WEAPON_BONE_NAME := "Line01_028"
 

@@ -38,6 +38,7 @@ func _build() -> void:
 	_optimize_freestyle_lods()
 	var existing := _count_bodies(self)
 	_walk(self)
+	_enable_trimesh_backfaces(self)
 	print("[LIS] collisions: %d prebuilt (-colonly) + %d runtime, foliage alpha-scissor" % [existing, bodies_created])
 
 
@@ -287,19 +288,47 @@ func _upgrade_structure_materials(node: Node) -> void:
 	print("[LIS] upgraded %d structure surfaces across %d material variants" % [upgraded_meshes, cache.size()])
 
 
+func _is_under_structures(node: Node) -> bool:
+	var cur := node.get_parent()
+	while cur != null and cur != self:
+		if cur.name == "Structures":
+			return true
+		cur = cur.get_parent()
+	return false
+
+
+func _enable_trimesh_backfaces(node: Node) -> void:
+	if node is CollisionShape3D:
+		var cs := node as CollisionShape3D
+		if cs.shape is ConcavePolygonShape3D:
+			(cs.shape as ConcavePolygonShape3D).backface_collision = true
+	for c in node.get_children():
+		_enable_trimesh_backfaces(c)
+
+
 func _walk(node: Node) -> void:
 	for child in node.get_children():
 		if child is MeshInstance3D:
 			var n: String = child.name
 			var is_freestyle: bool = n.begins_with("FS_") and n.ends_with("_geo")
 			var is_colonly: bool = "-colonly" in n or "-convcolonly" in n
-			if (is_freestyle or is_colonly) and child.mesh != null:
+			var in_structures: bool = _is_under_structures(child)
+			if in_structures and is_colonly:
+				# Structure -colonly children in structures.glb were authored at local origin
+				# while visible meshes were translated -27..-46m; discard offset proxies and
+				# build trimeshes directly from the visible structure meshes instead.
+				(child as MeshInstance3D).visible = false
+				child.queue_free()
+			elif in_structures and child.mesh != null:
+				_make_body(child as MeshInstance3D, true, true)
+			elif (is_freestyle or is_colonly) and child.mesh != null:
 				var concave_struct: bool = ("bridge" in n or "trestle" in n or "sawmill" in n \
-						or "watchtower" in n or "ruins" in n or "treehouse" in n)
-				_make_body(child as MeshInstance3D, is_freestyle or concave_struct)
+						or "watchtower" in n or "ruins" in n or "treehouse" in n \
+						or "terrain" in n.to_lower())
+				_make_body(child as MeshInstance3D, is_freestyle or concave_struct, false)
 		_walk(child)
 
-func _make_body(src: MeshInstance3D, use_trimesh: bool) -> void:
+func _make_body(src: MeshInstance3D, use_trimesh: bool, keep_visible: bool = false) -> void:
 	var faces: PackedVector3Array = src.mesh.get_faces()
 	if faces.is_empty():
 		return
@@ -312,6 +341,7 @@ func _make_body(src: MeshInstance3D, use_trimesh: bool) -> void:
 	if use_trimesh:
 		var tri := ConcavePolygonShape3D.new()
 		tri.set_faces(faces)
+		tri.backface_collision = true
 		shape = tri
 	else:
 		shape = src.mesh.create_convex_shape(true, false)
@@ -321,6 +351,6 @@ func _make_body(src: MeshInstance3D, use_trimesh: bool) -> void:
 	body.add_child(cs)
 	body.transform = src.transform
 	src.add_sibling(body)
-	if not use_trimesh:
+	if not use_trimesh and not keep_visible:
 		src.visible = false
 	bodies_created += 1

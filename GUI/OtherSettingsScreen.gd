@@ -120,6 +120,12 @@ func _build() -> void:
 	volume_row.add_child(_volume_label)
 	box.add_child(volume_row)
 
+	var pw_toggle := CheckButton.new()
+	pw_toggle.text = "Шум лопатей і потоку повітря (Propwash)"
+	pw_toggle.button_pressed = Audio.is_propwash_audio_enabled() if Audio.has_method("is_propwash_audio_enabled") else true
+	pw_toggle.toggled.connect(_on_propwash_toggled)
+	box.add_child(pw_toggle)
+
 	box.add_child(MenuUI.hline())
 	box.add_child(MenuUI.section("ТРЕНАЖЕР / СИМУЛЯЦІЯ"))
 	var sim_hint := MenuUI.body(
@@ -290,6 +296,12 @@ func _build_mobile() -> void:
 	volume_row.add_child(_volume_label)
 	sound_box.add_child(volume_row)
 
+	var pw_toggle := CheckButton.new()
+	pw_toggle.text = "Шум лопатей і повітря"
+	pw_toggle.button_pressed = Audio.is_propwash_audio_enabled() if Audio.has_method("is_propwash_audio_enabled") else true
+	pw_toggle.toggled.connect(_on_propwash_toggled)
+	sound_box.add_child(pw_toggle)
+
 	# --- realism card -----------------------------------------------------
 	var sim_card := _mobile_card(content)
 	var sim_box := VBoxContainer.new()
@@ -385,6 +397,11 @@ func _on_volume_changed(value: float) -> void:
 	Audio.audio_settings["master_volume"] = value / 100.0
 	Audio.update_master_volume()
 	Audio.save_audio_settings()
+
+
+func _on_propwash_toggled(pressed: bool) -> void:
+	if Audio.has_method("set_propwash_audio_enabled"):
+		Audio.call("set_propwash_audio_enabled", pressed)
 
 
 func _on_fps_toggled(pressed: bool) -> void:

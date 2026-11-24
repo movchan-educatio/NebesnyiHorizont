@@ -108,6 +108,7 @@ var _hero_drone_name: Label
 var _hero_drone_tag: Label
 var _hero_drone_specs: Label
 var _hero_index_lbl: Label = null
+var _hero_loaded_preset: int = -1
 var _hero_perf_bars: Dictionary = {}
 var _is_dragging_hero := false
 
@@ -214,7 +215,7 @@ class ToggleSwitch extends Button:
 		button_pressed = value
 		focus_mode = Control.FOCUS_NONE
 		mouse_filter = Control.MOUSE_FILTER_STOP
-		custom_minimum_size = Vector2(78, 38)
+		custom_minimum_size = Vector2(92, 46)
 		add_theme_stylebox_override("normal", StyleBoxEmpty.new())
 		add_theme_stylebox_override("hover", StyleBoxEmpty.new())
 		add_theme_stylebox_override("pressed", StyleBoxEmpty.new())
@@ -670,8 +671,8 @@ func _gap(px: float) -> int:
 
 
 func _ui_sz(px: float) -> int:
-	var scale := clampf(_vsize().y / 760.0, 1.15, 1.50)
-	return maxi(40, int(round(px * scale)))
+	var scale := clampf(_vsize().y / 680.0, 1.18, 1.65)
+	return maxi(46, int(round(px * scale)))
 
 
 func _label(text: String, size: float, color: Color = VoltThemeScript.TEXT,
@@ -724,10 +725,10 @@ func _chip_panel(border: Color = VoltThemeScript.BORDER,
 	sb.border_color = border
 	sb.set_border_width_all(1)
 	sb.set_corner_radius_all(999)
-	sb.content_margin_left = _gap(10)
-	sb.content_margin_right = _gap(10)
-	sb.content_margin_top = _gap(4)
-	sb.content_margin_bottom = _gap(4)
+	sb.content_margin_left = _gap(12)
+	sb.content_margin_right = _gap(12)
+	sb.content_margin_top = _gap(6)
+	sb.content_margin_bottom = _gap(6)
 	p.add_theme_stylebox_override("panel", sb)
 	return p
 
@@ -760,7 +761,7 @@ func _button(text: String, height: float = 44.0, primary: bool = false, variant:
 	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	b.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
 	b.focus_mode = Control.FOCUS_NONE
-	var min_h: int = maxi(_ui_sz(height), _fs(34.0))
+	var min_h: int = maxi(_ui_sz(height), _fs(40.0))
 	b.custom_minimum_size = Vector2(0, min_h)
 	b.add_theme_font_size_override("font_size", _fs(17 if not primary else 19))
 	var v_name := variant if not variant.is_empty() else ("primary" if primary else "secondary")
@@ -1050,16 +1051,16 @@ func _build_root() -> void:
 	# Top Masthead (03 · VOLT MONOLITH)
 	_masthead = HBoxContainer.new()
 	var top := _masthead
-	top.custom_minimum_size.y = _fs(38)
+	top.custom_minimum_size.y = _fs(48)
 	top.add_theme_constant_override("separation", _gap(10))
 	_root.add_child(top)
 
-	_back_btn = _button(" НАЗАД", 34, false, "ghost")
-	_back_btn.icon = MenuIcons.icon_back(VoltThemeScript.STONE, 20)
+	_back_btn = _button(" НАЗАД", 44, false, "ghost")
+	_back_btn.icon = MenuIcons.icon_back(VoltThemeScript.STONE, 22)
 	_back_btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_back_btn.add_theme_constant_override("h_separation", _gap(6))
-	_back_btn.add_theme_font_size_override("font_size", _fs(14))
-	_back_btn.custom_minimum_size = Vector2(_ui_sz(112), _ui_sz(34))
+	_back_btn.add_theme_font_size_override("font_size", _fs(16))
+	_back_btn.custom_minimum_size = Vector2(_ui_sz(138), _ui_sz(44))
 	_back_btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_back_btn.pressed.connect(_on_back)
 	_back_btn.visible = false
@@ -1125,26 +1126,26 @@ func _build_root() -> void:
 
 	var gc_top_label := ("GC" if Global.is_game_center_available() else "RECORDS") \
 			if MenuUI.is_english() else "РЕКОРДИ"
-	_gc_top_btn = _button(gc_top_label, 32, false, "ghost")
+	_gc_top_btn = _button(gc_top_label, 42, false, "ghost")
 	var gc_top_btn := _gc_top_btn
 	gc_top_btn.name = "GcTopButton"
-	gc_top_btn.icon = MenuIcons.icon_trophy(VoltThemeScript.YELLOW, 18)
+	gc_top_btn.icon = MenuIcons.icon_trophy(VoltThemeScript.YELLOW, 20)
 	gc_top_btn.expand_icon = false
 	gc_top_btn.add_theme_constant_override("h_separation", _gap(6))
 	gc_top_btn.add_theme_font_override("font", VoltThemeScript.font_mono())
-	gc_top_btn.add_theme_font_size_override("font_size", _fs(12))
-	gc_top_btn.custom_minimum_size = Vector2(_ui_sz(108 if MenuUI.is_english() else 120), _ui_sz(32))
-	VoltThemeScript.apply_button_variant(gc_top_btn, "ghost", 999, _gap(10), _gap(3))
+	gc_top_btn.add_theme_font_size_override("font_size", _fs_small(13))
+	gc_top_btn.custom_minimum_size = Vector2(_ui_sz(126 if MenuUI.is_english() else 138), _ui_sz(42))
+	VoltThemeScript.apply_button_variant(gc_top_btn, "ghost", 999, _gap(12), _gap(4))
 	gc_top_btn.tooltip_text = Global.get_leaderboard_summary(MenuUI.is_english())
 	gc_top_btn.pressed.connect(_open_mobile_records)
 	chips.add_child(gc_top_btn)
 
-	_lang_top_btn = _button("EN" if MenuUI.is_english() else "UA", 32, false, "ghost")
+	_lang_top_btn = _button("EN" if MenuUI.is_english() else "UA", 42, false, "ghost")
 	var lang_top_btn := _lang_top_btn
 	lang_top_btn.add_theme_font_override("font", VoltThemeScript.font_mono())
-	lang_top_btn.add_theme_font_size_override("font_size", _fs(12))
-	lang_top_btn.custom_minimum_size = Vector2(_ui_sz(48), _ui_sz(32))
-	VoltThemeScript.apply_button_variant(lang_top_btn, "ghost", 999, _gap(8), _gap(3))
+	lang_top_btn.add_theme_font_size_override("font_size", _fs_small(13))
+	lang_top_btn.custom_minimum_size = Vector2(_ui_sz(58), _ui_sz(42))
+	VoltThemeScript.apply_button_variant(lang_top_btn, "ghost", 999, _gap(10), _gap(4))
 	lang_top_btn.pressed.connect(_on_toggle_language)
 	chips.add_child(lang_top_btn)
 
@@ -1157,13 +1158,15 @@ func _build_root() -> void:
 	_elrs_dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_elrs_dot.color = VoltThemeScript.STONE_DIM
 	elrs_row.add_child(_elrs_dot)
-	_elrs_label = _label("ELRS: ПОШУК", 11, VoltThemeScript.STONE_DIM, VoltThemeScript.font_mono())
+	_elrs_label = _label("ELRS: ПОШУК", 12, VoltThemeScript.STONE_DIM, VoltThemeScript.font_mono())
+	_elrs_label.add_theme_font_size_override("font_size", _fs_small(12))
 	elrs_row.add_child(_elrs_label)
 	_elrs_chip.add_child(elrs_row)
 	chips.add_child(_elrs_chip)
 
 	_input_chip = _chip_panel(VoltThemeScript.BORDER, VoltThemeScript.SURFACE)
-	_input_label = _label("ВХІД: СЕНСОР", 11, VoltThemeScript.STONE, VoltThemeScript.font_mono())
+	_input_label = _label("ВХІД: СЕНСОР", 12, VoltThemeScript.STONE, VoltThemeScript.font_mono())
+	_input_label.add_theme_font_size_override("font_size", _fs_small(12))
 	_input_chip.add_child(_input_label)
 	chips.add_child(_input_chip)
 
@@ -1190,7 +1193,7 @@ func _build_nav_capsule(parent: HBoxContainer) -> void:
 	parent.add_child(_nav_capsule)
 
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", _gap(6))
+	vb.add_theme_constant_override("separation", _gap(8))
 	_nav_capsule.add_child(vb)
 
 	var items := [
@@ -1207,7 +1210,7 @@ func _build_nav_capsule(parent: HBoxContainer) -> void:
 		var btn := Button.new()
 		btn.name = "CapsuleNav_" + sid
 		btn.focus_mode = Control.FOCUS_NONE
-		btn.custom_minimum_size = Vector2(_ui_sz(38), _ui_sz(38))
+		btn.custom_minimum_size = Vector2(_ui_sz(56), _ui_sz(56))
 		btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		btn.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
 		btn.expand_icon = false
@@ -1220,20 +1223,20 @@ func _build_nav_capsule(parent: HBoxContainer) -> void:
 	_update_nav_capsule()
 
 
-func _capsule_icon(kind: String, col: Color) -> Texture2D:
+func _capsule_icon(kind: String, col: Color, icon_px: int = 30) -> Texture2D:
 	match kind:
 		"home":
-			return MenuIcons.icon_home(col, 22)
+			return MenuIcons.icon_home(col, icon_px)
 		"sortie":
-			return MenuIcons.icon_sortie(col, 22)
+			return MenuIcons.icon_sortie(col, icon_px)
 		"radio":
-			return MenuIcons.icon_radio(col, 22)
+			return MenuIcons.icon_radio(col, icon_px)
 		"rates":
-			return MenuIcons.icon_rates(col, 22)
+			return MenuIcons.icon_rates(col, icon_px)
 		"hangar":
-			return MenuIcons.icon_hangar(col, 22)
+			return MenuIcons.icon_hangar(col, icon_px)
 		_:
-			return MenuIcons.icon_settings(col, 22)
+			return MenuIcons.icon_settings(col, icon_px)
 
 
 func _update_nav_capsule() -> void:
@@ -1241,7 +1244,9 @@ func _update_nav_capsule() -> void:
 		return
 	var compact := _vsize().x < 700.0
 	_nav_capsule.visible = not is_pause_mode
-	var cap_sz := Vector2(_ui_sz(32 if compact else 38), _ui_sz(32 if compact else 38))
+	var cap_px := 44 if compact else 56
+	var ico_px := 24 if compact else 30
+	var cap_sz := Vector2(_ui_sz(cap_px), _ui_sz(cap_px))
 	for sid in _nav_buttons.keys():
 		var btn: Button = _nav_buttons[sid] as Button
 		if btn == null or not is_instance_valid(btn):
@@ -1253,12 +1258,12 @@ func _update_nav_capsule() -> void:
 			btn.add_theme_stylebox_override("normal", VoltThemeScript.button_box(VoltThemeScript.YELLOW, VoltThemeScript.YELLOW, 1, 999, 6, 6, Color(1.0, 0.882, 0.0, 0.25), 8))
 			btn.add_theme_stylebox_override("hover", VoltThemeScript.button_box(VoltThemeScript.YELLOW_HOVER, VoltThemeScript.YELLOW, 1, 999, 6, 6))
 			btn.add_theme_stylebox_override("pressed", VoltThemeScript.button_box(VoltThemeScript.YELLOW_PRESSED, VoltThemeScript.YELLOW, 1, 999, 6, 6))
-			btn.icon = _capsule_icon(kind, VoltThemeScript.TEXT_DARK)
+			btn.icon = _capsule_icon(kind, VoltThemeScript.TEXT_DARK, ico_px)
 		else:
 			btn.add_theme_stylebox_override("normal", VoltThemeScript.button_box(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, 999, 6, 6, Color(0, 0, 0, 0), 0))
 			btn.add_theme_stylebox_override("hover", VoltThemeScript.button_box(Color(1.0, 1.0, 1.0, 0.08), VoltThemeScript.BORDER, 1, 999, 6, 6, Color(0, 0, 0, 0), 0))
 			btn.add_theme_stylebox_override("pressed", VoltThemeScript.button_box(VoltThemeScript.YELLOW_SOFT, VoltThemeScript.YELLOW_BORDER, 1, 999, 6, 6, Color(0, 0, 0, 0), 0))
-			btn.icon = _capsule_icon(kind, VoltThemeScript.STONE_DIM)
+			btn.icon = _capsule_icon(kind, VoltThemeScript.STONE_DIM, ico_px)
 
 
 func _make_screen(name: String) -> Control:
@@ -1283,6 +1288,10 @@ func _show(name: String) -> void:
 		_top_brand.visible = true
 	_apply_masthead_layout()
 	_update_nav_capsule()
+	if name == "main":
+		_update_hero_drone_info(Global.drone_preset)
+		if _hero_loaded_preset != Global.drone_preset:
+			_load_hero_model(Global.drone_preset)
 	if name == "play":
 		if _play_modes_row != null:
 			_update_play_modes(_play_modes_row)
@@ -1326,14 +1335,14 @@ func _apply_masthead_layout() -> void:
 		var gc_label := ("GC" if Global.is_game_center_available() else "RECORDS") \
 				if MenuUI.is_english() else "РЕКОРДИ"
 		_gc_top_btn.text = "" if compact else gc_label
-		_gc_top_btn.custom_minimum_size = Vector2(_ui_sz(44 if compact else (108 if MenuUI.is_english() else 120)),
-				_ui_sz(32))
+		_gc_top_btn.custom_minimum_size = Vector2(_ui_sz(52 if compact else (126 if MenuUI.is_english() else 138)),
+				_ui_sz(42))
 	if _elrs_chip != null:
 		_elrs_chip.visible = not compact
 	if _input_chip != null:
 		_input_chip.visible = not compact
 	if _back_btn != null:
-		_back_btn.custom_minimum_size.x = _ui_sz(88 if compact else 112)
+		_back_btn.custom_minimum_size = Vector2(_ui_sz(106 if compact else 138), _ui_sz(44))
 	if _chips != null:
 		_chips.add_theme_constant_override("separation", _gap(6))
 
@@ -1565,12 +1574,12 @@ func _build_3d_hero() -> Control:
 	var tut_need := not Global.is_tutorial_completed()
 	var tut_txt := ("TUTORIAL" if is_en else "ТУТОРІАЛ") if not tut_need \
 			else ("TUTORIAL · START" if is_en else "ТУТОРІАЛ · СТАРТ")
-	var tut_btn := _button(tut_txt, 34, tut_need, "primary" if tut_need else "ghost")
-	tut_btn.icon = MenuIcons.icon_school(VoltThemeScript.TEXT_DARK if tut_need else VoltThemeScript.YELLOW, 16)
+	var tut_btn := _button(tut_txt, 44, tut_need, "primary" if tut_need else "ghost")
+	tut_btn.icon = MenuIcons.icon_school(VoltThemeScript.TEXT_DARK if tut_need else VoltThemeScript.YELLOW, 20)
 	tut_btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	tut_btn.expand_icon = false
-	tut_btn.add_theme_constant_override("h_separation", _gap(6))
-	tut_btn.add_theme_font_size_override("font_size", _fs_small(12))
+	tut_btn.add_theme_constant_override("h_separation", _gap(7))
+	tut_btn.add_theme_font_size_override("font_size", _fs_small(14))
 	tut_btn.pressed.connect(func():
 		_selected_mode = Global.PlayMode.TUTORIAL
 		_selected_map = "industrial"
@@ -1583,12 +1592,12 @@ func _build_3d_hero() -> Control:
 	var ct_done := Global.is_combat_training_completed()
 	var ct_text := ("3 STEPS · OK" if ct_done else "3 STEPS") if is_en \
 			else ("3 КРОКИ · OK" if ct_done else "3 КРОКИ")
-	var ct_btn := _button(ct_text, 34, false, "ghost")
-	ct_btn.icon = MenuIcons.icon_check(VoltThemeScript.GOOD, 16) if ct_done else MenuIcons.icon_target(VoltThemeScript.YELLOW, 16)
+	var ct_btn := _button(ct_text, 44, false, "ghost")
+	ct_btn.icon = MenuIcons.icon_check(VoltThemeScript.GOOD, 20) if ct_done else MenuIcons.icon_target(VoltThemeScript.YELLOW, 20)
 	ct_btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	ct_btn.expand_icon = false
-	ct_btn.add_theme_constant_override("h_separation", _gap(6))
-	ct_btn.add_theme_font_size_override("font_size", _fs_small(12))
+	ct_btn.add_theme_constant_override("h_separation", _gap(7))
+	ct_btn.add_theme_font_size_override("font_size", _fs_small(14))
 	ct_btn.tooltip_text = "Combat training: 3 steps" if is_en else "Бойове тренування: 3 кроки"
 	ct_btn.pressed.connect(func():
 		_selected_mode = Global.PlayMode.TRAINING
@@ -1693,57 +1702,57 @@ func _build_3d_hero() -> Control:
 	cycle_row.add_theme_constant_override("separation", _gap(6))
 	bottom_selector.add_child(cycle_row)
 
-	var prev_btn := _button("ПОПЕРЕДНІЙ", 42, false, "stone")
-	prev_btn.icon = MenuIcons.icon_chevron_left(VoltThemeScript.TEXT_DARK, 18)
+	var prev_btn := _button("ПОПЕРЕДНІЙ", 50, false, "stone")
+	prev_btn.icon = MenuIcons.icon_chevron_left(VoltThemeScript.TEXT_DARK, 20)
 	prev_btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	prev_btn.expand_icon = false
-	prev_btn.add_theme_constant_override("h_separation", _gap(6))
-	prev_btn.add_theme_font_size_override("font_size", _fs(13))
-	prev_btn.custom_minimum_size = Vector2(_ui_sz(126), _ui_sz(42))
+	prev_btn.add_theme_constant_override("h_separation", _gap(7))
+	prev_btn.add_theme_font_size_override("font_size", _fs(15))
+	prev_btn.custom_minimum_size = Vector2(_ui_sz(148), _ui_sz(50))
 	prev_btn.pressed.connect(_select_prev_drone)
 	cycle_row.add_child(prev_btn)
 
 	var idx_pill := PanelContainer.new()
 	idx_pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	idx_pill.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	idx_pill.custom_minimum_size = Vector2(_ui_sz(68), _ui_sz(42))
+	idx_pill.custom_minimum_size = Vector2(_ui_sz(78), _ui_sz(50))
 	idx_pill.add_theme_stylebox_override("panel", VoltThemeScript.pill_box(
 			VoltThemeScript.SURFACE_SOLID, VoltThemeScript.BORDER_STRONG, _gap(10), _gap(6)))
 	cycle_row.add_child(idx_pill)
 
-	_hero_index_lbl = _label("01 / 13", 12, VoltThemeScript.STONE, VoltThemeScript.font_mono())
-	_hero_index_lbl.add_theme_font_size_override("font_size", _fs_small(12))
+	_hero_index_lbl = _label("01 / 13", 13, VoltThemeScript.STONE, VoltThemeScript.font_mono())
+	_hero_index_lbl.add_theme_font_size_override("font_size", _fs_small(13))
 	_hero_index_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hero_index_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_hero_index_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	idx_pill.add_child(_hero_index_lbl)
 
-	var next_btn := _button("НАСТУПНИЙ", 42, false, "stone")
-	next_btn.icon = MenuIcons.icon_chevron_right(VoltThemeScript.TEXT_DARK, 18)
+	var next_btn := _button("НАСТУПНИЙ", 50, false, "stone")
+	next_btn.icon = MenuIcons.icon_chevron_right(VoltThemeScript.TEXT_DARK, 20)
 	next_btn.icon_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	next_btn.expand_icon = false
-	next_btn.add_theme_constant_override("h_separation", _gap(6))
-	next_btn.add_theme_font_size_override("font_size", _fs(13))
-	next_btn.custom_minimum_size = Vector2(_ui_sz(126), _ui_sz(42))
+	next_btn.add_theme_constant_override("h_separation", _gap(7))
+	next_btn.add_theme_font_size_override("font_size", _fs(15))
+	next_btn.custom_minimum_size = Vector2(_ui_sz(148), _ui_sz(50))
 	next_btn.pressed.connect(_select_next_drone)
 	cycle_row.add_child(next_btn)
 
-	var hangar_btn := _button("HANGAR" if is_en else "АНГАР", 42, false, "ghost")
-	hangar_btn.icon = MenuIcons.icon_hangar(VoltThemeScript.STONE, 16)
+	var hangar_btn := _button("HANGAR" if is_en else "АНГАР", 50, false, "ghost")
+	hangar_btn.icon = MenuIcons.icon_hangar(VoltThemeScript.STONE, 18)
 	hangar_btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	hangar_btn.expand_icon = false
-	hangar_btn.add_theme_constant_override("h_separation", _gap(6))
-	hangar_btn.add_theme_font_size_override("font_size", _fs_small(12))
-	hangar_btn.custom_minimum_size = Vector2(_ui_sz(104), _ui_sz(42))
+	hangar_btn.add_theme_constant_override("h_separation", _gap(7))
+	hangar_btn.add_theme_font_size_override("font_size", _fs_small(14))
+	hangar_btn.custom_minimum_size = Vector2(_ui_sz(122), _ui_sz(50))
 	hangar_btn.pressed.connect(func(): _show("drone"))
 	cycle_row.add_child(hangar_btn)
 
-	var shell_btn := _button("", 42, false, "secondary")
+	var shell_btn := _button("", 50, false, "secondary")
 	shell_btn.name = "HeroShellSpinButton"
-	shell_btn.icon = MenuIcons.icon_rotate(VoltThemeScript.YELLOW, 18)
+	shell_btn.icon = MenuIcons.icon_rotate(VoltThemeScript.YELLOW, 20)
 	shell_btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	shell_btn.expand_icon = false
-	shell_btn.custom_minimum_size = Vector2(_ui_sz(42), _ui_sz(42))
+	shell_btn.custom_minimum_size = Vector2(_ui_sz(50), _ui_sz(50))
 	shell_btn.tooltip_text = "Скид гільз" if not is_en else "Roll & drop shells"
 	shell_btn.pressed.connect(func():
 		if _hero_diorama != null and is_instance_valid(_hero_diorama):
@@ -1754,13 +1763,13 @@ func _build_3d_hero() -> Control:
 	bottom_selector.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
 
 	var play_text := "ПРОДОВЖИТИ ПОЛІТ" if is_pause_mode else "ПОЧАТИ ВИЛІТ"
-	var play_btn := _button(play_text, 46, true, "primary")
-	play_btn.icon = MenuIcons.icon_play(VoltThemeScript.TEXT_DARK, 18)
+	var play_btn := _button(play_text, 54, true, "primary")
+	play_btn.icon = MenuIcons.icon_play(VoltThemeScript.TEXT_DARK, 22)
 	play_btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	play_btn.expand_icon = false
 	play_btn.add_theme_constant_override("h_separation", _gap(8))
-	play_btn.add_theme_font_size_override("font_size", _fs(15))
-	play_btn.custom_minimum_size = Vector2(_ui_sz(224), _ui_sz(46))
+	play_btn.add_theme_font_size_override("font_size", _fs(17))
+	play_btn.custom_minimum_size = Vector2(_ui_sz(252), _ui_sz(54))
 	play_btn.size_flags_vertical = Control.SIZE_SHRINK_END
 	play_btn.pressed.connect(func():
 		if is_pause_mode:
@@ -1884,6 +1893,7 @@ func _load_hero_model(preset_idx: int) -> void:
 		return
 	_hero_load_token += 1
 	var token := _hero_load_token
+	_hero_loaded_preset = -1
 	var p := DroneCatalog.preset(preset_idx)
 	var is_vtol: bool = str(p.get("name", "")).contains("VTOL") or str(p.get("tag", "")).contains("VTOL")
 	var target_sz: float = 0.46 if is_vtol else 0.52
@@ -1915,6 +1925,7 @@ func _load_hero_model(preset_idx: int) -> void:
 	_ensure_preview_scale(_hero_holder, model, target_sz, -0.205)
 	_fit_hero_camera()
 	model.visible = true
+	_hero_loaded_preset = preset_idx
 
 
 func _fit_hero_camera() -> void:
@@ -2807,7 +2818,7 @@ func _build_play() -> void:
 	var is_en := MenuUI.is_english()
 	for m in MODE_META:
 		var m_title := str(m.get("name_en" if is_en else "name", m.get("name", "")))
-		var btn := _button(m_title, 40, int(m["id"]) == _selected_mode)
+		var btn := _button(m_title, 46, int(m["id"]) == _selected_mode)
 		btn.pressed.connect(func():
 			var m_id := Global.sanitize_play_mode(int(m["id"]))
 			if (_is_freestyle_map(_selected_map) or DroneCatalog.is_uman(Global.drone_preset)) and m_id != Global.PlayMode.TRAINING:
@@ -2834,18 +2845,18 @@ func _build_play() -> void:
 	]
 	for dd in diff_defs:
 		var d_id := int(dd[0])
-		var db := _button(str(dd[1]), 34, Global.difficulty == d_id)
-		db.custom_minimum_size = Vector2(_ui_sz(82), _fs(34))
-		db.add_theme_font_size_override("font_size", _fs(12))
+		var db := _button(str(dd[1]), 42, Global.difficulty == d_id)
+		db.custom_minimum_size = Vector2(_ui_sz(96), _fs(42))
+		db.add_theme_font_size_override("font_size", _fs(13))
 		db.pressed.connect(_select_mobile_difficulty.bind(d_id))
 		_diff_bar.add_child(db)
 		_diff_buttons[d_id] = db
 
-	_briefing_btn = _button("BRIEFING" if is_en else "БРИФІНГ", 34, false)
-	_briefing_btn.icon = MenuIcons.icon_briefing(VoltThemeScript.YELLOW, 16)
+	_briefing_btn = _button("BRIEFING" if is_en else "БРИФІНГ", 42, false)
+	_briefing_btn.icon = MenuIcons.icon_briefing(VoltThemeScript.YELLOW, 18)
 	_briefing_btn.add_theme_constant_override("h_separation", _gap(6))
-	_briefing_btn.custom_minimum_size = Vector2(_ui_sz(112), _fs(34))
-	_briefing_btn.add_theme_font_size_override("font_size", _fs(12))
+	_briefing_btn.custom_minimum_size = Vector2(_ui_sz(124), _fs(42))
+	_briefing_btn.add_theme_font_size_override("font_size", _fs(13))
 	_briefing_btn.visible = (_selected_mode == Global.PlayMode.COMBAT)
 	_briefing_btn.pressed.connect(_open_mobile_briefing)
 	modes_row.add_child(_briefing_btn)
@@ -2950,7 +2961,7 @@ func _build_play() -> void:
 
 		var is_sel := (str(mp["id"]) == _selected_map)
 		var sel_btn := _button(("SELECTED" if is_sel else "SELECT") if is_en \
-				else ("ОБРАНО" if is_sel else "ОБРАТИ"), 44, is_sel)
+				else ("ОБРАНО" if is_sel else "ОБРАТИ"), 48, is_sel)
 		sel_btn.pressed.connect(func():
 			_select_map(card_id)
 		)
@@ -3660,9 +3671,9 @@ func _build_drone() -> void:
 	]
 	for fd in filter_defs:
 		var fk := str(fd[0])
-		var fb := _button(str(fd[1]), 32, fk == "all")
+		var fb := _button(str(fd[1]), 40, fk == "all")
 		fb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		fb.add_theme_font_size_override("font_size", _fs(11))
+		fb.add_theme_font_size_override("font_size", _fs(13))
 		fb.pressed.connect(func():
 			for key_f in filter_btns.keys():
 				var btn_f: Button = filter_btns[key_f]
@@ -3719,7 +3730,7 @@ func _build_drone() -> void:
 
 	for i in hangar_list:
 		var btn := Button.new()
-		btn.custom_minimum_size = Vector2(0, _fs(56))
+		btn.custom_minimum_size = Vector2(0, _fs(64))
 		btn.focus_mode = Control.FOCUS_NONE
 		btn.set_meta("drone_idx", i)
 
@@ -3765,7 +3776,27 @@ func _build_drone() -> void:
 			var pos: int = maxi(hangar_list.find(cur_i), 0)
 			DroneCatalog.prefetch_model(hangar_list[(pos + 1) % total])
 			DroneCatalog.prefetch_model(hangar_list[(pos - 1 + total) % total])
+			var row_uid := Progress.drone_unlock_id(cur_i)
+			if Progress.is_unlocked(row_uid):
+				Global.drone_preset = cur_i
+				Global.menu_settings["drone_preset"] = cur_i
+				DroneCatalog.apply(cur_i)
+				if DroneCatalog.is_uman(cur_i):
+					_selected_mode = Global.PlayMode.TRAINING
+					Global.play_mode = Global.PlayMode.TRAINING
+					Global.combat_training = false
+					_selected_special = 0
+					Global.special_mission = 0
+					Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
+					Global.menu_settings["selected_special"] = 0
+				Global.save_menu_settings()
+				_hero_loaded_preset = -1
+				if _play_modes_row != null:
+					_update_play_modes(_play_modes_row)
+				_load_hero_model(cur_i)
+				_update_play_caption()
 			_load_hangar_model(cur_i)
+			_update_hangar_info(cur_i)
 			_update_hangar_list_styles()
 		)
 		_hangar_list_container.add_child(btn)
@@ -3884,18 +3915,18 @@ func _build_drone() -> void:
 	sel_bar.add_theme_constant_override("separation", _gap(10))
 	ov_box.add_child(sel_bar)
 
-	_hangar_select_btn = _button("ОБРАТИ ЦЕЙ ДРОН", 48, true)
-	_hangar_select_btn.custom_minimum_size = Vector2(_fs(320), _fs(48))
+	_hangar_select_btn = _button("ОБРАТИ ЦЕЙ ДРОН", 54, true)
+	_hangar_select_btn.custom_minimum_size = Vector2(_fs(340), _fs(54))
 	_hangar_select_btn.add_theme_constant_override("h_separation", _gap(8))
 	_hangar_select_btn.pressed.connect(_on_hangar_choose_pressed)
 	sel_bar.add_child(_hangar_select_btn)
 
-	var hangar_shell_btn := _button("", 48, false, "secondary")
+	var hangar_shell_btn := _button("", 54, false, "secondary")
 	hangar_shell_btn.name = "HangarShellSpinButton"
-	hangar_shell_btn.icon = MenuIcons.icon_rotate(VoltThemeScript.YELLOW, 18)
+	hangar_shell_btn.icon = MenuIcons.icon_rotate(VoltThemeScript.YELLOW, 20)
 	hangar_shell_btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hangar_shell_btn.expand_icon = false
-	hangar_shell_btn.custom_minimum_size = Vector2(_ui_sz(44), _fs(48))
+	hangar_shell_btn.custom_minimum_size = Vector2(_ui_sz(50), _fs(54))
 	hangar_shell_btn.tooltip_text = "Скид гільз" if not is_en else "Roll & drop shells"
 	hangar_shell_btn.pressed.connect(func():
 		if _hangar_diorama != null and is_instance_valid(_hangar_diorama):
@@ -4210,6 +4241,7 @@ func _on_hangar_choose_pressed() -> void:
 		Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
 		Global.menu_settings["selected_special"] = 0
 	Global.save_menu_settings()
+	_hero_loaded_preset = -1
 	if _play_modes_row != null:
 		_update_play_modes(_play_modes_row)
 	_load_hero_model(_hangar_preview_idx)
@@ -4317,8 +4349,8 @@ func _build_settings() -> void:
 
 	for td in tab_defs:
 		var tab_id: String = td["id"]
-		var btn := _button(td["label"], 44, tab_id == _settings_tab)
-		btn.add_theme_font_size_override("font_size", _fs(15 if compact else 17))
+		var btn := _button(td["label"], 50, tab_id == _settings_tab)
+		btn.add_theme_font_size_override("font_size", _fs(16 if compact else 18))
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		btn.pressed.connect(func():
 			_settings_tab = tab_id
@@ -5006,6 +5038,26 @@ func _build_settings_tab_sys() -> void:
 			bus_grid.add_child(bv)
 		sv.add_child(bus_grid)
 
+	# 1c. Propwash / Blade Air-Chop Toggle
+	var pw_box := HBoxContainer.new()
+	var pw_info := VBoxContainer.new()
+	pw_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pw_info.add_child(_label(("Blade air chop" if is_en else "Шум лопатей") if compact \
+			else ("Blade Chop & Propwash Audio" if is_en else "Шум лопатей і потоку повітря"),
+			16 if compact else 18, VoltThemeScript.TEXT))
+	pw_info.add_child(_label(("Turn off harsh prop chop" if is_en else "Вимкнути хрипіння лопатей") if compact \
+			else ("Mutes turbulent blade-chop & airflow wash while keeping clean motor pitch" if is_en else "Вимикає різкий шум лопатей і вихорів, залишаючи чистий звук моторів"),
+			12 if compact else 14, VoltThemeScript.STONE_DIM))
+	pw_box.add_child(pw_info)
+	var pw_on: bool = Audio.is_propwash_audio_enabled() if Audio != null and Audio.has_method("is_propwash_audio_enabled") else true
+	var pw_sw := ToggleSwitch.new(pw_on)
+	pw_sw.toggled.connect(func(on: bool):
+		if Audio != null and Audio.has_method("set_propwash_audio_enabled"):
+			Audio.call("set_propwash_audio_enabled", on)
+	)
+	pw_box.add_child(pw_sw)
+	sv.add_child(pw_box)
+
 	# 2. Haptics toggle
 	var hap_box := HBoxContainer.new()
 	var hap_info := VBoxContainer.new()
@@ -5233,6 +5285,7 @@ func _on_toggle_language() -> void:
 
 func _reset_screen_refs() -> void:
 	_hero_load_token += 1
+	_hero_loaded_preset = -1
 	_hangar_load_token += 1
 	_is_dragging_hero = false
 	_is_dragging_hangar = false

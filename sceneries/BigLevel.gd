@@ -33,6 +33,7 @@ const FpvIconsScript = preload("res://scripts/util/fpv_icons.gd")
 const ReconKillCamScript = preload("res://scripts/combat/recon_kill_cam.gd")
 const GhostScript = preload("res://drone/Ghost.gd")
 const FreestyleCourseScript = preload("res://scripts/util/freestyle_course.gd")
+const CourseRouteGuideScript = preload("res://scripts/util/course_route_guide.gd")
 const MissionDroneSwitcherScript = preload("res://scripts/util/mission_drone_switcher.gd")
 const MAIN_MENU := "res://GUI/MainMenu.tscn"
 const MOBILE_MENU := "res://GUI/mobile/MobileMenu.tscn"
@@ -117,6 +118,7 @@ var _training_ring_positions: Array[Vector3] = []
 var _freestyle_ring_specs: Array[Dictionary] = []
 var _freestyle_ghost_saved_once := false
 var _training_ring_spawn_queued := false
+var _route_guide: Node3D = null
 var _ring_pulse := 0.0
 var _nav_marker: Label = null
 var _vehicles: Array[Vehicle] = []
@@ -3068,6 +3070,7 @@ func _show_results(reason: String) -> void:
 			_results_title.add_theme_color_override("font_color", MenuUI.DANGER)
 		else:
 			_results_title.add_theme_color_override("font_color", MenuUI.FPV_TEXT)
+	var coins_before := Progress.coins if Progress != null else 0
 	var score_mult: float = Global.get_difficulty_score_multiplier() if Global.play_mode == Global.PlayMode.COMBAT else 1.0
 	var final_score := int(round(_score * score_mult))
 	var mission_rec: Dictionary = {}
@@ -3295,10 +3298,17 @@ func _show_results(reason: String) -> void:
 		_results_dvr_btn.text = _txt("ПОВТОР УДАРУ (DVR)", "STRIKE REPLAY (DVR)") \
 				if Global.play_mode == Global.PlayMode.COMBAT \
 				else _txt("ПОВТОР ПОЛЬОТУ (DVR)", "FLIGHT REPLAY (DVR)")
-	_results_stats.text = "%s\n%s%s%s%s%s %s\n%s %d" % [
+	var coins_gained := maxi(0, (Progress.coins if Progress != null else 0) - coins_before)
+	var coins_total_now := Progress.coins if Progress != null else 0
+	var coins_line := ""
+	if not _mission_failed and Progress != null:
+		var coin_detail := ("+%d (%s: %d)" % [coins_gained, _txt("всього", "total"), coins_total_now]) \
+				if coins_gained > 0 else _txt("+0 (ліміт дня)", "+0 (daily cap)")
+		coins_line = "\n%s %s" % [_txt("МОНЕТИ          ", "COINS           "), coin_detail]
+	_results_stats.text = "%s\n%s%s%s%s%s %s\n%s %d%s" % [
 			best_line, diff_line, award_line, campaign_line, breakdown_line,
 			_txt("ЧАС ПОЛЬОТУ     ", "FLIGHT TIME     "), _format_time(_mission_time),
-			score_label, final_score]
+			score_label, final_score, coins_line]
 	get_tree().paused = true
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	if can_next and _next_mission_btn != null:
@@ -4177,39 +4187,61 @@ func _sync_active_training_ring(animate_pop: bool = false) -> void:
 			else:
 				r.scale = Vector3.ONE
 	_ensure_next_ring_preview()
+	_update_course_route_guide()
 	if _next_ring_preview != null and is_instance_valid(_next_ring_preview):
 		var next_idx := _rings_passed + 1
 		if next_idx < _training_rings.size() and _rings_passed < _rings_total:
 			var nr := _training_rings[next_idx]
-			var cur_r := _training_rings[_rings_passed] if _rings_passed < _training_rings.size() else null
 			if nr != null and is_instance_valid(nr):
 				_next_ring_preview.visible = _freestyle_ring_specs.is_empty()
 				var next_radius := float(nr.get_meta("ring_radius", 6.2))
 				_next_ring_preview.scale = Vector3.ONE * clampf(next_radius / 6.2, 0.32, 1.6)
 				_next_ring_preview.global_position = nr.global_position
 				_next_ring_preview.global_rotation = Vector3(PI * 0.5, nr.global_rotation.y, 0.0)
-				if _next_turn_arrow != null and is_instance_valid(_next_turn_arrow) \
-						and cur_r != null and is_instance_valid(cur_r):
-					_next_turn_arrow.visible = true
-					_next_turn_arrow.global_position = cur_r.global_position
-					for di in range(_next_turn_arrow.get_child_count()):
-						var d_node := _next_turn_arrow.get_child(di) as Node3D
-						if d_node == null:
-							continue
-						var frac := float(di + 1) / 5.0
-						var d_pos := cur_r.global_position.lerp(nr.global_position, frac)
-						d_pos.y = maxf(d_pos.y, _find_ground_y(d_pos.x, d_pos.z) + 1.5)
-						d_node.global_position = d_pos
-						if d_node.global_position.distance_squared_to(nr.global_position) > 0.5:
-							d_node.look_at(nr.global_position, Vector3.UP)
 			else:
 				_next_ring_preview.visible = false
-				if _next_turn_arrow != null and is_instance_valid(_next_turn_arrow):
-					_next_turn_arrow.visible = false
 		else:
 			_next_ring_preview.visible = false
-			if _next_turn_arrow != null and is_instance_valid(_next_turn_arrow):
-				_next_turn_arrow.visible = false
+		if _next_turn_arrow != null and is_instance_valid(_next_turn_arrow):
+			_next_turn_arrow.visible = false
+
+
+func _update_course_route_guide() -> void:
+	if _triggers == null or not is_inside_tree():
+		return
+	if _training_rings.is_empty() or _rings_passed >= _training_rings.size():
+		if _route_guide != null and is_instance_valid(_route_guide):
+			_route_guide.visible = false
+		return
+	if _route_guide == null or not is_instance_valid(_route_guide):
+		_route_guide = CourseRouteGuideScript.new()
+		_triggers.add_child(_route_guide)
+	_route_guide.visible = true
+	var gates: Array[Dictionary] = []
+	var exclude_rids: Array[RID] = []
+	var d := get_node_or_null("Drone") as Node3D
+	if d is CollisionObject3D:
+		exclude_rids.append((d as CollisionObject3D).get_rid())
+	for i in range(_training_rings.size()):
+		var ring := _training_rings[i]
+		if ring == null or not is_instance_valid(ring):
+			continue
+		exclude_rids.append(ring.get_rid())
+		var fwd := -ring.global_transform.basis.z.normalized()
+		if i + 1 < _training_rings.size() and is_instance_valid(_training_rings[i + 1]):
+			var to_nxt := _training_rings[i + 1].global_position - ring.global_position
+			if to_nxt.length_squared() > 0.25 and fwd.dot(to_nxt) < 0.0:
+				fwd = -fwd
+		gates.append({
+			"pos": ring.global_position,
+			"dir": fwd,
+			"radius": float(ring.get_meta("ring_radius", 5.0)),
+		})
+	var respawn := get_node_or_null("Respawn") as Node3D
+	var origin_pt: Vector3 = d.global_position if d != null else (respawn.global_position if respawn != null else Vector3.INF)
+	var space := get_world_3d().direct_space_state if get_world_3d() != null else null
+	if space != null:
+		_route_guide.call("update_route", gates, _rings_passed, space, exclude_rids, origin_pt)
 
 
 func _spawn_ring_pass_effect(ring_xf: Transform3D) -> void:
@@ -5473,7 +5505,7 @@ func _add_aa_gun(pos: Vector3, count_as_primary: bool = false) -> Node3D:
 		var dry := _find_dry_spot(pos.x, pos.z)
 		pos.x = dry.x
 		pos.z = dry.y
-	var safe := _ensure_enemy_xz_clearance(Vector2(pos.x, pos.z), 72.0, MAP_GROUND_SAFE - 14.0, true)
+	var safe := _ensure_enemy_xz_clearance(Vector2(pos.x, pos.z), 72.0, MAP_GROUND_SAFE - 14.0, false)
 	pos.x = safe.x
 	pos.z = safe.y
 	pos.y = _find_ground_y(pos.x, pos.z)
@@ -9640,6 +9672,10 @@ func _idle_start_hint() -> String:
 			"« READY FOR LAUNCH — PRESS ARM »")
 
 
+func _hud_custom_training_target() -> Dictionary:
+	return {}
+
+
 func _update_nav_marker() -> void:
 	if _nav_marker == null:
 		return
@@ -9677,6 +9713,12 @@ func _update_nav_marker() -> void:
 					target_pos = ct_info["pos"]
 					target_found = true
 					target_label = str(ct_info.get("label", _txt("ЦІЛЬ", "TARGET")))
+			if not target_found:
+				var custom_info := _hud_custom_training_target()
+				if not custom_info.is_empty() and custom_info.has("pos"):
+					target_pos = custom_info["pos"]
+					target_found = true
+					target_label = str(custom_info.get("label", _txt("ВОРОТА", "GATE")))
 			if not target_found and _rings_passed >= 0 and _rings_passed < _training_rings.size():
 				var r := _training_rings[_rings_passed]
 				if r != null and is_instance_valid(r) and r.visible:

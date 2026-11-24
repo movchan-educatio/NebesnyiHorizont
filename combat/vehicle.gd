@@ -32,13 +32,13 @@ const GLOBAL_VEHICLE_SCALE := 1.20
 const VEHICLE_GROUND_BOUND := 152.0
 const VEHICLE_AIR_BOUND := 168.0
 const MODEL_SIZE := {
-	Kind.TANK: 9.2,
-	Kind.BMP: 7.2,
-	Kind.APC: 8.2,
-	Kind.TRUCK: 5.6,
-	Kind.SAM: 8.2,
-	Kind.HELI: 16.5,
-	Kind.SHAHED: 3.8,
+	Kind.TANK: 11.04,
+	Kind.BMP: 8.64,
+	Kind.APC: 9.84,
+	Kind.TRUCK: 6.72,
+	Kind.SAM: 9.84,
+	Kind.HELI: 19.8,
+	Kind.SHAHED: 4.56,
 }
 const MODEL_PITCH := {}
 ## Calibrated yaw so every authored GLB model has its visual front (gun barrel,
@@ -54,11 +54,11 @@ const MODEL_YAW := {
 }
 const MODEL_OFFSET := {}
 const MODEL_BOX := {
-	Kind.TANK: Vector3(3.6, 2.4, 7.6),
-	Kind.BMP: Vector3(3.2, 2.4, 6.8),
-	Kind.APC: Vector3(3.1, 2.6, 7.8),
-	Kind.TRUCK: Vector3(2.4, 2.4, 5.4),
-	Kind.SAM: Vector3(3.2, 3.6, 7.8),
+	Kind.TANK: Vector3(4.32, 2.88, 9.12),
+	Kind.BMP: Vector3(3.84, 2.88, 8.16),
+	Kind.APC: Vector3(3.72, 3.12, 9.36),
+	Kind.TRUCK: Vector3(2.88, 2.88, 6.48),
+	Kind.SAM: Vector3(3.84, 4.32, 9.36),
 }
 const ENGINE_DB := {
 	Kind.TANK: 3.5, Kind.BMP: 2.0, Kind.APC: 1.5, Kind.TRUCK: 0.5,
@@ -70,23 +70,23 @@ const ENGINE_DB := {
 ## front points along -Z.
 const VARIANTS := {
 	"btr8": {"kind": Kind.APC, "path": "res://Assets/vehicles/btr8_carrier.glb",
-		"size": 7.6, "yaw": PI, "box": Vector3(3.1, 3.6, 7.5),
+		"size": 9.12, "yaw": PI, "box": Vector3(3.72, 4.32, 9.0),
 		"hp": 300.0, "points": 380, "tint": Color(0.92, 0.95, 0.86)},
 	"mtsm": {"kind": Kind.APC, "path": "res://Assets/vehicles/mtsm_transporter.glb",
-		"size": 8.0, "yaw": 0.0, "box": Vector3(3.5, 4.3, 8.0),
+		"size": 9.6, "yaw": 0.0, "box": Vector3(4.2, 5.16, 9.6),
 		"hp": 260.0, "points": 320, "tint": Color(0.95, 0.97, 0.90)},
 	"ural": {"kind": Kind.TRUCK, "path": "res://Assets/vehicles/ural_4320.glb",
-		"size": 7.8, "yaw": PI, "box": Vector3(2.7, 3.1, 7.8),
+		"size": 9.36, "yaw": PI, "box": Vector3(3.24, 3.72, 9.36),
 		"hp": 200.0, "points": 260, "tint": Color(0.95, 0.97, 0.90)},
 	"oreshnik": {"kind": Kind.SAM, "path": "res://Assets/vehicles/oreshnik_launcher.glb",
-		"size": 11.0, "yaw": 0.0, "box": Vector3(2.7, 2.4, 11.0),
+		"size": 13.2, "yaw": 0.0, "box": Vector3(3.24, 2.88, 13.2),
 		"hp": 520.0, "points": 900, "tint": Color(0.95, 0.97, 0.92)},
 	## Cruise missile: reuses the rail-flown SHAHED air behaviour (air_target
 	## group, proximity fuse, cinematic aerial crash) but uses the authored
 	## low-poly missile GLB.  nose points -Z, so yaw stays at 0.
 	"cruise_missile": {"kind": Kind.SHAHED,
 		"path": "res://Assets/combat/cruise_missile.glb",
-		"size": 6.4, "yaw": 0.0, "box": Vector3(3.4, 1.6, 6.4),
+		"size": 7.68, "yaw": 0.0, "box": Vector3(4.08, 1.92, 7.68),
 		"hp": 150.0, "points": 420, "tint": Color(0.92, 0.96, 0.88),
 		"keep_authored_colors": true},
 }
@@ -180,6 +180,7 @@ var _damage_speed_mult := 1.0
 var _smoke_started := false
 var _fire_started := false
 var _avoid_yaw := 0.0
+var _retreat_step := 0.0
 ## Persistent water detour: without it a ground unit turns back toward its
 ## waypoint on the very next tick and oscillates on the pond edge forever.
 var _water_detour_left := 0.0
@@ -1433,7 +1434,7 @@ func _physics_process(delta: float) -> void:
 	if not holding and not hovering and not tank_hold and not _retreating:
 		_move_along_route(delta)
 	else:
-		_step = 0.0
+		_step = _retreat_step if _retreating else 0.0
 	_update_movement_watchdog(delta, holding, hovering, tank_hold)
 	_enforce_map_bounds()
 	_update_height(delta)
@@ -1592,9 +1593,15 @@ func _move_along_route(delta: float) -> void:
 				if not _is_path_blocked(test_dir, look_ahead * 0.92) \
 						and not _is_water_hazard(global_position.x + test_dir.x * 4.0, global_position.z + test_dir.z * 4.0):
 					var steer_yaw := atan2(-test_dir.x, -test_dir.z)
-					rotation.y = lerp_angle(rotation.y, steer_yaw, clampf(delta * (_turn_rate * 2.6 + 1.8), 0.0, 1.0))
-					forward = test_dir
-					_step = effective_speed * 0.72 * delta
+					rotation.y = lerp_angle(rotation.y, steer_yaw, clampf(delta * (_turn_rate * 2.8 + 2.0), 0.0, 1.0))
+					var hull_fwd := -global_transform.basis.z
+					hull_fwd.y = 0.0
+					if hull_fwd.length_squared() > 0.0001:
+						forward = hull_fwd.normalized()
+					else:
+						forward = test_dir
+					var align_mul := clampf(cos(angle_difference(rotation.y, steer_yaw)), 0.25, 1.0)
+					_step = effective_speed * 0.72 * align_mul * delta
 					blocked = false
 					steered = true
 					_stuck_time = maxf(0.0, _stuck_time - delta * 0.4)
@@ -1663,9 +1670,12 @@ func _move_along_route(delta: float) -> void:
 					_water_detour_yaw = atan2(-best_dir.x, -best_dir.z)
 					_water_detour_left = 1.2
 				rotation.y = lerp_angle(rotation.y, _water_detour_yaw,
-						clampf(delta * (_turn_rate * 2.4 + 1.6), 0.0, 1.0))
-				forward = best_dir
-				_step = effective_speed * 0.65 * delta
+						clampf(delta * (_turn_rate * 2.6 + 1.8), 0.0, 1.0))
+				var cur_hull := -global_transform.basis.z
+				cur_hull.y = 0.0
+				forward = cur_hull.normalized() if cur_hull.length_squared() > 0.0001 else best_dir
+				var water_align := clampf(cos(angle_difference(rotation.y, _water_detour_yaw)), 0.25, 1.0)
+				_step = effective_speed * 0.65 * water_align * delta
 				rescued = true
 			if not rescued:
 				var level := _find_level_scene()
@@ -2065,24 +2075,29 @@ func _corridor_clearance(dir: Vector3, distance: float) -> float:
 	if world == null or world.direct_space_state == null \
 			or dir.length_squared() < 0.01:
 		return 1.0
-	var half_w := maxf(_model_box().x * 0.5, 1.2) + 1.5
-	_corridor_box.size = Vector3(half_w * 2.0, 3.2, distance)
-	var yaw := atan2(-dir.x, -dir.z)
+	var dnorm := dir.normalized()
+	var right := dnorm.cross(Vector3.UP)
+	if right.length_squared() < 0.001:
+		right = Vector3.RIGHT
+	else:
+		right = right.normalized()
+	var half_w := maxf(_model_box().x * 0.5, 1.2) + 1.2
 	var y_off := 1.4 if not _is_air() else 0.0
-	var center := global_position + dir * (distance * 0.5) + Vector3.UP * y_off
-	var query := PhysicsShapeQueryParameters3D.new()
-	query.shape = _corridor_box
-	query.transform = Transform3D(Basis(Vector3.UP, yaw), center)
-	query.collision_mask = 1
-	query.exclude = _corridor_exclusions()
-	# max_results is an argument of intersect_shape(), not a parameter property.
-	var hits := world.direct_space_state.intersect_shape(query, 4)
+	var excl := _corridor_exclusions()
+	var space := world.direct_space_state
 	var clear := 1.0
-	for hit in hits:
-		if _is_flat_collider(hit.get("collider")):
+	for lat: float in [0.0, -half_w, half_w]:
+		var ray_from := global_position + Vector3.UP * y_off + right * lat
+		var ray_to := ray_from + dnorm * distance
+		var q := PhysicsRayQueryParameters3D.create(ray_from, ray_to)
+		q.collision_mask = 1
+		q.collide_with_areas = false
+		q.exclude = excl
+		var hit := space.intersect_ray(q)
+		if hit.is_empty() or _is_flat_collider(hit.get("collider")):
 			continue
-		var hp: Vector3 = hit.get("position", global_position)
-		var along := (hp - global_position).dot(dir)
+		var hp: Vector3 = hit.get("position", ray_to)
+		var along := (hp - ray_from).dot(dnorm)
 		clear = minf(clear, clampf(along / maxf(distance, 0.01), 0.0, 1.0))
 	return clear
 
@@ -2382,6 +2397,7 @@ func _combat_engage(delta: float) -> void:
 		return
 	var to := _drone.global_position - muzzle
 	var dist := drone_dist
+	_retreat_step = 0.0
 	if dist > fire_range or dist < 3.0:
 		_retreating = false
 		return
@@ -2403,6 +2419,7 @@ func _combat_engage(delta: float) -> void:
 					and not _is_water_hazard(step_pos.x, step_pos.z) \
 					and not _is_path_blocked(dir, 2.0):
 				_retreating = true
+				_retreat_step = step_pos.distance_to(global_position)
 				rotation.y = lerp_angle(rotation.y, atan2(-dir.x, -dir.z),
 						clampf(delta * 3.0, 0.0, 1.0))
 				global_position = step_pos
@@ -2451,7 +2468,7 @@ func _combat_engage(delta: float) -> void:
 			rotation.x = lerpf(rotation.x, 0.0, clampf(delta * 3.0, 0.0, 1.0))
 			rotation.z = lerpf(rotation.z, 0.0, clampf(delta * 3.0, 0.0, 1.0))
 	var aim_ready := true
-	if kind == Kind.SAM:
+	if kind == Kind.SAM or kind == Kind.TANK or kind == Kind.BMP or kind == Kind.APC:
 		var flat_aim := Vector3(to.x, 0.0, to.z)
 		if flat_aim.length_squared() > 0.01:
 			var world_aim := atan2(-flat_aim.x, -flat_aim.z)

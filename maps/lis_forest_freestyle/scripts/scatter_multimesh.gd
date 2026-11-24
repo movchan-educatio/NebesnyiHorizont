@@ -6,7 +6,7 @@ extends Node3D
 
 const SCATTER_JSON := "res://maps/lis_forest_freestyle/scatter_transforms.json"
 const PROTO_DIR := "res://maps/lis_forest_freestyle/meshes/"
-const CHUNK_SIZE: float = 600.0
+const CHUNK_SIZE: float = 150.0
 const CONIFERS := ["pine_tall", "pine_mid", "pine_slim", "fir_dense"]
 
 const VIS_RANGE := {
@@ -99,16 +99,24 @@ func _meshes_for(mid: String) -> Array[Mesh]:
 		for m in all:
 			var nm := String(m.resource_name).to_lower()
 			var has_needle := false
+			var has_wood := false
 			for s in range(m.get_surface_count()):
 				var mat := m.surface_get_material(s)
-				if mat != null and mat.resource_name.to_lower().contains("needle"):
-					has_needle = true
-					break
+				if mat != null:
+					var mnm := mat.resource_name.to_lower()
+					if mnm.contains("needle") or mnm.contains("foliage") or mnm.contains("leaf"):
+						has_needle = true
+					elif mnm.contains("wood") or mnm.contains("bark") or mnm.contains("trunk"):
+						has_wood = true
 			if has_needle or nm.contains("foliage"):
 				if crown == null or m.get_faces().size() > crown.get_faces().size():
 					crown = m
-			elif nm.contains("trunk"):
+			elif has_wood or nm.contains("trunk"):
 				if trunk == null or m.get_faces().size() > trunk.get_faces().size():
+					trunk = m
+		if trunk == null:
+			for m in all:
+				if m != crown and (trunk == null or m.get_faces().size() > trunk.get_faces().size()):
 					trunk = m
 		if crown != null:
 			out.push_back(crown)
@@ -174,25 +182,34 @@ func _build_chunks(mid: String, meshes: Array[Mesh], entries: Array) -> void:
 		var list: Array = buckets[key]
 		if list.is_empty():
 			continue
+		var center := Vector3.ZERO
+		for xf_item in list:
+			center += (xf_item as Transform3D).origin
+		center /= float(list.size())
+		var local_list: Array = []
+		local_list.resize(list.size())
+		for i in range(list.size()):
+			var xf := list[i] as Transform3D
+			local_list[i] = Transform3D(xf.basis, xf.origin - center)
 		for mi in range(meshes.size()):
 			var mmi := MultiMeshInstance3D.new()
 			mmi.name = "mm_%s_c%d_%d_p%d" % [mid, key.x, key.y, mi]
 			var mm := MultiMesh.new()
 			mm.transform_format = MultiMesh.TRANSFORM_3D
 			mm.mesh = meshes[mi]
-			mm.instance_count = list.size()
-			for i in range(list.size()):
-				# Authored transforms are already world-space; no offset.
-				mm.set_instance_transform(i, list[i])
+			mm.instance_count = local_list.size()
+			for i in range(local_list.size()):
+				mm.set_instance_transform(i, local_list[i])
 			mmi.multimesh = mm
-			mmi.position = Vector3.ZERO
-			var mesh_range := minf(range_end, 160.0) if (CONIFERS.has(mid) and mi > 0) else range_end
-			mmi.visibility_range_end = mesh_range
+			mmi.position = center
+			# Keep conifer trunks matched to crown draw distance (visibility is measured
+			# from chunk centroid, and cropping trunks earlier left floating crowns).
+			mmi.visibility_range_end = range_end
 			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED
 			var keep_shadow := CONIFERS.has(mid) and mi == 0
 			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if keep_shadow \
 					else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			mmi.set_meta("instance_transforms", list.duplicate())
+			mmi.set_meta("instance_transforms", local_list.duplicate())
 			add_child(mmi)
 			chunk_count += 1
 			instance_count += list.size()

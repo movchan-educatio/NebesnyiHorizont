@@ -91,6 +91,16 @@ func _physics_process(delta: float) -> void:
 					if _can_step(fnorm, step_len):
 						global_position += fnorm * step_len
 						moved = true
+					else:
+						var sdir := global_transform.basis.x * _chaos_flank_dir
+						sdir.y = 0.0
+						if sdir.length_squared() > 0.001:
+							sdir = sdir.normalized()
+							if _can_step(sdir, step_len):
+								global_position += sdir * step_len
+								moved = true
+							else:
+								_chaos_flank_dir = -_chaos_flank_dir
 		_set_locomotion(delta, walk_speed if moved else 0.0)
 		_snap_to_ground()
 		if dist > engage_range:

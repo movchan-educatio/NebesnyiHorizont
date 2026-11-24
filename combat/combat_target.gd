@@ -15,7 +15,7 @@ const MODEL_PATHS := {
 	Kind.TRUCK: "res://Assets/vehicles/gaz_tigr_low_poly.glb",
 	Kind.INFANTRY: "res://Assets/combat/rifleman.glb",
 }
-const TARGET_SIZE_BOOST := 1.20
+const TARGET_SIZE_BOOST := 1.44
 const MODEL_SIZE := {
 	Kind.TANK: 8.8 * TARGET_SIZE_BOOST,
 	Kind.TRUCK: 5.5 * TARGET_SIZE_BOOST,

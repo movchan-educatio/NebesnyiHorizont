@@ -835,6 +835,7 @@ static var _truck_stream: AudioStreamWAV = null
 static var _heli_stream: AudioStreamWAV = null
 static var _shahed_stream: AudioStreamWAV = null
 static var _motor_streams := {}
+static var _motor_streams_clean := {}
 static var _propwash_stream: AudioStreamWAV = null
 static var _thunder_stream: AudioStreamWAV = null
 
@@ -1369,63 +1370,64 @@ static func play_drop(parent: Node, world_position: Vector3, volume_db: float = 
 ##   6  GRIM-7 long range    7  GRIM-7M high KV     8  Strila-8 tri-blade
 ##   9  10" military lifter  10 Furia wing pusher   11 3" micro whoop
 ##   12 5" juicy freestyle  13 7" cinematic cruiser
-static func drone_motor_stream(kind: int = 0) -> AudioStreamWAV:
-	if _motor_streams.has(kind):
-		return _motor_streams[kind] as AudioStreamWAV
+static func drone_motor_stream(kind: int = 0, with_propwash: bool = true) -> AudioStreamWAV:
+	var cache := _motor_streams if with_propwash else _motor_streams_clean
+	if cache.has(kind):
+		return cache[kind] as AudioStreamWAV
 	var stream: AudioStreamWAV
 	match kind:
 		1:  # 134 Hz twin-prop thrum + 40 Hz flutter
-			stream = _synth_quad_motor(22050, 1.0, 134.0, 7, 0.24, 536.0, 0.12,
-					40.0, 0.26, [1.0, 1.0075], 0.22)
+			stream = _synth_quad_motor(22050, 1.0, 134.0, 7, 0.24 if with_propwash else 0.0, 536.0, 0.12,
+					40.0, 0.26 if with_propwash else 0.0, [1.0, 1.0075], 0.22)
 		2:  # 58 Hz marine diesel + cavitation wash + 1150 Hz waterjet whine
-			stream = _synth_quad_motor(22050, 1.0, 58.0, 5, 0.30, 1150.0, 0.10,
-					12.0, 0.30, [1.0, 1.02], 0.10)
+			stream = _synth_quad_motor(22050, 1.0, 58.0, 5, 0.30 if with_propwash else 0.0, 1150.0, 0.10,
+					12.0, 0.30 if with_propwash else 0.0, [1.0, 1.02], 0.10)
 		3:  # 94 Hz steady 2-blade pusher buzz + 18 Hz pulse, thin wash
-			stream = _synth_quad_motor(22050, 1.0, 94.0, 4, 0.08, 376.0, 0.06,
-					18.0, 0.12, [1.0, 1.003], 0.12)
+			stream = _synth_quad_motor(22050, 1.0, 94.0, 4, 0.08 if with_propwash else 0.0, 376.0, 0.06,
+					18.0, 0.12 if with_propwash else 0.0, [1.0, 1.003], 0.12)
 		4:  # 460 Hz clean turbine + 1840 Hz compressor, no blade beat
-			stream = _synth_quad_motor(22050, 1.0, 460.0, 3, 0.42, 1840.0, 0.30,
+			stream = _synth_quad_motor(22050, 1.0, 460.0, 3, 0.42 if with_propwash else 0.0, 1840.0, 0.30,
 					0.0, 0.0, [1.0], 0.16)
 		5:  # 64 Hz six-rotor throb, 10 harmonics, 13 Hz chop, sub wash
-			stream = _synth_quad_motor(22050, 1.0, 64.0, 10, 0.28, 320.0, 0.12,
-					13.0, 0.30, [1.0, 0.992, 1.008], 0.09)
+			stream = _synth_quad_motor(22050, 1.0, 64.0, 10, 0.28 if with_propwash else 0.0, 320.0, 0.12,
+					13.0, 0.30 if with_propwash else 0.0, [1.0, 0.992, 1.008], 0.09)
 		6:  # 118 Hz balanced endurance hum + 520 Hz whistle
-			stream = _synth_quad_motor(22050, 1.0, 118.0, 6, 0.16, 520.0, 0.11,
-					22.0, 0.18)
+			stream = _synth_quad_motor(22050, 1.0, 118.0, 6, 0.16 if with_propwash else 0.0, 520.0, 0.11,
+					22.0, 0.18 if with_propwash else 0.0)
 		7:  # 156 Hz punchy high-KV snarl + 690 Hz tip bite
-			stream = _synth_quad_motor(22050, 1.0, 156.0, 6, 0.18, 690.0, 0.17,
-					31.0, 0.22, [1.0, 1.02])
+			stream = _synth_quad_motor(22050, 1.0, 156.0, 6, 0.18 if with_propwash else 0.0, 690.0, 0.17,
+					31.0, 0.22 if with_propwash else 0.0, [1.0, 1.02])
 		8:  # 128 Hz crisp tri-blade chop (34 Hz, 0.28 mix)
-			stream = _synth_quad_motor(22050, 1.0, 128.0, 5, 0.16, 512.0, 0.14,
-					34.0, 0.28, [1.0, 1.01])
+			stream = _synth_quad_motor(22050, 1.0, 128.0, 5, 0.16 if with_propwash else 0.0, 512.0, 0.14,
+					34.0, 0.28 if with_propwash else 0.0, [1.0, 1.01])
 		9:  # 86 Hz lugging low-KV groan + 16 Hz loaded wash
-			stream = _synth_quad_motor(22050, 1.0, 86.0, 8, 0.26, 344.0, 0.10,
-					16.0, 0.30, [1.0, 0.99])
+			stream = _synth_quad_motor(22050, 1.0, 86.0, 8, 0.26 if with_propwash else 0.0, 344.0, 0.10,
+					16.0, 0.30 if with_propwash else 0.0, [1.0, 0.99])
 		10:  # 116 Hz higher-RPM pusher raspy buzz + 560 Hz airframe whistle
-			stream = _synth_quad_motor(22050, 1.0, 116.0, 5, 0.12, 560.0, 0.16,
-					20.0, 0.16, [1.0, 1.02])
+			stream = _synth_quad_motor(22050, 1.0, 116.0, 5, 0.12 if with_propwash else 0.0, 560.0, 0.16,
+					20.0, 0.16 if with_propwash else 0.0, [1.0, 1.02])
 		11:  # 340 Hz frantic micro scream + 1480 Hz duct whine + 62 Hz chatter
-			stream = _synth_quad_motor(22050, 1.0, 340.0, 6, 0.12, 1480.0, 0.22,
-					62.0, 0.24, [1.0, 1.025], 0.24)
+			stream = _synth_quad_motor(22050, 1.0, 340.0, 6, 0.12 if with_propwash else 0.0, 1480.0, 0.22,
+					62.0, 0.24 if with_propwash else 0.0, [1.0, 1.025], 0.24)
 		12:  # 215 Hz warm mid-rich chord + 32 Hz flip/throttle chop
-			stream = _synth_quad_motor(22050, 1.0, 215.0, 7, 0.18, 860.0, 0.12,
-					32.0, 0.30, [1.0, 1.005, 0.995], 0.20)
+			stream = _synth_quad_motor(22050, 1.0, 215.0, 7, 0.18 if with_propwash else 0.0, 860.0, 0.12,
+					32.0, 0.30 if with_propwash else 0.0, [1.0, 1.005, 0.995], 0.20)
 		13:  # 106 Hz silky purr, soft low-pass wash, minimal harsh whistle
-			stream = _synth_quad_motor(22050, 1.0, 106.0, 5, 0.14, 424.0, 0.04,
-					11.0, 0.10, [1.0, 1.004], 0.06)
+			stream = _synth_quad_motor(22050, 1.0, 106.0, 5, 0.14 if with_propwash else 0.0, 424.0, 0.04,
+					11.0, 0.10 if with_propwash else 0.0, [1.0, 1.004], 0.06)
 		14:  # Wraith: low flying-wing throb + ducted-fan whistle
-			stream = _synth_quad_motor(22050, 1.0, 96.0, 7, 0.20, 720.0, 0.15,
-					19.0, 0.22, [1.0, 0.996], 0.12)
+			stream = _synth_quad_motor(22050, 1.0, 96.0, 7, 0.20 if with_propwash else 0.0, 720.0, 0.15,
+					19.0, 0.22 if with_propwash else 0.0, [1.0, 0.996], 0.12)
 		15:  # Komar: high-pitched micro whoop + duct chatter
-			stream = _synth_quad_motor(22050, 1.0, 355.0, 6, 0.11, 1520.0, 0.20,
-					58.0, 0.22, [1.0, 1.03], 0.20)
+			stream = _synth_quad_motor(22050, 1.0, 355.0, 6, 0.11 if with_propwash else 0.0, 1520.0, 0.20,
+					58.0, 0.22 if with_propwash else 0.0, [1.0, 1.03], 0.20)
 		16:  # Shmel: aggressive 5" tri-blade snarl
-			stream = _synth_quad_motor(22050, 1.0, 168.0, 7, 0.19, 810.0, 0.17,
-					36.0, 0.28, [1.0, 1.012], 0.16)
+			stream = _synth_quad_motor(22050, 1.0, 168.0, 7, 0.19 if with_propwash else 0.0, 810.0, 0.17,
+					36.0, 0.28 if with_propwash else 0.0, [1.0, 1.012], 0.16)
 		_:  # 245 Hz sharp BLDC scream + 980 Hz whistle + 48 Hz beat
-			stream = _synth_quad_motor(22050, 1.0, 245.0, 7, 0.14, 980.0, 0.20,
-					48.0, 0.15)
-	_motor_streams[kind] = stream
+			stream = _synth_quad_motor(22050, 1.0, 245.0, 7, 0.14 if with_propwash else 0.0, 980.0, 0.20,
+					48.0, 0.15 if with_propwash else 0.0)
+	cache[kind] = stream
 	return stream
 
 
@@ -1707,6 +1709,7 @@ static func clear_caches() -> void:
 	_heli_stream = null
 	_shahed_stream = null
 	_motor_streams.clear()
+	_motor_streams_clean.clear()
 	_propwash_stream = null
 	_thunder_stream = null
 	_alert_streams.clear()

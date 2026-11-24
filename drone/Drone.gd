@@ -374,9 +374,14 @@ func refresh_motor_audio() -> void:
 	var preset := int(Global.drone_preset)
 	var p := DroneCatalog.preset(preset)
 	var kind := int(p.get("audio_kind", 1 if mass >= 1.5 else 0))
-	_motor_audio.stream = CombatSfx.drone_motor_stream(kind)
+	var propwash_on := Audio.is_propwash_audio_enabled() if Audio != null and Audio.has_method("is_propwash_audio_enabled") else true
+	_motor_audio.stream = CombatSfx.drone_motor_stream(kind, propwash_on)
 	_motor_audio.volume_db = -45.0
 	_motor_audio.pitch_scale = 0.70
+	if _propwash_audio != null and not propwash_on:
+		_propwash_audio.volume_db = -80.0
+		if _propwash_audio.playing:
+			_propwash_audio.stop()
 	if flight_controller != null and flight_controller.state_armed and not _motor_audio.playing:
 		_motor_audio.play()
 
@@ -431,10 +436,11 @@ func _update_motor_audio(delta: float) -> void:
 func _update_propwash_audio(delta: float, armed: bool) -> void:
 	if _propwash_audio == null:
 		return
-	if not armed:
-		_propwash_audio.volume_db = lerpf(_propwash_audio.volume_db, -70.0,
+	var propwash_on := Audio.is_propwash_audio_enabled() if Audio != null and Audio.has_method("is_propwash_audio_enabled") else true
+	if not armed or not propwash_on:
+		_propwash_audio.volume_db = -80.0 if not propwash_on else lerpf(_propwash_audio.volume_db, -70.0,
 				clampf(delta * 14.0, 0.0, 1.0))
-		if _propwash_audio.volume_db <= -58.0 and _propwash_audio.playing:
+		if (_propwash_audio.volume_db <= -58.0 or not propwash_on) and _propwash_audio.playing:
 			_propwash_audio.stop()
 		return
 	if not _propwash_audio.playing:

@@ -56,7 +56,7 @@ func _ready() -> void:
 	collision_mask = 1
 	_disabled = _qa_disabled()
 	_build()
-	scale *= Vector3.ONE * 1.20
+	scale *= Vector3.ONE * 1.44
 	var cs := get_tree().current_scene if get_tree() != null else null
 	if cs != null:
 		if _drone == null or not is_instance_valid(_drone):
@@ -180,9 +180,11 @@ func _aim_at_drone(delta: float) -> bool:
 	var local_yaw := wrapf(_aim_yaw - parent_yaw, -PI, PI)
 	_turret.rotation.y = lerp_angle(_turret.rotation.y, local_yaw, clampf(delta * 5.0, 0.0, 1.0))
 	var pitch := atan2(to.y, flat.length())
-	_barrels.rotation.x = lerp_angle(_barrels.rotation.x, clampf(pitch, -0.30, 0.90),
-			clampf(delta * 5.0, 0.0, 1.0))
-	return absf(angle_difference(_turret.rotation.y, local_yaw)) < 0.26
+	var clamped_pitch := clampf(pitch, -0.30, 1.32)
+	_barrels.rotation.x = lerp_angle(_barrels.rotation.x, clamped_pitch,
+			clampf(delta * 5.5, 0.0, 1.0))
+	return absf(angle_difference(_turret.rotation.y, local_yaw)) < 0.26 \
+			and absf(angle_difference(_barrels.rotation.x, clamped_pitch)) < 0.28
 
 
 func _fire() -> void:

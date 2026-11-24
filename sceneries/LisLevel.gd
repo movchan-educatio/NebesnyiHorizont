@@ -310,6 +310,22 @@ func _map_water_level() -> float:
 func _physics_process(delta: float) -> void:
 	super._physics_process(delta)
 	_enforce_dry_ground_units()
+	_guard_drone_above_terrain()
+
+
+func _guard_drone_above_terrain() -> void:
+	var drone := get_node_or_null("Drone") as RigidBody3D
+	if drone == null or not is_instance_valid(drone) or drone.freeze:
+		return
+	var p := drone.global_position
+	if absf(p.x) > MAP_FLIGHT_BOUND or absf(p.z) > MAP_FLIGHT_BOUND:
+		return
+	var gy := _find_ground_y(p.x, p.z)
+	if p.y < gy - 1.2:
+		drone.global_position = Vector3(p.x, gy + 1.2, p.z)
+		var lv := drone.linear_velocity
+		if lv.y < 0.0:
+			drone.linear_velocity = Vector3(lv.x, 0.0, lv.z)
 
 
 func _enforce_dry_ground_units() -> void:
@@ -368,9 +384,9 @@ func _keep_unit_on_dry_bank(unit: Node3D, is_vehicle: bool) -> void:
 			unit.set("_panic_dir", inland_dir)
 	else:
 		var wps = unit.get("_waypoints")
-		if wps is Array and not (wps as Array).is_empty():
+		if (wps is Array or wps is PackedVector3Array) and wps.size() > 0:
 			var idx := int(unit.get("_wp_index"))
-			unit.set("_wp_index", (idx + 1) % (wps as Array).size())
+			unit.set("_wp_index", (idx + 1) % wps.size())
 
 
 func _find_lis_spawn() -> Dictionary:

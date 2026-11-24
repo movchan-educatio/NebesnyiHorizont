@@ -114,7 +114,7 @@ func save_progress() -> void:
 
 
 func is_unlocked(id: String) -> bool:
-	if is_qa_unlock_all() or DEFAULT_UNLOCKED.has(id):
+	if is_qa_unlock_all() or DEFAULT_UNLOCKED.has(id) or not PRICES.has(id):
 		return true
 	return bool(unlocked.get(id, false))
 
@@ -186,6 +186,10 @@ func mode_unlock_id(mode: int) -> String:
 		_: return "mode_training"
 
 
+var last_awarded_coins: int = 0
+var _run_award_seq: int = 0
+
+
 ## Викликається зі шляхів завершення місії. Не дублює XP — лише монети.
 func award_mission(mission_key: String, mission_id: int, special_id: int,
 		success: bool, stars: int, difficulty: int) -> int:
@@ -195,16 +199,64 @@ func award_mission(mission_key: String, mission_id: int, special_id: int,
 	match difficulty:
 		Global.Difficulty.OPERATOR: base = 70
 		Global.Difficulty.ACE: base = 120
-	var key := "mission_%s_%d_%d_%d" % [mission_key, mission_id, special_id, difficulty]
+	var today := Time.get_date_string_from_system()
+	var daily_rec: Dictionary = daily_caps.get("daily_missions", {})
+	var daily_count := int(daily_rec.get("count", 0)) if str(daily_rec.get("date", "")) == today else 0
+	_run_award_seq += 1
+	var key := "mission_%s_%d_%d_%d_%s_%d_%d" % [
+		mission_key, mission_id, special_id, difficulty, today, daily_count + 1, _run_award_seq]
 	var amount := base + maxi(0, stars - 1) * 20
-	# Перше проходження дає бонус, але не має згорати, якщо вичерпано добовий ліміт.
+	# Перше проходження дає повний бонус (+base), повторне проходження дає ~70% нагороди.
 	var first_key := "first_%s_%d_%d" % [mission_key, mission_id, special_id]
 	var is_first := not awarded.has(first_key)
-	var total := amount + (base if is_first else 0)
+	var total := (amount + base) if is_first else maxi(25, int(round(float(amount) * 0.70)))
 	var gained := award(key, total, "daily_missions", 6)
-	if gained > 0 and is_first:
-		awarded[first_key] = true
-		save_progress()
+	if gained > 0:
+		last_awarded_coins += gained
+		if is_first:
+			awarded[first_key] = true
+			save_progress()
+	return gained
+
+
+## Нагорода за фрістайл-траси, нафтову платформу, туторіал та бойове тренування.
+func award_activity(activity_key: String, units: int, _time_s: float = 0.0,
+		first_only: bool = false) -> int:
+	var clean_key := activity_key.strip_edges().to_lower()
+	var first_id := "activity_first_%s" % clean_key
+	var is_first := not awarded.has(first_id)
+	if first_only and not is_first:
+		return 0
+	var today := Time.get_date_string_from_system()
+	var daily_key := "daily_training"
+	var daily_limit := 8
+	var amount := 0
+	if clean_key == "tutorial_complete":
+		amount = 120 if is_first else 40
+	elif clean_key == "combat_training":
+		amount = 90 if is_first else 35
+	elif clean_key.begins_with("daily_challenge"):
+		amount = 150
+		daily_key = ""
+		daily_limit = 0
+		var fixed_id := "%s_%s" % [clean_key, today]
+		var dc_gained := award(fixed_id, amount, "", 0)
+		if dc_gained > 0:
+			last_awarded_coins += dc_gained
+		return dc_gained
+	else:
+		var gate_bonus := mini(maxi(units, 1), 30) * 2
+		amount = (65 if is_first else 35) + gate_bonus
+	var daily_rec: Dictionary = daily_caps.get(daily_key, {})
+	var daily_count := int(daily_rec.get("count", 0)) if str(daily_rec.get("date", "")) == today else 0
+	_run_award_seq += 1
+	var run_id := "%s_%s_%d_%d" % [clean_key, today, daily_count + 1, _run_award_seq]
+	var gained := award(run_id, amount, daily_key, daily_limit)
+	if gained > 0:
+		last_awarded_coins += gained
+		if is_first:
+			awarded[first_id] = true
+			save_progress()
 	return gained
 
 
@@ -212,6 +264,8 @@ func award_mission(mission_key: String, mission_id: int, special_id: int,
 func qa_reset() -> void:
 	coins = 0
 	total_earned = 0
+	last_awarded_coins = 0
+	_run_award_seq = 0
 	unlocked = {}
 	awarded = {}
 	daily_caps = {}

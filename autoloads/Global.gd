@@ -468,6 +468,9 @@ func set_tutorial_completed(completed: bool = true) -> void:
 	rec["timestamp"] = get_formatted_date_time()
 	campaign_records[sec] = rec
 	save_campaign_records()
+	if completed and not OS.has_environment("DRONE_NO_RECORD"):
+		if Progress != null and Progress.has_method("award_activity"):
+			Progress.call("award_activity", "tutorial_complete", 10, 0.0)
 
 
 ## The combat-training badge is a progress marker only; it is not a campaign
@@ -484,6 +487,9 @@ func set_combat_training_completed(completed: bool = true) -> void:
 	rec["timestamp"] = get_formatted_date_time()
 	campaign_records[sec] = rec
 	save_campaign_records()
+	if completed and not OS.has_environment("DRONE_NO_RECORD"):
+		if Progress != null and Progress.has_method("award_activity"):
+			Progress.call("award_activity", "combat_training", 3, 0.0)
 
 
 func set_game_mode(mode: int) -> void:
@@ -574,8 +580,12 @@ func record_training_result(map_id: String, time_s: float, passed: int,
 	}
 	campaign_records[sec] = rec
 	save_campaign_records()
+	var coins_gained := 0
+	if (passed > 0 or total == 0) and Progress != null and Progress.has_method("award_activity"):
+		coins_gained = int(Progress.call("award_activity", "training_" + clean_id, passed, time_s))
 	var out := rec.duplicate()
 	out["new_best"] = is_new_best
+	out["coins_awarded"] = coins_gained
 	return out
 
 
@@ -654,6 +664,8 @@ func mark_daily_challenge_completed() -> void:
 	rec["bonus_total"] = int(rec.get("bonus_total", 0)) + int(ch.get("bonus_score", 300))
 	campaign_records["daily_challenge"] = rec
 	save_campaign_records()
+	if Progress != null and Progress.has_method("award_activity"):
+		Progress.call("award_activity", "daily_challenge", 1, 0.0)
 
 
 func _ghost_track_path(key: String) -> String:

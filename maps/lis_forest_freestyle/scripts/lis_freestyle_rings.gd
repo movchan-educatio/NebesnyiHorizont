@@ -24,12 +24,12 @@ const GATES_DATA := [
 	{"pos": [-116.0, 10.5, 76.0], "abs_y": false, "radius": 4.5, "zone": "Z02", "style": "banked", "roll": 14.0},
 	{"pos": [-74.0, 34.0, 124.0], "abs_y": true, "radius": 4.8, "zone": "Z02", "style": "dive", "roll": 0.0, "dir": [0.75, -2.4, -0.55]},
 	{"pos": [-38.0, 22.0, 84.0], "abs_y": true, "radius": 4.5, "zone": "Z02", "style": "banked", "roll": -12.0},
-	# Z03 River S-curve & Bridges (skimming river, passing under then over z03_bridges_metal)
+	# Z03 River S-curve & Bridges (skimming river cleanly, cresting OVER bridge & north bank)
 	{"pos": [-14.0, 6.5, 58.0], "abs_y": false, "radius": 4.4, "zone": "Z03", "style": "banked", "roll": -18.0},
 	{"pos": [16.0, 6.0, 12.0], "abs_y": false, "radius": 4.3, "zone": "Z03", "style": "banked", "roll": 20.0},
-	{"pos": [34.0, -8.2, -45.0], "abs_y": true, "radius": 3.8, "zone": "Z03", "style": "under_bridge", "roll": 0.0, "dir": [0.18, 0.04, -0.98]},
+	{"pos": [34.0, 5.5, -24.0], "abs_y": false, "radius": 4.4, "zone": "Z03", "style": "river_approach", "roll": 0.0, "dir": [-0.28, 0.38, -0.88]},
+	{"pos": [20.0, 12.2, -45.0], "abs_y": true, "radius": 4.6, "zone": "Z03", "style": "over_bridge", "roll": 10.0, "dir": [0.35, -0.08, -0.93]},
 	{"pos": [52.0, 5.5, -108.0], "abs_y": false, "radius": 4.5, "zone": "Z03", "style": "banked", "roll": -16.0},
-	{"pos": [20.0, 11.5, -45.0], "abs_y": true, "radius": 4.6, "zone": "Z03", "style": "over_bridge", "roll": 10.0, "dir": [-0.35, 0.08, -0.93]},
 	# Z05 Cableway Corridor (canyon cross north-west along valley)
 	{"pos": [18.0, 19.0, -135.0], "abs_y": true, "radius": 4.6, "zone": "Z05", "style": "vertical", "roll": 0.0},
 	{"pos": [-28.0, 26.0, -182.0], "abs_y": true, "radius": 4.8, "zone": "Z05", "style": "banked", "roll": -14.0},

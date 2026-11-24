@@ -4,9 +4,16 @@ extends Node
 ## The mission levels keep their own engine/wind/combat audio; this player only
 ## runs in the menus and fades out when a mission starts.
 
+signal propwash_audio_changed(enabled: bool)
+
 var audio_settings_path := "%s/Audio.cfg" % Global.config_dir
 
-var audio_settings := {"master_volume": 1.0, "music_volume": 0.55, "sfx_volume": 0.8}
+var audio_settings := {
+	"master_volume": 1.0,
+	"music_volume": 0.55,
+	"sfx_volume": 0.8,
+	"propwash_audio_enabled": true,
+}
 
 const MENU_THEME := "res://Assets/Audio/menu_theme_loop.wav"
 const MENU_CLICK := "res://Assets/Audio/menu_click.wav"
@@ -585,6 +592,21 @@ func set_music_volume(value: float) -> void:
 func set_sfx_volume(value: float) -> void:
 	audio_settings["sfx_volume"] = clampf(value, 0.0, 1.0)
 	save_audio_settings()
+
+
+func is_propwash_audio_enabled() -> bool:
+	return bool(audio_settings.get("propwash_audio_enabled", true))
+
+
+func set_propwash_audio_enabled(enabled: bool) -> void:
+	audio_settings["propwash_audio_enabled"] = enabled
+	save_audio_settings()
+	propwash_audio_changed.emit(enabled)
+	var tree := get_tree()
+	if tree != null:
+		for d in tree.get_nodes_in_group("drone"):
+			if is_instance_valid(d) and d.has_method("refresh_motor_audio"):
+				d.call("refresh_motor_audio")
 
 
 func _hook_button(button: Button) -> void:

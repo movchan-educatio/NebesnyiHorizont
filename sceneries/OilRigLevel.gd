@@ -5,7 +5,8 @@ extends "res://sceneries/BigLevel.gd"
 
 const MAP_SCENE := "res://maps/oil_rig/oil_rig_map.tscn"
 const MapRuntimeScript = preload("res://maps/oil_rig/scripts/map_runtime.gd")
-const DEFAULT_SPAWN := Vector3(-204.0, 407.04, 510.0)
+const RIG_SCALE: float = 0.35
+const DEFAULT_SPAWN := Vector3(-204.0, 407.04, 510.0) * RIG_SCALE
 
 var _map_instance: Node3D = null
 var _water_zone: Area3D = null
@@ -13,6 +14,16 @@ var _rig_gates_passed: Dictionary = {}
 var _rig_lap_start: float = -1.0
 var _rig_best_lap: float = 0.0
 var _rig_gate_triggers: Array[Area3D] = []
+var _rig_ordered_indices: Array[int] = []
+var _rig_gate_labels: Dictionary = {}
+var _rig_next_order_pos: int = 0
+var _rig_markers_root: Node3D = null
+var _rig_spawn_xform: Transform3D = Transform3D(Basis.IDENTITY, DEFAULT_SPAWN)
+var _rig_has_spawn: bool = false
+var _rig_active_torus: MeshInstance3D = null
+var _rig_active_mat: StandardMaterial3D = null
+var _rig_next_torus: MeshInstance3D = null
+var _rig_pulse: float = 0.0
 
 
 func _map_path() -> String:
@@ -28,9 +39,9 @@ func _scatter_legacy_map(_instance: Node3D) -> void:
 
 
 func _ready() -> void:
-	MAP_GROUND_SAFE = 1100.0
-	MAP_FLIGHT_BOUND = 1400.0
-	MAP_AIR_SAFE = 1300.0
+	MAP_GROUND_SAFE = 420.0
+	MAP_FLIGHT_BOUND = 560.0
+	MAP_AIR_SAFE = 500.0
 	_ground_y = 0.0
 	set_meta("disable_procedural_grass", true)
 	skip_material_upgrade = true
@@ -45,6 +56,12 @@ func _load_map() -> void:
 			if c is Node3D and c.name == "OilRigMap":
 				_map_instance = c
 				break
+	if _map_instance != null:
+		_map_instance.scale = Vector3.ONE * RIG_SCALE
+		_map_instance.position = Vector3.ZERO
+		var ocean := _map_instance.find_child("Ocean", true, false) as Node3D
+		if ocean != null:
+			ocean.scale = Vector3.ONE / RIG_SCALE
 	_neutralize_map_extras()
 	# BigLevel's fallback ground plane (3600x3600, brown) is far below a 400 m
 	# offshore deck and was rendering over/through the authored ocean shader.
@@ -52,8 +69,26 @@ func _load_map() -> void:
 	if fallback_ground != null:
 		fallback_ground.visible = false
 	_attach_atlas_materials()
+	_nudge_clear_hangar_gates()
+	_build_steel_colliders()
 	_connect_water_kill()
 	_setup_oilrig_gate_triggers()
+
+
+func _nudge_clear_hangar_gates() -> void:
+	if _map_instance == null:
+		return
+	var gates_node := _map_instance.get_node_or_null("FPVGates")
+	if gates_node == null:
+		return
+	# At RIG_SCALE = 0.35, the 4 outer hangar gates sit too close to the bay floor/wall
+	# (-10m sweep clips the deck); nudge them outward along their exit normal before
+	# VisibleGateRings populates so meshes, triggers and sweeps align cleanly.
+	for idx in [5, 16, 27, 38]:
+		var m := gates_node.get_node_or_null("Gate_%02d" % idx) as Marker3D
+		if m != null:
+			var nrm := m.transform.basis.y.normalized()
+			m.position += nrm * (8.0 / RIG_SCALE)
 
 
 func _neutralize_map_extras() -> void:
@@ -213,15 +248,18 @@ func _find_oilrig_spawn() -> Vector3:
 
 
 func _find_oilrig_spawn_transform() -> Transform3D:
+	if _rig_has_spawn:
+		return _rig_spawn_xform
 	if _map_instance != null:
 		var points := _map_instance.find_child("SpawnPoints", true, false)
 		if points != null:
-			var markers := points.get_children()
-			if not markers.is_empty():
-				var marker = markers[randi() % markers.size()]
-				if marker is Node3D:
-					var m3 := marker as Node3D
-					return Transform3D(m3.global_transform.basis.orthonormalized(), m3.global_position)
+			var marker := points.get_node_or_null("Spawn_Helipad_P1") as Node3D
+			if marker == null and points.get_child_count() > 0:
+				marker = points.get_child(0) as Node3D
+			if marker != null:
+				_rig_spawn_xform = Transform3D(marker.global_transform.basis.orthonormalized(), marker.global_position)
+				_rig_has_spawn = true
+				return _rig_spawn_xform
 	var respawn := get_node_or_null("Respawn") as Node3D
 	if respawn != null:
 		return Transform3D(respawn.global_transform.basis.orthonormalized(), respawn.global_position)
@@ -282,13 +320,28 @@ func _setup_oilrig_gate_triggers() -> void:
 			old.queue_free()
 	_rig_gate_triggers.clear()
 	_rig_gates_passed.clear()
+	_rig_ordered_indices.clear()
+	_rig_gate_labels.clear()
+	_rig_next_order_pos = 0
 	_rig_lap_start = -1.0
+	if _rig_markers_root != null and is_instance_valid(_rig_markers_root):
+		_rig_markers_root.queue_free()
+		_rig_markers_root = null
+	_rig_active_torus = null
+	_rig_active_mat = null
+	_rig_next_torus = null
 	if _triggers == null or _map_instance == null:
 		return
 	var gates_node := _map_instance.get_node_or_null("FPVGates")
 	if gates_node == null:
 		return
-	for idx in MapRuntimeScript.SELECTED_GATE_INDICES:
+	_build_ordered_rig_course(gates_node)
+	_rig_markers_root = Node3D.new()
+	_rig_markers_root.name = "RigGateMarkers"
+	add_child(_rig_markers_root)
+	var total := _rig_ordered_indices.size()
+	for ord_i in range(total):
+		var idx: int = _rig_ordered_indices[ord_i]
 		var marker := gates_node.get_node_or_null("Gate_%02d" % idx) as Marker3D
 		if marker == null:
 			continue
@@ -298,14 +351,306 @@ func _setup_oilrig_gate_triggers() -> void:
 		area.global_transform = Transform3D(marker.global_transform.basis.orthonormalized(), marker.global_position)
 		var cs := CollisionShape3D.new()
 		var sp := SphereShape3D.new()
-		var s := marker.scale.length() / sqrt(3.0)
-		sp.radius = maxf(4.5, s * 4.5)
+		var s := marker.global_transform.basis.x.length()
+		sp.radius = maxf(4.2, s * 4.5)
 		cs.shape = sp
 		area.add_child(cs)
 		area.monitoring = true
 		area.body_entered.connect(_on_oilrig_gate_entered.bind(idx))
 		_rig_gate_triggers.append(area)
+
+		var lbl := Label3D.new()
+		lbl.name = "RigLabel_%02d" % (ord_i + 1)
+		if ord_i == 0:
+			lbl.text = "START 1/%d" % total
+			lbl.modulate = Color(1.0, 0.90, 0.12, 0.98)
+		elif ord_i == total - 1:
+			lbl.text = "FINISH %d/%d" % [total, total]
+			lbl.modulate = Color(0.28, 0.96, 1.0, 0.98)
+		else:
+			lbl.text = "%d/%d" % [ord_i + 1, total]
+			lbl.modulate = Color(1.0, 0.96, 0.82, 0.94)
+		lbl.font_size = 64
+		lbl.pixel_size = 0.022
+		lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		lbl.no_depth_test = false
+		lbl.outline_modulate = Color(0.02, 0.04, 0.06, 0.94)
+		lbl.outline_size = 10
+		_rig_markers_root.add_child(lbl)
+		lbl.global_position = marker.global_position + Vector3(0.0, maxf(4.6, s * 4.6) + 1.0, 0.0)
+		_rig_gate_labels[idx] = lbl
+	_build_rig_active_highlights()
+	_sync_oilrig_active_gate()
 	print("[OilRigLevel] active gate triggers ready: %d/30 (_rings_total=%d)" % [_rig_gate_triggers.size(), _rings_total])
+
+
+func _build_steel_colliders() -> void:
+	if _map_instance == null:
+		return
+	var mc := _map_instance.get_node_or_null("MapColliders")
+	if mc != null:
+		for cs_node in mc.find_children("*", "CollisionShape3D", true, false):
+			var cs := cs_node as CollisionShape3D
+			if cs.shape is ConcavePolygonShape3D:
+				(cs.shape as ConcavePolygonShape3D).backface_collision = true
+	var existing := _map_instance.get_node_or_null("SteelMeshColliders") as Node3D
+	if existing != null:
+		existing.queue_free()
+	var modules := _map_instance.get_node_or_null("Modules") as Node3D
+	if modules == null:
+		return
+	var container := Node3D.new()
+	container.name = "SteelMeshColliders"
+	_map_instance.add_child(container)
+	var added := 0
+	var root_inv := _map_instance.global_transform.affine_inverse()
+	for mod in modules.get_children():
+		for child in mod.find_children("*", "MeshInstance3D", true, false):
+			var mi := child as MeshInstance3D
+			if mi == null or mi.mesh == null or not mi.visible:
+				continue
+			var lnm := String(mi.name).to_lower()
+			if lnm.contains("flare") or lnm.contains("glow") or lnm.contains("light"):
+				continue
+			var faces := mi.mesh.get_faces()
+			if faces.is_empty():
+				continue
+			var tri := ConcavePolygonShape3D.new()
+			tri.set_faces(faces)
+			tri.backface_collision = true
+			var sb := StaticBody3D.new()
+			sb.name = "%s_%s_col" % [mod.name, mi.name]
+			sb.collision_layer = 1
+			sb.collision_mask = 0
+			sb.transform = root_inv * mi.global_transform
+			var cs := CollisionShape3D.new()
+			cs.shape = tri
+			sb.add_child(cs)
+			container.add_child(sb)
+			added += 1
+	print("[OilRigLevel] SteelMeshColliders ready: %d steel trimeshes (MapColliders=%d)" % [
+		added, mc.get_child_count() if mc != null else -1
+	])
+
+
+func _build_ordered_rig_course(gates_node: Node) -> void:
+	var remaining: Array[int] = []
+	for raw_idx in MapRuntimeScript.SELECTED_GATE_INDICES:
+		if gates_node.get_node_or_null("Gate_%02d" % int(raw_idx)) != null:
+			remaining.append(int(raw_idx))
+	if remaining.is_empty():
+		return
+	var start_pos := _find_oilrig_spawn_transform().origin
+	var start_dir := -_find_oilrig_spawn_transform().basis.z
+	start_dir.y = 0.0
+	if start_dir.length_squared() < 0.001:
+		start_dir = Vector3.FORWARD
+	else:
+		start_dir = start_dir.normalized()
+	var first_idx := remaining[0]
+	var best_first_score := 1e12
+	for idx in remaining:
+		var m := gates_node.get_node("Gate_%02d" % idx) as Marker3D
+		var to_m := m.global_position - start_pos
+		var d := to_m.length()
+		var align := to_m.normalized().dot(start_dir) if d > 0.1 else 0.0
+		var score := d - align * 18.0
+		if score < best_first_score:
+			best_first_score = score
+			first_idx = idx
+	_rig_ordered_indices.append(first_idx)
+	remaining.erase(first_idx)
+	var cur_pos := (gates_node.get_node("Gate_%02d" % first_idx) as Marker3D).global_position
+	var prev_dir := (cur_pos - start_pos).normalized() if cur_pos.distance_to(start_pos) > 0.5 else start_dir
+	while not remaining.is_empty():
+		var best_next := remaining[0]
+		var best_cost := 1e12
+		for idx in remaining:
+			var p := (gates_node.get_node("Gate_%02d" % idx) as Marker3D).global_position
+			var delta_v := p - cur_pos
+			var dist := delta_v.length()
+			var dot := delta_v.normalized().dot(prev_dir) if dist > 0.1 else 0.0
+			var cost := dist - dot * 14.0
+			if cost < best_cost:
+				best_cost = cost
+				best_next = idx
+		var next_pos := (gates_node.get_node("Gate_%02d" % best_next) as Marker3D).global_position
+		if next_pos.distance_to(cur_pos) > 0.5:
+			prev_dir = (next_pos - cur_pos).normalized()
+		cur_pos = next_pos
+		_rig_ordered_indices.append(best_next)
+		remaining.erase(best_next)
+
+
+func _build_rig_active_highlights() -> void:
+	if _rig_markers_root == null:
+		return
+	_rig_active_torus = MeshInstance3D.new()
+	_rig_active_torus.name = "ActiveRigGateHighlight"
+	var t_act := TorusMesh.new()
+	t_act.inner_radius = 4.05
+	t_act.outer_radius = 4.65
+	t_act.rings = 24
+	t_act.ring_segments = 8
+	_rig_active_torus.mesh = t_act
+	_rig_active_mat = StandardMaterial3D.new()
+	_rig_active_mat.albedo_color = Color(1.0, 0.88, 0.08, 1.0)
+	_rig_active_mat.emission_enabled = true
+	_rig_active_mat.emission = Color(1.0, 0.84, 0.04, 1.0)
+	_rig_active_mat.emission_energy_multiplier = 4.5
+	_rig_active_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_rig_active_torus.material_override = _rig_active_mat
+	_rig_active_torus.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_rig_markers_root.add_child(_rig_active_torus)
+
+	_rig_next_torus = MeshInstance3D.new()
+	_rig_next_torus.name = "NextRigGateHighlight"
+	var t_nxt := TorusMesh.new()
+	t_nxt.inner_radius = 4.15
+	t_nxt.outer_radius = 4.55
+	t_nxt.rings = 20
+	t_nxt.ring_segments = 6
+	_rig_next_torus.mesh = t_nxt
+	var next_mat := StandardMaterial3D.new()
+	next_mat.albedo_color = Color(1.0, 0.62, 0.14, 0.9)
+	next_mat.emission_enabled = true
+	next_mat.emission = Color(1.0, 0.56, 0.10, 1.0)
+	next_mat.emission_energy_multiplier = 2.0
+	next_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_rig_next_torus.material_override = next_mat
+	_rig_next_torus.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_rig_markers_root.add_child(_rig_next_torus)
+
+
+func _active_oilrig_gate_marker() -> Marker3D:
+	if _map_instance == null or _rig_ordered_indices.is_empty():
+		return null
+	var gates_node := _map_instance.get_node_or_null("FPVGates")
+	if gates_node == null:
+		return null
+	var total := _rig_ordered_indices.size()
+	for off in range(total):
+		var pos_idx := (_rig_next_order_pos + off) % total
+		var gidx := _rig_ordered_indices[pos_idx]
+		if not _rig_gates_passed.has(gidx):
+			return gates_node.get_node_or_null("Gate_%02d" % gidx) as Marker3D
+	return gates_node.get_node_or_null("Gate_%02d" % _rig_ordered_indices[0]) as Marker3D
+
+
+func _sync_oilrig_active_gate() -> void:
+	if _map_instance == null or _rig_ordered_indices.is_empty():
+		return
+	var gates_node := _map_instance.get_node_or_null("FPVGates")
+	if gates_node == null:
+		return
+	var total := _rig_ordered_indices.size()
+	var active_ord := -1
+	var next_ord := -1
+	for off in range(total):
+		var ord_i := (_rig_next_order_pos + off) % total
+		var gidx := _rig_ordered_indices[ord_i]
+		if not _rig_gates_passed.has(gidx):
+			if active_ord < 0:
+				active_ord = ord_i
+			elif next_ord < 0:
+				next_ord = ord_i
+				break
+	for ord_i in range(total):
+		var gidx := _rig_ordered_indices[ord_i]
+		var lbl := _rig_gate_labels.get(gidx) as Label3D
+		if lbl != null:
+			if _rig_gates_passed.has(gidx):
+				lbl.modulate = Color(0.45, 0.95, 0.52, 0.42)
+			elif ord_i == active_ord:
+				lbl.modulate = Color(1.0, 0.92, 0.14, 1.0)
+			elif ord_i == total - 1:
+				lbl.modulate = Color(0.28, 0.96, 1.0, 0.96)
+			else:
+				lbl.modulate = Color(1.0, 0.96, 0.82, 0.88)
+	if _rig_active_torus != null:
+		if active_ord >= 0:
+			var m_act := gates_node.get_node_or_null("Gate_%02d" % _rig_ordered_indices[active_ord]) as Marker3D
+			if m_act != null:
+				var s_act := m_act.global_transform.basis.x.length()
+				_rig_active_torus.visible = true
+				_rig_active_torus.global_transform = Transform3D(
+						m_act.global_transform.basis.orthonormalized(), m_act.global_position)
+				_rig_active_torus.scale = Vector3.ONE * maxf(0.5, s_act)
+			else:
+				_rig_active_torus.visible = false
+		else:
+			_rig_active_torus.visible = false
+	if _rig_next_torus != null:
+		if next_ord >= 0:
+			var m_nxt := gates_node.get_node_or_null("Gate_%02d" % _rig_ordered_indices[next_ord]) as Marker3D
+			if m_nxt != null:
+				var s_nxt := m_nxt.global_transform.basis.x.length()
+				_rig_next_torus.visible = true
+				_rig_next_torus.global_transform = Transform3D(
+						m_nxt.global_transform.basis.orthonormalized(), m_nxt.global_position)
+				_rig_next_torus.scale = Vector3.ONE * maxf(0.5, s_nxt)
+			else:
+				_rig_next_torus.visible = false
+		else:
+			_rig_next_torus.visible = false
+
+
+	var d := get_node_or_null("Drone") as Node3D
+	if _route_guide == null or not is_instance_valid(_route_guide):
+		_route_guide = CourseRouteGuideScript.new()
+		_rig_markers_root.add_child(_route_guide)
+	var rig_gates: Array[Dictionary] = []
+	var rig_exclude: Array[RID] = []
+	if d is CollisionObject3D:
+		rig_exclude.append((d as CollisionObject3D).get_rid())
+	for trig in _rig_gate_triggers:
+		if is_instance_valid(trig):
+			rig_exclude.append(trig.get_rid())
+	var active_chain_idx := maxi(active_ord, 0)
+	for ord_i in range(total):
+		var m_g := gates_node.get_node_or_null("Gate_%02d" % _rig_ordered_indices[ord_i]) as Marker3D
+		if m_g == null:
+			continue
+		var dir_g := m_g.global_transform.basis.y.normalized()
+		if ord_i + 1 < total:
+			var m_n := gates_node.get_node_or_null("Gate_%02d" % _rig_ordered_indices[ord_i + 1]) as Marker3D
+			if m_n != null and dir_g.dot(m_n.global_position - m_g.global_position) < 0.0:
+				dir_g = -dir_g
+		elif ord_i > 0:
+			var m_p := gates_node.get_node_or_null("Gate_%02d" % _rig_ordered_indices[ord_i - 1]) as Marker3D
+			if m_p != null and dir_g.dot(m_g.global_position - m_p.global_position) < 0.0:
+				dir_g = -dir_g
+		rig_gates.append({
+			"pos": m_g.global_position,
+			"dir": dir_g,
+			"radius": maxf(4.2, m_g.global_transform.basis.x.length() * 4.5),
+		})
+	var rig_space := get_world_3d().direct_space_state if get_world_3d() != null else null
+	var rig_origin: Vector3 = d.global_position if d != null else _find_oilrig_spawn_transform().origin
+	if rig_space != null and not rig_gates.is_empty():
+		_route_guide.call("update_route",
+				rig_gates, mini(active_chain_idx, rig_gates.size() - 1), rig_space, rig_exclude, rig_origin)
+
+
+func _process(delta: float) -> void:
+	super._process(delta)
+	_rig_pulse += delta * 4.2
+	if _rig_active_mat != null:
+		_rig_active_mat.emission_energy_multiplier = 4.4 + sin(_rig_pulse) * 1.4
+
+
+func _hud_custom_training_target() -> Dictionary:
+	var m := _active_oilrig_gate_marker()
+	if m == null:
+		return {}
+	var total := maxi(_rig_ordered_indices.size(), 1)
+	var passed := _rig_gates_passed.size()
+	var step_num := mini(passed + 1, total)
+	var tag := "START" if passed == 0 else ("FINISH" if step_num == total else _txt("ВОРОТА", "GATE"))
+	return {
+		"pos": m.global_position,
+		"label": "%s %d/%d" % [tag, step_num, total],
+	}
 
 
 func _on_oilrig_gate_entered(body: Node3D, gate_idx: int) -> void:
@@ -319,6 +664,9 @@ func _on_oilrig_gate_entered(body: Node3D, gate_idx: int) -> void:
 	if _rig_gates_passed.has(gate_idx):
 		return
 	_rig_gates_passed[gate_idx] = true
+	var ord_pos := _rig_ordered_indices.find(gate_idx)
+	if ord_pos >= 0:
+		_rig_next_order_pos = (ord_pos + 1) % maxi(_rig_ordered_indices.size(), 1)
 	var passed := _rig_gates_passed.size()
 	var total := maxi(_rig_gate_triggers.size(), 1)
 	var elapsed := maxf(0.0, now_s - _rig_lap_start)
@@ -329,15 +677,24 @@ func _on_oilrig_gate_entered(body: Node3D, gate_idx: int) -> void:
 	if passed >= total:
 		if _rig_best_lap <= 0.0 or elapsed < _rig_best_lap:
 			_rig_best_lap = elapsed
+		if Global.has_method("record_training_result"):
+			Global.call("record_training_result", "oilrig", elapsed, passed, total)
+		var coin_note := ""
+		if Progress != null and Progress.has_method("award_activity"):
+			var c_awarded := int(Progress.call("award_activity", "training_oilrig", passed, elapsed, false))
+			if c_awarded > 0:
+				coin_note = " · +%d" % c_awarded
 		_set_flash(_txt(
-			"ВОРОТА %d/%d · КОЛО %.1fs · РЕКОРД %.1fs" % [passed, total, elapsed, _rig_best_lap],
-			"GATES %d/%d · LAP %.1fs · BEST %.1fs" % [passed, total, elapsed, _rig_best_lap]
+			"ВОРОТА %d/%d · КОЛО %.1fs · РЕКОРД %.1fs%s" % [passed, total, elapsed, _rig_best_lap, coin_note],
+			"GATES %d/%d · LAP %.1fs · BEST %.1fs%s" % [passed, total, elapsed, _rig_best_lap, coin_note]
 		))
 		_rig_gates_passed.clear()
+		_rig_next_order_pos = 0
 		_rig_lap_start = now_s
 	else:
 		_set_flash(_txt("ВОРОТА %d/%d · %.1fs" % [passed, total, elapsed],
 				"GATES %d/%d · %.1fs" % [passed, total, elapsed]))
+	_sync_oilrig_active_gate()
 
 
 func _spawn_vehicles() -> void:

@@ -255,6 +255,7 @@ func _test_oilrig() -> void:
 				var res: Array = space.intersect_shape(q, 2)
 				if not res.is_empty():
 					blocked += 1
+					print("[FINAL-QA]   OilRig blocked ", m.name, " off=", off, " col=", res[0].get("collider"))
 					break
 	_check(blocked == 0, "OilRig 30/30 обраних воріт вільні для прольоту (blocked=%d)" % blocked)
 

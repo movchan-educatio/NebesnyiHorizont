@@ -221,10 +221,10 @@ func _build() -> void:
 	add_child(_label)
 
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(0.92, 2.75, 0.92)
+	shape.size = Vector3(1.10, 3.30, 1.10)
 	var collision := CollisionShape3D.new()
 	collision.shape = shape
-	collision.position = Vector3(0, 1.68, 0)
+	collision.position = Vector3(0, 1.98, 0)
 	add_child(collision)
 	_collision_box = shape
 	_collision_node = collision
@@ -256,7 +256,7 @@ func _normalise_soldier(model: Node3D, height: float) -> void:
 ## the knee. Hang each leg on a hip pivot and a knee pivot so the generic
 ## locomotion code can swing them; the rifle stays in the hands.
 func _setup_rifleman_rig(model: Node3D) -> void:
-	_normalise_soldier(model, 2.75)
+	_normalise_soldier(model, 3.30)
 	if model.find_child("Thigh_L", true, false) == null:
 		return
 	var left := _make_leg_rig(model, -1.0, "L")
@@ -305,11 +305,11 @@ func _find_anim(node: Node) -> AnimationPlayer:
 func _build_fallback() -> void:
 	# Keeps the threat visible if the GLB has not been imported yet.
 	var capsule := CapsuleMesh.new()
-	capsule.radius = 0.36
-	capsule.height = 3.1
+	capsule.radius = 0.43
+	capsule.height = 3.72
 	var body := MeshInstance3D.new()
 	body.mesh = capsule
-	body.position = Vector3(0, 1.28, 0)
+	body.position = Vector3(0, 1.54, 0)
 	var material := StandardMaterial3D.new()
 	material.albedo_color = Color(0.22, 0.27, 0.14)
 	body.material_override = material
@@ -317,7 +317,7 @@ func _build_fallback() -> void:
 	_meshes.append(body)
 	var marker := Marker3D.new()
 	marker.name = "MuzzleFallback"
-	marker.position = Vector3(0.14, 2.02, -1.65)
+	marker.position = Vector3(0.17, 2.42, -1.98)
 	add_child(marker)
 	_muzzle = marker
 
@@ -343,7 +343,7 @@ func _build_lod_proxy() -> void:
 	_lod_proxy.name = "LodProxy"
 	_lod_proxy.visible = false
 	add_child(_lod_proxy)
-	_lod_proxy.scale = Vector3.ONE * 1.8
+	_lod_proxy.scale = Vector3.ONE * 2.16
 	var atlas := load(INFANTRY_IMPOSTOR_ATLAS) as Texture2D \
 			if ResourceLoader.exists(INFANTRY_IMPOSTOR_ATLAS) else null
 	if atlas != null:
@@ -522,7 +522,7 @@ func _physics_process(delta: float) -> void:
 		_los_timer = 0.12
 		_update_target()
 
-	_crouching = (_panic_state == 2) or (_reload_timer > 0.0) or (_suppress_timer > 0.0) or _tactical_knee
+	_crouching = (_panic_state == 2) or (_panic_state == 0 and ((_reload_timer > 0.0) or (_suppress_timer > 0.0) or _tactical_knee))
 	_update_pose(delta)
 	_update_panic()
 	if _panic_state != 0:
@@ -721,9 +721,31 @@ func _advance_on_drone(delta: float) -> bool:
 			moved = true
 		else:
 			_strafe_dir = -_strafe_dir
+	if moved:
+		_apply_squad_separation(delta)
 	_snap_to_ground()
 	_set_locomotion(delta, 3.4 if moved else 0.0)
 	return true
+
+
+func _apply_squad_separation(delta: float) -> void:
+	if get_tree() == null:
+		return
+	var push := Vector3.ZERO
+	for other in get_tree().get_nodes_in_group("enemy_infantry"):
+		if other == self or not is_instance_valid(other) or bool(other.get("is_destroyed")):
+			continue
+		var diff := global_position - (other as Node3D).global_position
+		diff.y = 0.0
+		var d2 := diff.length_squared()
+		if d2 > 0.001 and d2 < 6.76:
+			var d := sqrt(d2)
+			push += (diff / d) * (2.6 - d)
+	if push.length_squared() > 0.0001:
+		var sep_dir := push.normalized()
+		var sep_step := minf(push.length() * 1.4 * delta, 2.2 * delta)
+		if _can_step(sep_dir, sep_step):
+			global_position += sep_dir * sep_step
 
 
 func _patrol_step(delta: float) -> void:
@@ -739,6 +761,8 @@ func _patrol_step(delta: float) -> void:
 			return
 		_set_locomotion(delta, 0.0)
 		_snap_to_ground()
+		return
+	if _advance_on_drone(delta):
 		return
 	var along := (global_position - _patrol_origin).dot(_patrol_axis)
 	if along >= _patrol_range:
@@ -824,24 +848,22 @@ func _panic_step(delta: float) -> void:
 		elif _pitch != null:
 			_pitch.rotation.x = lerp_angle(_pitch.rotation.x, 0.0,
 					clampf(delta * 4.0, 0.0, 1.0))
-		if _is_crouched_or_settling():
-			_snap_to_ground()
-			_set_locomotion(delta, 0.0)
-		else:
-			var moved := false
-			if yaw_diff < 0.45:
-				var forward := -global_transform.basis.z
-				forward.y = 0.0
-				if forward.length_squared() > 0.0001:
-					forward = forward.normalized()
-				var step_dist := scatter_speed * delta
-				if _can_step(forward, step_dist):
-					global_position += forward * step_dist
-					moved = true
-				else:
-					_panic_dir = _panic_dir.rotated(Vector3.UP, PI * 0.65)
-			_snap_to_ground()
-			_set_locomotion(delta, scatter_speed if moved else 0.0)
+		var moved := false
+		if yaw_diff < 0.45:
+			var forward := -global_transform.basis.z
+			forward.y = 0.0
+			if forward.length_squared() > 0.0001:
+				forward = forward.normalized()
+			var step_dist := scatter_speed * delta
+			if _can_step(forward, step_dist):
+				global_position += forward * step_dist
+				moved = true
+			else:
+				_panic_dir = _panic_dir.rotated(Vector3.UP, PI * 0.65)
+		if moved:
+			_apply_squad_separation(delta)
+		_snap_to_ground()
+		_set_locomotion(delta, scatter_speed if moved else 0.0)
 		if _panic_timer <= 0.0:
 			_panic_state = 2
 			_panic_timer = randf_range(3.0, 6.0)
@@ -1051,7 +1073,7 @@ func _has_clear_los(from: Vector3, target: Vector3, target_node: Node) -> bool:
 func _update_target() -> void:
 	_los_clear = false
 	_convoy_target = null
-	var eye_h := lerpf(2.15, 1.15, _prone_pose)
+	var eye_h := lerpf(2.58, 1.38, _prone_pose)
 	var from := global_position + Vector3.UP * eye_h
 	if _drone != null and is_instance_valid(_drone):
 		_distance = global_position.distance_to(_drone.global_position)
@@ -1089,13 +1111,13 @@ func _aim_at_drone(delta: float) -> bool:
 		return false
 	var desired_yaw := atan2(-flat.x, -flat.z)
 	rotation.y = lerp_angle(rotation.y, desired_yaw, clampf(delta * 7.5, 0.0, 1.0))
-	var desired_pitch := clampf(atan2(to.y - 1.85, flat.length()), -0.18, 0.78)
+	var desired_pitch := clampf(atan2(to.y - 2.22, flat.length()), -0.22, 1.18)
 	if _detailed_rig != null and not _using_proxy:
 		_detailed_rig.set_aim_pitch(desired_pitch)
 	elif _pitch != null:
 		_pitch.rotation.x = lerp_angle(_pitch.rotation.x, desired_pitch,
 				clampf(delta * 6.5, 0.0, 1.0))
-	return absf(angle_difference(rotation.y, desired_yaw)) < 0.45
+	return absf(angle_difference(rotation.y, desired_yaw)) < 0.28
 
 
 func _fire() -> void:
