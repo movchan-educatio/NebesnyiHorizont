@@ -5,6 +5,7 @@ extends RefCounted
 
 const FONT_PATH := "res://GUI/NotoSans-Regular.ttf"
 const LocScript = preload("res://scripts/util/localization_manager.gd")
+const VoltThemeScript = preload("res://GUI/mobile/VoltTheme.gd")
 
 const EN_TEXT: Dictionary = {
 	# Home and navigation
@@ -1314,94 +1315,97 @@ static func theme() -> Theme:
 	return t
 
 
-## Phone skin: the same olive/sage/amber language as the mobile operations
-## shell.  PC menus keep the original paper-white controls.
+## Phone skin: 03 · VOLT MONOLITH (Obsidian Black + Volt Yellow + Warm Stone White).
+## Desktop menus keep the original theme intact.
 static func _apply_mobile_theme(t: Theme) -> void:
-	var panel_bg := Color(0.025, 0.060, 0.048, 0.92)
-	var border := Color(0.30, 0.44, 0.36, 0.60)
-	var button_bg := Color(0.040, 0.080, 0.065, 0.90)
-	var button_hover := Color(0.080, 0.150, 0.110, 0.98)
-	var active_bg := Color(0.62, 0.74, 0.55, 1.0)
-	var active_text := Color(0.06, 0.09, 0.07)
+	t.default_font = VoltThemeScript.font_ui()
+	t.default_font_size = 20
 
-	t.default_font_size = 22
+	var btn_norm := VoltThemeScript.button_box(VoltThemeScript.SURFACE_2, VoltThemeScript.BORDER, 1, 10, 16, 10)
+	var btn_hov := VoltThemeScript.button_box(VoltThemeScript.SURFACE_HOVER, VoltThemeScript.YELLOW_BORDER, 1, 10, 16, 10)
+	var btn_prs := VoltThemeScript.button_box(VoltThemeScript.YELLOW, VoltThemeScript.YELLOW, 1, 10, 16, 10)
+	var btn_dis := VoltThemeScript.button_box(Color(0.05, 0.05, 0.055, 0.62), Color(1.0, 1.0, 1.0, 0.08), 1, 10, 16, 10, Color(0, 0, 0, 0), 0)
 
-	t.set_stylebox("normal", "Button", _style(button_bg, border, 1, 12, 18, 12, 4))
-	t.set_stylebox("hover", "Button", _style(button_hover, FPV_GREEN, 1, 12, 18, 12, 5))
-	t.set_stylebox("pressed", "Button", _style(active_bg, Color(0.75, 0.85, 0.65, 0.95), 1, 12, 18, 12, 5))
-	t.set_stylebox("focus", "Button", _style(button_hover, FPV_GREEN, 1, 12, 18, 12, 5))
-	t.set_stylebox("disabled", "Button", _style(Color(0.03, 0.05, 0.04, 0.62), Color(0.22, 0.30, 0.25, 0.5), 1, 12, 18, 12, 2))
-	t.set_color("font_color", "Button", FPV_TEXT)
-	t.set_color("font_hover_color", "Button", FPV_TEXT)
-	t.set_color("font_pressed_color", "Button", active_text)
-	t.set_color("font_focus_color", "Button", FPV_TEXT)
-	t.set_color("font_disabled_color", "Button", FPV_MUTED)
-	t.set_font_size("font_size", "Button", 22)
+	t.set_stylebox("normal", "Button", btn_norm)
+	t.set_stylebox("hover", "Button", btn_hov)
+	t.set_stylebox("pressed", "Button", btn_prs)
+	t.set_stylebox("focus", "Button", btn_hov)
+	t.set_stylebox("disabled", "Button", btn_dis)
+	t.set_color("font_color", "Button", VoltThemeScript.TEXT)
+	t.set_color("font_hover_color", "Button", VoltThemeScript.TEXT)
+	t.set_color("font_pressed_color", "Button", VoltThemeScript.TEXT_DARK)
+	t.set_color("font_focus_color", "Button", VoltThemeScript.TEXT)
+	t.set_color("font_disabled_color", "Button", VoltThemeScript.MUTED)
+	t.set_font_size("font_size", "Button", 20)
 
-	t.set_stylebox("panel", "PanelContainer", _style(panel_bg, border, 1, 16, 22, 18, 4))
-	t.set_stylebox("panel", "Panel", _style(panel_bg, border, 1, 16, 22, 18, 4))
+	var panel_sb := VoltThemeScript.panel_box(VoltThemeScript.SURFACE, VoltThemeScript.BORDER, 1, 14, 18, 14, 12)
+	t.set_stylebox("panel", "PanelContainer", panel_sb)
+	t.set_stylebox("panel", "Panel", panel_sb)
 
-	t.set_stylebox("normal", "OptionButton", _style(button_bg, border, 1, 12, 16, 10))
-	t.set_stylebox("hover", "OptionButton", _style(button_hover, FPV_GREEN, 1, 12, 16, 10))
-	t.set_stylebox("pressed", "OptionButton", _style(active_bg, Color(0.75, 0.85, 0.65, 0.95), 1, 12, 16, 10))
-	t.set_stylebox("focus", "OptionButton", _style(button_hover, FPV_GREEN, 1, 12, 16, 10))
-	t.set_color("font_color", "OptionButton", FPV_TEXT)
-	t.set_color("font_hover_color", "OptionButton", FPV_TEXT)
-	t.set_color("font_pressed_color", "OptionButton", active_text)
-	t.set_font_size("font_size", "OptionButton", 20)
+	t.set_stylebox("normal", "OptionButton", VoltThemeScript.button_box(VoltThemeScript.SURFACE_SOLID, VoltThemeScript.BORDER, 1, 10, 14, 8))
+	t.set_stylebox("hover", "OptionButton", VoltThemeScript.button_box(VoltThemeScript.SURFACE_HOVER, VoltThemeScript.YELLOW_BORDER, 1, 10, 14, 8))
+	t.set_stylebox("pressed", "OptionButton", VoltThemeScript.button_box(VoltThemeScript.YELLOW_SOFT, VoltThemeScript.YELLOW, 1, 10, 14, 8))
+	t.set_stylebox("focus", "OptionButton", VoltThemeScript.button_box(VoltThemeScript.SURFACE_HOVER, VoltThemeScript.YELLOW_BORDER, 1, 10, 14, 8))
+	t.set_color("font_color", "OptionButton", VoltThemeScript.TEXT)
+	t.set_color("font_hover_color", "OptionButton", VoltThemeScript.YELLOW)
+	t.set_color("font_pressed_color", "OptionButton", VoltThemeScript.YELLOW)
+	t.set_font_size("font_size", "OptionButton", 18)
 
-	t.set_color("font_color", "Label", FPV_TEXT)
-	t.set_font_size("font_size", "Label", 22)
-	t.set_color("font_color", "RichTextLabel", FPV_TEXT)
-	t.set_font_size("font_size", "RichTextLabel", 22)
+	t.set_color("font_color", "Label", VoltThemeScript.TEXT)
+	t.set_font_size("font_size", "Label", 20)
+	t.set_color("font_color", "RichTextLabel", VoltThemeScript.TEXT)
+	t.set_font_size("font_size", "RichTextLabel", 20)
 
-	t.set_stylebox("slider", "HSlider", _style(Color(0.02, 0.04, 0.032, 0.92), border, 1, 4, 6, 8))
-	t.set_stylebox("grabber_area", "HSlider", _style(Color(0.38, 0.56, 0.43, 1.0), FPV_GREEN, 1, 4, 6, 8))
-	t.set_stylebox("grabber_area_highlight", "HSlider", _style(FPV_AMBER, FPV_AMBER, 1, 4, 6, 8))
+	t.set_stylebox("slider", "HSlider", VoltThemeScript.slider_track())
+	t.set_stylebox("grabber_area", "HSlider", VoltThemeScript.slider_fill(false))
+	t.set_stylebox("grabber_area_highlight", "HSlider", VoltThemeScript.slider_fill(true))
+	var knob_tex := VoltThemeScript.make_volt_knob_texture(22)
+	if knob_tex != null:
+		t.set_icon("grabber", "HSlider", knob_tex)
+		t.set_icon("grabber_highlight", "HSlider", knob_tex)
 
-	t.set_stylebox("normal", "CheckButton", _style(button_bg, border, 1, 12, 16, 10))
-	t.set_stylebox("hover", "CheckButton", _style(button_hover, FPV_GREEN, 1, 12, 16, 10))
-	t.set_stylebox("pressed", "CheckButton", _style(Color(0.10, 0.22, 0.15, 1.0), FPV_GREEN, 1, 12, 16, 10))
-	t.set_stylebox("focus", "CheckButton", _style(button_hover, FPV_GREEN, 1, 12, 16, 10))
-	t.set_color("font_color", "CheckButton", FPV_TEXT)
-	t.set_color("font_hover_color", "CheckButton", FPV_TEXT)
-	t.set_color("font_pressed_color", "CheckButton", FPV_TEXT)
-	t.set_font_size("font_size", "CheckButton", 21)
-	t.set_color("font_color", "CheckBox", FPV_TEXT)
-	t.set_color("font_hover_color", "CheckBox", FPV_TEXT)
-	t.set_color("font_pressed_color", "CheckBox", FPV_TEXT)
-	t.set_font_size("font_size", "CheckBox", 21)
-	t.set_stylebox("normal", "CheckBox", _style(button_bg, border, 1, 10, 12, 8))
-	t.set_stylebox("hover", "CheckBox", _style(button_hover, FPV_GREEN, 1, 10, 12, 8))
-	t.set_stylebox("pressed", "CheckBox", _style(Color(0.10, 0.22, 0.15, 1.0), FPV_GREEN, 1, 10, 12, 8))
-	t.set_stylebox("focus", "CheckBox", _style(button_hover, FPV_GREEN, 1, 10, 12, 8))
+	t.set_stylebox("normal", "CheckButton", btn_norm)
+	t.set_stylebox("hover", "CheckButton", btn_hov)
+	t.set_stylebox("pressed", "CheckButton", VoltThemeScript.button_box(VoltThemeScript.YELLOW_SOFT, VoltThemeScript.YELLOW, 1, 10, 14, 8))
+	t.set_stylebox("focus", "CheckButton", btn_hov)
+	t.set_color("font_color", "CheckButton", VoltThemeScript.TEXT)
+	t.set_color("font_hover_color", "CheckButton", VoltThemeScript.TEXT)
+	t.set_color("font_pressed_color", "CheckButton", VoltThemeScript.YELLOW)
+	t.set_font_size("font_size", "CheckButton", 19)
+	t.set_color("font_color", "CheckBox", VoltThemeScript.TEXT)
+	t.set_color("font_hover_color", "CheckBox", VoltThemeScript.TEXT)
+	t.set_color("font_pressed_color", "CheckBox", VoltThemeScript.YELLOW)
+	t.set_font_size("font_size", "CheckBox", 19)
+	t.set_stylebox("normal", "CheckBox", btn_norm)
+	t.set_stylebox("hover", "CheckBox", btn_hov)
+	t.set_stylebox("pressed", "CheckBox", VoltThemeScript.button_box(VoltThemeScript.YELLOW_SOFT, VoltThemeScript.YELLOW, 1, 10, 12, 8))
+	t.set_stylebox("focus", "CheckBox", btn_hov)
 
-	t.set_stylebox("normal", "LineEdit", _style(Color(0.02, 0.05, 0.04, 0.96), border, 1, 10, 14, 10))
-	t.set_stylebox("focus", "LineEdit", _style(Color(0.04, 0.09, 0.07, 1.0), FPV_GREEN, 1, 10, 14, 10))
-	t.set_color("font_color", "LineEdit", FPV_TEXT)
-	t.set_color("font_placeholder_color", "LineEdit", FPV_MUTED)
-	t.set_color("caret_color", "LineEdit", FPV_GREEN)
-	t.set_font_size("font_size", "LineEdit", 21)
+	t.set_stylebox("normal", "LineEdit", VoltThemeScript.button_box(VoltThemeScript.BG, VoltThemeScript.BORDER, 1, 10, 14, 10, Color(0, 0, 0, 0), 0))
+	t.set_stylebox("focus", "LineEdit", VoltThemeScript.button_box(VoltThemeScript.SURFACE_SOLID, VoltThemeScript.YELLOW_BORDER, 1, 10, 14, 10, Color(0, 0, 0, 0), 0))
+	t.set_color("font_color", "LineEdit", VoltThemeScript.TEXT)
+	t.set_color("font_placeholder_color", "LineEdit", VoltThemeScript.MUTED)
+	t.set_color("caret_color", "LineEdit", VoltThemeScript.YELLOW)
+	t.set_font_size("font_size", "LineEdit", 19)
 
-	t.set_stylebox("panel", "PopupMenu", _style(panel_bg, border, 1, 12, 14, 10))
-	t.set_stylebox("hover", "PopupMenu", _style(Color(0.10, 0.22, 0.15, 1.0), FPV_GREEN, 1, 8, 10, 8))
-	t.set_color("font_color", "PopupMenu", FPV_TEXT)
-	t.set_color("font_hover_color", "PopupMenu", FPV_TEXT)
-	t.set_font_size("font_size", "PopupMenu", 20)
+	t.set_stylebox("panel", "PopupMenu", VoltThemeScript.panel_box(VoltThemeScript.SURFACE_SOLID, VoltThemeScript.YELLOW_BORDER, 1, 12, 12, 10, 16))
+	t.set_stylebox("hover", "PopupMenu", VoltThemeScript.button_box(VoltThemeScript.YELLOW_SOFT, VoltThemeScript.YELLOW_BORDER, 1, 8, 10, 6, Color(0, 0, 0, 0), 0))
+	t.set_color("font_color", "PopupMenu", VoltThemeScript.TEXT)
+	t.set_color("font_hover_color", "PopupMenu", VoltThemeScript.YELLOW)
+	t.set_font_size("font_size", "PopupMenu", 18)
 
-	t.set_stylebox("panel", "TooltipPanel", _style(panel_bg, FPV_AMBER, 1, 8, 10, 6))
-	t.set_color("font_color", "TooltipLabel", FPV_TEXT)
-	t.set_font_size("font_size", "TooltipLabel", 17)
+	t.set_stylebox("panel", "TooltipPanel", VoltThemeScript.panel_box(VoltThemeScript.SURFACE_SOLID, VoltThemeScript.YELLOW_BORDER, 1, 8, 10, 6, 8))
+	t.set_color("font_color", "TooltipLabel", VoltThemeScript.TEXT)
+	t.set_font_size("font_size", "TooltipLabel", 16)
 
-	# 14 px thumb + 4 px breathing room: a visible, finger-draggable scrollbar.
-	t.set_stylebox("scroll", "VScrollBar", _style(Color(0.02, 0.04, 0.032, 0.55), Color(0, 0, 0, 0), 0, 7, 7, 0))
-	t.set_stylebox("grabber", "VScrollBar", _style(Color(0.36, 0.50, 0.42, 0.92), Color(0, 0, 0, 0), 0, 7, 7, 0))
-	t.set_stylebox("grabber_highlight", "VScrollBar", _style(FPV_GREEN, Color(0, 0, 0, 0), 0, 7, 7, 0))
-	t.set_stylebox("grabber_pressed", "VScrollBar", _style(FPV_AMBER, Color(0, 0, 0, 0), 0, 7, 7, 0))
-	t.set_stylebox("scroll", "HScrollBar", _style(Color(0.02, 0.04, 0.032, 0.55), Color(0, 0, 0, 0), 0, 7, 0, 7))
-	t.set_stylebox("grabber", "HScrollBar", _style(Color(0.36, 0.50, 0.42, 0.92), Color(0, 0, 0, 0), 0, 7, 0, 7))
-	t.set_stylebox("grabber_highlight", "HScrollBar", _style(FPV_GREEN, Color(0, 0, 0, 0), 0, 7, 0, 7))
-	t.set_stylebox("grabber_pressed", "HScrollBar", _style(FPV_AMBER, Color(0, 0, 0, 0), 0, 7, 0, 7))
+	t.set_stylebox("scroll", "VScrollBar", _style(Color(0.04, 0.04, 0.045, 0.60), Color(0, 0, 0, 0), 0, 7, 7, 0))
+	t.set_stylebox("grabber", "VScrollBar", _style(VoltThemeScript.BORDER_STRONG, Color(0, 0, 0, 0), 0, 7, 7, 0))
+	t.set_stylebox("grabber_highlight", "VScrollBar", _style(VoltThemeScript.STONE, Color(0, 0, 0, 0), 0, 7, 7, 0))
+	t.set_stylebox("grabber_pressed", "VScrollBar", _style(VoltThemeScript.YELLOW, Color(0, 0, 0, 0), 0, 7, 7, 0))
+	t.set_stylebox("scroll", "HScrollBar", _style(Color(0.04, 0.04, 0.045, 0.60), Color(0, 0, 0, 0), 0, 7, 0, 7))
+	t.set_stylebox("grabber", "HScrollBar", _style(VoltThemeScript.BORDER_STRONG, Color(0, 0, 0, 0), 0, 7, 0, 7))
+	t.set_stylebox("grabber_highlight", "HScrollBar", _style(VoltThemeScript.STONE, Color(0, 0, 0, 0), 0, 7, 0, 7))
+	t.set_stylebox("grabber_pressed", "HScrollBar", _style(VoltThemeScript.YELLOW, Color(0, 0, 0, 0), 0, 7, 0, 7))
 
 
 static func background(color: Color = BG, show_chrome: bool = true) -> Control:
@@ -1409,20 +1413,11 @@ static func background(color: Color = BG, show_chrome: bool = true) -> Control:
 		var holder := Control.new()
 		holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		full_rect(holder)
-		var bg := TextureRect.new()
-		var tex := load("res://Assets/Branding/mobile_menu_bg_blur.png") as Texture2D
-		if tex != null:
-			bg.texture = tex
-		bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-		bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		full_rect(bg)
-		holder.add_child(bg)
-		var scrim := ColorRect.new()
-		scrim.color = Color(0.012, 0.035, 0.026, 0.74)
-		scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		full_rect(scrim)
-		holder.add_child(scrim)
+		var obsidian := ColorRect.new()
+		obsidian.color = Color(0.031, 0.031, 0.034, 0.94)
+		obsidian.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		full_rect(obsidian)
+		holder.add_child(obsidian)
 		return holder
 	return _TacticalBackdrop.new(color, show_chrome)
 
@@ -1456,13 +1451,14 @@ static func section(text: String, tag: String = "СЕКТОР") -> Control:
 		mrow.add_theme_constant_override("separation", 10)
 		var mlabel := Label.new()
 		mlabel.text = translate_text(text)
-		mlabel.add_theme_font_size_override("font_size", 15)
-		mlabel.add_theme_color_override("font_color", FPV_AMBER)
+		mlabel.add_theme_font_override("font", VoltThemeScript.font_mono())
+		mlabel.add_theme_font_size_override("font_size", 14)
+		mlabel.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
 		mrow.add_child(mlabel)
 		var mline := HSeparator.new()
 		mline.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var msb := StyleBoxFlat.new()
-		msb.bg_color = FPV_BORDER
+		msb.bg_color = VoltThemeScript.BORDER
 		msb.content_margin_top = 1
 		mline.add_theme_stylebox_override("separator", msb)
 		mrow.add_child(mline)
@@ -1676,18 +1672,9 @@ static func feel_button(text: String, min_height: float = 38.0, primary: bool = 
 	b.mouse_filter = Control.MOUSE_FILTER_STOP
 	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	if is_mobile_ui():
-		var mobile_bg := Color(0.62, 0.74, 0.55, 1.0) if primary else Color(0.04, 0.08, 0.065, 0.90)
-		var mobile_hover := Color(0.70, 0.82, 0.62, 1.0) if primary else Color(0.08, 0.15, 0.11, 0.98)
-		var mobile_text := Color(0.06, 0.09, 0.07) if primary else FPV_TEXT
-		b.add_theme_stylebox_override("normal", feel_style(mobile_bg, FPV_GREEN if primary else FPV_BORDER, 2 if primary else 1, 12, 16, 10))
-		b.add_theme_stylebox_override("hover", feel_style(mobile_hover, FPV_GREEN, 2, 12, 16, 10))
-		b.add_theme_stylebox_override("pressed", feel_style(Color(0.10, 0.22, 0.15, 1.0), FPV_GREEN, 2, 12, 16, 10))
-		b.add_theme_stylebox_override("focus", feel_style(mobile_hover, FPV_GREEN, 2, 12, 16, 10))
-		b.add_theme_color_override("font_color", mobile_text)
-		b.add_theme_color_override("font_hover_color", mobile_text)
-		b.add_theme_color_override("font_pressed_color", FPV_TEXT)
-		if min_height < 58.0:
-			b.custom_minimum_size.y = 58.0
+		VoltThemeScript.apply_button_variant(b, "primary" if primary else "secondary", 10, 16, 10)
+		if min_height < 56.0:
+			b.custom_minimum_size.y = 56.0
 		return b
 	var bg := BUTTON_ACTIVE if primary else BUTTON_BG
 	var border := ACCENT if primary else FPV_BORDER

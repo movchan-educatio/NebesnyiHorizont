@@ -64,7 +64,7 @@ static func setup_propellers(model: Node3D, preset_index: int, prop_d: float = 5
 	# Check if already set up and valid
 	if model.has_meta("prop_pivots"):
 		var existing = model.get_meta("prop_pivots")
-		if existing is Array and existing.size() >= 4:
+		if existing is Array and existing.size() >= 1:
 			var valid := true
 			for p in existing:
 				if p == null or not is_instance_valid(p):
@@ -83,16 +83,15 @@ static func setup_propellers(model: Node3D, preset_index: int, prop_d: float = 5
 
 	var p := DroneCatalog.preset(preset_index)
 
-	# Fixed-wing pusher drones: one native rear propeller authored in Blender.
-	# The shaft points along the glTF -Z / Godot Z axis.
+	# Fixed-wing pusher drones: keep the authored rear propeller/spinner geometry
+	# authored in Blender and spin around local +Z.
 	if bool(p.get("pusher", false)):
 		var pusher := model.find_child("propeller_rear", true, false) as Node3D
 		if pusher != null:
 			pusher.set_meta("spin_dir", 1.0)
 			pusher.set_meta("spin_axis", Vector3(0.0, 0.0, 1.0))
 			pusher.add_to_group("drone_prop_pivot")
-			if _parts_available():
-				_replace_prop(pusher, preset_index, prop_d, blades, _flat_rotation(pusher))
+			_ensure_double_sided_prop(pusher)
 			pivots.append(pusher)
 			if OS.has_environment("PROP_DEBUG"):
 				print("[PROP-PUSHER] preset=", preset_index, " node=", pusher.name)
@@ -102,14 +101,21 @@ static func setup_propellers(model: Node3D, preset_index: int, prop_d: float = 5
 		if OS.has_environment("PROP_DEBUG"):
 			print("[PROP-PUSHER] MISSING preset=", preset_index,
 					" props=", model.find_children("*prop*", "", true, false))
-	# The jet has no propeller; its turbine is static visual geometry.
+	# Jet interceptor: spin the authored rear turbine rotor if present in the GLB.
 	if bool(p.get("is_jet", false)):
-		model.set_meta("prop_pivots", [])
-		return []
+		var turbine := model.find_child("Chaklun_Turbine", true, false) as Node3D
+		if turbine != null:
+			turbine.set_meta("spin_dir", 1.0)
+			turbine.set_meta("spin_axis", Vector3.UP)
+			turbine.add_to_group("drone_prop_pivot")
+			_ensure_double_sided_prop(turbine)
+			pivots.append(turbine)
+		model.set_meta("prop_pivots", pivots)
+		model.set_meta("preset_index", preset_index)
+		return pivots
 
-	# Baba Yaga: six native propellers authored as empties in the GLB.  Keep
-	# the detailed carbon blades instead of replacing them with the generic
-	# 2/3/4-blade library mesh; the animation only rotates the pivots.
+	# Baba Yaga: six native propellers authored as empties in the GLB. Keep
+	# the detailed carbon blades & yellow/white tips instead of replacing them.
 	if bool(p.get("heavy_bomber", false)):
 		for i in range(6):
 			var hex_prop := model.find_child("propeller_%d" % i, true, false) as Node3D
@@ -118,8 +124,7 @@ static func setup_propellers(model: Node3D, preset_index: int, prop_d: float = 5
 			hex_prop.set_meta("spin_dir", 1.0 if i % 2 == 0 else -1.0)
 			hex_prop.set_meta("spin_axis", Vector3.UP)
 			hex_prop.add_to_group("drone_prop_pivot")
-			if _parts_available():
-				_replace_prop(hex_prop, preset_index, prop_d, blades, _flat_rotation(hex_prop))
+			_ensure_double_sided_prop(hex_prop)
 			pivots.append(hex_prop)
 		if pivots.size() == 6:
 			model.set_meta("prop_pivots", pivots)
@@ -262,6 +267,7 @@ static func _setup_blade_pivots(model: Node3D, pivots: Array[Node3D]) -> void:
 		pivot.set_meta("spin_dir", 1.0 if pivots.size() % 2 == 0 else -1.0)
 		pivot.set_meta("spin_axis", Vector3.UP)
 		pivot.add_to_group("drone_prop_pivot")
+		_ensure_double_sided_prop(pivot)
 		pivots.append(pivot)
 	if OS.has_environment("PROP_DEBUG"):
 		print("[PROP-NATIVE] generated pivots=", pivots.size(), " groups=", keys)
@@ -485,6 +491,28 @@ static func _prop_material(tint: Color) -> StandardMaterial3D:
 	mat.rim = 0.45
 	mat.rim_tint = 0.7
 	return mat
+
+
+static func _ensure_double_sided_prop(node: Node) -> void:
+	if node == null:
+		return
+	for mi in _prop_meshes(node):
+		if mi == null or mi.mesh == null:
+			continue
+		for s in range(mi.mesh.get_surface_count()):
+			var src := mi.get_surface_override_material(s)
+			if src == null:
+				src = mi.mesh.surface_get_material(s)
+			if src is StandardMaterial3D:
+				var sm := src as StandardMaterial3D
+				if sm.cull_mode != BaseMaterial3D.CULL_DISABLED:
+					var dup := sm.duplicate() as StandardMaterial3D
+					dup.cull_mode = BaseMaterial3D.CULL_DISABLED
+					mi.set_surface_override_material(s, dup)
+			elif src == null:
+				var mat := StandardMaterial3D.new()
+				mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+				mi.set_surface_override_material(s, mat)
 
 
 static func _normalise_prop_size(prop_node: Node3D, prop_d: float) -> void:

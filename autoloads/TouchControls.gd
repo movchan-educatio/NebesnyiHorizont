@@ -13,6 +13,7 @@ extends CanvasLayer
 signal mode_changed(using_touch: bool)
 
 const MenuUI = preload("res://GUI/ui/MenuUI.gd")
+const VoltThemeScript = preload("res://GUI/mobile/VoltTheme.gd")
 const NO_TOUCH := -2
 const MOUSE_TOUCH := -1
 const MARGIN := 40.0
@@ -76,6 +77,7 @@ var _bar_open := false
 var _more_button: Button = null
 var _drone_button: Button = null
 var _more_panel: PanelContainer = null
+var _more_panel_title: Label = null
 var _float_button: Button = null
 var _spring_button: Button = null
 var _tilt_down_button: Button = null
@@ -127,10 +129,10 @@ func _ready() -> void:
 	_arm_button.text = _tx("ARM", "ARM")
 	_arm_button.focus_mode = Control.FOCUS_NONE
 	_arm_button.mouse_filter = Control.MOUSE_FILTER_STOP
-	_arm_button.add_theme_font_size_override("font_size", 28)
-	_arm_button.add_theme_color_override("font_color", Color(1.0, 0.94, 0.88))
-	_arm_button.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-	_arm_button.add_theme_constant_override("outline_size", 4)
+	_arm_button.add_theme_font_override("font", VoltThemeScript.font_display())
+	_arm_button.add_theme_font_size_override("font_size", 24)
+	_arm_button.add_theme_color_override("font_color", VoltThemeScript.TEXT_DARK)
+	_arm_button.add_theme_constant_override("outline_size", 0)
 	_arm_button.button_down.connect(_on_arm_pressed)
 	_root.add_child(_arm_button)
 
@@ -139,7 +141,7 @@ func _ready() -> void:
 	_drone_button.name = "TouchDroneSwitchButton"
 	_more_button = _make_top_button("", Callable(self, "_on_more_pressed"))
 	_more_button.name = "TouchMoreButton"
-	var more_tex := MenuIcons.icon_more(Color(0.90, 0.96, 0.91))
+	var more_tex := MenuIcons.icon_more(VoltThemeScript.STONE, 22)
 	if more_tex != null:
 		_more_button.icon = more_tex
 		_more_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -154,10 +156,10 @@ func _ready() -> void:
 	_drop_button.text = _tx("СКИД", "DROP")
 	_drop_button.focus_mode = Control.FOCUS_NONE
 	_drop_button.mouse_filter = Control.MOUSE_FILTER_STOP
-	_drop_button.add_theme_font_size_override("font_size", 24)
-	_drop_button.add_theme_color_override("font_color", Color(1.0, 0.95, 0.86))
-	_drop_button.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-	_drop_button.add_theme_constant_override("outline_size", 4)
+	_drop_button.add_theme_font_override("font", VoltThemeScript.font_display())
+	_drop_button.add_theme_font_size_override("font_size", 20)
+	_drop_button.add_theme_color_override("font_color", VoltThemeScript.STONE)
+	_drop_button.add_theme_constant_override("outline_size", 0)
 	_drop_button.button_down.connect(_on_payload_button_pressed.bind(false))
 	_drop_button.visible = false
 	_root.add_child(_drop_button)
@@ -167,10 +169,10 @@ func _ready() -> void:
 	_drop_button_right.text = _tx("СКИД", "DROP")
 	_drop_button_right.focus_mode = Control.FOCUS_NONE
 	_drop_button_right.mouse_filter = Control.MOUSE_FILTER_STOP
-	_drop_button_right.add_theme_font_size_override("font_size", 24)
-	_drop_button_right.add_theme_color_override("font_color", Color(1.0, 0.95, 0.86))
-	_drop_button_right.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-	_drop_button_right.add_theme_constant_override("outline_size", 4)
+	_drop_button_right.add_theme_font_override("font", VoltThemeScript.font_display())
+	_drop_button_right.add_theme_font_size_override("font_size", 20)
+	_drop_button_right.add_theme_color_override("font_color", VoltThemeScript.STONE)
+	_drop_button_right.add_theme_constant_override("outline_size", 0)
 	_drop_button_right.button_down.connect(_on_payload_button_pressed.bind(true))
 	_drop_button_right.visible = false
 	_root.add_child(_drop_button_right)
@@ -179,10 +181,11 @@ func _ready() -> void:
 	_toast.name = "TouchToast"
 	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_toast.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_toast.add_theme_font_size_override("font_size", 22)
-	_toast.add_theme_color_override("font_color", Color(1.0, 0.86, 0.55))
-	_toast.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
-	_toast.add_theme_constant_override("outline_size", 5)
+	_toast.add_theme_font_override("font", VoltThemeScript.font_mono())
+	_toast.add_theme_font_size_override("font_size", 20)
+	_toast.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
+	_toast.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.025, 0.96))
+	_toast.add_theme_constant_override("outline_size", 4)
 	_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_toast.visible = false
 	_root.add_child(_toast)
@@ -205,6 +208,8 @@ func _refresh_language_labels() -> void:
 		_drone_button.text = _tx("БОРТ", "CRAFT")
 	if _more_button != null and _more_button.icon == null:
 		_more_button.text = _tx("ОПЦ", "OPTIONS")
+	if _more_panel_title != null:
+		_more_panel_title.text = _tx("ШВИДКІ ОПЦІЇ // HUD", "QUICK OPTIONS // HUD")
 	if _drop_button != null:
 		_drop_button.text = _tx("СКИД", "DROP")
 	if _drop_button_right != null:
@@ -460,10 +465,10 @@ func _make_top_button(text: String, cb: Callable) -> Button:
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
 	b.mouse_filter = Control.MOUSE_FILTER_STOP
-	b.add_theme_font_size_override("font_size", 22)
-	b.add_theme_color_override("font_color", Color(0.90, 0.96, 1.0))
-	b.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-	b.add_theme_constant_override("outline_size", 3)
+	b.add_theme_font_override("font", VoltThemeScript.font_ui_bold())
+	b.add_theme_font_size_override("font_size", 20)
+	b.add_theme_color_override("font_color", VoltThemeScript.STONE)
+	b.add_theme_constant_override("outline_size", 0)
 	b.button_down.connect(cb)
 	_root.add_child(b)
 	return b
@@ -493,10 +498,11 @@ func _make_quick_btn(text: String, cb: Callable) -> Button:
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
 	b.mouse_filter = Control.MOUSE_FILTER_STOP
-	b.custom_minimum_size = Vector2(0, 46)
+	b.custom_minimum_size = Vector2(0, 40)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.add_theme_font_size_override("font_size", 15)
-	b.add_theme_color_override("font_color", Color(0.90, 0.96, 0.92))
+	b.add_theme_font_override("font", VoltThemeScript.font_ui_bold())
+	b.add_theme_font_size_override("font_size", 13)
+	b.add_theme_color_override("font_color", VoltThemeScript.STONE)
 	b.button_down.connect(cb)
 	return b
 
@@ -507,25 +513,41 @@ func _build_more_panel() -> void:
 	_more_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_more_panel.visible = false
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.03, 0.06, 0.05, 0.92)
-	sb.border_color = Color(0.45, 0.78, 0.56, 0.70)
-	sb.set_border_width_all(1)
-	sb.set_corner_radius_all(10)
+	sb.bg_color = Color(0.039, 0.039, 0.045, 0.96)
+	sb.border_color = VoltThemeScript.YELLOW_BORDER
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(14)
+	sb.shadow_color = Color(0.0, 0.0, 0.0, 0.65)
+	sb.shadow_size = 16
+	sb.shadow_offset = Vector2(0, 6)
 	sb.content_margin_left = 10
 	sb.content_margin_right = 10
-	sb.content_margin_top = 10
+	sb.content_margin_top = 8
 	sb.content_margin_bottom = 10
 	_more_panel.add_theme_stylebox_override("panel", sb)
 	_root.add_child(_more_panel)
 
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 8)
+	vb.add_theme_constant_override("separation", 6)
 	_more_panel.add_child(vb)
+
+	_more_panel_title = Label.new()
+	_more_panel_title.text = _tx("ШВИДКІ ОПЦІЇ // HUD", "QUICK OPTIONS // HUD")
+	_more_panel_title.add_theme_font_override("font", VoltThemeScript.font_mono())
+	_more_panel_title.add_theme_font_size_override("font_size", 11)
+	_more_panel_title.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
+	vb.add_child(_more_panel_title)
+
+	var sep := ColorRect.new()
+	sep.color = Color(1.0, 0.882, 0.0, 0.22)
+	sep.custom_minimum_size = Vector2(0, 1)
+	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vb.add_child(sep)
 
 	var grid := GridContainer.new()
 	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 8)
+	grid.add_theme_constant_override("h_separation", 6)
+	grid.add_theme_constant_override("v_separation", 6)
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vb.add_child(grid)
 
@@ -590,25 +612,15 @@ func _style_more_panel_buttons() -> void:
 			_panel_menu_button, _layout_button]:
 		if b == null:
 			continue
-		var active := false
-		if b == _float_button:
-			active = _touch_floating_sticks
-		elif b == _spring_button:
-			active = _touch_left_spring
-		elif b == _mode_button:
-			active = touch_mode
-		elif b == _layout_button:
-			active = _layout_editing
-		var n := StyleBoxFlat.new()
-		n.bg_color = Color(0.11, 0.24, 0.16, 0.94) if active else Color(0.05, 0.09, 0.08, 0.90)
-		n.border_color = Color(0.55, 0.90, 0.65, 0.85) if active else Color(0.45, 0.65, 0.52, 0.50)
-		n.set_border_width_all(1)
-		n.set_corner_radius_all(8)
-		var p := n.duplicate() as StyleBoxFlat
-		p.bg_color = Color(0.18, 0.36, 0.24, 0.98)
-		b.add_theme_stylebox_override("normal", n)
-		b.add_theme_stylebox_override("hover", n)
-		b.add_theme_stylebox_override("pressed", p)
+		var variant := "secondary"
+		if b == _panel_menu_button:
+			variant = "stone"
+		elif (b == _float_button and _touch_floating_sticks) \
+				or (b == _spring_button and _touch_left_spring) \
+				or (b == _mode_button and touch_mode) \
+				or (b == _layout_button and _layout_editing):
+			variant = "active_soft"
+		VoltThemeScript.apply_button_variant(b, variant, 8)
 
 
 func _build_layout_editor() -> void:
@@ -623,9 +635,9 @@ func _build_layout_editor() -> void:
 	_layout_toolbar.name = "TouchLayoutToolbar"
 	_layout_toolbar.mouse_filter = Control.MOUSE_FILTER_STOP
 	var panel_style := StyleBoxFlat.new()
-	panel_style.bg_color = Color(0.025, 0.055, 0.043, 0.97)
-	panel_style.border_color = Color(0.48, 0.72, 0.55, 0.88)
-	panel_style.set_border_width_all(1)
+	panel_style.bg_color = Color(0.039, 0.039, 0.045, 0.97)
+	panel_style.border_color = VoltThemeScript.YELLOW_BORDER
+	panel_style.set_border_width_all(2)
 	panel_style.set_corner_radius_all(12)
 	panel_style.content_margin_left = 14
 	panel_style.content_margin_right = 14
@@ -640,14 +652,16 @@ func _build_layout_editor() -> void:
 	_layout_editor_title = Label.new()
 	_layout_editor_title.text = _tx("РОЗТАШУВАННЯ СЕНСОРНОГО HUD",
 			"TOUCH HUD LAYOUT")
-	_layout_editor_title.add_theme_font_size_override("font_size", 16)
-	_layout_editor_title.add_theme_color_override("font_color", Color(0.84, 0.95, 0.87))
+	_layout_editor_title.add_theme_font_override("font", VoltThemeScript.font_display())
+	_layout_editor_title.add_theme_font_size_override("font_size", 15)
+	_layout_editor_title.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
 	vb.add_child(_layout_editor_title)
 	_layout_editor_hint = Label.new()
 	_layout_editor_hint.text = _tx("Перетягніть стіки й кнопки · масштаб змінює весь HUD",
 			"Drag sticks/buttons · scale adjusts the whole HUD")
+	_layout_editor_hint.add_theme_font_override("font", VoltThemeScript.font_ui())
 	_layout_editor_hint.add_theme_font_size_override("font_size", 11)
-	_layout_editor_hint.add_theme_color_override("font_color", Color(0.68, 0.80, 0.72))
+	_layout_editor_hint.add_theme_color_override("font_color", VoltThemeScript.STONE_DIM)
 	vb.add_child(_layout_editor_hint)
 
 	var scale_row := HBoxContainer.new()
@@ -655,8 +669,9 @@ func _build_layout_editor() -> void:
 	vb.add_child(scale_row)
 	_layout_scale_label = Label.new()
 	_layout_scale_label.custom_minimum_size.x = 78.0
+	_layout_scale_label.add_theme_font_override("font", VoltThemeScript.font_mono())
 	_layout_scale_label.add_theme_font_size_override("font_size", 13)
-	_layout_scale_label.add_theme_color_override("font_color", Color(0.90, 0.94, 0.90))
+	_layout_scale_label.add_theme_color_override("font_color", VoltThemeScript.STONE)
 	scale_row.add_child(_layout_scale_label)
 	_layout_scale_slider = HSlider.new()
 	_layout_scale_slider.min_value = 0.7
@@ -676,6 +691,7 @@ func _build_layout_editor() -> void:
 	_layout_reset_button.name = "TouchLayoutReset"
 	_layout_reset_button.text = _tx("СКИНУТИ", "RESET")
 	_layout_reset_button.custom_minimum_size = Vector2(110.0, 40.0)
+	VoltThemeScript.apply_button_variant(_layout_reset_button, "secondary", 8)
 	_layout_reset_button.pressed.connect(_on_layout_reset_pressed)
 	action_row.add_child(_layout_reset_button)
 	_layout_done_button = Button.new()
@@ -683,6 +699,7 @@ func _build_layout_editor() -> void:
 	_layout_done_button.text = _tx("ГОТОВО", "DONE")
 	_layout_done_button.custom_minimum_size = Vector2(110.0, 40.0)
 	_layout_done_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	VoltThemeScript.apply_button_variant(_layout_done_button, "primary", 8)
 	_layout_done_button.pressed.connect(_on_layout_done_pressed)
 	action_row.add_child(_layout_done_button)
 	_update_layout_scale_label()
@@ -851,6 +868,8 @@ func _on_more_pressed() -> void:
 	_sync_flight_mode_label()
 	_apply_top_bar_visibility()
 	_layout()
+	if _bar_open and _more_panel != null and is_instance_valid(_more_panel):
+		VoltThemeScript.animate_pop_in(_more_panel, 0.16)
 
 
 func _apply_top_bar_visibility() -> void:
@@ -865,6 +884,8 @@ func _apply_top_bar_visibility() -> void:
 	var open := live and _bar_open
 	if _more_panel != null:
 		_more_panel.visible = open
+	if _more_button != null:
+		_apply_button_style()
 	for b in [_flight_button, _setup_button, _reset_button, _video_button, _mode_button]:
 		if b != null:
 			b.visible = open
@@ -953,8 +974,10 @@ func _layout() -> void:
 		_drone_button.position = drone_center - _drone_button.size * 0.5
 		_drone_button.add_theme_font_size_override("font_size", int(roundf(20.0 * scale)))
 	if _more_panel != null:
-		var panel_w := clampf(344.0 * scale, 240.0, maxf(240.0, vs.x - notch.x - notch.z - 24.0))
-		var panel_h := minf(360.0, maxf(220.0, vs.y - notch.y - notch.w - 24.0))
+		var panel_w := clampf(352.0 * scale, 250.0, maxf(250.0, vs.x - notch.x - notch.z - 24.0))
+		var min_panel_h := _more_panel.get_combined_minimum_size().y
+		var max_panel_h := maxf(240.0, vs.y - notch.y - notch.w - 24.0)
+		var panel_h := minf(maxf(min_panel_h, 290.0), max_panel_h)
 		var panel_x := _more_button.position.x + _more_button.size.x + 10.0
 		panel_x = clampf(panel_x, notch.x + 8.0, maxf(notch.x + 8.0, vs.x - notch.z - panel_w - 8.0))
 		var panel_y := clampf(_more_button.position.y, notch.y + 8.0,
@@ -980,28 +1003,29 @@ func _layout() -> void:
 	_drop_button.size = drop_control_size
 	_drop_button.add_theme_font_size_override("font_size", int(clampf(drop_size * 0.24, 16.0, 24.0)))
 	var drop_style := StyleBoxFlat.new()
-	drop_style.bg_color = Color(0.20, 0.075, 0.04, 0.86)
-	drop_style.border_color = Color(1.0, 0.60, 0.30, 0.85)
+	drop_style.bg_color = Color(0.055, 0.055, 0.065, 0.90)
+	drop_style.border_color = VoltThemeScript.YELLOW
 	drop_style.set_border_width_all(2)
 	drop_style.set_corner_radius_all(int(drop_size * 0.5))
 	var drop_pressed := drop_style.duplicate() as StyleBoxFlat
-	drop_pressed.bg_color = Color(0.48, 0.14, 0.07, 0.95)
+	drop_pressed.bg_color = Color(0.18, 0.16, 0.04, 0.96)
 	var drop_left_style := drop_style
 	var drop_left_pressed := drop_pressed
 	var drop_right_style := drop_style
 	var drop_right_pressed := drop_pressed
 	if _is_dual_payload():
 		drop_left_style = drop_style.duplicate() as StyleBoxFlat
-		drop_left_style.border_color = Color(0.95, 0.78, 0.30, 0.88)
+		drop_left_style.border_color = VoltThemeScript.YELLOW
 		drop_left_pressed = drop_left_style.duplicate() as StyleBoxFlat
-		drop_left_pressed.bg_color = Color(0.45, 0.30, 0.08, 0.95)
+		drop_left_pressed.bg_color = Color(0.18, 0.16, 0.04, 0.96)
 		drop_right_style = drop_style.duplicate() as StyleBoxFlat
-		drop_right_style.border_color = Color(1.0, 0.48, 0.24, 0.90)
+		drop_right_style.border_color = VoltThemeScript.DANGER
 		drop_right_pressed = drop_right_style.duplicate() as StyleBoxFlat
-		drop_right_pressed.bg_color = Color(0.48, 0.14, 0.07, 0.95)
+		drop_right_pressed.bg_color = Color(0.32, 0.09, 0.08, 0.96)
 	_drop_button.add_theme_stylebox_override("normal", drop_left_style)
 	_drop_button.add_theme_stylebox_override("hover", drop_left_style)
 	_drop_button.add_theme_stylebox_override("pressed", drop_left_pressed)
+	_drop_button.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
 	if _drop_button_right != null:
 		var drop_r_default := Vector2(_right_anchor.x - _radius - 24.0 * scale - drop_size * 0.5,
 				_right_anchor.y - drop_size * 0.65)
@@ -1009,10 +1033,12 @@ func _layout() -> void:
 				_saved_layout_center("drop_right", drop_r_default, vs), drop_control_size, vs, notch)
 		_drop_button_right.position = drop_r_center - drop_control_size * 0.5
 		_drop_button_right.size = drop_control_size
-		_drop_button_right.add_theme_font_size_override("font_size", int(clampf(drop_size * 0.24, 16.0, 24.0)))
+		_drop_button_right.add_theme_font_size_override("font_size", int(clampf(drop_size * 0.24, 15.0, 22.0)))
 		_drop_button_right.add_theme_stylebox_override("normal", drop_right_style)
 		_drop_button_right.add_theme_stylebox_override("hover", drop_right_style)
 		_drop_button_right.add_theme_stylebox_override("pressed", drop_right_pressed)
+		_drop_button_right.add_theme_color_override("font_color",
+				VoltThemeScript.DANGER if _is_dual_payload() else VoltThemeScript.STONE)
 	_sync_payload_buttons()
 	if _toast != null:
 		_toast.position = Vector2(vs.x * 0.5 - 330.0, 238.0 + notch.y)
@@ -1084,30 +1110,37 @@ func _clamp_layout_button_center(center: Vector2, control_size: Vector2,
 
 func _apply_button_style() -> void:
 	var normal := StyleBoxFlat.new()
-	normal.bg_color = Color(0.04, 0.07, 0.10, 0.72)
-	normal.border_color = Color(0.55, 0.82, 1.0, 0.5)
+	normal.bg_color = Color(0.055, 0.055, 0.065, 0.90)
+	normal.border_color = VoltThemeScript.BORDER_STRONG
 	normal.set_border_width_all(1)
-	normal.set_corner_radius_all(8)
+	normal.set_corner_radius_all(10)
 	var pressed := normal.duplicate() as StyleBoxFlat
-	pressed.bg_color = Color(0.12, 0.30, 0.44, 0.85)
-	for b in [_pause_button, _drone_button, _setup_button, _more_button]:
+	pressed.bg_color = Color(0.14, 0.13, 0.04, 0.96)
+	pressed.border_color = VoltThemeScript.YELLOW
+	for b in [_pause_button, _drone_button, _setup_button]:
 		if b != null:
 			b.add_theme_stylebox_override("normal", normal)
 			b.add_theme_stylebox_override("hover", normal)
 			b.add_theme_stylebox_override("pressed", pressed)
+			b.add_theme_color_override("font_color", VoltThemeScript.STONE)
+			b.add_theme_color_override("font_pressed_color", VoltThemeScript.YELLOW)
+	if _more_button != null:
+		if _bar_open:
+			VoltThemeScript.apply_button_variant(_more_button, "primary", 10)
+			if _more_button.icon != null:
+				_more_button.icon = MenuIcons.icon_more(VoltThemeScript.TEXT_DARK, 22)
+		else:
+			_more_button.add_theme_stylebox_override("normal", normal)
+			_more_button.add_theme_stylebox_override("hover", normal)
+			_more_button.add_theme_stylebox_override("pressed", pressed)
+			_more_button.add_theme_color_override("font_color", VoltThemeScript.STONE)
+			if _more_button.icon != null:
+				_more_button.icon = MenuIcons.icon_more(VoltThemeScript.STONE, 22)
 	_style_more_panel_buttons()
 	if _arm_button == null:
 		return
-	var arm_normal := StyleBoxFlat.new()
-	arm_normal.bg_color = Color(0.10, 0.04, 0.03, 0.72)
-	arm_normal.border_color = Color(1.0, 0.55, 0.32, 0.62)
-	arm_normal.set_border_width_all(1)
-	arm_normal.set_corner_radius_all(8)
-	var arm_pressed := arm_normal.duplicate() as StyleBoxFlat
-	arm_pressed.bg_color = Color(0.38, 0.10, 0.06, 0.88)
-	_arm_button.add_theme_stylebox_override("normal", arm_normal)
-	_arm_button.add_theme_stylebox_override("hover", arm_normal)
-	_arm_button.add_theme_stylebox_override("pressed", arm_pressed)
+	VoltThemeScript.apply_button_variant(_arm_button, "primary", 12)
+	_arm_button.add_theme_font_override("font", VoltThemeScript.font_display())
 
 
 func _update_mode_button() -> void:
@@ -1372,10 +1405,10 @@ func _build_setup_panel() -> void:
 	_setup_panel.name = "ElrsSetupPanel"
 	_setup_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	var panel_style := StyleBoxFlat.new()
-	panel_style.bg_color = Color(0.045, 0.075, 0.105, 0.98)
-	panel_style.border_color = Color(0.55, 0.82, 1.0, 0.55)
+	panel_style.bg_color = Color(0.039, 0.039, 0.045, 0.98)
+	panel_style.border_color = VoltThemeScript.YELLOW_BORDER
 	panel_style.set_border_width_all(2)
-	panel_style.set_corner_radius_all(10)
+	panel_style.set_corner_radius_all(14)
 	_setup_panel.add_theme_stylebox_override("panel", panel_style)
 	_setup_root.add_child(_setup_panel)
 
@@ -1392,16 +1425,18 @@ func _build_setup_panel() -> void:
 
 	var title := Label.new()
 	title.text = _tx("НАЛАШТУВАННЯ ELRS / СЕНСОРА", "ELRS / TOUCH SETUP")
-	title.add_theme_font_size_override("font_size", 22)
-	title.add_theme_color_override("font_color", Color(0.92, 0.97, 1.0))
+	title.add_theme_font_override("font", VoltThemeScript.font_display())
+	title.add_theme_font_size_override("font_size", 20)
+	title.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
 	vb.add_child(title)
 
 	var hint := Label.new()
 	hint.text = _tx(
 		"Тут — ARM, режими й відео. Скид, застосування БЧ, ресет та інші дії призначаються в «Налаштування → КЕРУВАННЯ» (працює з ELRS на телефоні).",
 		"Configure ARM, flight modes, and video here. Payload release, warhead activation, reset, and other actions are assigned under Settings → Controls. ELRS works over your phone's local Wi-Fi.")
+	hint.add_theme_font_override("font", VoltThemeScript.font_ui())
 	hint.add_theme_font_size_override("font_size", 12)
-	hint.add_theme_color_override("font_color", Color(0.70, 0.82, 0.90))
+	hint.add_theme_color_override("font_color", VoltThemeScript.STONE_DIM)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vb.add_child(hint)
 
@@ -1414,8 +1449,9 @@ func _build_setup_panel() -> void:
 	for i in range(16):
 		var label := Label.new()
 		label.text = "CH%d: 16384" % (i + 1)
-		label.add_theme_font_size_override("font_size", 13)
-		label.add_theme_color_override("font_color", Color(0.62, 1.0, 0.76))
+		label.add_theme_font_override("font", VoltThemeScript.font_mono())
+		label.add_theme_font_size_override("font_size", 12)
+		label.add_theme_color_override("font_color", VoltThemeScript.GOOD)
 		label.custom_minimum_size = Vector2(150, 19)
 		grid.add_child(label)
 		_channel_labels.append(label)
@@ -1433,27 +1469,28 @@ func _build_setup_panel() -> void:
 	_invert_elrs_check = CheckBox.new()
 	_invert_elrs_check.text = _tx("Інверсія крену (ELRS)", "Invert ELRS roll")
 	_invert_elrs_check.add_theme_font_size_override("font_size", 15)
-	_invert_elrs_check.add_theme_color_override("font_color", Color(0.92, 0.97, 1.0))
+	_invert_elrs_check.add_theme_color_override("font_color", VoltThemeScript.STONE)
 	_invert_elrs_check.toggled.connect(_on_invert_elrs_toggled)
 	invert_box.add_child(_invert_elrs_check)
 	_invert_touch_check = CheckBox.new()
 	_invert_touch_check.text = _tx("Інверсія крену (сенсор)", "Invert touch roll")
 	_invert_touch_check.add_theme_font_size_override("font_size", 15)
-	_invert_touch_check.add_theme_color_override("font_color", Color(0.92, 0.97, 1.0))
+	_invert_touch_check.add_theme_color_override("font_color", VoltThemeScript.STONE)
 	_invert_touch_check.toggled.connect(_on_invert_touch_toggled)
 	invert_box.add_child(_invert_touch_check)
 	_invert_touch_pitch_check = CheckBox.new()
 	_invert_touch_pitch_check.text = _tx("Інверсія тангажу (сенсор)", "Invert touch pitch")
 	_invert_touch_pitch_check.add_theme_font_size_override("font_size", 15)
-	_invert_touch_pitch_check.add_theme_color_override("font_color", Color(0.92, 0.97, 1.0))
+	_invert_touch_pitch_check.add_theme_color_override("font_color", VoltThemeScript.STONE)
 	_invert_touch_pitch_check.toggled.connect(_on_invert_touch_pitch_toggled)
 	invert_box.add_child(_invert_touch_pitch_check)
 
 	var close := Button.new()
 	close.text = _tx("ЗАКРИТИ", "CLOSE")
 	close.focus_mode = Control.FOCUS_NONE
-	close.add_theme_font_size_override("font_size", 18)
+	close.add_theme_font_size_override("font_size", 16)
 	close.custom_minimum_size = Vector2(0, 42)
+	VoltThemeScript.apply_button_variant(close, "primary", 10)
 	close.pressed.connect(_on_setup_close)
 	vb.add_child(close)
 

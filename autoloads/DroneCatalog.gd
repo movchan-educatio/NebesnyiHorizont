@@ -1038,7 +1038,7 @@ func _exit_tree() -> void:
 	clear_model_cache()
 
 
-func attach_model(parent: Node3D, index: int) -> Node3D:
+func attach_model(parent: Node3D, index: int, prefer_hq: bool = false) -> Node3D:
 	if parent == null or not is_instance_valid(parent):
 		return null
 	var existing := parent.get_node_or_null("DroneModel")
@@ -1064,10 +1064,10 @@ func attach_model(parent: Node3D, index: int) -> Node3D:
 	if path.is_empty():
 		return null
 	# Certain mobile airframes have many small static GLB objects. Use their
-	# mobile-only join-by-material exports (originals remain for PC) to lower
-	# scene nodes/draw submissions while keeping rotor/camera/warhead nodes.
-	if OS.has_feature("mobile") or OS.get_name() == "iOS" \
-			or OS.has_environment("MOBILE_UI"):
+	# mobile-only join-by-material exports in flight (unless a high-quality menu
+	# showcase explicitly requests the full desktop asset).
+	if not prefer_hq and (OS.has_feature("mobile") or OS.get_name() == "iOS" \
+			or OS.has_environment("MOBILE_UI")):
 		var mobile_path := path.trim_suffix(".glb") + "_mobile.glb"
 		if ResourceLoader.exists(mobile_path):
 			path = mobile_path
@@ -1284,7 +1284,7 @@ func _apply_composite_detail(model: Node3D, index: int) -> void:
 			continue
 		var lower := String(mi.name).to_lower()
 		if lower.contains("flag") or lower.contains("text") or lower.contains("stencil") \
-				or lower.contains("prop") or lower.contains("camera") \
+				or (lower.contains("prop") and not lower.contains("spinner")) or lower.contains("camera") \
 				or lower.contains("lens") or lower.contains("motor") \
 				or lower.contains("nozzle") or lower.contains("turbine") \
 				or lower.contains("glass") or lower.contains("irst") \
@@ -1295,7 +1295,9 @@ func _apply_composite_detail(model: Node3D, index: int) -> void:
 		# Only recolour the composite skin; carbon weave, black plastic, machined
 		# alloy and the flag keep their authored materials and read as detail.
 		for s in range(mi.mesh.get_surface_count()):
-			var src := mi.mesh.surface_get_material(s)
+			var src := mi.get_surface_override_material(s)
+			if src == null:
+				src = mi.mesh.surface_get_material(s)
 			if src == null:
 				continue
 			var mat_name := String(src.resource_name).to_lower()

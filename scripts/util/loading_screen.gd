@@ -7,10 +7,12 @@ class_name LoadingScreen
 extends RefCounted
 
 const BG_PATH := "res://Assets/ui/mission_loading.jpg"
+const VoltThemeScript = preload("res://GUI/mobile/VoltTheme.gd")
 
 
 static func build(mode: int, mission_id: int, map_name: String,
 		difficulty: String = "", with_progress: bool = true) -> Dictionary:
+	var is_mobile := MenuUI.is_mobile_ui()
 	var layer := CanvasLayer.new()
 	layer.name = "GlobalLoadingOverlay"
 	layer.layer = 100
@@ -35,13 +37,13 @@ static func build(mode: int, mission_id: int, map_name: String,
 	# Soft vignette / contrast pass so the HUD copy stays readable on every map.
 	var dim := ColorRect.new()
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	dim.color = Color(0.008, 0.014, 0.011, 0.26)
+	dim.color = Color(0.031, 0.031, 0.036, 0.34) if is_mobile else Color(0.008, 0.014, 0.011, 0.26)
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(dim)
 	var bottom_band := ColorRect.new()
 	bottom_band.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	bottom_band.offset_top = -250.0
-	bottom_band.color = Color(0.008, 0.014, 0.011, 0.70)
+	bottom_band.color = Color(0.031, 0.031, 0.036, 0.88) if is_mobile else Color(0.008, 0.014, 0.011, 0.70)
 	bottom_band.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(bottom_band)
 
@@ -60,15 +62,24 @@ static func build(mode: int, mission_id: int, map_name: String,
 	var context := Label.new()
 	context.text = _context_line(mode, mission_id, map_name, difficulty)
 	context.add_theme_font_size_override("font_size", 13)
-	context.add_theme_color_override("font_color", MenuUI.FPV_AMBER)
+	if is_mobile:
+		context.add_theme_font_override("font", VoltThemeScript.font_mono())
+		context.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
+	else:
+		context.add_theme_color_override("font_color", MenuUI.FPV_AMBER)
 	box.add_child(context)
 
 	var title := Label.new()
 	title.text = _title(mode)
-	title.add_theme_font_size_override("font_size", 32)
-	title.add_theme_color_override("font_color", MenuUI.FPV_TEXT)
-	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-	title.add_theme_constant_override("outline_size", 4)
+	title.add_theme_font_size_override("font_size", 28 if is_mobile else 32)
+	if is_mobile:
+		title.add_theme_font_override("font", VoltThemeScript.font_display())
+		title.add_theme_color_override("font_color", VoltThemeScript.TEXT)
+		title.add_theme_constant_override("outline_size", 0)
+	else:
+		title.add_theme_color_override("font_color", MenuUI.FPV_TEXT)
+		title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+		title.add_theme_constant_override("outline_size", 4)
 	box.add_child(title)
 
 	var bar: ProgressBar = null
@@ -78,19 +89,29 @@ static func build(mode: int, mission_id: int, map_name: String,
 		bar.max_value = 100.0
 		bar.value = 6.0
 		bar.show_percentage = false
-		bar.custom_minimum_size = Vector2(760, 10)
+		bar.custom_minimum_size = Vector2(760, 8 if is_mobile else 10)
 		bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-		bar.add_theme_stylebox_override("background",
-				MenuUI.feel_style(Color(0.02, 0.04, 0.03, 0.9), MenuUI.FPV_BORDER, 1, 1, 0, 0))
-		bar.add_theme_stylebox_override("fill",
-				MenuUI.feel_style(MenuUI.FPV_GREEN, MenuUI.FPV_GREEN, 0, 1, 0, 0))
+		if is_mobile:
+			bar.add_theme_stylebox_override("background",
+					VoltThemeScript.panel_box(Color(0.094, 0.094, 0.114, 1.0), VoltThemeScript.BORDER, 1, 4, 0, 0, 0))
+			bar.add_theme_stylebox_override("fill",
+					VoltThemeScript.panel_box(VoltThemeScript.YELLOW, VoltThemeScript.YELLOW, 0, 4, 0, 0, 0))
+		else:
+			bar.add_theme_stylebox_override("background",
+					MenuUI.feel_style(Color(0.02, 0.04, 0.03, 0.9), MenuUI.FPV_BORDER, 1, 1, 0, 0))
+			bar.add_theme_stylebox_override("fill",
+					MenuUI.feel_style(MenuUI.FPV_GREEN, MenuUI.FPV_GREEN, 0, 1, 0, 0))
 		box.add_child(bar)
 
 	var tip := Label.new()
 	tip.text = ("ПІДГОТОВКА КАРТИ, ТЕХНІКИ ТА ЦІЛЕЙ…" if not MenuUI.is_english()
 			else "BUILDING TERRAIN, VEHICLES AND TARGETS…")
 	tip.add_theme_font_size_override("font_size", 12)
-	tip.add_theme_color_override("font_color", MenuUI.MUTED)
+	if is_mobile:
+		tip.add_theme_font_override("font", VoltThemeScript.font_ui())
+		tip.add_theme_color_override("font_color", VoltThemeScript.STONE_DIM)
+	else:
+		tip.add_theme_color_override("font_color", MenuUI.MUTED)
 	box.add_child(tip)
 	return {"layer": layer, "bar": bar}
 

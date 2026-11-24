@@ -6,6 +6,7 @@ signal menu
 
 const MAIN_MENU := "res://GUI/MainMenu.tscn"
 const MenuIcons = preload("res://GUI/ui/MenuIcons.gd")
+const VoltThemeScript = preload("res://GUI/mobile/VoltTheme.gd")
 
 @onready var panel := $PanelContainer
 @onready var vbox := $PanelContainer/VBoxContainer
@@ -76,7 +77,8 @@ func _apply_military_styling() -> void:
 	for side in ["left", "right", "top", "bottom"]:
 		add_theme_constant_override("margin_%s" % side, 0)
 
-	_bg = MenuUI.background(MenuUI.FPV_BG, false)
+	var mobile_ui := MenuUI.is_mobile_ui()
+	_bg = MenuUI.background(VoltThemeScript.BG if mobile_ui else MenuUI.FPV_BG, false)
 	add_child(_bg)
 	move_child(_bg, 0)
 
@@ -88,7 +90,6 @@ func _apply_military_styling() -> void:
 	center.add_child(panel)
 
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	var mobile_ui := MenuUI.is_mobile_ui()
 	var pause_vp := get_viewport_rect().size
 	var pause_safe := MenuUI.mobile_safe_margin(pause_vp) if mobile_ui else 20.0
 	# On a phone the old 640-unit card was only ~27% of the 1280-wide capture
@@ -98,11 +99,12 @@ func _apply_military_styling() -> void:
 	panel.custom_minimum_size = Vector2(
 			minf(1180.0 if mobile_ui else 540.0,
 					pause_vp.x - pause_safe * 2.0), 0)
-	panel.add_theme_stylebox_override("panel", MenuUI._style(
-			MenuUI.FPV_BG_CARD if mobile_ui else MenuUI.PANEL,
-			MenuUI.BORDER_HIGHLIGHT, 2,
-			22 if mobile_ui else 4, 40 if mobile_ui else 32,
-			38 if mobile_ui else 28, 6))
+	if mobile_ui:
+		panel.add_theme_stylebox_override("panel", VoltThemeScript.panel_box(
+				Color(0.039, 0.039, 0.045, 0.96), VoltThemeScript.YELLOW_BORDER, 2, 22, 40, 34, 16))
+	else:
+		panel.add_theme_stylebox_override("panel", MenuUI._style(
+				MenuUI.PANEL, MenuUI.BORDER_HIGHLIGHT, 2, 4, 32, 28, 6))
 	vbox.mouse_filter = Control.MOUSE_FILTER_PASS
 	vbox.add_theme_constant_override("separation", 16 if mobile_ui else 12)
 
@@ -111,13 +113,20 @@ func _apply_military_styling() -> void:
 	vbox.move_child(header, 0)
 	if mobile_ui:
 		for lbl in header.find_children("*", "Label", true, false):
-			(lbl as Label).add_theme_font_size_override("font_size", 20)
+			var hl := lbl as Label
+			hl.add_theme_font_override("font", VoltThemeScript.font_mono())
+			hl.add_theme_font_size_override("font_size", 18)
+			hl.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
 
 	var title_lbl := vbox.get_node_or_null("Title") as Label
 	if title_lbl != null:
 		title_lbl.text = "РЕЖИМ ПАУЗИ"
-		title_lbl.add_theme_font_size_override("font_size", 38 if mobile_ui else 24)
-		title_lbl.add_theme_color_override("font_color", MenuUI.FPV_AMBER)
+		title_lbl.add_theme_font_size_override("font_size", 34 if mobile_ui else 24)
+		if mobile_ui:
+			title_lbl.add_theme_font_override("font", VoltThemeScript.font_display())
+			title_lbl.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
+		else:
+			title_lbl.add_theme_color_override("font_color", MenuUI.FPV_AMBER)
 		title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 	# Create Dedicated Controls & Touch Toggle Buttons
@@ -154,36 +163,37 @@ func _apply_military_styling() -> void:
 			b.alignment = HORIZONTAL_ALIGNMENT_CENTER
 			b.mouse_filter = Control.MOUSE_FILTER_STOP
 			b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-			b.add_theme_font_size_override("font_size", 26 if mobile_ui else 16)
+			b.add_theme_font_size_override("font_size", 24 if mobile_ui else 16)
 
 	btn_resume.text = "  ПРОДОВЖИТИ ПОЛІТ"
-	btn_resume.icon = MenuIcons.icon_play(Color(0.06, 0.09, 0.07))
+	btn_resume.icon = MenuIcons.icon_play(VoltThemeScript.TEXT_DARK if mobile_ui else Color(0.06, 0.09, 0.07), 24 if mobile_ui else 18)
 	btn_resume.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 
+	var sec_icon_col := VoltThemeScript.YELLOW if mobile_ui else Color(0.85, 0.95, 0.88)
 	btn_switch_drone.text = "  ЗМІНИТИ ДРОН (МІСІЯ)"
-	btn_switch_drone.icon = MenuIcons.icon_hangar(Color(0.75, 0.96, 0.72))
+	btn_switch_drone.icon = MenuIcons.icon_hangar(VoltThemeScript.YELLOW if mobile_ui else Color(0.75, 0.96, 0.72), 22 if mobile_ui else 18)
 	btn_switch_drone.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 	btn_controls.text = "  ПУЛЬТ ТА КАЛІБРУВАННЯ"
-	btn_controls.icon = MenuIcons.icon_radio(Color(0.85, 0.95, 0.88))
+	btn_controls.icon = MenuIcons.icon_radio(sec_icon_col, 22 if mobile_ui else 18)
 	btn_controls.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 	_sync_touch_sticks_button()
 
 	btn_quad.text = "  РЕЙТИ ТА ЕКСПО БОРТУ"
-	btn_quad.icon = MenuIcons.icon_rates(Color(0.85, 0.95, 0.88))
+	btn_quad.icon = MenuIcons.icon_rates(sec_icon_col, 22 if mobile_ui else 18)
 	btn_quad.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 	btn_options.text = "  НАЛАШТУВАННЯ ГРИ ТА РЕБ"
-	btn_options.icon = MenuIcons.icon_settings(Color(0.85, 0.95, 0.88))
+	btn_options.icon = MenuIcons.icon_settings(sec_icon_col, 22 if mobile_ui else 18)
 	btn_options.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 	btn_main_menu.text = "  ДО ГОЛОВНОГО МЕНЮ"
-	btn_main_menu.icon = MenuIcons.icon_home(Color(0.85, 0.95, 0.88))
+	btn_main_menu.icon = MenuIcons.icon_home(VoltThemeScript.STONE if mobile_ui else Color(0.85, 0.95, 0.88), 22 if mobile_ui else 18)
 	btn_main_menu.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 	btn_quit.text = "  ВИЙТИ З СИМУЛЯТОРА"
-	btn_quit.icon = MenuIcons.icon_close(Color(0.95, 0.45, 0.45))
+	btn_quit.icon = MenuIcons.icon_close(VoltThemeScript.DANGER if mobile_ui else Color(0.95, 0.45, 0.45), 22 if mobile_ui else 18)
 	btn_quit.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	# SceneTree.quit() is a no-op on iOS (Apple manages app lifetime).  Hide the
 	# dead control instead of leaving a button that appears broken.
@@ -194,40 +204,47 @@ func _apply_military_styling() -> void:
 		ios_hint.text = "iOS: закрий гру свайпом догори"
 		ios_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		ios_hint.add_theme_font_size_override("font_size", 15)
-		ios_hint.add_theme_color_override("font_color", MenuUI.MUTED)
+		ios_hint.add_theme_color_override("font_color", VoltThemeScript.STONE_DIM if mobile_ui else MenuUI.MUTED)
 		vbox.add_child(ios_hint)
 
-	var primary := MenuUI.feel_style(Color(0.62, 0.74, 0.55, 1.0),
-			MenuUI.FPV_GREEN, 2, 12, 16, 8)
-	var primary_hover := MenuUI.feel_style(Color(0.70, 0.82, 0.62, 1.0),
-			MenuUI.FPV_GREEN, 2, 12, 16, 8)
-	btn_resume.add_theme_stylebox_override("normal", primary)
-	btn_resume.add_theme_stylebox_override("hover", primary_hover)
-	btn_resume.add_theme_stylebox_override("focus", primary_hover)
-	btn_resume.add_theme_stylebox_override("pressed", MenuUI.feel_style(
-			Color(0.10, 0.22, 0.15, 1.0), MenuUI.FPV_GREEN, 2, 12, 16, 8))
-	btn_resume.add_theme_color_override("font_color", Color(0.06, 0.09, 0.07))
-	btn_resume.add_theme_color_override("font_hover_color", Color(0.06, 0.09, 0.07))
-	btn_resume.add_theme_color_override("font_pressed_color", MenuUI.FPV_TEXT)
+	if mobile_ui:
+		VoltThemeScript.apply_button_variant(btn_resume, "primary", 14)
+		btn_resume.add_theme_font_override("font", VoltThemeScript.font_display())
+		for b in [btn_switch_drone, btn_controls, btn_touch_sticks, btn_quad, btn_options, btn_main_menu]:
+			VoltThemeScript.apply_button_variant(b, "secondary", 12)
+		VoltThemeScript.apply_button_variant(btn_quit, "danger", 12)
+	else:
+		var primary := MenuUI.feel_style(Color(0.62, 0.74, 0.55, 1.0),
+				MenuUI.FPV_GREEN, 2, 12, 16, 8)
+		var primary_hover := MenuUI.feel_style(Color(0.70, 0.82, 0.62, 1.0),
+				MenuUI.FPV_GREEN, 2, 12, 16, 8)
+		btn_resume.add_theme_stylebox_override("normal", primary)
+		btn_resume.add_theme_stylebox_override("hover", primary_hover)
+		btn_resume.add_theme_stylebox_override("focus", primary_hover)
+		btn_resume.add_theme_stylebox_override("pressed", MenuUI.feel_style(
+				Color(0.10, 0.22, 0.15, 1.0), MenuUI.FPV_GREEN, 2, 12, 16, 8))
+		btn_resume.add_theme_color_override("font_color", Color(0.06, 0.09, 0.07))
+		btn_resume.add_theme_color_override("font_hover_color", Color(0.06, 0.09, 0.07))
+		btn_resume.add_theme_color_override("font_pressed_color", MenuUI.FPV_TEXT)
 
-	var def_style := MenuUI.feel_style(Color(0.04, 0.08, 0.065, 0.92),
-			Color(0.32, 0.48, 0.38, 0.6), 1, 12, 16, 8)
-	var def_hover := MenuUI.feel_style(Color(0.08, 0.15, 0.11, 0.96),
-			Color(0.45, 0.65, 0.50, 0.85), 1, 12, 16, 8)
-	for b in [btn_switch_drone, btn_controls, btn_touch_sticks, btn_quad, btn_options, btn_main_menu]:
-		b.add_theme_stylebox_override("normal", def_style)
-		b.add_theme_stylebox_override("hover", def_hover)
-		b.add_theme_stylebox_override("focus", def_hover)
-		b.add_theme_color_override("font_color", MenuUI.FPV_TEXT)
+		var def_style := MenuUI.feel_style(Color(0.04, 0.08, 0.065, 0.92),
+				Color(0.32, 0.48, 0.38, 0.6), 1, 12, 16, 8)
+		var def_hover := MenuUI.feel_style(Color(0.08, 0.15, 0.11, 0.96),
+				Color(0.45, 0.65, 0.50, 0.85), 1, 12, 16, 8)
+		for b in [btn_switch_drone, btn_controls, btn_touch_sticks, btn_quad, btn_options, btn_main_menu]:
+			b.add_theme_stylebox_override("normal", def_style)
+			b.add_theme_stylebox_override("hover", def_hover)
+			b.add_theme_stylebox_override("focus", def_hover)
+			b.add_theme_color_override("font_color", MenuUI.FPV_TEXT)
 
-	var quit_style := MenuUI.feel_style(Color(0.12, 0.04, 0.04, 0.9),
-			Color(0.55, 0.25, 0.25, 0.7), 1, 12, 16, 8)
-	var quit_hover := MenuUI.feel_style(Color(0.20, 0.06, 0.06, 0.95),
-			Color(0.75, 0.35, 0.35, 0.9), 1, 12, 16, 8)
-	btn_quit.add_theme_stylebox_override("normal", quit_style)
-	btn_quit.add_theme_stylebox_override("hover", quit_hover)
-	btn_quit.add_theme_stylebox_override("focus", quit_hover)
-	btn_quit.add_theme_color_override("font_color", Color(0.95, 0.7, 0.7))
+		var quit_style := MenuUI.feel_style(Color(0.12, 0.04, 0.04, 0.9),
+				Color(0.55, 0.25, 0.25, 0.7), 1, 12, 16, 8)
+		var quit_hover := MenuUI.feel_style(Color(0.20, 0.06, 0.06, 0.95),
+				Color(0.75, 0.35, 0.35, 0.9), 1, 12, 16, 8)
+		btn_quit.add_theme_stylebox_override("normal", quit_style)
+		btn_quit.add_theme_stylebox_override("hover", quit_hover)
+		btn_quit.add_theme_stylebox_override("focus", quit_hover)
+		btn_quit.add_theme_color_override("font_color", Color(0.95, 0.7, 0.7))
 
 
 func _on_visibility_changed() -> void:
@@ -351,6 +368,8 @@ func show_menu(show_flag: bool) -> void:
 		_sync_touch_sticks_button()
 		_set_flight_hud_suppressed(true)
 		btn_resume.grab_focus()
+		if MenuUI.is_mobile_ui() and panel != null:
+			VoltThemeScript.animate_pop_in(panel, 0.18)
 
 
 func _sync_touch_sticks_button() -> void:
@@ -367,8 +386,9 @@ func _sync_touch_sticks_button() -> void:
 	var sticks_on := active and not locked
 	btn_touch_sticks.text = "  СЕНСОРНІ СТІКИ: УВІМК (НАТИСНИ ЩОБ ВИМК.)" if sticks_on \
 			else "  СЕНСОРНІ СТІКИ: ВИМК (РЕЖИМ ПУЛЬТА)"
-	btn_touch_sticks.icon = MenuIcons.icon_radio(
-			Color(0.95, 0.82, 0.45) if sticks_on else Color(0.55, 0.95, 0.68))
+	var radio_col := (VoltThemeScript.YELLOW if sticks_on else VoltThemeScript.STONE_DIM) \
+			if MenuUI.is_mobile_ui() else (Color(0.95, 0.82, 0.45) if sticks_on else Color(0.55, 0.95, 0.68))
+	btn_touch_sticks.icon = MenuIcons.icon_radio(radio_col, 22 if MenuUI.is_mobile_ui() else 18)
 	btn_touch_sticks.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 

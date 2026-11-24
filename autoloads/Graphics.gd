@@ -411,11 +411,14 @@ func _apply_runtime_environment(root: Node, lvl: int) -> void:
 	var envs: Array[Environment] = []
 	for n in root.find_children("*", "WorldEnvironment", true, false):
 		var we := n as WorldEnvironment
-		if we != null and we.environment != null:
-			envs.append(we.environment)
+		if we == null or we.environment == null:
+			continue
+		if we.has_meta("studio_env") or we.get_parent() is SubViewport:
+			continue
+		envs.append(we.environment)
 	for n in root.find_children("*", "Camera3D", true, false):
 		var cam := n as Camera3D
-		if cam != null and cam.environment != null:
+		if cam != null and cam.environment != null and not (cam.get_parent() is SubViewport):
 			envs.append(cam.environment)
 	var vp := root.get_viewport()
 	if vp != null and vp.world_3d != null and vp.world_3d.environment != null:

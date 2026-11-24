@@ -9,15 +9,18 @@ extends CanvasLayer
 signal drone_selected(preset_index: int)
 signal switcher_closed()
 
-const PANEL_BG := Color(0.03, 0.06, 0.05, 0.96)
-const PANEL_BORDER := Color(0.32, 0.56, 0.40, 0.85)
-const CARD_BG := Color(0.06, 0.11, 0.09, 0.94)
-const CARD_REC_BG := Color(0.07, 0.15, 0.10, 0.96)
-const CARD_ACTIVE_BG := Color(0.11, 0.22, 0.14, 0.98)
-const TEXT_MAIN := Color(0.92, 0.97, 0.92)
-const TEXT_MUTED := Color(0.68, 0.78, 0.72)
-const ACCENT_GREEN := Color(0.45, 0.95, 0.55)
-const ACCENT_AMBER := Color(0.96, 0.78, 0.34)
+const VoltThemeScript = preload("res://GUI/mobile/VoltTheme.gd")
+const MenuIcons = preload("res://GUI/ui/MenuIcons.gd")
+
+const PANEL_BG := Color(0.039, 0.039, 0.045, 0.98)
+const PANEL_BORDER := Color(1.0, 0.882, 0.0, 0.55)
+const CARD_BG := Color(0.067, 0.067, 0.078, 0.96)
+const CARD_REC_BG := Color(0.055, 0.095, 0.065, 0.96)
+const CARD_ACTIVE_BG := Color(0.14, 0.125, 0.035, 0.98)
+const TEXT_MAIN := Color(0.957, 0.949, 0.925)
+const TEXT_MUTED := Color(0.918, 0.906, 0.875, 0.65)
+const ACCENT_GREEN := Color(0.282, 0.867, 0.561)
+const ACCENT_AMBER := Color(1.0, 0.882, 0.0)
 
 var _root: Control = null
 var _panel: PanelContainer = null
@@ -71,7 +74,7 @@ func _build_ui() -> void:
 	sb.bg_color = PANEL_BG
 	sb.border_color = PANEL_BORDER
 	sb.set_border_width_all(2)
-	sb.set_corner_radius_all(12)
+	sb.set_corner_radius_all(16)
 	sb.content_margin_left = 20
 	sb.content_margin_right = 20
 	sb.content_margin_top = 16
@@ -93,12 +96,14 @@ func _build_ui() -> void:
 	hdr.add_child(title_box)
 
 	_title_lbl = Label.new()
-	_title_lbl.add_theme_font_size_override("font_size", 24)
+	_title_lbl.add_theme_font_override("font", VoltThemeScript.font_display())
+	_title_lbl.add_theme_font_size_override("font_size", 22)
 	_title_lbl.add_theme_color_override("font_color", ACCENT_AMBER)
 	title_box.add_child(_title_lbl)
 
 	_threat_lbl = Label.new()
-	_threat_lbl.add_theme_font_size_override("font_size", 15)
+	_threat_lbl.add_theme_font_override("font", VoltThemeScript.font_mono())
+	_threat_lbl.add_theme_font_size_override("font_size", 13)
 	_threat_lbl.add_theme_color_override("font_color", TEXT_MUTED)
 	_threat_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	title_box.add_child(_threat_lbl)
@@ -106,16 +111,10 @@ func _build_ui() -> void:
 	_close_btn = Button.new()
 	_close_btn.custom_minimum_size = Vector2(140, 44)
 	_close_btn.focus_mode = Control.FOCUS_NONE
-	_close_btn.add_theme_font_size_override("font_size", 16)
-	_close_btn.add_theme_color_override("font_color", Color(0.98, 0.72, 0.72))
-	var close_sb := StyleBoxFlat.new()
-	close_sb.bg_color = Color(0.18, 0.06, 0.06, 0.92)
-	close_sb.border_color = Color(0.75, 0.30, 0.30, 0.85)
-	close_sb.set_border_width_all(1)
-	close_sb.set_corner_radius_all(8)
-	_close_btn.add_theme_stylebox_override("normal", close_sb)
-	_close_btn.add_theme_stylebox_override("hover", close_sb)
-	_close_btn.add_theme_stylebox_override("pressed", close_sb)
+	_close_btn.icon = MenuIcons.icon_close(VoltThemeScript.STONE, 16)
+	_close_btn.add_theme_constant_override("h_separation", 8)
+	_close_btn.add_theme_font_size_override("font_size", 15)
+	VoltThemeScript.apply_button_variant(_close_btn, "secondary", 10)
 	_close_btn.pressed.connect(close)
 	hdr.add_child(_close_btn)
 
@@ -302,7 +301,7 @@ func _populate(level_root: Node, current_preset: int) -> void:
 			else _tx("ПОЛІГОН / ФРІСТАЙЛ", "TRAINING / FREESTYLE")
 	_title_lbl.text = _tx("ЗАМІНА ДРОНА ПІД ЧАС МІСІЇ  [%s]" % mode_label,
 			"MID-MISSION DRONE SWITCH  [%s]" % mode_label)
-	_close_btn.text = _tx("✕ ЗАКРИТИ", "✕ CLOSE")
+	_close_btn.text = _tx("ЗАКРИТИ", "CLOSE")
 
 	var threats := _scan_threats(level_root)
 	var total_t := int(threats["air"]) + int(threats["armor"]) + int(threats["soft"]) + int(threats["infantry"])
@@ -324,6 +323,7 @@ func _populate(level_root: Node, current_preset: int) -> void:
 		var is_rec := idx in recs
 		var card := _make_drone_card(idx, p, is_active, is_rec)
 		_grid.add_child(card)
+	VoltThemeScript.animate_pop_in(_panel, 0.16)
 
 
 func _make_drone_card(idx: int, p: Dictionary, is_active: bool, is_rec: bool) -> Button:
@@ -334,15 +334,16 @@ func _make_drone_card(idx: int, p: Dictionary, is_active: bool, is_rec: bool) ->
 	btn.mouse_filter = Control.MOUSE_FILTER_STOP
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = CARD_ACTIVE_BG if is_active else (CARD_REC_BG if is_rec else CARD_BG)
-	sb.border_color = ACCENT_AMBER if is_active else (ACCENT_GREEN if is_rec else Color(0.26, 0.42, 0.32, 0.72))
+	sb.border_color = ACCENT_AMBER if is_active else (ACCENT_GREEN if is_rec else VoltThemeScript.BORDER_STRONG)
 	sb.set_border_width_all(2 if (is_active or is_rec) else 1)
-	sb.set_corner_radius_all(8)
+	sb.set_corner_radius_all(10)
 	sb.content_margin_left = 14
 	sb.content_margin_right = 14
 	sb.content_margin_top = 10
 	sb.content_margin_bottom = 10
 	var sb_hover := sb.duplicate() as StyleBoxFlat
-	sb_hover.bg_color = sb.bg_color.lightened(0.08)
+	sb_hover.bg_color = VoltThemeScript.SURFACE_HOVER
+	sb_hover.border_color = ACCENT_AMBER
 	btn.add_theme_stylebox_override("normal", sb)
 	btn.add_theme_stylebox_override("hover", sb_hover)
 	btn.add_theme_stylebox_override("pressed", sb_hover)
@@ -352,13 +353,14 @@ func _make_drone_card(idx: int, p: Dictionary, is_active: bool, is_rec: bool) ->
 	var weapon := _weapon_badge(p)
 	var badge := ""
 	if is_active:
-		badge = _tx("  ● АКТИВНИЙ", "  ● ACTIVE")
+		badge = _tx("  [АКТИВНИЙ]", "  [ACTIVE]")
 	elif is_rec:
-		badge = _tx("  ★ РЕКОМЕНДОВАНО", "  ★ RECOMMENDED")
-	btn.text = "%s%s\n%s  ·  %s" % [d_name, badge, d_tag, weapon]
+		badge = _tx("  [РЕКОМЕНДОВАНО]", "  [RECOMMENDED]")
+	btn.text = "%s%s\n%s  //  %s" % [d_name, badge, d_tag, weapon]
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	btn.add_theme_font_size_override("font_size", 15)
-	btn.add_theme_color_override("font_color", ACCENT_AMBER if is_active else (TEXT_MAIN if not is_rec else Color(0.86, 1.0, 0.88)))
+	btn.add_theme_font_override("font", VoltThemeScript.font_ui_bold())
+	btn.add_theme_font_size_override("font_size", 14)
+	btn.add_theme_color_override("font_color", ACCENT_AMBER if is_active else (TEXT_MAIN if not is_rec else ACCENT_GREEN))
 	btn.pressed.connect(_on_card_pressed.bind(idx))
 	return btn
 

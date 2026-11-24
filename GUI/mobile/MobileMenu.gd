@@ -15,6 +15,7 @@ const GlbMaterialUtilsScript = preload("res://scripts/util/glb_material_utils.gd
 const MenuDioramaStageScript = preload("res://scripts/util/MenuDioramaStage.gd")
 const MenuIcons = preload("res://GUI/ui/MenuIcons.gd")
 const CinematicOverlay = preload("res://scripts/util/cinematic_overlay.gd")
+const VoltThemeScript = preload("res://GUI/mobile/VoltTheme.gd")
 ## OptionButton id for the disabled action row.  Godot's -1 means "auto id",
 ## so a dedicated sentinel is required to represent "no channel".
 const ACTION_DISABLED_ID := 99
@@ -52,9 +53,9 @@ const MODE_META := [
 	{"id": 1, "name": "БОЙОВИЙ", "name_en": "COMBAT"},
 ]
 const RATE_AXES := [
-	{"key": "roll", "name": "ROLL", "col": Color("c96f67")},
-	{"key": "pitch", "name": "PITCH", "col": Color("79a58a")},
-	{"key": "yaw", "name": "YAW", "col": Color("7f9bc4")},
+	{"key": "roll", "name": "ROLL", "col": VoltThemeScript.YELLOW},
+	{"key": "pitch", "name": "PITCH", "col": VoltThemeScript.STONE},
+	{"key": "yaw", "name": "YAW", "col": VoltThemeScript.DANGER},
 ]
 const COLOR_SWATCHES := [
 	{"name": "ХАКІ", "col": Color("59604a")},
@@ -70,6 +71,9 @@ var _bg_blur: TextureRect
 var _screen_scrim: ColorRect
 var _hud_frame_overlay: Control = null
 var _root: VBoxContainer
+var _body_hbox: HBoxContainer = null
+var _nav_capsule: PanelContainer = null
+var _nav_buttons: Dictionary = {}
 var _content: Control
 var _masthead: HBoxContainer = null
 var _chips: HBoxContainer = null
@@ -77,13 +81,16 @@ var _gc_top_btn: Button = null
 var _lang_top_btn: Button = null
 var _main_logo: Label = null
 var _main_hero: Control = null
+var _hero_watermark: Label = null
+var _hangar_watermark: Label = null
 var _screens: Dictionary = {}
 var _current := "main"
 var _back_btn: Button
-var _top_brand: VBoxContainer = null
+var _top_brand: HBoxContainer = null
 var _bottom_bar: HBoxContainer
 var _elrs_chip: PanelContainer
 var _elrs_label: Label
+var _elrs_dot: ColorRect = null
 var _input_chip: PanelContainer
 var _input_label: Label
 var _coin_chip: PanelContainer = null
@@ -100,6 +107,7 @@ var _hero_pad_rotator: Node3D = null
 var _hero_drone_name: Label
 var _hero_drone_tag: Label
 var _hero_drone_specs: Label
+var _hero_index_lbl: Label = null
 var _hero_perf_bars: Dictionary = {}
 var _is_dragging_hero := false
 
@@ -206,7 +214,7 @@ class ToggleSwitch extends Button:
 		button_pressed = value
 		focus_mode = Control.FOCUS_NONE
 		mouse_filter = Control.MOUSE_FILTER_STOP
-		custom_minimum_size = Vector2(96, 46)
+		custom_minimum_size = Vector2(78, 38)
 		add_theme_stylebox_override("normal", StyleBoxEmpty.new())
 		add_theme_stylebox_override("hover", StyleBoxEmpty.new())
 		add_theme_stylebox_override("pressed", StyleBoxEmpty.new())
@@ -221,13 +229,14 @@ class ToggleSwitch extends Button:
 		var h := size.y
 		var r := h * 0.5
 		var track := StyleBoxFlat.new()
-		track.bg_color = Color(0.12, 0.22, 0.17, 0.95) if not on else Color(0.38, 0.68, 0.48, 1.0)
-		track.border_color = Color(0.42, 0.56, 0.46, 0.7) if not on else Color(0.72, 0.95, 0.78, 0.9)
-		track.set_border_width_all(2)
+		track.bg_color = VoltThemeScript.YELLOW if on else Color(0.13, 0.13, 0.15, 0.95)
+		track.border_color = VoltThemeScript.YELLOW if on else VoltThemeScript.BORDER_STRONG
+		track.set_border_width_all(1 if on else 1)
 		track.set_corner_radius_all(int(r))
 		draw_style_box(track, Rect2(Vector2.ZERO, size))
 		var knob_x := size.x - r if on else r
-		draw_circle(Vector2(knob_x, r), r * 0.76, Color(0.96, 0.99, 0.94, 1.0))
+		var knob_col := VoltThemeScript.TEXT_DARK if on else VoltThemeScript.STONE
+		draw_circle(Vector2(knob_x, r), r * 0.72, knob_col)
 
 
 ## 2D Stick Monitor (Tactical FPV HUD: twin circles with crosshairs and live stick positions)
@@ -323,40 +332,40 @@ class RateCurve extends Control:
 		if w < 10 or h < 10:
 			return
 		var left := 42.0
-		var right := w - 18.0
+		var right := w - 16.0
 		var top := 14.0
 		var bottom := h - 24.0
 		var plot_rect := Rect2(Vector2(left, top), Vector2(right - left, bottom - top))
-		draw_rect(plot_rect, Color(0.015, 0.042, 0.030, 0.82), true)
-		draw_rect(plot_rect, Color(0.36, 0.56, 0.44, 0.45), false, 1.2)
-		draw_line(Vector2(left, bottom), Vector2(right, top), Color(0.45, 0.65, 0.52, 0.16), 1.0)
-		var grid := Color(0.30, 0.44, 0.35, 0.22)
+		draw_rect(plot_rect, Color(0.031, 0.031, 0.036, 0.96), true)
+		draw_rect(plot_rect, VoltThemeScript.BORDER_STRONG, false, 1.2)
+		draw_line(Vector2(left, bottom), Vector2(right, top), Color(0.918, 0.906, 0.875, 0.08), 1.0)
+		var grid := Color(0.918, 0.906, 0.875, 0.08)
 		for i in range(5):
 			var x := left + (right - left) * i / 4.0
 			draw_line(Vector2(x, top), Vector2(x, bottom), grid, 1.0)
 			var y := top + (bottom - top) * i / 4.0
 			draw_line(Vector2(left, y), Vector2(right, y), grid, 1.0)
-		var font := ThemeDB.fallback_font
-		draw_string(font, Vector2(2, top + 5), "100%", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.65, 0.75, 0.68, 0.8))
-		draw_string(font, Vector2(8, bottom + 12), "0", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.65, 0.75, 0.68, 0.8))
+		var font := VoltThemeScript.font_mono()
+		draw_string(font, Vector2(2, top + 7), "100%", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, VoltThemeScript.STONE_DIM)
+		draw_string(font, Vector2(8, bottom + 12), "0", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, VoltThemeScript.STONE_DIM)
 		var stick_axis_lbl := "STICK" if MenuUI.is_english() else "СТІК"
-		draw_string(font, Vector2(right - 38, bottom + 12), stick_axis_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.65, 0.75, 0.68, 0.8))
+		draw_string(font, Vector2(right - 40, bottom + 12), stick_axis_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, VoltThemeScript.STONE_DIM)
 		var legend := [
-			{"key": "roll", "name": "ROLL", "col": Color("c96f67")},
-			{"key": "pitch", "name": "PITCH", "col": Color("79a58a")},
-			{"key": "yaw", "name": "YAW", "col": Color("7f9bc4")},
+			{"key": "roll", "name": "ROLL", "col": VoltThemeScript.YELLOW},
+			{"key": "pitch", "name": "PITCH", "col": VoltThemeScript.STONE},
+			{"key": "yaw", "name": "YAW", "col": VoltThemeScript.DANGER},
 		]
 		for n in range(legend.size()):
 			var item: Dictionary = legend[n]
 			var lx := left + 10.0 + n * 74.0
-			draw_rect(Rect2(lx, top + 2.0, 8.0, 8.0), item["col"] as Color, true)
-			draw_string(font, Vector2(lx + 12.0, top + 10.0), str(item["name"]),
-					HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.72, 0.82, 0.74, 0.9))
+			draw_rect(Rect2(lx, top + 5.0, 8.0, 8.0), item["col"] as Color, true)
+			draw_string(font, Vector2(lx + 12.0, top + 12.0), str(item["name"]),
+					HORIZONTAL_ALIGNMENT_LEFT, -1, 10, VoltThemeScript.TEXT)
 		for n in range(legend.size()):
 			var axis: Dictionary = legend[n]
 			var rate := float(profile.get("rate_" + str(axis["key"]), 667))
 			var expo := float(profile.get("expo_" + str(axis["key"]), 0.2))
-			var shift := (float(n) - 1.0) * 2.5
+			var shift := (float(n) - 1.0) * 2.2
 			var points := PackedVector2Array()
 			for i in range(33):
 				var x := i / 32.0
@@ -364,14 +373,14 @@ class RateCurve extends Control:
 				var norm := clampf(shaped * (rate / 900.0), 0.0, 1.0)
 				points.append(Vector2(left + (right - left) * x,
 						bottom - (bottom - top) * norm + shift))
-			draw_polyline(points, axis["col"] as Color, 2.4 - n * 0.25, true)
+			draw_polyline(points, axis["col"] as Color, 2.5 - n * 0.25, true)
 
 
 # ---------------------------------------------------------------- Lifecycle
 func _ready() -> void:
 	_bg_tex = _safe_texture("res://Assets/Branding/mobile_menu_bg.png")
 	_bg_blur_tex = _safe_texture("res://Assets/Branding/mobile_menu_bg_blur.png")
-	_knob_tex = _safe_texture("res://Assets/Branding/mobile_knob.png")
+	_knob_tex = VoltThemeScript.make_volt_knob_texture(24)
 	if OS.has_feature("mobile") or OS.get_name() == "iOS":
 		DisplayServer.screen_set_orientation(DisplayServer.SCREEN_SENSOR_LANDSCAPE)
 	if Global.startup:
@@ -507,11 +516,13 @@ func _process(delta: float) -> void:
 				_hero_pad_rotator.rotation.y += hero_idle
 			if _hero_diorama != null and is_instance_valid(_hero_diorama):
 				_hero_diorama.sync_idle_spin(hero_idle)
+		if _hero_watermark != null and is_instance_valid(_hero_watermark):
+			_hero_watermark.position.x = sin(_hero_holder.rotation.y) * 18.0
 		if _hero_diorama != null and is_instance_valid(_hero_diorama):
 			_hero_diorama.step(delta)
 		for child in _hero_holder.get_children():
-			if is_instance_valid(child) and child.has_meta("prop_pivots"):
-				DroneCatalog.animate_propellers(child, delta * 0.8)
+			if is_instance_valid(child):
+				DroneCatalog.animate_propellers(child, delta * 1.15)
 
 	# 3D Drone Hangar Turntable: rotation and propeller animation when viewing Hangar
 	if _hangar_holder != null and is_instance_valid(_hangar_holder) and _current == "drone":
@@ -522,11 +533,13 @@ func _process(delta: float) -> void:
 				_hangar_pad_rotator.rotation.y += hangar_idle
 			if _hangar_diorama != null and is_instance_valid(_hangar_diorama):
 				_hangar_diorama.sync_idle_spin(hangar_idle)
+		if _hangar_watermark != null and is_instance_valid(_hangar_watermark):
+			_hangar_watermark.position.x = sin(_hangar_holder.rotation.y) * 18.0
 		if _hangar_diorama != null and is_instance_valid(_hangar_diorama):
 			_hangar_diorama.step(delta)
 		for child in _hangar_holder.get_children():
-			if is_instance_valid(child) and child.has_meta("prop_pivots"):
-				DroneCatalog.animate_propellers(child, delta * 0.8)
+			if is_instance_valid(child):
+				DroneCatalog.animate_propellers(child, delta * 1.15)
 
 	# 2D Live Stick Monitor & 3D RadioMaster TX12 Sticks Animation
 	if _current == "controls":
@@ -661,79 +674,82 @@ func _ui_sz(px: float) -> int:
 	return maxi(40, int(round(px * scale)))
 
 
-func _label(text: String, size: float, color: Color = MenuUI.TEXT) -> Label:
+func _label(text: String, size: float, color: Color = VoltThemeScript.TEXT,
+		font_override: Font = null) -> Label:
 	var l := Label.new()
 	l.text = MenuUI.translate_text(text)
+	if font_override != null:
+		l.add_theme_font_override("font", font_override)
+	else:
+		l.add_theme_font_override("font", VoltThemeScript.font_ui())
 	l.add_theme_font_size_override("font_size", _fs(size))
 	l.add_theme_color_override("font_color", color)
-	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.65))
-	l.add_theme_constant_override("outline_size", _gap(3))
+	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.55))
+	l.add_theme_constant_override("outline_size", 2)
 	return l
 
 
-func _panel_style(bg: Color = Color(0.035, 0.075, 0.06, 0.88),
-		border: Color = Color(0.34, 0.5, 0.4, 0.5),
-		border_width: int = 1, radius: int = 16) -> StyleBoxFlat:
+func _panel_style(bg: Color = VoltThemeScript.SURFACE,
+		border: Color = VoltThemeScript.BORDER,
+		border_width: int = 1, radius: int = 14) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg
 	sb.border_color = border
 	sb.set_border_width_all(border_width)
 	if border_width > 0:
-		sb.border_width_left = maxi(border_width, 4)
-		sb.shadow_color = Color(0.0, 0.0, 0.0, 0.45)
-		sb.shadow_size = 10
+		sb.shadow_color = Color(0.0, 0.0, 0.0, 0.52)
+		sb.shadow_size = 12
 		sb.shadow_offset = Vector2(0, 4)
 	sb.set_corner_radius_all(radius)
-	sb.content_margin_left = _gap(16)
-	sb.content_margin_right = _gap(16)
-	sb.content_margin_top = _gap(12)
-	sb.content_margin_bottom = _gap(12)
+	sb.content_margin_left = _gap(14)
+	sb.content_margin_right = _gap(14)
+	sb.content_margin_top = _gap(10)
+	sb.content_margin_bottom = _gap(10)
 	return sb
 
 
-func _panel(bg: Color = Color(0.035, 0.075, 0.06, 0.88),
-		border: Color = Color(0.34, 0.5, 0.4, 0.5),
-		border_width: int = 1, radius: int = 16) -> PanelContainer:
+func _panel(bg: Color = VoltThemeScript.SURFACE,
+		border: Color = VoltThemeScript.BORDER,
+		border_width: int = 1, radius: int = 14) -> PanelContainer:
 	var p := PanelContainer.new()
 	p.add_theme_stylebox_override("panel", _panel_style(bg, border, border_width, radius))
 	return p
 
 
-func _chip_panel(border: Color) -> PanelContainer:
+func _chip_panel(border: Color = VoltThemeScript.BORDER,
+		bg: Color = VoltThemeScript.SURFACE) -> PanelContainer:
 	var p := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.025, 0.055, 0.045, 0.92)
+	sb.bg_color = bg
 	sb.border_color = border
 	sb.set_border_width_all(1)
-	sb.border_width_left = 3
-	sb.set_corner_radius_all(_gap(6))
-	sb.content_margin_left = _gap(8)
-	sb.content_margin_right = _gap(8)
-	sb.content_margin_top = _gap(3)
-	sb.content_margin_bottom = _gap(3)
+	sb.set_corner_radius_all(999)
+	sb.content_margin_left = _gap(10)
+	sb.content_margin_right = _gap(10)
+	sb.content_margin_top = _gap(4)
+	sb.content_margin_bottom = _gap(4)
 	p.add_theme_stylebox_override("panel", sb)
 	return p
 
 
-func _button_style(bg: Color, border: Color, border_width: int = 1, radius: int = 12) -> StyleBoxFlat:
+func _button_style(bg: Color, border: Color, border_width: int = 1, radius: int = 10) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg
 	sb.border_color = border
 	sb.set_border_width_all(border_width)
 	if border_width > 0:
-		sb.border_width_left = maxi(border_width, 4)
-		sb.shadow_color = Color(0.0, 0.0, 0.0, 0.38)
+		sb.shadow_color = Color(0.0, 0.0, 0.0, 0.40)
 		sb.shadow_size = 6
 		sb.shadow_offset = Vector2(0, 3)
 	sb.set_corner_radius_all(radius)
-	sb.content_margin_left = _gap(16)
-	sb.content_margin_right = _gap(16)
-	sb.content_margin_top = _gap(2)
-	sb.content_margin_bottom = _gap(2)
+	sb.content_margin_left = _gap(14)
+	sb.content_margin_right = _gap(14)
+	sb.content_margin_top = _gap(4)
+	sb.content_margin_bottom = _gap(4)
 	return sb
 
 
-func _button(text: String, height: float = 48.0, primary: bool = false) -> Button:
+func _button(text: String, height: float = 44.0, primary: bool = false, variant: String = "") -> Button:
 	var b := Button.new()
 	var leading_spaces := ""
 	for character in text:
@@ -746,33 +762,24 @@ func _button(text: String, height: float = 48.0, primary: bool = false) -> Butto
 	b.focus_mode = Control.FOCUS_NONE
 	var min_h: int = maxi(_ui_sz(height), _fs(34.0))
 	b.custom_minimum_size = Vector2(0, min_h)
-	b.add_theme_font_size_override("font_size", _fs(19 if not primary else 23))
-	b.add_theme_color_override("font_color", Color(0.06, 0.09, 0.07) if primary else MenuUI.TEXT)
-	b.add_theme_color_override("font_hover_color", Color(0.06, 0.09, 0.07) if primary else MenuUI.TEXT)
-	b.add_theme_color_override("font_pressed_color", Color(0.06, 0.09, 0.07) if primary else MenuUI.TEXT)
-	var normal_bg := Color(0.72, 0.82, 0.65, 0.98) if primary else Color(0.04, 0.08, 0.065, 0.88)
-	var hover_bg := Color(0.82, 0.90, 0.72, 1.0) if primary else Color(0.08, 0.15, 0.11, 0.96)
-	var pressed_bg := Color(0.58, 0.70, 0.50, 1.0) if primary else Color(0.10, 0.22, 0.15, 1.0)
-	var border := Color(0.88, 0.76, 0.46, 0.9) if primary else Color(0.32, 0.48, 0.38, 0.6)
-	b.add_theme_stylebox_override("normal", _button_style(normal_bg, border, 1, 12))
-	b.add_theme_stylebox_override("hover", _button_style(hover_bg, border, 1, 12))
-	b.add_theme_stylebox_override("pressed", _button_style(pressed_bg, border, 1, 12))
-	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	b.add_theme_font_size_override("font_size", _fs(17 if not primary else 19))
+	var v_name := variant if not variant.is_empty() else ("primary" if primary else "secondary")
+	VoltThemeScript.apply_button_variant(b, v_name, 10, _gap(14), _gap(4))
 	return b
 
 
 func _nav_button(icon_tex: Texture2D, text: String, primary: bool, callback: Callable,
 		height_override: float = 0.0, font_override: float = 0.0) -> Button:
-	var height: float = height_override if height_override > 0.0 else (62.0 if not primary else 70.0)
+	var height: float = height_override if height_override > 0.0 else (50.0 if not primary else 56.0)
 	var b := _button("  " + text, height, primary)
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	if icon_tex != null:
 		b.icon = icon_tex
 		b.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.expand_icon = true
-	var fpx: float = font_override if font_override > 0.0 else (21.0 if not primary else 24.0)
+	var fpx: float = font_override if font_override > 0.0 else (17.0 if not primary else 19.0)
 	b.add_theme_font_size_override("font_size", _fs(fpx))
-	b.add_theme_constant_override("h_separation", _gap(12))
+	b.add_theme_constant_override("h_separation", _gap(10))
 	b.pressed.connect(callback)
 	return b
 
@@ -788,75 +795,69 @@ func _slider(value: float, minv: float, maxv: float, step: float, on_change: Cal
 	if _knob_tex != null:
 		s.add_theme_icon_override("grabber", _knob_tex)
 		s.add_theme_icon_override("grabber_highlight", _knob_tex)
-	var track := StyleBoxFlat.new()
-	track.bg_color = Color(0.10, 0.18, 0.14, 0.95)
-	track.set_corner_radius_all(_gap(4))
-	track.content_margin_top = _gap(3)
-	track.content_margin_bottom = _gap(3)
-	var fill := StyleBoxFlat.new()
-	fill.bg_color = Color(0.47, 0.70, 0.53, 0.95)
-	fill.set_corner_radius_all(_gap(4))
-	fill.content_margin_top = _gap(3)
-	fill.content_margin_bottom = _gap(3)
-	s.add_theme_stylebox_override("slider", track)
-	s.add_theme_stylebox_override("grabber_area", fill)
-	s.add_theme_stylebox_override("grabber_area_highlight", fill)
+	s.add_theme_stylebox_override("slider", VoltThemeScript.slider_track())
+	s.add_theme_stylebox_override("grabber_area", VoltThemeScript.slider_fill(false))
+	s.add_theme_stylebox_override("grabber_area_highlight", VoltThemeScript.slider_fill(true))
 	s.value_changed.connect(on_change)
 	return s
 
 
 func _style_option_button(opt: OptionButton) -> void:
 	opt.focus_mode = Control.FOCUS_NONE
-	opt.add_theme_font_size_override("font_size", _fs(16))
-	opt.add_theme_stylebox_override("normal", _panel_style(Color(0.04, 0.09, 0.07, 0.95), Color(0.35, 0.52, 0.42, 0.7), 1, 8))
-	opt.add_theme_stylebox_override("hover", _panel_style(Color(0.08, 0.16, 0.12, 1.0), Color(0.55, 0.75, 0.62, 0.9), 1, 8))
-	opt.add_theme_stylebox_override("pressed", _panel_style(Color(0.06, 0.12, 0.09, 1.0), Color(0.35, 0.52, 0.42, 0.7), 1, 8))
-	opt.add_theme_color_override("font_color", MenuUI.TEXT)
-	opt.add_theme_color_override("font_hover_color", MenuUI.TEXT)
-	opt.add_theme_color_override("font_pressed_color", MenuUI.TEXT)
+	opt.add_theme_font_override("font", VoltThemeScript.font_ui())
+	opt.add_theme_font_size_override("font_size", _fs(15))
+	opt.add_theme_stylebox_override("normal", VoltThemeScript.button_box(VoltThemeScript.SURFACE_SOLID, VoltThemeScript.BORDER, 1, 10, _gap(10), _gap(4)))
+	opt.add_theme_stylebox_override("hover", VoltThemeScript.button_box(VoltThemeScript.SURFACE_HOVER, VoltThemeScript.YELLOW_BORDER, 1, 10, _gap(10), _gap(4)))
+	opt.add_theme_stylebox_override("pressed", VoltThemeScript.button_box(VoltThemeScript.YELLOW_SOFT, VoltThemeScript.YELLOW, 1, 10, _gap(10), _gap(4)))
+	opt.add_theme_color_override("font_color", VoltThemeScript.TEXT)
+	opt.add_theme_color_override("font_hover_color", VoltThemeScript.YELLOW)
+	opt.add_theme_color_override("font_pressed_color", VoltThemeScript.YELLOW)
 
 
 func _style_progress_bar(bar: ProgressBar) -> void:
 	var bg_sb := StyleBoxFlat.new()
-	bg_sb.bg_color = Color(0.04, 0.08, 0.06, 0.95)
-	bg_sb.border_color = Color(0.24, 0.36, 0.28, 0.6)
+	bg_sb.bg_color = Color(1.0, 1.0, 1.0, 0.08)
+	bg_sb.border_color = Color(1.0, 1.0, 1.0, 0.12)
 	bg_sb.set_border_width_all(1)
-	bg_sb.set_corner_radius_all(4)
+	bg_sb.set_corner_radius_all(99)
 	bar.add_theme_stylebox_override("background", bg_sb)
 
 	var fill_sb := StyleBoxFlat.new()
-	fill_sb.bg_color = Color(0.38, 0.65, 0.48, 0.95)
-	fill_sb.set_corner_radius_all(4)
+	fill_sb.bg_color = VoltThemeScript.YELLOW
+	fill_sb.set_corner_radius_all(99)
 	bar.add_theme_stylebox_override("fill", fill_sb)
 
 
 func _build_background() -> void:
+	var obsidian_base := ColorRect.new()
+	obsidian_base.color = VoltThemeScript.BG
+	obsidian_base.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	obsidian_base.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(obsidian_base)
+
 	var bg := TextureRect.new()
 	if _bg_tex != null:
 		bg.texture = _bg_tex
 	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	bg.modulate = Color(1.0, 1.0, 1.0, 0.16)
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
-
-	# Grade the real menu artwork once, then draw all panels on top untouched.
-	var cinematic := CinematicOverlay.attach(self, 0.38, 0.014, 0.004, 0.0, 0.30)
-	if cinematic != null:
-		move_child(cinematic, 1)
 
 	_bg_blur = TextureRect.new()
 	if _bg_blur_tex != null:
 		_bg_blur.texture = _bg_blur_tex
 	_bg_blur.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_bg_blur.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	_bg_blur.modulate = Color(1.0, 1.0, 1.0, 0.10)
 	_bg_blur.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_bg_blur.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_bg_blur.visible = false
 	add_child(_bg_blur)
 
 	_screen_scrim = ColorRect.new()
-	_screen_scrim.color = Color(0.015, 0.045, 0.035, 0.12)
+	_screen_scrim.color = Color(0.031, 0.031, 0.034, 0.72)
 	_screen_scrim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_screen_scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_screen_scrim)
@@ -874,6 +875,17 @@ func _on_draw_hud_frame() -> void:
 	var sz := _hud_frame_overlay.size
 	if sz.x <= 40.0 or sz.y <= 40.0:
 		return
+	# Subtle Volt Monolith micro-dot architectural matrix across the obsidian canvas
+	var dot_col := Color(0.918, 0.906, 0.875, 0.065)
+	var spacing := 28.0
+	var x := spacing
+	while x < sz.x:
+		var y := spacing
+		while y < sz.y:
+			_hud_frame_overlay.draw_rect(Rect2(x, y, 1.5, 1.5), dot_col, true)
+			y += spacing
+		x += spacing
+
 	var safe_m: Dictionary = MenuUI.get_safe_margins(sz)
 	var lp := maxf(10.0, float(safe_m.get("left", 0)) * 0.5 + 8.0)
 	var rp := maxf(10.0, float(safe_m.get("right", 0)) * 0.5 + 8.0)
@@ -883,32 +895,22 @@ func _on_draw_hud_frame() -> void:
 	var tr := Vector2(sz.x - rp, tp)
 	var bl := Vector2(lp, sz.y - bp)
 	var br := Vector2(sz.x - rp, sz.y - bp)
-	var br_len := 26.0
-	var line_col := Color(0.52, 0.86, 0.64, 0.50)
-	var pip_col := Color(0.95, 0.78, 0.34, 0.85)
-	# Outer subtle perimeter hairline
-	_hud_frame_overlay.draw_rect(Rect2(tl, br - tl), Color(0.32, 0.54, 0.40, 0.18), false, 1.0)
-	# 4 Avionics Corner L-Brackets + Amber Pips
-	_hud_frame_overlay.draw_line(tl, tl + Vector2(br_len, 0), line_col, 2.2)
-	_hud_frame_overlay.draw_line(tl, tl + Vector2(0, br_len), line_col, 2.2)
-	_hud_frame_overlay.draw_rect(Rect2(tl - Vector2(1.5, 1.5), Vector2(4.5, 4.5)), pip_col, true)
-	_hud_frame_overlay.draw_line(tr, tr + Vector2(-br_len, 0), line_col, 2.2)
-	_hud_frame_overlay.draw_line(tr, tr + Vector2(0, br_len), line_col, 2.2)
-	_hud_frame_overlay.draw_rect(Rect2(tr - Vector2(3.0, 1.5), Vector2(4.5, 4.5)), pip_col, true)
-	_hud_frame_overlay.draw_line(bl, bl + Vector2(br_len, 0), line_col, 2.2)
-	_hud_frame_overlay.draw_line(bl, bl + Vector2(0, -br_len), line_col, 2.2)
-	_hud_frame_overlay.draw_rect(Rect2(bl - Vector2(1.5, 3.0), Vector2(4.5, 4.5)), pip_col, true)
-	_hud_frame_overlay.draw_line(br, br + Vector2(-br_len, 0), line_col, 2.2)
-	_hud_frame_overlay.draw_line(br, br + Vector2(0, -br_len), line_col, 2.2)
-	_hud_frame_overlay.draw_rect(Rect2(br - Vector2(3.0, 3.0), Vector2(4.5, 4.5)), pip_col, true)
-	# Top & bottom telemetry azimuth ticks
-	var mid_x := sz.x * 0.5
-	var tick_col := Color(0.55, 0.85, 0.65, 0.34)
-	for i in range(-10, 11):
-		var tx := mid_x + float(i) * 24.0
-		var th := 6.0 if (i % 5 == 0) else 3.0
-		_hud_frame_overlay.draw_line(Vector2(tx, tp), Vector2(tx, tp + th), tick_col, 1.2)
-		_hud_frame_overlay.draw_line(Vector2(tx, sz.y - bp), Vector2(tx, sz.y - bp - th), tick_col, 1.2)
+	var br_len := 20.0
+	var line_col := Color(0.918, 0.906, 0.875, 0.22)
+	var pip_col := VoltThemeScript.YELLOW
+	_hud_frame_overlay.draw_rect(Rect2(tl, br - tl), Color(0.918, 0.906, 0.875, 0.07), false, 1.0)
+	_hud_frame_overlay.draw_line(tl, tl + Vector2(br_len, 0), line_col, 1.5)
+	_hud_frame_overlay.draw_line(tl, tl + Vector2(0, br_len), line_col, 1.5)
+	_hud_frame_overlay.draw_rect(Rect2(tl - Vector2(1.5, 1.5), Vector2(4.0, 4.0)), pip_col, true)
+	_hud_frame_overlay.draw_line(tr, tr + Vector2(-br_len, 0), line_col, 1.5)
+	_hud_frame_overlay.draw_line(tr, tr + Vector2(0, br_len), line_col, 1.5)
+	_hud_frame_overlay.draw_rect(Rect2(tr - Vector2(2.5, 1.5), Vector2(4.0, 4.0)), pip_col, true)
+	_hud_frame_overlay.draw_line(bl, bl + Vector2(br_len, 0), line_col, 1.5)
+	_hud_frame_overlay.draw_line(bl, bl + Vector2(0, -br_len), line_col, 1.5)
+	_hud_frame_overlay.draw_rect(Rect2(bl - Vector2(1.5, 2.5), Vector2(4.0, 4.0)), pip_col, true)
+	_hud_frame_overlay.draw_line(br, br + Vector2(-br_len, 0), line_col, 1.5)
+	_hud_frame_overlay.draw_line(br, br + Vector2(0, -br_len), line_col, 1.5)
+	_hud_frame_overlay.draw_rect(Rect2(br - Vector2(2.5, 2.5), Vector2(4.0, 4.0)), pip_col, true)
 
 
 func _build_perf_bars_row(store: Dictionary) -> HBoxContainer:
@@ -917,17 +919,17 @@ func _build_perf_bars_row(store: Dictionary) -> HBoxContainer:
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_theme_constant_override("separation", _gap(10))
 	var defs := [
-		{"key": "speed", "ua": "ШВИДКІСТЬ", "en": "SPEED", "col": Color(0.38, 0.90, 0.96, 0.95)},
-		{"key": "thrust", "ua": "ТЯГА", "en": "THRUST", "col": Color(0.46, 0.92, 0.60, 0.95)},
-		{"key": "agility", "ua": "МАНЕВР", "en": "AGILITY", "col": Color(0.96, 0.78, 0.34, 0.95)},
-		{"key": "payload", "ua": "БЧ", "en": "PAYLOAD", "col": Color(0.94, 0.48, 0.40, 0.95)},
+		{"key": "speed", "ua": "ШВИДКІСТЬ", "en": "SPEED", "col": VoltThemeScript.STONE},
+		{"key": "thrust", "ua": "ТЯГА", "en": "THRUST", "col": VoltThemeScript.YELLOW},
+		{"key": "agility", "ua": "МАНЕВР", "en": "AGILITY", "col": VoltThemeScript.STONE},
+		{"key": "payload", "ua": "БЧ", "en": "PAYLOAD", "col": VoltThemeScript.YELLOW},
 	]
 	for d in defs:
 		var col_box := VBoxContainer.new()
 		col_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		col_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		col_box.add_theme_constant_override("separation", _gap(2))
-		var lbl := _label(str(d["en" if MenuUI.is_english() else "ua"]), 10, Color(0.82, 0.90, 0.85))
+		col_box.add_theme_constant_override("separation", _gap(3))
+		var lbl := _label(str(d["en" if MenuUI.is_english() else "ua"]), 10, VoltThemeScript.STONE_DIM, VoltThemeScript.font_mono())
 		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		col_box.add_child(lbl)
 		var bar := ProgressBar.new()
@@ -936,21 +938,63 @@ func _build_perf_bars_row(store: Dictionary) -> HBoxContainer:
 		bar.max_value = 100.0
 		bar.value = 70.0
 		bar.show_percentage = false
-		bar.custom_minimum_size = Vector2(_ui_sz(68), _gap(7))
+		bar.custom_minimum_size = Vector2(_ui_sz(68), _gap(5))
 		var bg_sb := StyleBoxFlat.new()
-		bg_sb.bg_color = Color(0.03, 0.07, 0.05, 0.92)
-		bg_sb.border_color = Color(0.28, 0.44, 0.34, 0.65)
-		bg_sb.set_border_width_all(1)
-		bg_sb.set_corner_radius_all(3)
+		bg_sb.bg_color = Color(1.0, 1.0, 1.0, 0.11)
+		bg_sb.set_corner_radius_all(99)
 		bar.add_theme_stylebox_override("background", bg_sb)
 		var fill_sb := StyleBoxFlat.new()
 		fill_sb.bg_color = d["col"] as Color
-		fill_sb.set_corner_radius_all(3)
+		fill_sb.set_corner_radius_all(99)
 		bar.add_theme_stylebox_override("fill", fill_sb)
 		col_box.add_child(bar)
 		row.add_child(col_box)
 		store[str(d["key"])] = {"label": lbl, "bar": bar, "ua": str(d["ua"]), "en": str(d["en"])}
 	return row
+
+
+func _build_perf_bars_grid(store: Dictionary) -> GridContainer:
+	store.clear()
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation", _gap(14))
+	grid.add_theme_constant_override("v_separation", _gap(5))
+	var defs := [
+		{"key": "speed", "ua": "ШВИДКІСТЬ", "en": "SPEED", "col": VoltThemeScript.STONE},
+		{"key": "thrust", "ua": "ТЯГА", "en": "THRUST", "col": VoltThemeScript.YELLOW},
+		{"key": "agility", "ua": "МАНЕВР", "en": "AGILITY", "col": VoltThemeScript.STONE},
+		{"key": "payload", "ua": "ВАНТАЖ", "en": "PAYLOAD", "col": VoltThemeScript.YELLOW},
+	]
+	for d in defs:
+		var col_box := VBoxContainer.new()
+		col_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col_box.add_theme_constant_override("separation", _gap(3))
+		var lbl := _label(str(d["en" if MenuUI.is_english() else "ua"]), 10, VoltThemeScript.STONE_DIM, VoltThemeScript.font_mono())
+		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col_box.add_child(lbl)
+		var bar := ProgressBar.new()
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bar.min_value = 0.0
+		bar.max_value = 100.0
+		bar.value = 70.0
+		bar.show_percentage = false
+		bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bar.custom_minimum_size = Vector2(_ui_sz(116), _gap(4))
+		var bg_sb := StyleBoxFlat.new()
+		bg_sb.bg_color = Color(1.0, 1.0, 1.0, 0.11)
+		bg_sb.set_corner_radius_all(99)
+		bar.add_theme_stylebox_override("background", bg_sb)
+		var fill_sb := StyleBoxFlat.new()
+		fill_sb.bg_color = d["col"] as Color
+		fill_sb.set_corner_radius_all(99)
+		bar.add_theme_stylebox_override("fill", fill_sb)
+		col_box.add_child(bar)
+		grid.add_child(col_box)
+		store[str(d["key"])] = {"label": lbl, "bar": bar, "ua": str(d["ua"]), "en": str(d["en"])}
+	return grid
 
 
 func _update_perf_bars(store: Dictionary, p: Dictionary) -> void:
@@ -988,10 +1032,10 @@ func _build_root() -> void:
 
 	# iPhone / Notch / Dynamic Island & Home indicator Safe Area Handling
 	var safe_m: Dictionary = MenuUI.get_safe_margins(s)
-	var left_pad := maxi(24, int(safe_m.get("left", 0)))
-	var right_pad := maxi(24, int(safe_m.get("right", 0)))
-	var top_pad := maxi(12, int(safe_m.get("top", 0)))
-	var bottom_pad := maxi(14, int(safe_m.get("bottom", 0)))
+	var left_pad := maxi(22, int(safe_m.get("left", 0)))
+	var right_pad := maxi(22, int(safe_m.get("right", 0)))
+	var top_pad := maxi(10, int(safe_m.get("top", 0)))
+	var bottom_pad := maxi(12, int(safe_m.get("bottom", 0)))
 
 	margin.add_theme_constant_override("margin_left", left_pad)
 	margin.add_theme_constant_override("margin_right", right_pad)
@@ -1000,54 +1044,60 @@ func _build_root() -> void:
 	add_child(margin)
 
 	_root = VBoxContainer.new()
-	_root.add_theme_constant_override("separation", _gap(8))
+	_root.add_theme_constant_override("separation", _gap(6))
 	margin.add_child(_root)
 
-	# Top Masthead
+	# Top Masthead (03 · VOLT MONOLITH)
 	_masthead = HBoxContainer.new()
 	var top := _masthead
-	top.custom_minimum_size.y = _fs(46)
+	top.custom_minimum_size.y = _fs(38)
 	top.add_theme_constant_override("separation", _gap(10))
 	_root.add_child(top)
 
-	_back_btn = _button(" НАЗАД", 48)
-	_back_btn.icon = MenuIcons.icon_back(MenuUI.TEXT)
+	_back_btn = _button(" НАЗАД", 34, false, "ghost")
+	_back_btn.icon = MenuIcons.icon_back(VoltThemeScript.STONE, 20)
 	_back_btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	_back_btn.add_theme_constant_override("h_separation", _gap(8))
-	_back_btn.add_theme_font_size_override("font_size", _fs(19))
-	_back_btn.custom_minimum_size = Vector2(_ui_sz(150), _ui_sz(46))
+	_back_btn.add_theme_constant_override("h_separation", _gap(6))
+	_back_btn.add_theme_font_size_override("font_size", _fs(14))
+	_back_btn.custom_minimum_size = Vector2(_ui_sz(112), _ui_sz(34))
 	_back_btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_back_btn.pressed.connect(_on_back)
 	_back_btn.visible = false
 	top.add_child(_back_btn)
 
-	# Left horizontal expanding spacer
-	var top_spacer_left := Control.new()
-	top_spacer_left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	top_spacer_left.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	top.add_child(top_spacer_left)
-
-	_top_brand = VBoxContainer.new()
-	_top_brand.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	_top_brand.alignment = BoxContainer.ALIGNMENT_CENTER
-	_top_brand.add_theme_constant_override("separation", _gap(1))
-	_top_brand.visible = false
+	_top_brand = HBoxContainer.new()
+	_top_brand.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	_top_brand.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_top_brand.add_theme_constant_override("separation", _gap(8))
+	_top_brand.visible = true
 	top.add_child(_top_brand)
 
-	var logo := _label("НЕБЕСНИЙ ГОРИЗОНТ", 26, MenuUI.TEXT)
-	logo.name = "TopBrandLogo"
-	logo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_top_brand.add_child(logo)
-	var brand_sub := _label("ТАКТИЧНИЙ FPV-СИМУЛЯТОР  •  МОБІЛЬНИЙ ТЕРМІНАЛ", 11, MenuUI.MUTED)
-	brand_sub.name = "TopBrandSub"
-	brand_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_top_brand.add_child(brand_sub)
+	var brand_bar := ColorRect.new()
+	brand_bar.color = VoltThemeScript.YELLOW
+	brand_bar.custom_minimum_size = Vector2(3, _fs(24))
+	brand_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_top_brand.add_child(brand_bar)
 
-	# Right horizontal expanding spacer (guarantees chips are pinned to the top-right corner)
-	var top_spacer_right := Control.new()
-	top_spacer_right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	top_spacer_right.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	top.add_child(top_spacer_right)
+	var brand_txt := VBoxContainer.new()
+	brand_txt.alignment = BoxContainer.ALIGNMENT_CENTER
+	brand_txt.add_theme_constant_override("separation", 0)
+	_top_brand.add_child(brand_txt)
+
+	var logo := _label("НЕБЕСНИЙ ГОРИЗОНТ", 17, VoltThemeScript.TEXT, VoltThemeScript.font_display())
+	logo.name = "TopBrandLogo"
+	logo.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_main_logo = logo
+	brand_txt.add_child(logo)
+
+	var brand_sub := _label("ТАКТИЧНИЙ FPV-СИМУЛЯТОР", 10, VoltThemeScript.STONE_DIM, VoltThemeScript.font_mono())
+	brand_sub.name = "TopBrandSub"
+	brand_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	brand_txt.add_child(brand_sub)
+
+	var top_spacer := Control.new()
+	top_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top.add_child(top_spacer)
 
 	_chips = HBoxContainer.new()
 	var chips := _chips
@@ -1056,44 +1106,159 @@ func _build_root() -> void:
 	chips.add_theme_constant_override("separation", _gap(6))
 	top.add_child(chips)
 
-	_coin_chip = _chip_panel(Color(0.88, 0.72, 0.34, 0.85))
+	# Inverted Warm Stone Coins Chip (#EAE7DF)
+	_coin_chip = _chip_panel(VoltThemeScript.STONE, VoltThemeScript.STONE)
 	_coin_chip.name = "CoinsChip"
-	_coin_label = _label(Progress.coins_text(), 12, MenuUI.FPV_AMBER)
-	_coin_chip.add_child(_coin_label)
+	var coin_row := HBoxContainer.new()
+	coin_row.add_theme_constant_override("separation", _gap(5))
+	coin_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	var coin_ico := TextureRect.new()
+	coin_ico.texture = MenuIcons.icon_coin(VoltThemeScript.TEXT_DARK, 18)
+	coin_ico.custom_minimum_size = Vector2(_fs(14), _fs(14))
+	coin_ico.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	coin_ico.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	coin_row.add_child(coin_ico)
+	_coin_label = _label(str(maxi(0, Progress.coins)), 12, VoltThemeScript.TEXT_DARK, VoltThemeScript.font_mono())
+	coin_row.add_child(_coin_label)
+	_coin_chip.add_child(coin_row)
 	chips.add_child(_coin_chip)
 
 	var gc_top_label := ("GC" if Global.is_game_center_available() else "RECORDS") \
 			if MenuUI.is_english() else "РЕКОРДИ"
-	_gc_top_btn = _button(gc_top_label, 32, false)
+	_gc_top_btn = _button(gc_top_label, 32, false, "ghost")
 	var gc_top_btn := _gc_top_btn
 	gc_top_btn.name = "GcTopButton"
-	gc_top_btn.icon = MenuIcons.icon_trophy(MenuUI.FPV_AMBER, 20)
+	gc_top_btn.icon = MenuIcons.icon_trophy(VoltThemeScript.YELLOW, 18)
 	gc_top_btn.expand_icon = false
 	gc_top_btn.add_theme_constant_override("h_separation", _gap(6))
-	gc_top_btn.custom_minimum_size = Vector2(_ui_sz(112 if MenuUI.is_english() else 124), _ui_sz(32))
+	gc_top_btn.add_theme_font_override("font", VoltThemeScript.font_mono())
+	gc_top_btn.add_theme_font_size_override("font_size", _fs(12))
+	gc_top_btn.custom_minimum_size = Vector2(_ui_sz(108 if MenuUI.is_english() else 120), _ui_sz(32))
+	VoltThemeScript.apply_button_variant(gc_top_btn, "ghost", 999, _gap(10), _gap(3))
 	gc_top_btn.tooltip_text = Global.get_leaderboard_summary(MenuUI.is_english())
 	gc_top_btn.pressed.connect(_open_mobile_records)
 	chips.add_child(gc_top_btn)
 
-	_lang_top_btn = _button("EN" if MenuUI.is_english() else "UA", 32, false)
+	_lang_top_btn = _button("EN" if MenuUI.is_english() else "UA", 32, false, "ghost")
 	var lang_top_btn := _lang_top_btn
+	lang_top_btn.add_theme_font_override("font", VoltThemeScript.font_mono())
+	lang_top_btn.add_theme_font_size_override("font_size", _fs(12))
 	lang_top_btn.custom_minimum_size = Vector2(_ui_sz(48), _ui_sz(32))
+	VoltThemeScript.apply_button_variant(lang_top_btn, "ghost", 999, _gap(8), _gap(3))
 	lang_top_btn.pressed.connect(_on_toggle_language)
 	chips.add_child(lang_top_btn)
 
-	_elrs_chip = _chip_panel(Color(0.40, 0.62, 0.48, 0.65))
-	_elrs_label = _label("ELRS: ПОШУК", 11, MenuUI.MUTED)
-	_elrs_chip.add_child(_elrs_label)
+	_elrs_chip = _chip_panel(VoltThemeScript.BORDER, VoltThemeScript.SURFACE)
+	var elrs_row := HBoxContainer.new()
+	elrs_row.add_theme_constant_override("separation", _gap(6))
+	elrs_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_elrs_dot = ColorRect.new()
+	_elrs_dot.custom_minimum_size = Vector2(7, 7)
+	_elrs_dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_elrs_dot.color = VoltThemeScript.STONE_DIM
+	elrs_row.add_child(_elrs_dot)
+	_elrs_label = _label("ELRS: ПОШУК", 11, VoltThemeScript.STONE_DIM, VoltThemeScript.font_mono())
+	elrs_row.add_child(_elrs_label)
+	_elrs_chip.add_child(elrs_row)
 	chips.add_child(_elrs_chip)
 
-	_input_chip = _chip_panel(Color(0.62, 0.76, 0.55, 0.65))
-	_input_label = _label("ВХІД: СЕНСОР", 11, MenuUI.FPV_CYAN)
+	_input_chip = _chip_panel(VoltThemeScript.BORDER, VoltThemeScript.SURFACE)
+	_input_label = _label("ВХІД: СЕНСОР", 11, VoltThemeScript.STONE, VoltThemeScript.font_mono())
 	_input_chip.add_child(_input_label)
 	chips.add_child(_input_chip)
 
+	_body_hbox = HBoxContainer.new()
+	_body_hbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_body_hbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_body_hbox.add_theme_constant_override("separation", _gap(10))
+	_root.add_child(_body_hbox)
+
+	_build_nav_capsule(_body_hbox)
+
 	_content = Control.new()
+	_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_content.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_root.add_child(_content)
+	_body_hbox.add_child(_content)
+
+
+func _build_nav_capsule(parent: HBoxContainer) -> void:
+	_nav_buttons.clear()
+	_nav_capsule = PanelContainer.new()
+	_nav_capsule.name = "VoltNavCapsule"
+	_nav_capsule.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_nav_capsule.add_theme_stylebox_override("panel", VoltThemeScript.capsule_box())
+	parent.add_child(_nav_capsule)
+
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", _gap(6))
+	_nav_capsule.add_child(vb)
+
+	var items := [
+		{"id": "main", "ico": "home", "ua": "Головна", "en": "Home"},
+		{"id": "play", "ico": "sortie", "ua": "Виліт", "en": "Sortie"},
+		{"id": "controls", "ico": "radio", "ua": "Пульт 3D", "en": "Radio 3D"},
+		{"id": "rates", "ico": "rates", "ua": "Рейти", "en": "Rates"},
+		{"id": "drone", "ico": "hangar", "ua": "Ангар", "en": "Hangar"},
+		{"id": "settings", "ico": "settings", "ua": "Налаштування", "en": "Settings"},
+	]
+	for it in items:
+		var sid := str(it["id"])
+		var ico_kind := str(it["ico"])
+		var btn := Button.new()
+		btn.name = "CapsuleNav_" + sid
+		btn.focus_mode = Control.FOCUS_NONE
+		btn.custom_minimum_size = Vector2(_ui_sz(38), _ui_sz(38))
+		btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		btn.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
+		btn.expand_icon = false
+		btn.tooltip_text = str(it["en" if MenuUI.is_english() else "ua"])
+		btn.set_meta("nav_id", sid)
+		btn.set_meta("ico_kind", ico_kind)
+		btn.pressed.connect(func(): _show(sid))
+		vb.add_child(btn)
+		_nav_buttons[sid] = btn
+	_update_nav_capsule()
+
+
+func _capsule_icon(kind: String, col: Color) -> Texture2D:
+	match kind:
+		"home":
+			return MenuIcons.icon_home(col, 22)
+		"sortie":
+			return MenuIcons.icon_sortie(col, 22)
+		"radio":
+			return MenuIcons.icon_radio(col, 22)
+		"rates":
+			return MenuIcons.icon_rates(col, 22)
+		"hangar":
+			return MenuIcons.icon_hangar(col, 22)
+		_:
+			return MenuIcons.icon_settings(col, 22)
+
+
+func _update_nav_capsule() -> void:
+	if _nav_capsule == null or not is_instance_valid(_nav_capsule):
+		return
+	var compact := _vsize().x < 700.0
+	_nav_capsule.visible = not is_pause_mode
+	var cap_sz := Vector2(_ui_sz(32 if compact else 38), _ui_sz(32 if compact else 38))
+	for sid in _nav_buttons.keys():
+		var btn: Button = _nav_buttons[sid] as Button
+		if btn == null or not is_instance_valid(btn):
+			continue
+		btn.custom_minimum_size = cap_sz
+		var active := (str(sid) == _current)
+		var kind := str(btn.get_meta("ico_kind", "home"))
+		if active:
+			btn.add_theme_stylebox_override("normal", VoltThemeScript.button_box(VoltThemeScript.YELLOW, VoltThemeScript.YELLOW, 1, 999, 6, 6, Color(1.0, 0.882, 0.0, 0.25), 8))
+			btn.add_theme_stylebox_override("hover", VoltThemeScript.button_box(VoltThemeScript.YELLOW_HOVER, VoltThemeScript.YELLOW, 1, 999, 6, 6))
+			btn.add_theme_stylebox_override("pressed", VoltThemeScript.button_box(VoltThemeScript.YELLOW_PRESSED, VoltThemeScript.YELLOW, 1, 999, 6, 6))
+			btn.icon = _capsule_icon(kind, VoltThemeScript.TEXT_DARK)
+		else:
+			btn.add_theme_stylebox_override("normal", VoltThemeScript.button_box(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, 999, 6, 6, Color(0, 0, 0, 0), 0))
+			btn.add_theme_stylebox_override("hover", VoltThemeScript.button_box(Color(1.0, 1.0, 1.0, 0.08), VoltThemeScript.BORDER, 1, 999, 6, 6, Color(0, 0, 0, 0), 0))
+			btn.add_theme_stylebox_override("pressed", VoltThemeScript.button_box(VoltThemeScript.YELLOW_SOFT, VoltThemeScript.YELLOW_BORDER, 1, 999, 6, 6, Color(0, 0, 0, 0), 0))
+			btn.icon = _capsule_icon(kind, VoltThemeScript.STONE_DIM)
 
 
 func _make_screen(name: String) -> Control:
@@ -1115,8 +1280,9 @@ func _show(name: String) -> void:
 	_bg_blur.visible = name != "main"
 	_back_btn.visible = name != "main"
 	if _top_brand != null:
-		_top_brand.visible = (name != "main")
+		_top_brand.visible = true
 	_apply_masthead_layout()
+	_update_nav_capsule()
 	if name == "play":
 		if _play_modes_row != null:
 			_update_play_modes(_play_modes_row)
@@ -1128,8 +1294,9 @@ func _show(name: String) -> void:
 			_hangar_preview_idx = Global.drone_preset
 			_load_hangar_model(_hangar_preview_idx)
 		_update_hangar_list_styles()
-	_screen_scrim.color = Color(0.015, 0.045, 0.035, 0.10 if name == "main" else 0.22)
+	_screen_scrim.color = Color(0.031, 0.031, 0.034, 0.68 if name == "main" else 0.80)
 	_update_status()
+	VoltThemeScript.animate_pop_in(_screens[name] as Control, 0.18)
 
 
 func _on_mobile_viewport_resized() -> void:
@@ -1146,27 +1313,29 @@ func _apply_masthead_layout() -> void:
 	var compact := _vsize().x < 700.0
 	if _main_logo != null:
 		_main_logo.add_theme_font_size_override("font_size",
-				_fs(24 if _vsize().x < 520.0 else 30))
+				_fs(14 if compact else 17))
 	if _main_hero != null:
-		# A portrait phone cannot fit the nav rail and the 3D hangar card side
-		# by side; leaving the hero in the HBox produced a clipped sliver.
-		_main_hero.visible = not (_vsize().x < 700.0 and _vsize().y > _vsize().x)
+		_main_hero.visible = true
 	if _top_brand != null:
-		_top_brand.visible = not compact and _current != "main"
+		_top_brand.visible = true
+		var sub_lbl := _top_brand.find_child("TopBrandSub", true, false) as Label
+		if sub_lbl != null:
+			sub_lbl.visible = _vsize().x >= 620.0
+	_update_nav_capsule()
 	if _gc_top_btn != null:
 		var gc_label := ("GC" if Global.is_game_center_available() else "RECORDS") \
 				if MenuUI.is_english() else "РЕКОРДИ"
 		_gc_top_btn.text = "" if compact else gc_label
-		_gc_top_btn.custom_minimum_size = Vector2(_ui_sz(44 if compact else (112 if MenuUI.is_english() else 124)),
+		_gc_top_btn.custom_minimum_size = Vector2(_ui_sz(44 if compact else (108 if MenuUI.is_english() else 120)),
 				_ui_sz(32))
 	if _elrs_chip != null:
 		_elrs_chip.visible = not compact
 	if _input_chip != null:
 		_input_chip.visible = not compact
 	if _back_btn != null:
-		_back_btn.custom_minimum_size.x = _ui_sz(104 if compact else 150)
+		_back_btn.custom_minimum_size.x = _ui_sz(88 if compact else 112)
 	if _chips != null:
-		_chips.add_theme_constant_override("separation", _gap(6 if compact else 6))
+		_chips.add_theme_constant_override("separation", _gap(6))
 
 
 func _on_back() -> void:
@@ -1223,168 +1392,61 @@ func _update_status() -> void:
 	var status := str(elrs.get("status_text")) if elrs != null else ""
 	if valid or status.find("ПОТІК") >= 0:
 		_elrs_label.text = MenuUI.translate_text("ELRS: ПОТІК")
-		_elrs_label.add_theme_color_override("font_color", MenuUI.FPV_GREEN)
+		_elrs_label.add_theme_color_override("font_color", VoltThemeScript.GOOD)
+		if _elrs_dot != null:
+			_elrs_dot.color = VoltThemeScript.GOOD
+		if _elrs_chip != null:
+			_elrs_chip.add_theme_stylebox_override("panel", VoltThemeScript.pill_box(VoltThemeScript.SURFACE, Color(0.298, 0.851, 0.541, 0.45), _gap(10), _gap(4)))
 		if _input_label != null:
 			_input_label.text = MenuUI.translate_text("ВХІД: ELRS (POCKET)")
-			_input_label.add_theme_color_override("font_color", MenuUI.FPV_GREEN)
+			_input_label.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
 	else:
 		_elrs_label.text = MenuUI.translate_text(status if not status.is_empty() else "ELRS: ВИМК.")
-		_elrs_label.add_theme_color_override("font_color", MenuUI.MUTED)
+		_elrs_label.add_theme_color_override("font_color", VoltThemeScript.STONE_DIM)
+		if _elrs_dot != null:
+			_elrs_dot.color = VoltThemeScript.STONE_DIM
+		if _elrs_chip != null:
+			_elrs_chip.add_theme_stylebox_override("panel", VoltThemeScript.pill_box(VoltThemeScript.SURFACE, VoltThemeScript.BORDER, _gap(10), _gap(4)))
 		if _input_label != null:
 			_input_label.text = MenuUI.translate_text("ВХІД: СЕНСОР")
-			_input_label.add_theme_color_override("font_color", MenuUI.FPV_CYAN)
+			_input_label.add_theme_color_override("font_color", VoltThemeScript.STONE)
 
 
 # ---------------------------------------------------------------- MAIN SCREEN WITH 3D HERO
 func _build_main() -> void:
 	var screen := _make_screen("main")
-	var h := HBoxContainer.new()
-	h.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	h.add_theme_constant_override("separation", _gap(16))
-	screen.add_child(h)
-
-	var has_quick_tut := not Global.is_tutorial_completed()
-	var nav_h: float = 42.0 if has_quick_tut else 48.0
-	var nav_h_pri: float = 48.0 if has_quick_tut else 54.0
-	var nav_font: float = 18.0 if has_quick_tut else 19.0
-	var nav_font_pri: float = 20.0 if has_quick_tut else 22.0
-
-	# Left Nav Rail
-	var left := VBoxContainer.new()
-	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	left.size_flags_stretch_ratio = 0.42
-	left.add_theme_constant_override("separation", _gap(4 if has_quick_tut else 5))
-	h.add_child(left)
-
-	# Title centered above nav buttons
-	var title_box := VBoxContainer.new()
-	title_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	title_box.alignment = BoxContainer.ALIGNMENT_CENTER
-	title_box.add_theme_constant_override("separation", _gap(1))
-
-	var main_logo := _label("НЕБЕСНИЙ ГОРИЗОНТ", 26 if has_quick_tut else 28, MenuUI.TEXT)
-	_main_logo = main_logo
-	main_logo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title_box.add_child(main_logo)
-
-	var main_sub := _label("ТАКТИЧНИЙ FPV-СИМУЛЯТОР", 11, MenuUI.FPV_AMBER)
-	main_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title_box.add_child(main_sub)
-
-	left.add_child(title_box)
-	left.add_child(_spacer(2))
-
-	if has_quick_tut:
-		var quick_btn := _nav_button(MenuIcons.icon_play(Color(0.06, 0.09, 0.07)),
-				"ШВИДКИЙ СТАРТ: ТУТОРІАЛ" if not MenuUI.is_english() else "QUICK START: TUTORIAL",
-				true, func():
-					_selected_mode = Global.PlayMode.TUTORIAL
-					_selected_map = "industrial"
-					if DroneCatalog.is_uman(Global.drone_preset):
-						DroneCatalog.apply(0)
-					_launch(),
-				nav_h_pri, nav_font_pri
-		)
-		left.add_child(quick_btn)
-
-	# Always-visible first-strike lesson, matching the desktop home screen.
-	var ct_done := Global.is_combat_training_completed()
-	var ct_text := ("✓ БОЙОВЕ ТРЕНУВАННЯ · ПОВТОРИТИ" if ct_done \
-			else "БОЙОВЕ ТРЕНУВАННЯ: 3 КРОКИ") if not MenuUI.is_english() \
-			else ("✓ COMBAT TRAINING · REPEAT" if ct_done \
-			else "COMBAT TRAINING: 3 STEPS")
-	left.add_child(_nav_button(MenuIcons.icon_trophy(MenuUI.WARN_AMBER),
-			ct_text, false, func():
-				_selected_mode = Global.PlayMode.TRAINING
-				_selected_map = "industrial"
-				_launch(true),
-			nav_h, nav_font
-	))
-
-	var sp_primary := Global.is_tutorial_completed()
-	var sp_icon_col := Color(0.06, 0.09, 0.07) if sp_primary else Color(0.84, 0.96, 0.87)
-	left.add_child(_nav_button(MenuIcons.icon_play(sp_icon_col), "ОДИНОЧНА ГРА", sp_primary, func(): _show("play"),
-			nav_h_pri if sp_primary else nav_h, nav_font_pri if sp_primary else nav_font))
-	left.add_child(_nav_button(MenuIcons.icon_radio(MenuUI.TEXT), "ПУЛЬТ ТА ELRS", false, func(): _show("controls"), nav_h, nav_font))
-	left.add_child(_nav_button(MenuIcons.icon_rates(MenuUI.TEXT), "РЕЙТИ ТА ЕКСПО", false, func(): _show("rates"), nav_h, nav_font))
-	left.add_child(_nav_button(MenuIcons.icon_hangar(MenuUI.TEXT), "АНГАР ДРОНІВ", false, func(): _show("drone"), nav_h, nav_font))
-	left.add_child(_nav_button(MenuIcons.icon_settings(MenuUI.TEXT), "НАЛАШТУВАННЯ", false, func(): _show("settings"), nav_h, nav_font))
-
-	left.add_child(_spacer(2))
-
-	# Tactical Changelog & Daily Challenge Card (single-margin compact style so bottom never clips)
-	var chg_card := PanelContainer.new()
-	var chg_sb := _panel_style(Color(0.02, 0.048, 0.038, 0.92), Color(0.38, 0.54, 0.42, 0.70), 1, 12)
-	chg_sb.content_margin_left = _gap(10)
-	chg_sb.content_margin_right = _gap(10)
-	chg_sb.content_margin_top = _gap(6)
-	chg_sb.content_margin_bottom = _gap(6)
-	chg_card.add_theme_stylebox_override("panel", chg_sb)
-	chg_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	chg_card.size_flags_vertical = Control.SIZE_SHRINK_END
-
-	var chg_v := VBoxContainer.new()
-	chg_v.add_theme_constant_override("separation", _gap(2))
-	chg_card.add_child(chg_v)
-
-	var is_en := MenuUI.is_english()
-	var chg_hdr := HBoxContainer.new()
-	var hdr_lbl := Label.new()
-	hdr_lbl.text = "UPDATES // CHANGELOG" if is_en else "ОНОВЛЕННЯ // СПИСОК ЗМІН"
-	hdr_lbl.add_theme_font_size_override("font_size", _fs_small(12))
-	hdr_lbl.add_theme_color_override("font_color", MenuUI.FPV_AMBER)
-	chg_hdr.add_child(hdr_lbl)
-	chg_hdr.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
-	var ver_lbl := Label.new()
-	ver_lbl.text = "v1.19.0"
-	ver_lbl.add_theme_font_size_override("font_size", _fs_small(11))
-	ver_lbl.add_theme_color_override("font_color", MenuUI.FPV_GREEN)
-	chg_hdr.add_child(ver_lbl)
-	chg_v.add_child(chg_hdr)
-
-	var dc := Global.get_daily_challenge()
-	var dc_title := str(dc.get("title_en" if is_en else "title_ua", dc.get("title_uk", "")))
-	var dc_line := ("★ ВИКЛИК ДНЯ: %s (+%d)" if not is_en else "★ DAILY CHALLENGE: %s (+%d)") % [dc_title, int(dc.get("bonus_score", 500))]
-	var trec := Global.get_training_record(str(Global.menu_settings.get("selected_map", "oilrig")))
-	var course_line := "• Freestyle track: gates ★ / S–B (with Ghost)" if is_en \
-			else "• Траса тренування: ворота на ★ / S–B (з Привидом)"
-	if bool(trec.get("completed", false)):
-		course_line = ("• Course best: %.1fs · %s [%s]" if is_en else "• Траса: рекорд %.1f с · %s [%s]") % [
-			float(trec.get("best_time", 0.0)), "★".repeat(int(trec.get("stars", 1))), str(trec.get("rank", trec.get("best_rank", "B")))]
-
-	var changes := [
-		dc_line,
-		course_line,
-		"• Modes: Tutorial (soft Angle) → Training → Combat" if is_en else "• Режими: Туторіал (м’яка Angle) → Тренування → Бойовий",
-		"• Gamepads, ELRS Wi-Fi, UA/EN & Safe Area" if is_en else "• Геймпади, ELRS Wi-Fi, UA/EN та Safe Area",
-	]
-	for c_txt in changes:
-		var cl := Label.new()
-		cl.text = c_txt
-		cl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		cl.add_theme_font_size_override("font_size", _fs_small(11))
-		cl.add_theme_color_override("font_color", Color(0.85, 0.94, 0.88))
-		chg_v.add_child(cl)
-
-	left.add_child(chg_card)
-	left.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
-
-	# Right 3D Rotating Drone Hero
+	# Full-bleed 03 · VOLT MONOLITH panoramic 3D showcase + diorama (no duplicated text nav rail)
 	var hero := _build_3d_hero()
 	_main_hero = hero
+	hero.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	hero.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hero.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	hero.size_flags_stretch_ratio = 0.58
-	h.add_child(hero)
+	screen.add_child(hero)
 
 
 func _build_3d_hero() -> Control:
-	var card := _panel(Color(0.025, 0.065, 0.05, 0.92), Color(0.38, 0.54, 0.42, 0.55), 1, 18)
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", VoltThemeScript.panel_box(
+			Color(0.038, 0.038, 0.044, 0.94), VoltThemeScript.BORDER, 1, 16, 0, 0, 12))
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	card.clip_contents = true
 
-	# 3D Viewport container for interactive turntable
+	# Giant subtle Unbounded callsign parallax watermark behind the 3D drone
+	var wm_wrap := CenterContainer.new()
+	wm_wrap.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	wm_wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(wm_wrap)
+
+	_hero_watermark = Label.new()
+	_hero_watermark.text = "GRIM-7"
+	_hero_watermark.add_theme_font_override("font", VoltThemeScript.font_display())
+	_hero_watermark.add_theme_font_size_override("font_size", _fs(84))
+	_hero_watermark.add_theme_color_override("font_color", Color(0.918, 0.906, 0.875, 0.055))
+	_hero_watermark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wm_wrap.add_child(_hero_watermark)
+
+	# Full-bleed 3D Viewport container for interactive turntable + crates + falling brass shells
 	_hero_container = SubViewportContainer.new()
 	_hero_container.stretch = true
 	_hero_container.custom_minimum_size = Vector2(0, 0)
@@ -1397,69 +1459,309 @@ func _build_3d_hero() -> Control:
 	_hero_viewport = SubViewport.new()
 	_hero_viewport.own_world_3d = true
 	_hero_viewport.transparent_bg = true
-	_hero_viewport.msaa_3d = Viewport.MSAA_2X
-	# MSAA already handles the turntable edges; skip the extra full-screen
-	# FXAA pass on the phone GPU.
+	_hero_viewport.msaa_3d = Viewport.MSAA_4X
 	_hero_viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
-	# Only render the turntable while its screen is actually visible.
+	_hero_viewport.scaling_3d_scale = 1.0
+	_hero_viewport.anisotropic_filtering_level = Viewport.ANISOTROPY_8X
+	_hero_viewport.use_debanding = true
+	_hero_viewport.positional_shadow_atlas_size = 1024
 	_hero_viewport.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
 	_hero_container.add_child(_hero_viewport)
 
 	_setup_hero_3d_world()
 
-	# Overlay UI on top of 3D Hero
+	# Floating Corner HUD Overlay on top of Full-Bleed 3D Hero Stage
 	var overlay := MarginContainer.new()
 	overlay.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	overlay.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for side in ["left", "right", "top", "bottom"]:
-		overlay.add_theme_constant_override("margin_%s" % side, _gap(12))
+		overlay.add_theme_constant_override("margin_%s" % side, _gap(16))
 	card.add_child(overlay)
 
 	var v := VBoxContainer.new()
-	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	overlay.add_child(v)
 
-	# Top info chip
+	# TOP CORNER ROW: Left Editorial Drone Telemetry Card + Right Quick Ops & Intel Strip
 	var top_info := HBoxContainer.new()
+	top_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top_info.add_theme_constant_override("separation", _gap(12))
 	v.add_child(top_info)
+
+	var info_card := PanelContainer.new()
+	info_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	info_card.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	info_card.custom_minimum_size.x = _ui_sz(316)
+	info_card.add_theme_stylebox_override("panel", VoltThemeScript.panel_box(
+			Color(0.031, 0.031, 0.036, 0.72), VoltThemeScript.BORDER, 1, 12, _gap(12), _gap(10), 8))
+	top_info.add_child(info_card)
+
+	var info_v := VBoxContainer.new()
+	info_v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	info_v.add_theme_constant_override("separation", _gap(6))
+	info_card.add_child(info_v)
+
+	var lockup := HBoxContainer.new()
+	lockup.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lockup.add_theme_constant_override("separation", _gap(10))
+	info_v.add_child(lockup)
+
+	var accent_bar := ColorRect.new()
+	accent_bar.color = VoltThemeScript.YELLOW
+	accent_bar.custom_minimum_size = Vector2(3, 0)
+	accent_bar.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	accent_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lockup.add_child(accent_bar)
 
 	var info_box := VBoxContainer.new()
 	info_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	info_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info_box.add_theme_constant_override("separation", _gap(2))
-	top_info.add_child(info_box)
+	lockup.add_child(info_box)
 
-	_hero_drone_name = _label("«ГРІМ-7»", 30, MenuUI.TEXT)
-	_hero_drone_name.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	info_box.add_child(_hero_drone_name)
-
-	_hero_drone_tag = _label("УДАРНИЙ 8–10\"  •  БОЙОВИЙ БПЛА", 13, MenuUI.FPV_AMBER)
+	_hero_drone_tag = _label("УДАРНИЙ 8–10\" · БОЙОВИЙ БПЛА", 11, VoltThemeScript.YELLOW, VoltThemeScript.font_mono())
+	_hero_drone_tag.add_theme_font_size_override("font_size", _fs_small(11))
 	_hero_drone_tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	info_box.add_child(_hero_drone_tag)
 
-	_hero_drone_specs = _label("МАСА: 1400 г  •  TWR: 3.5:1  •  1350 KV", 12, MenuUI.MUTED)
+	_hero_drone_name = _label("«ГРІМ-7»", 26, VoltThemeScript.TEXT, VoltThemeScript.font_display())
+	_hero_drone_name.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	info_box.add_child(_hero_drone_name)
+
+	_hero_drone_specs = _label("МАСА 1400Г  //  ТЯГА 3.5:1  //  1350 KV", 11, VoltThemeScript.STONE_DIM, VoltThemeScript.font_mono())
+	_hero_drone_specs.add_theme_font_size_override("font_size", _fs_small(10.5))
 	_hero_drone_specs.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	info_box.add_child(_hero_drone_specs)
-	info_box.add_child(_build_perf_bars_row(_hero_perf_bars))
 
+	var perf_grid := _build_perf_bars_grid(_hero_perf_bars)
+	for k in _hero_perf_bars.keys():
+		var item: Dictionary = _hero_perf_bars[k]
+		var lbl := item.get("label") as Label
+		if lbl != null:
+			lbl.add_theme_font_size_override("font_size", _fs_small(10))
+	info_v.add_child(perf_grid)
+
+	top_info.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
+
+	# Top-Right Quick Ops & Compact Updates Strip
+	var right_cluster := VBoxContainer.new()
+	right_cluster.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	right_cluster.size_flags_horizontal = Control.SIZE_SHRINK_END
+	right_cluster.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	right_cluster.add_theme_constant_override("separation", _gap(6))
+	top_info.add_child(right_cluster)
+
+	var is_en := MenuUI.is_english()
+	var quick_row := HBoxContainer.new()
+	quick_row.alignment = BoxContainer.ALIGNMENT_END
+	quick_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	quick_row.add_theme_constant_override("separation", _gap(6))
+	right_cluster.add_child(quick_row)
+
+	var tut_need := not Global.is_tutorial_completed()
+	var tut_txt := ("TUTORIAL" if is_en else "ТУТОРІАЛ") if not tut_need \
+			else ("TUTORIAL · START" if is_en else "ТУТОРІАЛ · СТАРТ")
+	var tut_btn := _button(tut_txt, 34, tut_need, "primary" if tut_need else "ghost")
+	tut_btn.icon = MenuIcons.icon_school(VoltThemeScript.TEXT_DARK if tut_need else VoltThemeScript.YELLOW, 16)
+	tut_btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	tut_btn.expand_icon = false
+	tut_btn.add_theme_constant_override("h_separation", _gap(6))
+	tut_btn.add_theme_font_size_override("font_size", _fs_small(12))
+	tut_btn.pressed.connect(func():
+		_selected_mode = Global.PlayMode.TUTORIAL
+		_selected_map = "industrial"
+		if DroneCatalog.is_uman(Global.drone_preset):
+			DroneCatalog.apply(0)
+		_launch()
+	)
+	quick_row.add_child(tut_btn)
+
+	var ct_done := Global.is_combat_training_completed()
+	var ct_text := ("3 STEPS · OK" if ct_done else "3 STEPS") if is_en \
+			else ("3 КРОКИ · OK" if ct_done else "3 КРОКИ")
+	var ct_btn := _button(ct_text, 34, false, "ghost")
+	ct_btn.icon = MenuIcons.icon_check(VoltThemeScript.GOOD, 16) if ct_done else MenuIcons.icon_target(VoltThemeScript.YELLOW, 16)
+	ct_btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	ct_btn.expand_icon = false
+	ct_btn.add_theme_constant_override("h_separation", _gap(6))
+	ct_btn.add_theme_font_size_override("font_size", _fs_small(12))
+	ct_btn.tooltip_text = "Combat training: 3 steps" if is_en else "Бойове тренування: 3 кроки"
+	ct_btn.pressed.connect(func():
+		_selected_mode = Global.PlayMode.TRAINING
+		_selected_map = "industrial"
+		_launch(true)
+	)
+	quick_row.add_child(ct_btn)
+
+	var orbit_pill := PanelContainer.new()
+	orbit_pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	orbit_pill.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	orbit_pill.add_theme_stylebox_override("panel", VoltThemeScript.pill_box(
+			Color(0.055, 0.055, 0.062, 0.80), VoltThemeScript.BORDER, _gap(10), _gap(5)))
+	quick_row.add_child(orbit_pill)
+
+	var orbit_cue := HBoxContainer.new()
+	orbit_cue.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	orbit_cue.alignment = BoxContainer.ALIGNMENT_CENTER
+	orbit_cue.add_theme_constant_override("separation", _gap(5))
+	orbit_pill.add_child(orbit_cue)
+
+	var orbit_ico := TextureRect.new()
+	orbit_ico.texture = MenuIcons.icon_rotate(VoltThemeScript.STONE_DIM, 14)
+	orbit_ico.custom_minimum_size = Vector2(_fs_small(13), _fs_small(13))
+	orbit_ico.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	orbit_ico.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	orbit_ico.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	orbit_cue.add_child(orbit_ico)
+
+	var orbit_lbl := _label("360°", 10, VoltThemeScript.STONE_DIM, VoltThemeScript.font_mono())
+	orbit_lbl.add_theme_font_size_override("font_size", _fs_small(10))
+	orbit_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	orbit_cue.add_child(orbit_lbl)
+
+	# Compact Translucent Intel & Updates Strip
+	var chg_card := PanelContainer.new()
+	chg_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chg_card.size_flags_horizontal = Control.SIZE_SHRINK_END
+	chg_card.custom_minimum_size.x = _ui_sz(308)
+	chg_card.add_theme_stylebox_override("panel", VoltThemeScript.panel_box(
+			Color(0.047, 0.047, 0.054, 0.78), VoltThemeScript.BORDER, 1, 10, _gap(10), _gap(6), 6))
+	right_cluster.add_child(chg_card)
+
+	var chg_v := VBoxContainer.new()
+	chg_v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chg_v.add_theme_constant_override("separation", _gap(2))
+	chg_card.add_child(chg_v)
+
+	var chg_hdr := HBoxContainer.new()
+	chg_hdr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var hdr_lbl := Label.new()
+	hdr_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hdr_lbl.text = "UPDATES // v1.19.0" if is_en else "ОНОВЛЕННЯ // v1.19.0"
+	hdr_lbl.add_theme_font_override("font", VoltThemeScript.font_mono())
+	hdr_lbl.add_theme_font_size_override("font_size", _fs_small(10))
+	hdr_lbl.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
+	chg_hdr.add_child(hdr_lbl)
+	chg_hdr.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
+	var ver_lbl := Label.new()
+	ver_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ver_lbl.text = "VOLT"
+	ver_lbl.add_theme_font_override("font", VoltThemeScript.font_mono())
+	ver_lbl.add_theme_font_size_override("font_size", _fs_small(9.5))
+	ver_lbl.add_theme_color_override("font_color", VoltThemeScript.STONE_DIM)
+	chg_hdr.add_child(ver_lbl)
+	chg_v.add_child(chg_hdr)
+
+	var dc := Global.get_daily_challenge()
+	var dc_title := str(dc.get("title_en" if is_en else "title_ua", dc.get("title_uk", "")))
+	var dc_line := ("ВИКЛИК ДНЯ: %s (+%d)" if not is_en else "DAILY CHALLENGE: %s (+%d)") % [dc_title, int(dc.get("bonus_score", 500))]
+	var trec := Global.get_training_record(str(Global.menu_settings.get("selected_map", "oilrig")))
+	var course_short := "Track: gates S–B" if is_en else "Траса: ворота S–B"
+	if bool(trec.get("completed", false)):
+		course_short = ("Best: %.1fs · %d★ [%s]" if is_en else "Рекорд: %.1f с · %d★ [%s]") % [
+			float(trec.get("best_time", 0.0)), int(trec.get("stars", 1)), str(trec.get("rank", trec.get("best_rank", "B")))]
+	var line2_txt := "%s · %s" % [course_short, "Gamepads, ELRS Wi-Fi, UA/EN" if is_en else "Геймпади, ELRS Wi-Fi, UA/EN"]
+
+	for idx_c in range(2):
+		var c_txt: String = dc_line if idx_c == 0 else line2_txt
+		var cl := Label.new()
+		cl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		cl.text = c_txt
+		cl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		cl.add_theme_font_override("font", VoltThemeScript.font_ui())
+		cl.add_theme_font_size_override("font_size", _fs_small(10 if idx_c == 0 else 9.5))
+		cl.add_theme_color_override("font_color", VoltThemeScript.YELLOW if idx_c == 0 else VoltThemeScript.STONE_DIM)
+		chg_v.add_child(cl)
+
+	# Keep center open for 3D drone showcase & 360° touch drag
 	v.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
 
-	# Bottom Selector Bar & Play Action (Centered Launch Action)
+	# BOTTOM TWO-ISLAND BAR: Left Drone Cycle Island + Right Primary Launch CTA
 	var bottom_selector := HBoxContainer.new()
-	bottom_selector.add_theme_constant_override("separation", _gap(12))
-	bottom_selector.alignment = BoxContainer.ALIGNMENT_CENTER
+	bottom_selector.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bottom_selector.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bottom_selector.add_theme_constant_override("separation", _gap(8))
 	v.add_child(bottom_selector)
 
-	var prev_btn := _button("ПОПЕРЕДНІЙ", 42)
-	prev_btn.custom_minimum_size.x = _ui_sz(150)
+	var cycle_row := HBoxContainer.new()
+	cycle_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cycle_row.size_flags_vertical = Control.SIZE_SHRINK_END
+	cycle_row.add_theme_constant_override("separation", _gap(6))
+	bottom_selector.add_child(cycle_row)
+
+	var prev_btn := _button("ПОПЕРЕДНІЙ", 42, false, "stone")
+	prev_btn.icon = MenuIcons.icon_chevron_left(VoltThemeScript.TEXT_DARK, 18)
+	prev_btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	prev_btn.expand_icon = false
+	prev_btn.add_theme_constant_override("h_separation", _gap(6))
+	prev_btn.add_theme_font_size_override("font_size", _fs(13))
+	prev_btn.custom_minimum_size = Vector2(_ui_sz(126), _ui_sz(42))
 	prev_btn.pressed.connect(_select_prev_drone)
-	bottom_selector.add_child(prev_btn)
+	cycle_row.add_child(prev_btn)
+
+	var idx_pill := PanelContainer.new()
+	idx_pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	idx_pill.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	idx_pill.custom_minimum_size = Vector2(_ui_sz(68), _ui_sz(42))
+	idx_pill.add_theme_stylebox_override("panel", VoltThemeScript.pill_box(
+			VoltThemeScript.SURFACE_SOLID, VoltThemeScript.BORDER_STRONG, _gap(10), _gap(6)))
+	cycle_row.add_child(idx_pill)
+
+	_hero_index_lbl = _label("01 / 13", 12, VoltThemeScript.STONE, VoltThemeScript.font_mono())
+	_hero_index_lbl.add_theme_font_size_override("font_size", _fs_small(12))
+	_hero_index_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hero_index_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_hero_index_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	idx_pill.add_child(_hero_index_lbl)
+
+	var next_btn := _button("НАСТУПНИЙ", 42, false, "stone")
+	next_btn.icon = MenuIcons.icon_chevron_right(VoltThemeScript.TEXT_DARK, 18)
+	next_btn.icon_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	next_btn.expand_icon = false
+	next_btn.add_theme_constant_override("h_separation", _gap(6))
+	next_btn.add_theme_font_size_override("font_size", _fs(13))
+	next_btn.custom_minimum_size = Vector2(_ui_sz(126), _ui_sz(42))
+	next_btn.pressed.connect(_select_next_drone)
+	cycle_row.add_child(next_btn)
+
+	var hangar_btn := _button("HANGAR" if is_en else "АНГАР", 42, false, "ghost")
+	hangar_btn.icon = MenuIcons.icon_hangar(VoltThemeScript.STONE, 16)
+	hangar_btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	hangar_btn.expand_icon = false
+	hangar_btn.add_theme_constant_override("h_separation", _gap(6))
+	hangar_btn.add_theme_font_size_override("font_size", _fs_small(12))
+	hangar_btn.custom_minimum_size = Vector2(_ui_sz(104), _ui_sz(42))
+	hangar_btn.pressed.connect(func(): _show("drone"))
+	cycle_row.add_child(hangar_btn)
+
+	var shell_btn := _button("", 42, false, "secondary")
+	shell_btn.name = "HeroShellSpinButton"
+	shell_btn.icon = MenuIcons.icon_rotate(VoltThemeScript.YELLOW, 18)
+	shell_btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	shell_btn.expand_icon = false
+	shell_btn.custom_minimum_size = Vector2(_ui_sz(42), _ui_sz(42))
+	shell_btn.tooltip_text = "Скид гільз" if not is_en else "Roll & drop shells"
+	shell_btn.pressed.connect(func():
+		if _hero_diorama != null and is_instance_valid(_hero_diorama):
+			_hero_diorama.apply_swipe_spin(0.45)
+	)
+	cycle_row.add_child(shell_btn)
+
+	bottom_selector.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
 
 	var play_text := "ПРОДОВЖИТИ ПОЛІТ" if is_pause_mode else "ПОЧАТИ ВИЛІТ"
-	var play_btn := _button(play_text, 46, true)
-	play_btn.custom_minimum_size.x = _ui_sz(250)
+	var play_btn := _button(play_text, 46, true, "primary")
+	play_btn.icon = MenuIcons.icon_play(VoltThemeScript.TEXT_DARK, 18)
+	play_btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	play_btn.expand_icon = false
+	play_btn.add_theme_constant_override("h_separation", _gap(8))
+	play_btn.add_theme_font_size_override("font_size", _fs(15))
+	play_btn.custom_minimum_size = Vector2(_ui_sz(224), _ui_sz(46))
+	play_btn.size_flags_vertical = Control.SIZE_SHRINK_END
 	play_btn.pressed.connect(func():
 		if is_pause_mode:
 			emit_signal("closed")
@@ -1470,11 +1772,6 @@ func _build_3d_hero() -> Control:
 	)
 	bottom_selector.add_child(play_btn)
 
-	var next_btn := _button("НАСТУПНИЙ", 42)
-	next_btn.custom_minimum_size.x = _ui_sz(150)
-	next_btn.pressed.connect(_select_next_drone)
-	bottom_selector.add_child(next_btn)
-
 	_update_hero_drone_info(Global.drone_preset)
 	return card
 
@@ -1483,43 +1780,47 @@ func _setup_hero_3d_world() -> void:
 	var env := Environment.new()
 	env.background_mode = Environment.BG_CLEAR_COLOR
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.72, 0.80, 0.75)
-	env.ambient_light_energy = 1.35
+	env.ambient_light_color = Color(0.78, 0.78, 0.76)
+	env.ambient_light_energy = 1.15
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 1.08
+	env.tonemap_exposure = 1.12
 	var world := WorldEnvironment.new()
 	world.environment = env
+	world.set_meta("studio_env", true)
 	_hero_viewport.add_child(world)
 
-	# Key Light (top-front-right)
+	# Warm studio key light with crisp ground contact shadows
 	var key := DirectionalLight3D.new()
-	key.light_energy = 2.4
+	key.light_energy = 2.55
 	key.light_color = Color(1.0, 0.96, 0.88)
-	key.rotation_degrees = Vector3(-35.0, 45.0, 0.0)
+	key.shadow_enabled = true
+	key.shadow_bias = 0.02
+	key.directional_shadow_max_distance = 6.0
+	key.rotation_degrees = Vector3(-38.0, 42.0, 0.0)
 	_hero_viewport.add_child(key)
 
-	# Fill Light (left)
+	# Cool titanium fill light (left)
 	var fill := DirectionalLight3D.new()
-	fill.light_energy = 1.4
-	fill.light_color = Color(0.55, 0.78, 0.65)
-	fill.rotation_degrees = Vector3(-20.0, -60.0, 0.0)
+	fill.light_energy = 1.35
+	fill.light_color = Color(0.68, 0.78, 0.92)
+	fill.rotation_degrees = Vector3(-22.0, -64.0, 0.0)
 	_hero_viewport.add_child(fill)
 
-	# Rim Light (back-right)
+	# Volt Yellow subtle grazing rim light (back-right)
 	var rim := DirectionalLight3D.new()
-	rim.light_energy = 2.2
-	rim.light_color = Color(0.80, 0.95, 0.85)
-	rim.rotation_degrees = Vector3(25.0, -145.0, 0.0)
+	rim.light_energy = 1.65
+	rim.light_color = Color(1.0, 0.89, 0.25)
+	rim.rotation_degrees = Vector3(22.0, -142.0, 0.0)
 	_hero_viewport.add_child(rim)
 
-	# Front fill
+	# Soft neutral front specular fill
 	var front := DirectionalLight3D.new()
-	front.light_energy = 1.0
-	front.light_color = Color(0.78, 0.88, 0.90)
-	front.rotation_degrees = Vector3(-10.0, 0.0, 0.0)
+	front.light_energy = 0.95
+	front.light_color = Color(0.92, 0.93, 0.95)
+	front.rotation_degrees = Vector3(-12.0, 4.0, 0.0)
 	_hero_viewport.add_child(front)
 
-	# Illuminated turntable pedestal
+	# Illuminated matte obsidian turntable pedestal
 	var pedestal := MeshInstance3D.new()
 	var cyl := CylinderMesh.new()
 	cyl.top_radius = 0.50
@@ -1529,13 +1830,13 @@ func _setup_hero_3d_world() -> void:
 	pedestal.mesh = cyl
 	pedestal.position = Vector3(0.0, -0.215, 0.0)
 	var ped_mat := StandardMaterial3D.new()
-	ped_mat.albedo_color = Color(0.12, 0.17, 0.15)
-	ped_mat.roughness = 0.85
-	ped_mat.metallic = 0.3
+	ped_mat.albedo_color = Color(0.075, 0.078, 0.088)
+	ped_mat.roughness = 0.72
+	ped_mat.metallic = 0.35
 	pedestal.material_override = ped_mat
 	_hero_viewport.add_child(pedestal)
 
-	# Glowing tactical accent ring (flush with surface to avoid cutting through drone arms/motors)
+	# Glowing Volt Yellow calibration ring
 	var ring := MeshInstance3D.new()
 	var torus := TorusMesh.new()
 	torus.inner_radius = 0.44
@@ -1547,7 +1848,7 @@ func _setup_hero_3d_world() -> void:
 	ring.position = Vector3(0.0, -0.2045, 0.0)
 	var ring_mat := StandardMaterial3D.new()
 	ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	ring_mat.albedo_color = MenuUI.ACCENT
+	ring_mat.albedo_color = VoltThemeScript.YELLOW
 	ring.material_override = ring_mat
 	_hero_viewport.add_child(ring)
 	_hero_pad_rotator = _add_tactical_podium_details(_hero_viewport, -0.2045, 0.50)
@@ -1562,6 +1863,20 @@ func _setup_hero_3d_world() -> void:
 	_hero_viewport.add_child(_hero_holder)
 	_fit_hero_camera()
 	_load_hero_model(Global.drone_preset)
+
+
+func _enable_preview_shadows(model: Node3D) -> void:
+	if model == null or not is_instance_valid(model):
+		return
+	for n in model.find_children("*", "GeometryInstance3D", true, false):
+		var gi := n as GeometryInstance3D
+		if gi == null:
+			continue
+		var ln := String(gi.name).to_lower()
+		if ln.contains("propblur") or ln.contains("ukrainemark") or ln.contains("flag"):
+			gi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		else:
+			gi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 
 
 func _load_hero_model(preset_idx: int) -> void:
@@ -1579,11 +1894,12 @@ func _load_hero_model(preset_idx: int) -> void:
 	await DroneCatalog.wait_for_model(preset_idx)
 	if token != _hero_load_token or not is_instance_valid(_hero_holder):
 		return
-	var model: Node3D = DroneCatalog.attach_model(_hero_holder, preset_idx)
+	var model: Node3D = DroneCatalog.attach_model(_hero_holder, preset_idx, true)
 	if model == null:
 		_fit_hero_camera()
 		return
 	model.set_meta("preset_idx", preset_idx)
+	_enable_preview_shadows(model)
 	# Hide during the two-frame transform settle so full-scale 2m–2.8m planes
 	# never flash visibly over the pedestal before fit_preview_model scales them.
 	model.visible = false
@@ -1608,9 +1924,9 @@ func _fit_hero_camera() -> void:
 	var box := _combined_bounds(_hero_holder)
 	var center := box.get_center() if box.size.length() > 0.01 else Vector3.ZERO
 	var max_dim := maxf(box.size.x, maxf(box.size.y, box.size.z))
-	var focus := Vector3(center.x, center.y + 0.025, center.z)
+	var focus := Vector3(center.x, center.y + 0.015, center.z)
 	_hero_camera.fov = 30.0
-	var dist := clampf(max_dim * 1.55 + 0.35, 1.45, 2.05)
+	var dist := clampf(max_dim * 1.52 + 0.42, 1.55, 2.15)
 	var dir := Vector3(0.48, 0.28, 0.76).normalized()
 	var cam_pos := focus + dir * dist
 	_hero_camera.look_at_from_position(cam_pos, focus, Vector3.UP)
@@ -1660,8 +1976,11 @@ func _ensure_preview_scale(holder: Node3D, model: Node3D, target: float,
 
 func _update_hero_drone_info(preset_idx: int) -> void:
 	var p := DroneCatalog.preset(preset_idx)
+	var d_name := MenuUI.translate_text(DroneCatalog.get_drone_name(preset_idx))
 	if _hero_drone_name != null and is_instance_valid(_hero_drone_name):
-		_hero_drone_name.text = MenuUI.translate_text(DroneCatalog.get_drone_name(preset_idx))
+		_hero_drone_name.text = d_name
+	if _hero_watermark != null and is_instance_valid(_hero_watermark):
+		_hero_watermark.text = d_name.to_upper()
 	if _hero_drone_tag != null and is_instance_valid(_hero_drone_tag):
 		_hero_drone_tag.text = MenuUI.translate_text(DroneCatalog.get_drone_tag(preset_idx))
 	if _hero_drone_specs != null and is_instance_valid(_hero_drone_specs):
@@ -1669,9 +1988,14 @@ func _update_hero_drone_info(preset_idx: int) -> void:
 		var twr := float(p.get("twr", 5.0))
 		var kv := int(p.get("kv", 2000))
 		if MenuUI.is_english():
-			_hero_drone_specs.text = "MASS: %d g  •  TWR: %.1f:1  •  MOTORS: %d KV" % [mass, twr, kv]
+			_hero_drone_specs.text = "MASS %dG  //  TWR %.1f:1  //  %d KV" % [mass, twr, kv]
 		else:
-			_hero_drone_specs.text = "МАСА: %d г  •  TWR: %.1f:1  •  МОТОРИ: %d KV" % [mass, twr, kv]
+			_hero_drone_specs.text = "МАСА %dГ  //  ТЯГА %.1f:1  //  %d KV" % [mass, twr, kv]
+	if _hero_index_lbl != null and is_instance_valid(_hero_index_lbl):
+		var list := DroneCatalog.allowed_for_map(_selected_map)
+		var tot := maxi(list.size(), 1)
+		var pos := maxi(list.find(preset_idx), 0)
+		_hero_index_lbl.text = "%02d / %02d" % [pos + 1, tot]
 	_update_perf_bars(_hero_perf_bars, p)
 
 
@@ -1754,13 +2078,20 @@ func _build_controls() -> void:
 	var title_box := VBoxContainer.new()
 	title_box.add_theme_constant_override("separation", _gap(2))
 	hdr.add_child(title_box)
-	title_box.add_child(_label("НАЛАШТУВАННЯ ПУЛЬТА ТА СТІКІВ", 32, MenuUI.TEXT))
-	title_box.add_child(_label("Канали AETR/TAER, інверсія, калібрування та тумблери", 14, MenuUI.MUTED))
+	title_box.add_child(_label("НАЛАШТУВАННЯ ПУЛЬТА ТА СТІКІВ", 22, VoltThemeScript.TEXT, VoltThemeScript.font_display()))
+	title_box.add_child(_label("Канали AETR/TAER, інверсія, калібрування та тумблери", 12, VoltThemeScript.STONE_DIM))
 
 	hdr.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
 
-	_source_status = _label("ELRS: ПОШУК", 16, MenuUI.FPV_GREEN)
-	hdr.add_child(_source_status)
+	var src_pill := PanelContainer.new()
+	src_pill.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	src_pill.add_theme_stylebox_override("panel", VoltThemeScript.pill_box(
+			VoltThemeScript.SURFACE, VoltThemeScript.BORDER, _gap(12), _gap(5)))
+	hdr.add_child(src_pill)
+
+	_source_status = _label("ELRS: ПОШУК", 12, VoltThemeScript.GOOD, VoltThemeScript.font_mono())
+	_source_status.add_theme_font_size_override("font_size", _fs_small(12))
+	src_pill.add_child(_source_status)
 
 	var cols := HBoxContainer.new()
 	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -1768,7 +2099,7 @@ func _build_controls() -> void:
 	v.add_child(cols)
 
 	# --- Left Column: 3D RadioMaster TX12 Transmitter + Stick Monitor & Calibration ---
-	var left_card := _panel(Color(0.025, 0.065, 0.05, 0.92), Color(0.38, 0.54, 0.42, 0.55), 1, 16)
+	var left_card := _panel(VoltThemeScript.SURFACE, VoltThemeScript.BORDER, 1, 16)
 	left_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	left_card.size_flags_stretch_ratio = 0.88
 	cols.add_child(left_card)
@@ -1777,11 +2108,11 @@ func _build_controls() -> void:
 	left_v.add_theme_constant_override("separation", _gap(6))
 	left_card.add_child(left_v)
 
-	left_v.add_child(_label("RC-ПУЛЬТ (MODE 2)", 15, MenuUI.FPV_AMBER))
+	left_v.add_child(_label("RC-ПУЛЬТ // MODE 2", 13, VoltThemeScript.YELLOW, VoltThemeScript.font_mono()))
 
 	# RadioMaster TX12 3D Realtime Animated Transmitter (Prominent & Centered)
-	var radio_panel := _panel(Color(0.02, 0.05, 0.04, 0.85), Color(0.38, 0.54, 0.42, 0.55), 1, 10)
-	radio_panel.custom_minimum_size = Vector2(0, _fs(340))
+	var radio_panel := _panel(Color(0.031, 0.031, 0.036, 0.96), VoltThemeScript.BORDER_STRONG, 1, 12)
+	radio_panel.custom_minimum_size = Vector2(0, _fs(310))
 	radio_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	left_v.add_child(radio_panel)
 
@@ -1793,6 +2124,11 @@ func _build_controls() -> void:
 	var radio_vp := SubViewport.new()
 	radio_vp.own_world_3d = true
 	radio_vp.transparent_bg = true
+	radio_vp.msaa_3d = Viewport.MSAA_4X
+	radio_vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+	radio_vp.scaling_3d_scale = 1.0
+	radio_vp.anisotropic_filtering_level = Viewport.ANISOTROPY_8X
+	radio_vp.use_debanding = true
 	radio_vp.handle_input_locally = false
 	radio_vp.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
 	radio_holder.add_child(radio_vp)
@@ -1800,24 +2136,35 @@ func _build_controls() -> void:
 	var radio_scn = load("res://GUI/ControlsMenuRadioTransmitter.tscn")
 	if radio_scn != null:
 		_radio = radio_scn.instantiate()
+		_radio.set_meta("studio_env", true)
 		radio_vp.add_child(_radio)
 		_radio.set("accept_input", false)
+		var rim_tx := DirectionalLight3D.new()
+		rim_tx.light_energy = 0.55
+		rim_tx.light_color = VoltThemeScript.YELLOW
+		rim_tx.look_at_from_position(Vector3(-1.4, 0.8, -1.6), Vector3.ZERO, Vector3.UP)
+		_radio.add_child(rim_tx)
 
 	# Clean tactical stick telemetry readout (ZERO 2D circular overlays!)
-	_stick_readout = _label("ГАЗ: 0%  •  РИСКАННЯ: +0%  •  ТАНГАЖ: +0%  •  КРЕН: +0%", 14, MenuUI.FPV_CYAN)
+	_stick_readout = _label("ГАЗ: 0%  •  РИСКАННЯ: +0%  •  ТАНГАЖ: +0%  •  КРЕН: +0%",
+			12, VoltThemeScript.STONE, VoltThemeScript.font_mono())
 	_stick_readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	left_v.add_child(_stick_readout)
 
-	_calib_hint = _label("Стіки мають досягати 100% у кутах та повертатися в 0%", 12, MenuUI.MUTED)
+	_calib_hint = _label("Стіки мають досягати 100% у кутах та повертатися в 0%", 12, VoltThemeScript.STONE_DIM)
 	_calib_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_calib_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	left_v.add_child(_calib_hint)
 
 	_calib_btn = _button("КАЛІБРУВАТИ СТІКИ", 42, true)
+	_calib_btn.icon = MenuIcons.icon_sliders(VoltThemeScript.TEXT_DARK, 18)
+	_calib_btn.add_theme_constant_override("h_separation", _gap(8))
 	_calib_btn.pressed.connect(_on_calibrate_pressed)
 	left_v.add_child(_calib_btn)
 
 	var elrs_help_btn := _button("ДОВІДКА: ПІДКЛЮЧЕННЯ ELRS Wi-Fi", 38, false)
+	elrs_help_btn.icon = MenuIcons.icon_wifi(VoltThemeScript.YELLOW, 18)
+	elrs_help_btn.add_theme_constant_override("h_separation", _gap(8))
 	elrs_help_btn.pressed.connect(_open_elrs_guide_modal)
 	left_v.add_child(elrs_help_btn)
 
@@ -1826,23 +2173,31 @@ func _build_controls() -> void:
 	left_v.add_child(tuning_v)
 
 	var dead_row := HBoxContainer.new()
-	dead_row.add_child(_label("Мертва зона: 2%", 11, MenuUI.MUTED))
+	var dead_lbl := _label("Мертва зона: %d%%" % int(round(Controls.stick_deadzone * 100.0)),
+			11, VoltThemeScript.STONE_DIM, VoltThemeScript.font_mono())
+	dead_lbl.custom_minimum_size.x = _fs(118)
+	dead_row.add_child(dead_lbl)
 	dead_row.add_child(_slider(Controls.stick_deadzone, 0.0, 0.15, 0.01, func(val: float):
 		Controls.stick_deadzone = val
 		Controls.save_bindings()
+		dead_lbl.text = "Мертва зона: %d%%" % int(round(val * 100.0))
 	))
 	tuning_v.add_child(dead_row)
 
 	var smooth_row := HBoxContainer.new()
-	smooth_row.add_child(_label("Згладжування: 0.10", 12, MenuUI.MUTED))
+	var smooth_lbl := _label("Згладжування: %.2f" % Controls.stick_smoothing,
+			11, VoltThemeScript.STONE_DIM, VoltThemeScript.font_mono())
+	smooth_lbl.custom_minimum_size.x = _fs(118)
+	smooth_row.add_child(smooth_lbl)
 	smooth_row.add_child(_slider(Controls.stick_smoothing, 0.0, 0.35, 0.01, func(val: float):
 		Controls.stick_smoothing = val
 		Controls.save_bindings()
+		smooth_lbl.text = "Згладжування: %.2f" % val
 	))
 	tuning_v.add_child(smooth_row)
 
 	# --- Right Column: Channels & Switches Mapping ---
-	var right_card := _panel(Color(0.025, 0.065, 0.05, 0.92), Color(0.38, 0.54, 0.42, 0.55), 1, 16)
+	var right_card := _panel(VoltThemeScript.SURFACE, VoltThemeScript.BORDER, 1, 16)
 	right_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	right_card.size_flags_stretch_ratio = 1.15
 	cols.add_child(right_card)
@@ -1856,20 +2211,20 @@ func _build_controls() -> void:
 	right_v.add_theme_constant_override("separation", _gap(8))
 	scroll.add_child(right_v)
 
-	right_v.add_child(_label("ОСНОВНІ КАНАЛИ СТІКІВ", 16, MenuUI.FPV_AMBER))
+	right_v.add_child(_label("ОСНОВНІ КАНАЛИ СТІКІВ", 14, VoltThemeScript.YELLOW, VoltThemeScript.font_mono()))
 	right_v.add_child(_build_stick_row("roll", "КРЕН (ROLL)", 0))
 	right_v.add_child(_build_stick_row("pitch", "ТАНГАЖ (PITCH)", 1))
 	right_v.add_child(_build_stick_row("throttle", "ГАЗ (THROTTLE)", 2))
 	right_v.add_child(_build_stick_row("yaw", "РИСКАННЯ (YAW)", 3))
 
 	right_v.add_child(_spacer(_gap(4)))
-	right_v.add_child(_label("БОЙОВІ ФУНКЦІЇ, СКИД ТА ПІДРИВ", 15, MenuUI.FPV_AMBER))
+	right_v.add_child(_label("БОЙОВІ ФУНКЦІЇ, СКИД ТА ПІДРИВ", 13, VoltThemeScript.YELLOW, VoltThemeScript.font_mono()))
 	right_v.add_child(_build_switch_row("arm", "АРМУВАННЯ ДВИГУНІВ (ARM)", 4, true))
 	right_v.add_child(_build_switch_row("deploy_payload", "СКИД БОЄПРИПАСУ (DROP)", 5, false))
 	right_v.add_child(_build_switch_row("activate_payload", "ПІДРИВ ДРОНА / БЧ (DETONATE)", 6, false))
 
 	right_v.add_child(_spacer(_gap(4)))
-	right_v.add_child(_label("РЕЖИМИ ПОЛЬОТУ ТА АСИСТЕНТИ", 15, MenuUI.FPV_AMBER))
+	right_v.add_child(_label("РЕЖИМИ ПОЛЬОТУ ТА АСИСТЕНТИ", 13, VoltThemeScript.YELLOW, VoltThemeScript.font_mono()))
 	right_v.add_child(_build_switch_row("cycle_flight_modes", "ЦИКЛ РЕЖИМІВ (CYCLE MODES)", 7, false))
 	right_v.add_child(_build_switch_row("mode_turtle", "РЕЖИМ TURTLE (ПЕРЕВЕРТАННЯ)", 8, false))
 	right_v.add_child(_build_switch_row("mode_angle", "РЕЖИМ ANGLE (СТАБІЛІЗАЦІЯ)", 9, false))
@@ -1877,7 +2232,7 @@ func _build_controls() -> void:
 	right_v.add_child(_build_switch_row("altitude_hold", "УТРИМАННЯ ВИСОТИ (ASSIST)", 11, false))
 
 	right_v.add_child(_spacer(_gap(4)))
-	right_v.add_child(_label("СИСТЕМНІ ТА ОПТИЧНІ ТУМБЛЕРИ", 15, MenuUI.FPV_AMBER))
+	right_v.add_child(_label("СИСТЕМНІ ТА ОПТИЧНІ ТУМБЛЕРИ", 13, VoltThemeScript.YELLOW, VoltThemeScript.font_mono()))
 	right_v.add_child(_build_switch_row("cycle_video_mode", "ВІДЕО / ПНБ / ТЕПЛОВІЗОР", 12, false))
 	right_v.add_child(_build_switch_row("respawn", "ШВИДКИЙ РЕСПАВН (RESPAWN)", 13, false))
 	right_v.add_child(_build_switch_row("toggle_weather", "ЗМІНА ПОГОДИ / ВІТЕР", 14, false))
@@ -1891,12 +2246,12 @@ func _build_stick_row(stick_name: String, label_txt: String, default_ch: int) ->
 	row.add_theme_constant_override("separation", _gap(10))
 	row.custom_minimum_size.y = _fs(48)
 
-	var lbl := _label(label_txt, 16, MenuUI.TEXT)
+	var lbl := _label(label_txt, 15, VoltThemeScript.TEXT, VoltThemeScript.font_ui_bold())
 	lbl.custom_minimum_size.x = _fs(180)
 	row.add_child(lbl)
 
 	var opt := OptionButton.new()
-	opt.custom_minimum_size = Vector2(_fs(110), _fs(44))
+	opt.custom_minimum_size = Vector2(_fs(110), _fs(42))
 	_style_option_button(opt)
 	for i in range(16):
 		opt.add_item("CH %d" % [i + 1], i)
@@ -1909,13 +2264,13 @@ func _build_stick_row(stick_name: String, label_txt: String, default_ch: int) ->
 	_channel_options[stick_name] = opt
 	row.add_child(opt)
 
-	var auto_b := _button("АВТО", 44)
+	var auto_b := _button("АВТО", 42)
 	auto_b.custom_minimum_size.x = _fs(80)
 	auto_b.pressed.connect(_start_auto_detect.bind(stick_name, auto_b))
 	_auto_detect_buttons[stick_name] = auto_b
 	row.add_child(auto_b)
 
-	var inv_b := _button("ІНВЕРТ", 44)
+	var inv_b := _button("ІНВЕРТ", 42)
 	inv_b.custom_minimum_size.x = _fs(92)
 	var is_inv: bool = bool(elrs.is_stick_inverted(stick_name)) if elrs != null else false
 	_update_invert_style(inv_b, is_inv)
@@ -1930,7 +2285,7 @@ func _build_stick_row(stick_name: String, label_txt: String, default_ch: int) ->
 
 	var bar := ProgressBar.new()
 	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	bar.custom_minimum_size.y = _fs(20)
+	bar.custom_minimum_size.y = _fs(18)
 	bar.min_value = -1.0 if stick_name != "throttle" else 0.0
 	bar.max_value = 1.0
 	bar.value = 0.0
@@ -1948,13 +2303,13 @@ func _build_switch_row(action_name: String, label_txt: String, default_ch: int, 
 	row.add_theme_constant_override("separation", _gap(10))
 	row.custom_minimum_size.y = _fs(48)
 
-	var lbl := _label(label_txt, 15, MenuUI.TEXT)
+	var lbl := _label(label_txt, 14, VoltThemeScript.TEXT, VoltThemeScript.font_ui_bold())
 	lbl.custom_minimum_size.x = _fs(240)
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(lbl)
 
 	var opt := OptionButton.new()
-	opt.custom_minimum_size = Vector2(_fs(150), _fs(44))
+	opt.custom_minimum_size = Vector2(_fs(150), _fs(42))
 	_style_option_button(opt)
 	# Godot treats an explicit id of -1 as "assign automatically" (0), so use
 	# a separate sentinel for the disabled row.  Otherwise "ВИМК." would pass
@@ -1986,23 +2341,23 @@ func _build_switch_row(action_name: String, label_txt: String, default_ch: int, 
 	_action_options[action_name] = opt
 	row.add_child(opt)
 
-	var auto_b := _button("АВТО", 44)
+	var auto_b := _button("АВТО", 42)
 	auto_b.custom_minimum_size.x = _fs(80)
 	auto_b.pressed.connect(_start_auto_detect.bind(action_name, auto_b))
 	_auto_detect_buttons[action_name] = auto_b
 	row.add_child(auto_b)
 
 	if is_arm:
-		_arm_status_panel = _panel(Color(0.04, 0.08, 0.06), Color(0.3, 0.4, 0.3), 1, 8)
+		_arm_status_panel = _panel(VoltThemeScript.SURFACE_2, VoltThemeScript.BORDER_STRONG, 1, 8)
 		_arm_status_panel.custom_minimum_size = Vector2(_fs(110), _fs(34))
-		_arm_status_label = _label("ДИЗАРМ", 11, MenuUI.MUTED)
+		_arm_status_label = _label("ДИЗАРМ", 11, VoltThemeScript.STONE_DIM, VoltThemeScript.font_mono())
 		_arm_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		_arm_status_panel.add_child(_arm_status_label)
 		row.add_child(_arm_status_panel)
 	else:
-		var st_panel := _panel(Color(0.04, 0.08, 0.06), Color(0.22, 0.32, 0.26), 1, 6)
+		var st_panel := _panel(VoltThemeScript.SURFACE_2, VoltThemeScript.BORDER, 1, 8)
 		st_panel.custom_minimum_size = Vector2(_fs(56), _fs(34))
-		var st_lbl := _label("OFF", 11, MenuUI.MUTED)
+		var st_lbl := _label("OFF", 11, VoltThemeScript.STONE_DIM, VoltThemeScript.font_mono())
 		st_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		st_panel.add_child(st_lbl)
 		row.add_child(st_panel)
@@ -2029,10 +2384,7 @@ func _refresh_action_options() -> void:
 
 
 func _update_invert_style(btn: Button, is_inv: bool) -> void:
-	if is_inv:
-		btn.add_theme_color_override("font_color", Color(0.95, 0.85, 0.2))
-	else:
-		btn.add_theme_color_override("font_color", MenuUI.MUTED)
+	VoltThemeScript.apply_button_variant(btn, "active_soft" if is_inv else "secondary", 8)
 
 
 func _start_auto_detect(target: String, btn: Button) -> void:
@@ -2043,7 +2395,7 @@ func _start_auto_detect(target: String, btn: Button) -> void:
 		return
 	_auto_target = target
 	btn.text = "РУХ..."
-	btn.add_theme_color_override("font_color", Color(1.0, 0.85, 0.2))
+	VoltThemeScript.apply_button_variant(btn, "active_soft", 8)
 	elrs.capture_baseline()
 
 
@@ -2067,7 +2419,7 @@ func _process_controls_screen() -> void:
 			if _auto_detect_buttons.has(_auto_target):
 				var b: Button = _auto_detect_buttons[_auto_target]
 				b.text = "АВТО"
-				b.add_theme_color_override("font_color", MenuUI.TEXT)
+				VoltThemeScript.apply_button_variant(b, "secondary", 8)
 			_auto_target = ""
 
 	# Update ARM Status Badge in real-time
@@ -2076,14 +2428,14 @@ func _process_controls_screen() -> void:
 		if arm_ch >= 0 and arm_ch < elrs.channels.size():
 			var is_armed: bool = _switch_level(float(elrs.channels[arm_ch]), _arm_status_label.text.begins_with("АРМОВАНО"))
 			if is_armed:
-				_arm_status_label.text = "АРМОВАНО ✓"
-				_arm_status_label.add_theme_color_override("font_color", MenuUI.FPV_GREEN)
+				_arm_status_label.text = "АРМОВАНО"
+				_arm_status_label.add_theme_color_override("font_color", VoltThemeScript.GOOD)
 			else:
 				_arm_status_label.text = "ДИЗАРМ (OFF)"
-				_arm_status_label.add_theme_color_override("font_color", MenuUI.MUTED)
+				_arm_status_label.add_theme_color_override("font_color", VoltThemeScript.STONE_DIM)
 		else:
 			_arm_status_label.text = "ВИМКНЕНО"
-			_arm_status_label.add_theme_color_override("font_color", MenuUI.MUTED)
+			_arm_status_label.add_theme_color_override("font_color", VoltThemeScript.STONE_DIM)
 
 	# Update AUX Switches Live Indicator Pills
 	for act in _switch_status_labels.keys():
@@ -2093,13 +2445,13 @@ func _process_controls_screen() -> void:
 			var is_on: bool = _switch_level(float(elrs.channels[ch]), lbl.text == "ON")
 			if is_on:
 				lbl.text = "ON"
-				lbl.add_theme_color_override("font_color", MenuUI.FPV_GREEN)
+				lbl.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
 			else:
 				lbl.text = "OFF"
-				lbl.add_theme_color_override("font_color", MenuUI.MUTED)
+				lbl.add_theme_color_override("font_color", VoltThemeScript.STONE_DIM)
 		else:
 			lbl.text = "-"
-			lbl.add_theme_color_override("font_color", Color(0.4, 0.4, 0.4))
+			lbl.add_theme_color_override("font_color", VoltThemeScript.MUTED)
 
 	# Update Live Signal Bars
 	for key in _channel_bars.keys():
@@ -2263,28 +2615,54 @@ func _build_rates() -> void:
 	match int(QuadSettings.rate_type):
 		1: rate_mode_name = "BETAFLIGHT"
 		2: rate_mode_name = "QUICK"
-	v.add_child(_label("РЕЙТИ ТА ЕКСПОНЕНТА (%s)" % rate_mode_name, 32, MenuUI.TEXT))
+
+	var is_en := MenuUI.is_english()
+	var hdr := HBoxContainer.new()
+	hdr.add_theme_constant_override("separation", _gap(12))
+	v.add_child(hdr)
+
+	var title_box := VBoxContainer.new()
+	title_box.add_theme_constant_override("separation", _gap(2))
+	title_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hdr.add_child(title_box)
+	title_box.add_child(_label("РЕЙТИ ТА ЕКСПОНЕНТА (%s)" % rate_mode_name,
+			22, VoltThemeScript.TEXT, VoltThemeScript.font_display()))
+	title_box.add_child(_label("Крива чутливості для радіопульта та сенсорних стіків",
+			12, VoltThemeScript.STONE_DIM))
+
+	var prof_seg := HBoxContainer.new()
+	prof_seg.add_theme_constant_override("separation", _gap(6))
+	prof_seg.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hdr.add_child(prof_seg)
+
+	var radio_tab_btn := _button("RADIO" if is_en else "ПУЛЬТ", 36, _rate_tab == "radio")
+	radio_tab_btn.custom_minimum_size = Vector2(_ui_sz(104), _fs(36))
+	prof_seg.add_child(radio_tab_btn)
+
+	var touch_tab_btn := _button("TOUCH" if is_en else "СЕНСОР", 36, _rate_tab == "touch")
+	touch_tab_btn.custom_minimum_size = Vector2(_ui_sz(104), _fs(36))
+	prof_seg.add_child(touch_tab_btn)
 
 	var cols := HBoxContainer.new()
 	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	cols.add_theme_constant_override("separation", _gap(16))
 	v.add_child(cols)
 
-	var left_card := _panel(Color(0.025, 0.065, 0.05, 0.92), Color(0.38, 0.54, 0.42, 0.55), 1, 16)
+	var left_card := _panel(VoltThemeScript.SURFACE, VoltThemeScript.BORDER, 1, 16)
 	left_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cols.add_child(left_card)
 
 	var left_v := VBoxContainer.new()
 	left_v.add_theme_constant_override("separation", _gap(10))
 	left_card.add_child(left_v)
-	left_v.add_child(_label("КРИВА ВІДГУКУ СТІКІВ", 16, MenuUI.FPV_AMBER))
+	left_v.add_child(_label("КРИВА ВІДГУКУ СТІКІВ", 13, VoltThemeScript.YELLOW, VoltThemeScript.font_mono()))
 
 	_rate_curve = RateCurve.new()
 	_rate_curve.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_rate_curve.set_profile(_rate_profiles.get(_rate_tab, {}))
 	left_v.add_child(_rate_curve)
 
-	var right_card := _panel(Color(0.025, 0.065, 0.05, 0.92), Color(0.38, 0.54, 0.42, 0.55), 1, 16)
+	var right_card := _panel(VoltThemeScript.SURFACE, VoltThemeScript.BORDER, 1, 16)
 	right_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cols.add_child(right_card)
 
@@ -2301,7 +2679,8 @@ func _build_rates() -> void:
 		var a_key: String = str(axis["key"])
 		var a_name: String = str(axis["name"])
 		var cur_rate: float = float(_rate_profiles[_rate_tab].get("rate_" + a_key, 667))
-		var rate_lbl := _label("%s RATE: %d deg/s" % [a_name, int(cur_rate)], 13, axis["col"] as Color)
+		var rate_lbl := _label("%s RATE: %d deg/s" % [a_name, int(cur_rate)],
+				13, axis["col"] as Color, VoltThemeScript.font_mono())
 		ax_box.add_child(rate_lbl)
 		var rate_slider := _slider(cur_rate, 200, 1000, 10, func(val: float):
 			rate_lbl.text = "%s RATE: %d deg/s" % [a_name, int(val)]
@@ -2311,7 +2690,8 @@ func _build_rates() -> void:
 		ax_box.add_child(rate_slider)
 
 		var cur_expo: float = float(_rate_profiles[_rate_tab].get("expo_" + a_key, 0.2))
-		var expo_lbl := _label("%s EXPO: %.2f" % [a_name, cur_expo], 12, MenuUI.MUTED)
+		var expo_lbl := _label("%s EXPO: %.2f" % [a_name, cur_expo],
+				12, VoltThemeScript.STONE_DIM, VoltThemeScript.font_mono())
 		ax_box.add_child(expo_lbl)
 		var expo_slider := _slider(cur_expo, 0.0, 0.8, 0.05, func(val: float):
 			expo_lbl.text = "%s EXPO: %.2f" % [a_name, val]
@@ -2325,22 +2705,53 @@ func _build_rates() -> void:
 			"name": a_name
 		}
 
-	right_v.add_child(_spacer(_gap(8)))
-	right_v.add_child(_label("ГОТОВІ ПРЕСЕТИ РЕЙТІВ", 13, MenuUI.FPV_AMBER))
+	var switch_rate_tab := func(target_tab: String):
+		_rate_tab = target_tab
+		VoltThemeScript.apply_button_variant(radio_tab_btn, "primary" if _rate_tab == "radio" else "secondary", 10)
+		VoltThemeScript.apply_button_variant(touch_tab_btn, "primary" if _rate_tab == "touch" else "secondary", 10)
+		for a_key in axis_controls:
+			var ctrl: Dictionary = axis_controls[a_key]
+			var r_v: float = float(_rate_profiles[_rate_tab].get("rate_" + a_key, 667.0))
+			var e_v: float = float(_rate_profiles[_rate_tab].get("expo_" + a_key, 0.20))
+			var r_lbl: Label = ctrl["rate_lbl"]
+			var r_s: Slider = ctrl["rate_slider"]
+			var e_lbl: Label = ctrl["expo_lbl"]
+			var e_s: Slider = ctrl["expo_slider"]
+			r_lbl.text = "%s RATE: %d deg/s" % [ctrl["name"], int(r_v)]
+			r_s.set_value_no_signal(r_v)
+			e_lbl.text = "%s EXPO: %.2f" % [ctrl["name"], e_v]
+			e_s.set_value_no_signal(e_v)
+		_rate_curve.set_profile(_rate_profiles[_rate_tab])
+
+	radio_tab_btn.pressed.connect(func(): switch_rate_tab.call("radio"))
+	touch_tab_btn.pressed.connect(func(): switch_rate_tab.call("touch"))
+
+	right_v.add_child(_spacer(_gap(6)))
+	right_v.add_child(_label("ГОТОВІ ПРЕСЕТИ РЕЙТІВ", 12, VoltThemeScript.YELLOW, VoltThemeScript.font_mono()))
 
 	var preset_row := HBoxContainer.new()
 	preset_row.add_theme_constant_override("separation", _gap(6))
 	right_v.add_child(preset_row)
 
 	var presets: Array[Dictionary] = [
-		{"name": "🎓 ТРЕНУВАННЯ", "rate": 450.0, "expo": 0.30},
-		{"name": "⚡ ФРІСТАЙЛ", "rate": 667.0, "expo": 0.20},
-		{"name": "🏁 ГОНКИ", "rate": 850.0, "expo": 0.15},
-		{"name": "🎬 КІНОДРОН", "rate": 350.0, "expo": 0.40},
+		{"name": "ТРЕНУВАННЯ", "icon": "school", "rate": 450.0, "expo": 0.30},
+		{"name": "ФРІСТАЙЛ", "icon": "bolt", "rate": 667.0, "expo": 0.20},
+		{"name": "ГОНКИ", "icon": "flag", "rate": 850.0, "expo": 0.15},
+		{"name": "КІНОДРОН", "icon": "camera", "rate": 350.0, "expo": 0.40},
 	]
 	for p_info in presets:
 		var p_btn := _button(str(p_info["name"]), 38)
 		p_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var ic_kind := str(p_info["icon"])
+		if ic_kind == "school":
+			p_btn.icon = MenuIcons.icon_school(VoltThemeScript.STONE, 16)
+		elif ic_kind == "bolt":
+			p_btn.icon = MenuIcons.icon_bolt(VoltThemeScript.YELLOW, 16)
+		elif ic_kind == "flag":
+			p_btn.icon = MenuIcons.icon_flag(VoltThemeScript.STONE, 16)
+		else:
+			p_btn.icon = MenuIcons.icon_camera(VoltThemeScript.STONE, 16)
+		p_btn.add_theme_constant_override("h_separation", _gap(6))
 		var r_val: float = float(p_info["rate"])
 		var e_val: float = float(p_info["expo"])
 		p_btn.pressed.connect(func():
@@ -2361,7 +2772,9 @@ func _build_rates() -> void:
 		preset_row.add_child(p_btn)
 
 	right_v.add_child(_spacer(_gap(4)))
-	var save_rates_btn := _button("✓  ЗБЕРЕГТИ РЕЙТИ ДЛЯ ПОЛЬОТУ", 44, true)
+	var save_rates_btn := _button("ЗБЕРЕГТИ РЕЙТИ ДЛЯ ПОЛЬОТУ", 44, true)
+	save_rates_btn.icon = MenuIcons.icon_check(VoltThemeScript.TEXT_DARK, 18)
+	save_rates_btn.add_theme_constant_override("h_separation", _gap(8))
 	save_rates_btn.pressed.connect(func():
 		var gs := get_node_or_null("/root/GameSettings")
 		if gs != null:
@@ -2370,7 +2783,7 @@ func _build_rates() -> void:
 			gs.save_hud_config()
 		# Apply exactly the tab the pilot edited, and mark it as the mirror owner.
 		_sync_profile_to_quad(_rate_tab)
-		save_rates_btn.text = MenuUI.translate_text("✓  ЗБЕРЕЖЕНО!")
+		save_rates_btn.text = MenuUI.translate_text("ЗБЕРЕЖЕНО!")
 	)
 	right_v.add_child(save_rates_btn)
 
@@ -2380,10 +2793,10 @@ func _build_play() -> void:
 	var screen := _make_screen("play")
 	var v := VBoxContainer.new()
 	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	v.add_theme_constant_override("separation", _gap(10))
+	v.add_theme_constant_override("separation", _gap(8))
 	screen.add_child(v)
 
-	v.add_child(_label("ВИБІР ВИЛЬОТУ ТА РЕЖИМУ", 32, MenuUI.TEXT))
+	v.add_child(_label("ВИБІР ВИЛЬОТУ ТА РЕЖИМУ", 22, VoltThemeScript.TEXT, VoltThemeScript.font_display()))
 
 	# Mode tabs (strictly: Tutorial -> Training -> Combat)
 	var modes_row := HBoxContainer.new()
@@ -2423,14 +2836,16 @@ func _build_play() -> void:
 		var d_id := int(dd[0])
 		var db := _button(str(dd[1]), 34, Global.difficulty == d_id)
 		db.custom_minimum_size = Vector2(_ui_sz(82), _fs(34))
-		db.add_theme_font_size_override("font_size", _fs(13))
+		db.add_theme_font_size_override("font_size", _fs(12))
 		db.pressed.connect(_select_mobile_difficulty.bind(d_id))
 		_diff_bar.add_child(db)
 		_diff_buttons[d_id] = db
 
 	_briefing_btn = _button("BRIEFING" if is_en else "БРИФІНГ", 34, false)
-	_briefing_btn.custom_minimum_size = Vector2(_ui_sz(98), _fs(34))
-	_briefing_btn.add_theme_font_size_override("font_size", _fs(13))
+	_briefing_btn.icon = MenuIcons.icon_briefing(VoltThemeScript.YELLOW, 16)
+	_briefing_btn.add_theme_constant_override("h_separation", _gap(6))
+	_briefing_btn.custom_minimum_size = Vector2(_ui_sz(112), _fs(34))
+	_briefing_btn.add_theme_font_size_override("font_size", _fs(12))
 	_briefing_btn.visible = (_selected_mode == Global.PlayMode.COMBAT)
 	_briefing_btn.pressed.connect(_open_mobile_briefing)
 	modes_row.add_child(_briefing_btn)
@@ -2440,13 +2855,14 @@ func _build_play() -> void:
 	v.add_child(daily_row)
 	var dc := Global.get_daily_challenge()
 	var dc_title := str(dc.get("title_en" if is_en else "title_ua", dc.get("title_uk", "")))
-	var dc_done := " ✓" if bool(dc.get("completed", false)) else ""
+	var dc_done := " [OK]" if bool(dc.get("completed", false)) else ""
 	var trec := Global.get_training_record(str(Global.menu_settings.get("selected_map", "oilrig")))
 	var rec_suffix := ""
 	if bool(trec.get("completed", false)):
-		rec_suffix = ("  ·  Course: %.1fs %s [%s]" if is_en else "  ·  Траса: %.1f с %s [%s]") % [
-			float(trec.get("best_time", 0.0)), "★".repeat(int(trec.get("stars", 1))), str(trec.get("rank", trec.get("best_rank", "B")))]
-	_play_daily_lbl = _label(("★ %s (+%d)%s%s" % [dc_title, int(dc.get("bonus_score", 500)), dc_done, rec_suffix]), 13, MenuUI.FPV_CYAN)
+		rec_suffix = ("  //  Course: %.1fs %d* [%s]" if is_en else "  //  Траса: %.1f с %d* [%s]") % [
+			float(trec.get("best_time", 0.0)), int(trec.get("stars", 1)), str(trec.get("rank", trec.get("best_rank", "B")))]
+	_play_daily_lbl = _label(("ВИКЛИК: %s (+%d)%s%s" % [dc_title, int(dc.get("bonus_score", 500)), dc_done, rec_suffix]),
+			12, VoltThemeScript.YELLOW, VoltThemeScript.font_mono())
 	_play_daily_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	daily_row.add_child(_play_daily_lbl)
 
@@ -2461,7 +2877,7 @@ func _build_play() -> void:
 	var map_idx := 0
 	for mp in MAP_META:
 		map_idx += 1
-		var card := _panel(Color(0.025, 0.065, 0.05, 0.92), Color(0.38, 0.54, 0.42, 0.55), 1, 14)
+		var card := _panel(VoltThemeScript.SURFACE, VoltThemeScript.BORDER, 1, 14)
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		card.set_meta("map_id", str(mp["id"]))
 		card.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -2477,7 +2893,8 @@ func _build_play() -> void:
 		card_v.add_theme_constant_override("separation", _gap(5))
 		card.add_child(card_v)
 
-		var sec_lbl := _label(("SECTOR 0%d" if is_en else "СЕКТОР 0%d") % map_idx, 11, MenuUI.FPV_CYAN)
+		var sec_lbl := _label(("SECTOR 0%d" if is_en else "СЕКТОР 0%d") % map_idx,
+				11, VoltThemeScript.YELLOW, VoltThemeScript.font_mono())
 		sec_lbl.set_meta("map_text_ua", "СЕКТОР 0%d" % map_idx)
 		sec_lbl.set_meta("map_text_en", "SECTOR 0%d" % map_idx)
 		sec_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -2490,8 +2907,8 @@ func _build_play() -> void:
 			img_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			img_frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
 			var f_sb := StyleBoxFlat.new()
-			f_sb.bg_color = Color(0.015, 0.04, 0.03, 0.9)
-			f_sb.border_color = Color(0.36, 0.58, 0.44, 0.65)
+			f_sb.bg_color = Color(0.025, 0.025, 0.03, 0.95)
+			f_sb.border_color = VoltThemeScript.BORDER_STRONG
 			f_sb.set_border_width_all(1)
 			f_sb.set_corner_radius_all(8)
 			f_sb.content_margin_left = 2
@@ -2503,35 +2920,37 @@ func _build_play() -> void:
 			img_rect.texture = map_tex
 			img_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 			img_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-			img_rect.custom_minimum_size.y = _fs(118)
+			img_rect.custom_minimum_size.y = _fs(112)
 			img_rect.size_flags_vertical = Control.SIZE_EXPAND_FILL
 			img_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			img_frame.add_child(img_rect)
 			card_v.add_child(img_frame)
 
-		var name_lbl := _label(str(mp.get("name_en" if is_en else "name", mp["name"])), 24, MenuUI.TEXT)
+		var name_lbl := _label(str(mp.get("name_en" if is_en else "name", mp["name"])),
+				16, VoltThemeScript.TEXT, VoltThemeScript.font_display())
 		name_lbl.set_meta("map_text_ua", str(mp["name"]))
 		name_lbl.set_meta("map_text_en", str(mp.get("name_en", mp["name"])))
 		name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card_v.add_child(name_lbl)
-		var tag_lbl := _label(str(mp.get("tag_en" if is_en else "tag", mp["tag"])), 13, MenuUI.FPV_AMBER)
+		var tag_lbl := _label(str(mp.get("tag_en" if is_en else "tag", mp["tag"])),
+				12, VoltThemeScript.STONE_DIM)
 		tag_lbl.set_meta("map_text_ua", str(mp["tag"]))
 		tag_lbl.set_meta("map_text_en", str(mp.get("tag_en", mp["tag"])))
 		tag_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card_v.add_child(tag_lbl)
 		var diff_raw := str(mp.get("diff", "СЕРЕДНЯ"))
-		var diff_col := MenuUI.FPV_GREEN if diff_raw == "ЛЕГКА" else (MenuUI.FPV_AMBER if diff_raw == "СЕРЕДНЯ" else Color("e07b72"))
+		var diff_col := VoltThemeScript.GOOD if diff_raw == "ЛЕГКА" else (VoltThemeScript.YELLOW if diff_raw == "СЕРЕДНЯ" else VoltThemeScript.DANGER)
 		var diff_lbl := _label(("DIFFICULTY: " if is_en else "СКЛАДНІСТЬ: ")
 				+ str(mp.get("diff_en" if is_en else "diff",
-				"MEDIUM" if is_en else "СЕРЕДНЯ")), 12, diff_col)
+				"MEDIUM" if is_en else "СЕРЕДНЯ")), 11, diff_col, VoltThemeScript.font_mono())
 		diff_lbl.set_meta("map_text_ua", "СКЛАДНІСТЬ: " + str(mp.get("diff", "СЕРЕДНЯ")))
 		diff_lbl.set_meta("map_text_en", "DIFFICULTY: " + str(mp.get("diff_en", "MEDIUM")))
 		diff_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card_v.add_child(diff_lbl)
 
 		var is_sel := (str(mp["id"]) == _selected_map)
-		var sel_btn := _button(("SELECTED ✓" if is_sel else "SELECT") if is_en \
-				else ("ОБРАНО ✓" if is_sel else "ОБРАТИ"), 46, is_sel)
+		var sel_btn := _button(("SELECTED" if is_sel else "SELECT") if is_en \
+				else ("ОБРАНО" if is_sel else "ОБРАТИ"), 44, is_sel)
 		sel_btn.pressed.connect(func():
 			_select_map(card_id)
 		)
@@ -2547,13 +2966,15 @@ func _build_play() -> void:
 	bottom_center.add_theme_constant_override("separation", _gap(6))
 	v.add_child(bottom_center)
 
-	_play_caption = _label("", 18, MenuUI.MUTED)
+	_play_caption = _label("", 14, VoltThemeScript.STONE_DIM, VoltThemeScript.font_mono())
 	_play_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	bottom_center.add_child(_play_caption)
 	_update_play_caption()
 
-	var start_mission_btn := _button("ПОЧАТИ ВИЛІТ", 62, true)
-	start_mission_btn.custom_minimum_size = Vector2(_fs(420), _fs(62))
+	var start_mission_btn := _button("ПОЧАТИ ВИЛІТ", 56, true)
+	start_mission_btn.icon = MenuIcons.icon_play(VoltThemeScript.TEXT_DARK, 20)
+	start_mission_btn.add_theme_constant_override("h_separation", _gap(10))
+	start_mission_btn.custom_minimum_size = Vector2(_fs(420), _fs(56))
 	start_mission_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	start_mission_btn.pressed.connect(_launch)
 	bottom_center.add_child(start_mission_btn)
@@ -2563,7 +2984,7 @@ func _build_play() -> void:
 
 func _on_mobile_coins_changed(value: int) -> void:
 	if _coin_label != null and is_instance_valid(_coin_label):
-		_coin_label.text = "◈ %d" % maxi(0, value)
+		_coin_label.text = str(maxi(0, value))
 
 
 func _try_confirm_unlock(uid: String, status_lbl: Label = null) -> bool:
@@ -2576,15 +2997,15 @@ func _try_confirm_unlock(uid: String, status_lbl: Label = null) -> bool:
 	var is_en := MenuUI.is_english()
 	if Progress.coins < cost:
 		_pending_unlock_id = ""
-		var need_msg := ("◈ NEED %d COINS (HAVE %d)" if is_en else "◈ ПОТРІБНО %d МОНЕТ (Є %d)") % [cost, Progress.coins]
+		var need_msg := ("NEED %d COINS (HAVE %d)" if is_en else "ПОТРІБНО %d МОНЕТ (Є %d)") % [cost, Progress.coins]
 		if status_lbl != null and is_instance_valid(status_lbl):
 			status_lbl.text = need_msg
 		if _coin_label != null and is_instance_valid(_coin_label):
-			_coin_label.text = "◈ %d / %d" % [Progress.coins, cost]
+			_coin_label.text = "%d / %d" % [Progress.coins, cost]
 		return false
 	if _pending_unlock_id != uid:
 		_pending_unlock_id = uid
-		var tap_msg := ("TAP AGAIN TO UNLOCK FOR ◈ %d" if is_en else "ТАПНІТЬ ЩЕ РАЗ: ВІДКРИТИ ЗА ◈ %d") % cost
+		var tap_msg := ("TAP AGAIN TO UNLOCK (%d)" if is_en else "ТАПНІТЬ ЩЕ РАЗ: %d") % cost
 		if status_lbl != null and is_instance_valid(status_lbl):
 			status_lbl.text = tap_msg
 		return false
@@ -2623,53 +3044,9 @@ func _select_map(card_id: String, row: HBoxContainer = null) -> void:
 func _apply_button_primary_style(btn: Button, primary: bool) -> void:
 	if btn == null:
 		return
-	var h: float = btn.custom_minimum_size.y if btn.custom_minimum_size.y > 0 else 46.0
-	var r := int(minf(h * 0.42, 16.0))
-	var s_norm := StyleBoxFlat.new()
-	s_norm.set_corner_radius_all(r)
-	var s_hov := StyleBoxFlat.new()
-	s_hov.set_corner_radius_all(r)
-	var s_press := StyleBoxFlat.new()
-	s_press.set_corner_radius_all(r)
-	var text_col: Color
-	if primary:
-		s_norm.bg_color = MenuUI.ACCENT
-		s_norm.border_color = Color(0.92, 0.84, 0.56, 0.95)
-		s_norm.set_border_width_all(1)
-		s_norm.border_width_left = 4
-		s_norm.shadow_color = Color(0.0, 0.0, 0.0, 0.42)
-		s_norm.shadow_size = 6
-		s_norm.shadow_offset = Vector2(0, 3)
-		s_hov.bg_color = Color(0.82, 0.90, 0.72, 1.0)
-		s_hov.border_color = Color(0.95, 0.88, 0.62, 1.0)
-		s_hov.set_border_width_all(1)
-		s_hov.border_width_left = 4
-		s_press.bg_color = Color(0.58, 0.70, 0.50, 1.0)
-		s_press.border_color = Color(0.58, 0.70, 0.50, 1.0)
-		text_col = Color(0.06, 0.09, 0.07)
-	else:
-		s_norm.bg_color = Color(0.04, 0.08, 0.065, 0.88)
-		s_norm.border_color = Color(0.32, 0.48, 0.38, 0.6)
-		s_norm.set_border_width_all(1)
-		s_norm.border_width_left = 3
-		s_norm.shadow_color = Color(0.0, 0.0, 0.0, 0.35)
-		s_norm.shadow_size = 5
-		s_norm.shadow_offset = Vector2(0, 2)
-		s_hov.bg_color = Color(0.08, 0.15, 0.11, 0.96)
-		s_hov.border_color = Color(0.45, 0.65, 0.52, 0.8)
-		s_hov.set_border_width_all(1)
-		s_hov.border_width_left = 4
-		s_press.bg_color = Color(0.10, 0.22, 0.15, 1.0)
-		s_press.border_color = Color(0.50, 0.75, 0.60, 0.9)
-		s_press.set_border_width_all(1)
-		s_press.border_width_left = 4
-		text_col = MenuUI.TEXT
-	btn.add_theme_color_override("font_color", text_col)
-	btn.add_theme_color_override("font_hover_color", text_col)
-	btn.add_theme_color_override("font_pressed_color", text_col)
-	btn.add_theme_stylebox_override("normal", s_norm)
-	btn.add_theme_stylebox_override("hover", s_hov)
-	btn.add_theme_stylebox_override("pressed", s_press)
+	var h: float = btn.custom_minimum_size.y if btn.custom_minimum_size.y > 0 else 44.0
+	var r := int(minf(h * 0.36, 12.0))
+	VoltThemeScript.apply_button_variant(btn, "primary" if primary else "secondary", r)
 
 
 func _mode_title(mode_id: int) -> String:
@@ -2702,8 +3079,8 @@ func _build_mobile_mission_strip(parent: VBoxContainer, is_en: bool) -> void:
 	for m_id in range(1, 5):
 		var unlocked := Global.is_mission_unlocked(m_id)
 		var b := _button("TAC-0%d" % m_id, 34, _selected_special == 0 and _selected_mission == m_id)
-		b.custom_minimum_size = Vector2(_ui_sz(78), _fs(34))
-		b.add_theme_font_size_override("font_size", _fs(14))
+		b.custom_minimum_size = Vector2(_ui_sz(82), _fs(34))
+		b.add_theme_font_size_override("font_size", _fs(13))
 		b.disabled = not unlocked
 		b.modulate = Color(1, 1, 1, 1 if unlocked else 0.45)
 		b.pressed.connect(_select_mobile_mission.bind(m_id, 0))
@@ -2715,15 +3092,14 @@ func _build_mobile_mission_strip(parent: VBoxContainer, is_en: bool) -> void:
 		var b := _button("%s-%02d · %s" % [op_prefix, s_id, Global.get_special_mission_name(s_id)],
 				34, _selected_special == s_id)
 		b.custom_minimum_size = Vector2(0, _fs(34))
-		b.add_theme_font_size_override("font_size", _fs(14))
+		b.add_theme_font_size_override("font_size", _fs(13))
 		b.pressed.connect(_select_mobile_mission.bind(-1, s_id))
 		strip.add_child(b)
 		_mission_buttons["spec:%d" % s_id] = b
 
-	var scroll_btn := _button("»", 34, false)
+	var scroll_btn := _button("", 34, false)
+	scroll_btn.icon = MenuIcons.icon_chevron_right(VoltThemeScript.YELLOW, 16)
 	scroll_btn.custom_minimum_size = Vector2(_ui_sz(40), _fs(34))
-	scroll_btn.add_theme_font_size_override("font_size", _fs(18))
-	scroll_btn.add_theme_color_override("font_color", MenuUI.FPV_AMBER)
 	scroll_btn.pressed.connect(func():
 		if _mission_bar != null:
 			_mission_bar.scroll_horizontal += _ui_sz(280)
@@ -2774,7 +3150,8 @@ func _refresh_mobile_mission_strip() -> void:
 			var unlocked := Global.is_mission_unlocked(m_id)
 			var mrec := Global.get_mission_record(m_id)
 			var m_stars := int(mrec.get("stars", 0)) if bool(mrec.get("completed", false)) else 0
-			b.text = ("TAC-0%d %s" % [m_id, "★".repeat(m_stars)]) if m_stars > 0 else ("TAC-0%d" % m_id)
+			b.text = ("TAC-0%d [%d*]" % [m_id, m_stars]) if m_stars > 0 else ("TAC-0%d" % m_id)
+			b.icon = null if unlocked else MenuIcons.icon_lock(VoltThemeScript.YELLOW, 14)
 			b.disabled = not unlocked
 			b.modulate = Color(1, 1, 1, 1 if unlocked else 0.45)
 			_apply_button_primary_style(b, _selected_special == 0 and _selected_mission == m_id)
@@ -2784,14 +3161,17 @@ func _refresh_mobile_mission_strip() -> void:
 		if b != null:
 			var srec := Global.get_special_mission_record(s_id) if Global.has_method("get_special_mission_record") else {}
 			var s_stars := int(srec.get("stars", 0)) if bool(srec.get("completed", false)) else 0
-			var suffix := (" " + "★".repeat(s_stars)) if s_stars > 0 else ""
+			var suffix := (" [%d*]" % s_stars) if s_stars > 0 else ""
 			var lock_txt := ""
+			var is_locked_spec := false
 			if s_id >= 11:
 				var suid := "mode_special_%d" % s_id
 				var scost := Progress.price_of(suid)
 				if not Progress.is_unlocked(suid) and scost > 0:
-					lock_txt = (" · CONFIRM ◈%d?" if is_en else " · ЩЕ РАЗ ◈%d?") % scost \
-							if _pending_unlock_id == suid else (" · 🔒 ◈%d" % scost)
+					is_locked_spec = true
+					lock_txt = (" · CONFIRM %d?" if is_en else " · ЩЕ РАЗ %d?") % scost \
+							if _pending_unlock_id == suid else (" · %d" % scost)
+			b.icon = MenuIcons.icon_lock(VoltThemeScript.YELLOW, 14) if is_locked_spec else null
 			b.text = "%s-%02d · %s%s%s" % [op_prefix, s_id, Global.get_special_mission_name(s_id), suffix, lock_txt]
 			_apply_button_primary_style(b, _selected_special == s_id)
 
@@ -2825,7 +3205,7 @@ func _build_mobile_briefing_modal(host: Control, is_en: bool) -> void:
 	_briefing_modal.z_index = 40
 	_briefing_modal.visible = false
 	_briefing_modal.add_theme_stylebox_override("panel", _panel_style(
-			Color(0.012, 0.028, 0.022, 0.988), MenuUI.ACCENT, 2, 16))
+			Color(0.039, 0.039, 0.045, 0.99), VoltThemeScript.YELLOW_BORDER, 2, 16))
 	host.add_child(_briefing_modal)
 
 	var safe_m: Dictionary = MenuUI.get_safe_margins(_vsize())
@@ -2842,11 +3222,14 @@ func _build_mobile_briefing_modal(host: Control, is_en: bool) -> void:
 
 	var hdr := HBoxContainer.new()
 	bv.add_child(hdr)
-	_briefing_title = _label("BRIEFING" if is_en else "БРИФІНГ МІСІЇ", 24, MenuUI.FPV_AMBER)
+	_briefing_title = _label("BRIEFING" if is_en else "БРИФІНГ МІСІЇ",
+			22, VoltThemeScript.YELLOW, VoltThemeScript.font_display())
 	_briefing_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hdr.add_child(_briefing_title)
 	var close_btn := _button("CLOSE" if is_en else "ЗАКРИТИ", 36, false)
-	close_btn.custom_minimum_size = Vector2(_ui_sz(116), _fs(36))
+	close_btn.icon = MenuIcons.icon_close(VoltThemeScript.STONE, 16)
+	close_btn.add_theme_constant_override("h_separation", _gap(6))
+	close_btn.custom_minimum_size = Vector2(_ui_sz(124), _fs(36))
 	close_btn.pressed.connect(func():
 		if _briefing_modal != null:
 			_briefing_modal.visible = false)
@@ -2867,7 +3250,7 @@ func _build_mobile_briefing_modal(host: Control, is_en: bool) -> void:
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	left_col.add_child(scroll)
-	_briefing_body = _label("", 15, MenuUI.TEXT)
+	_briefing_body = _label("", 15, VoltThemeScript.TEXT)
 	_briefing_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_briefing_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(_briefing_body)
@@ -2900,7 +3283,7 @@ func _build_mobile_briefing_modal(host: Control, is_en: bool) -> void:
 	_kropyva_panel = PanelContainer.new()
 	_kropyva_panel.custom_minimum_size = Vector2(_ui_sz(340), _ui_sz(280))
 	_kropyva_panel.add_theme_stylebox_override("panel", _panel_style(
-			Color(0.015, 0.038, 0.026, 0.98), Color(0.32, 0.68, 0.45, 0.85), 1, 10))
+			Color(0.035, 0.035, 0.043, 0.99), VoltThemeScript.YELLOW_BORDER, 1, 10))
 	split.add_child(_kropyva_panel)
 	_kropyva_canvas = Control.new()
 	_kropyva_canvas.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -2915,14 +3298,18 @@ func _refresh_briefing_tactical_buttons() -> void:
 	var flank := bool(Global.menu_settings.get("flank_spawn", false)) if Global != null else false
 	if _briefing_fiber_btn != null:
 		if is_en:
-			_briefing_fiber_btn.text = "LINK: FIBER-OPTIC 10 KM ✓" if fiber else "LINK: RADIO (STANDARD)"
+			_briefing_fiber_btn.text = "LINK: FIBER-OPTIC 10 KM" if fiber else "LINK: RADIO (STANDARD)"
 		else:
-			_briefing_fiber_btn.text = "ЗВ'ЯЗОК: ОПТОВОЛОКНО 10 КМ ✓" if fiber else "ЗВ'ЯЗОК: РАДІОКАНАЛ"
+			_briefing_fiber_btn.text = "ЗВ'ЯЗОК: ОПТОВОЛОКНО 10 КМ" if fiber else "ЗВ'ЯЗОК: РАДІОКАНАЛ"
+		VoltThemeScript.apply_button_variant(_briefing_fiber_btn, "active_soft" if fiber else "secondary", 10)
+		_briefing_fiber_btn.icon = MenuIcons.icon_check(VoltThemeScript.YELLOW, 16) if fiber else null
 	if _briefing_flank_btn != null:
 		if is_en:
-			_briefing_flank_btn.text = "APPROACH: FLANK BYPASS ✓" if flank else "APPROACH: MAIN VECTOR"
+			_briefing_flank_btn.text = "APPROACH: FLANK BYPASS" if flank else "APPROACH: MAIN VECTOR"
 		else:
-			_briefing_flank_btn.text = "ЗАХІД: ОБХІД З ФЛАНГУ ✓" if flank else "ЗАХІД: ОСНОВНА ПОЗИЦІЯ"
+			_briefing_flank_btn.text = "ЗАХІД: ОБХІД З ФЛАНГУ" if flank else "ЗАХІД: ОСНОВНА ПОЗИЦІЯ"
+		VoltThemeScript.apply_button_variant(_briefing_flank_btn, "active_soft" if flank else "secondary", 10)
+		_briefing_flank_btn.icon = MenuIcons.icon_check(VoltThemeScript.YELLOW, 16) if flank else null
 
 
 func _draw_kropyva_map() -> void:
@@ -2932,31 +3319,31 @@ func _draw_kropyva_map() -> void:
 	if sz.x < 40.0 or sz.y < 40.0:
 		return
 	var is_en := MenuUI.is_english()
-	var font := ThemeDB.fallback_font
+	var font := VoltThemeScript.font_mono()
 	var pad := 14.0
 	var rect := Rect2(Vector2(pad, pad + 22.0), Vector2(sz.x - pad * 2.0, sz.y - pad * 2.0 - 26.0))
-	_kropyva_canvas.draw_rect(rect, Color(0.02, 0.055, 0.038, 1.0), true)
+	_kropyva_canvas.draw_rect(rect, Color(0.035, 0.035, 0.043, 1.0), true)
 	# Topographic grid lines
-	var grid_col := Color(0.22, 0.48, 0.32, 0.28)
+	var grid_col := Color(0.918, 0.906, 0.875, 0.12)
 	for i in range(1, 6):
 		var gx := rect.position.x + rect.size.x * (float(i) / 6.0)
 		var gy := rect.position.y + rect.size.y * (float(i) / 6.0)
 		_kropyva_canvas.draw_line(Vector2(gx, rect.position.y), Vector2(gx, rect.end.y), grid_col, 1.0)
 		_kropyva_canvas.draw_line(Vector2(rect.position.x, gy), Vector2(rect.end.x, gy), grid_col, 1.0)
-	_kropyva_canvas.draw_rect(rect, Color(0.38, 0.78, 0.52, 0.65), false, 1.5)
+	_kropyva_canvas.draw_rect(rect, VoltThemeScript.YELLOW_BORDER, false, 1.5)
 
 	# Header bar ("KROPYVA // SECTOR 36U")
 	var hdr_txt := "KROPYVA // SECTOR 36U-XA" if is_en else "КРОПИВА // СЕКТОР 36U-XA"
 	_kropyva_canvas.draw_string(font, Vector2(pad, pad + 15.0), hdr_txt,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.55, 0.96, 0.68))
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 13, VoltThemeScript.YELLOW)
 
 	var center := rect.get_center()
 	# EW / SAM threat zone ring
 	var ew_pos := center + Vector2(14.0, -18.0)
 	_kropyva_canvas.draw_arc(ew_pos, minf(rect.size.x, rect.size.y) * 0.28, 0.0, TAU, 36,
-			Color(1.0, 0.28, 0.22, 0.42), 1.5)
+			Color(VoltThemeScript.DANGER.r, VoltThemeScript.DANGER.g, VoltThemeScript.DANGER.b, 0.50), 1.5)
 	_kropyva_canvas.draw_circle(ew_pos, minf(rect.size.x, rect.size.y) * 0.28,
-			Color(0.95, 0.18, 0.14, 0.09))
+			Color(VoltThemeScript.DANGER.r, VoltThemeScript.DANGER.g, VoltThemeScript.DANGER.b, 0.10))
 
 	# Friendly launch position (Main vs Flank)
 	var flank := bool(Global.menu_settings.get("flank_spawn", false)) if Global != null else false
@@ -2964,9 +3351,9 @@ func _draw_kropyva_map() -> void:
 	var start_pt := Vector2(center.x - rect.size.x * 0.28, rect.end.y - 26.0) if flank \
 			else Vector2(center.x + 12.0, rect.end.y - 24.0)
 	var recon_pt := center + Vector2(-8.0, 18.0)
-	var line_col := Color(0.35, 0.95, 1.0, 0.88) if fiber else Color(0.42, 0.96, 0.58, 0.85)
-	_kropyva_canvas.draw_line(start_pt, recon_pt, line_col, 2.2)
-	_kropyva_canvas.draw_line(recon_pt, ew_pos, Color(1.0, 0.76, 0.28, 0.82), 2.0)
+	var line_col := VoltThemeScript.YELLOW if fiber else VoltThemeScript.STONE
+	_kropyva_canvas.draw_line(start_pt, recon_pt, line_col, 2.4)
+	_kropyva_canvas.draw_line(recon_pt, ew_pos, VoltThemeScript.YELLOW, 2.0)
 
 	# Hostile target diamonds (NATO style)
 	var tgt_offsets := [Vector2(-24, -12), Vector2(18, -28), Vector2(36, 4), Vector2(-6, -38)]
@@ -2976,20 +3363,20 @@ func _draw_kropyva_map() -> void:
 			tp + Vector2(0, -7), tp + Vector2(7, 0),
 			tp + Vector2(0, 7), tp + Vector2(-7, 0)
 		])
-		_kropyva_canvas.draw_colored_polygon(d_pts, Color(0.98, 0.24, 0.18, 0.92))
-		_kropyva_canvas.draw_polyline(d_pts, Color(1.0, 0.82, 0.75, 0.95), 1.2)
+		_kropyva_canvas.draw_colored_polygon(d_pts, VoltThemeScript.DANGER)
+		_kropyva_canvas.draw_polyline(d_pts, VoltThemeScript.STONE, 1.2)
 
 	# Friendly Launch Triangle
 	var s_pts := PackedVector2Array([
 		start_pt + Vector2(0, -9), start_pt + Vector2(8, 7), start_pt + Vector2(-8, 7)
 	])
-	_kropyva_canvas.draw_colored_polygon(s_pts, Color(0.25, 0.88, 1.0, 0.95))
+	_kropyva_canvas.draw_colored_polygon(s_pts, VoltThemeScript.STONE)
 	var st_lbl := "FLANK" if (is_en and flank) else ("START" if is_en else ("ФЛАНГ" if flank else "СТАРТ"))
 	_kropyva_canvas.draw_string(font, start_pt + Vector2(-22.0, 20.0), st_lbl,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.55, 0.95, 1.0))
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 11, VoltThemeScript.STONE)
 	var tgt_lbl := "TARGETS / EW" if is_en else "ЦІЛІ / РЕБ"
 	_kropyva_canvas.draw_string(font, ew_pos + Vector2(-32.0, -minf(rect.size.x, rect.size.y) * 0.28 - 6.0),
-			tgt_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(1.0, 0.48, 0.42))
+			tgt_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, VoltThemeScript.DANGER)
 
 
 func _open_mobile_records() -> void:
@@ -3010,6 +3397,7 @@ func _open_mobile_records() -> void:
 	if _briefing_flank_btn != null:
 		_briefing_flank_btn.visible = false
 	_briefing_modal.visible = true
+	VoltThemeScript.animate_pop_in(_briefing_modal, 0.16)
 
 
 func _open_mobile_briefing() -> void:
@@ -3038,7 +3426,7 @@ func _open_mobile_briefing() -> void:
 		lines.append("%s: %s" % ["PROFILE" if is_en else "ПРОФІЛЬ", sdiff])
 		var srec := Global.get_special_mission_record(_selected_special) if Global.has_method("get_special_mission_record") else {}
 		if bool(srec.get("completed", false)):
-			lines.append("%s: %d · ★%d" % [
+			lines.append("%s: %d · %d*" % [
 				"BEST SCORE" if is_en else "РЕКОРД",
 				int(srec.get("best_score", 0)), int(srec.get("stars", 1))])
 	else:
@@ -3051,11 +3439,11 @@ func _open_mobile_briefing() -> void:
 		lines.append("")
 		lines.append("TASKS:" if is_en else "ЗАВДАННЯ:")
 		for t in content.get("tasks", b.get("tasks", [])):
-			lines.append("  ✔ " + str(t))
+			lines.append("  [+] " + str(t))
 		lines.append("")
 		lines.append("THREATS:" if is_en else "ЗАГРОЗИ:")
 		for th in content.get("threats", b.get("threats", [])):
-			lines.append("  • " + str(th))
+			lines.append("  - " + str(th))
 		lines.append("")
 		lines.append("%s: %s · %s: %d" % [
 			"DIFFICULTY" if is_en else "СКЛАДНІСТЬ", Global.get_difficulty_name(),
@@ -3072,6 +3460,7 @@ func _open_mobile_briefing() -> void:
 	if _kropyva_canvas != null:
 		_kropyva_canvas.queue_redraw()
 	_briefing_modal.visible = true
+	VoltThemeScript.animate_pop_in(_briefing_modal, 0.16)
 
 
 func _update_play_caption() -> void:
@@ -3098,9 +3487,9 @@ func _update_play_caption() -> void:
 			mission_tag = " · TAC-0%d · %s" % [_selected_mission, d_tag]
 	var dname := MenuUI.translate_text(DroneCatalog.get_drone_name(Global.drone_preset))
 	if MenuUI.is_english():
-		_play_caption.text = "SELECTED: %s · %s%s · CRAFT: %s" % [map_name, mode_name, mission_tag, dname]
+		_play_caption.text = "SELECTED: %s // %s%s // CRAFT: %s" % [map_name, mode_name, mission_tag, dname]
 	else:
-		_play_caption.text = "ОБРАНО: %s · %s%s · ДРОН: %s" % [map_name, mode_name, mission_tag, dname]
+		_play_caption.text = "ОБРАНО: %s // %s%s // ДРОН: %s" % [map_name, mode_name, mission_tag, dname]
 
 
 func _update_play_modes(row: HBoxContainer) -> void:
@@ -3127,8 +3516,8 @@ func _update_map_cards(row: HBoxContainer) -> void:
 		var mid := str(c.get_meta("map_id", ""))
 		var is_sel := (mid == _selected_map)
 		c.add_theme_stylebox_override("panel", _panel_style(
-			Color(0.045, 0.10, 0.075, 0.96) if is_sel else Color(0.025, 0.065, 0.05, 0.92),
-			MenuUI.ACCENT if is_sel else Color(0.38, 0.54, 0.42, 0.55),
+			Color(0.085, 0.080, 0.048, 0.96) if is_sel else VoltThemeScript.SURFACE,
+			VoltThemeScript.YELLOW if is_sel else VoltThemeScript.BORDER,
 			3 if is_sel else 1,
 			14
 		))
@@ -3137,13 +3526,17 @@ func _update_map_cards(row: HBoxContainer) -> void:
 			var uid := Progress.map_unlock_id(mid)
 			var cost := Progress.price_of(uid)
 			if not Progress.is_unlocked(uid) and cost > 0:
+				b.icon = MenuIcons.icon_lock(VoltThemeScript.YELLOW, 16)
+				b.add_theme_constant_override("h_separation", _gap(6))
 				if _pending_unlock_id == uid:
-					b.text = ("TAP · ◈ %d?" if is_en else "ЩЕ РАЗ · ◈ %d?") % cost
+					b.text = ("TAP · %d?" if is_en else "ЩЕ РАЗ · %d?") % cost
 				else:
-					b.text = ("🔒 ◈ %d" % cost)
+					b.text = ("%d CR" if is_en else "%d МОН.") % cost
 			else:
-				b.text = ("SELECTED ✓" if is_sel else "SELECT") if is_en \
-						else ("ОБРАНО ✓" if is_sel else "ОБРАТИ")
+				b.icon = MenuIcons.icon_check(VoltThemeScript.TEXT_DARK, 16) if is_sel else null
+				b.add_theme_constant_override("h_separation", _gap(6))
+				b.text = ("SELECTED" if is_sel else "SELECT") if is_en \
+						else ("ОБРАНО" if is_sel else "ОБРАТИ")
 			_apply_button_primary_style(b, is_sel)
 		var card_content := c.get_child(0) as VBoxContainer if c.get_child_count() > 0 else null
 		if card_content != null:
@@ -3232,6 +3625,7 @@ func _build_drone() -> void:
 	v.add_theme_constant_override("separation", _gap(8))
 	screen.add_child(v)
 
+	var is_en := MenuUI.is_english()
 	var hdr := HBoxContainer.new()
 	hdr.add_theme_constant_override("separation", _gap(12))
 	v.add_child(hdr)
@@ -3239,20 +3633,57 @@ func _build_drone() -> void:
 	var title_box := VBoxContainer.new()
 	title_box.add_theme_constant_override("separation", _gap(2))
 	hdr.add_child(title_box)
-	title_box.add_child(_label("АНГАР ДРОНІВ", 32, MenuUI.TEXT))
-	title_box.add_child(_label("Оберіть борт для бойових завдань та тренувань", 13, MenuUI.MUTED))
+	title_box.add_child(_label("АНГАР ДРОНІВ", 22, VoltThemeScript.TEXT, VoltThemeScript.font_display()))
+	title_box.add_child(_label("Оберіть борт для бойових завдань та тренувань", 12, VoltThemeScript.STONE_DIM))
 
 	var cols := HBoxContainer.new()
 	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	cols.add_theme_constant_override("separation", _gap(12))
 	v.add_child(cols)
 
-	# --- Left Column: 13 Drones Scrollable List ---
-	var list_card := _panel(Color(0.025, 0.065, 0.05, 0.92), Color(0.38, 0.54, 0.42, 0.55), 1, 14)
+	# --- Left Column: Filter Pills + All-16 Drones Scrollable List ---
+	var left_col := VBoxContainer.new()
+	left_col.custom_minimum_size.x = _fs(340)
+	left_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	left_col.add_theme_constant_override("separation", _gap(6))
+	cols.add_child(left_col)
+
+	var filter_row := HBoxContainer.new()
+	filter_row.add_theme_constant_override("separation", _gap(6))
+	left_col.add_child(filter_row)
+
+	var filter_btns := {}
+	var filter_defs := [
+		["all", "ALL" if is_en else "УСІ"],
+		["combat", "COMBAT" if is_en else "БОЙОВІ"],
+		["freestyle", "FREESTYLE" if is_en else "ФРІСТАЙЛ"],
+	]
+	for fd in filter_defs:
+		var fk := str(fd[0])
+		var fb := _button(str(fd[1]), 32, fk == "all")
+		fb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		fb.add_theme_font_size_override("font_size", _fs(11))
+		fb.pressed.connect(func():
+			for key_f in filter_btns.keys():
+				var btn_f: Button = filter_btns[key_f]
+				VoltThemeScript.apply_button_variant(btn_f, "primary" if str(key_f) == fk else "secondary", 8)
+			if _hangar_list_container != null:
+				for row_c in _hangar_list_container.get_children():
+					if row_c is Button:
+						var didx: int = int(row_c.get_meta("drone_idx", -1))
+						var is_fs_drone: bool = DroneCatalog.is_uman(didx)
+						row_c.visible = (fk == "all") \
+								or (fk == "freestyle" and is_fs_drone) \
+								or (fk == "combat" and not is_fs_drone)
+		)
+		filter_row.add_child(fb)
+		filter_btns[fk] = fb
+
+	var list_card := _panel(VoltThemeScript.SURFACE, VoltThemeScript.BORDER, 1, 14)
 	list_card.custom_minimum_size.x = _fs(340)
 	list_card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	list_card.clip_contents = true
-	cols.add_child(list_card)
+	left_col.add_child(list_card)
 
 	var scroll := ScrollContainer.new()
 	scroll.name = "HangarScroll"
@@ -3288,7 +3719,7 @@ func _build_drone() -> void:
 
 	for i in hangar_list:
 		var btn := Button.new()
-		btn.custom_minimum_size = Vector2(0, _fs(58))
+		btn.custom_minimum_size = Vector2(0, _fs(56))
 		btn.focus_mode = Control.FOCUS_NONE
 		btn.set_meta("drone_idx", i)
 
@@ -3309,13 +3740,15 @@ func _build_drone() -> void:
 		var title_lbl := Label.new()
 		title_lbl.name = "TitleLabel"
 		title_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		title_lbl.add_theme_font_size_override("font_size", _fs(15))
+		title_lbl.add_theme_font_override("font", VoltThemeScript.font_ui_bold())
+		title_lbl.add_theme_font_size_override("font_size", _fs(14))
 		bv.add_child(title_lbl)
 
 		var tag_lbl := Label.new()
 		tag_lbl.name = "TagLabel"
 		tag_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		tag_lbl.add_theme_font_size_override("font_size", _fs(11))
+		tag_lbl.add_theme_font_override("font", VoltThemeScript.font_mono())
+		tag_lbl.add_theme_font_size_override("font_size", _fs(10))
 		bv.add_child(tag_lbl)
 
 		var cur_i := i
@@ -3340,9 +3773,23 @@ func _build_drone() -> void:
 	_update_hangar_list_styles()
 
 	# --- Right Column: 3D Turntable Showroom ---
-	var showroom_card := _panel(Color(0.025, 0.065, 0.05, 0.92), Color(0.38, 0.54, 0.42, 0.55), 1, 16)
+	var showroom_card := _panel(Color(0.047, 0.047, 0.055, 0.94), VoltThemeScript.BORDER, 1, 16)
 	showroom_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	showroom_card.clip_contents = true
 	cols.add_child(showroom_card)
+
+	var wm_wrap := CenterContainer.new()
+	wm_wrap.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	wm_wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	showroom_card.add_child(wm_wrap)
+
+	_hangar_watermark = Label.new()
+	_hangar_watermark.text = "GRIM-7"
+	_hangar_watermark.add_theme_font_override("font", VoltThemeScript.font_display())
+	_hangar_watermark.add_theme_font_size_override("font_size", _fs(56))
+	_hangar_watermark.add_theme_color_override("font_color", Color(0.918, 0.906, 0.875, 0.055))
+	_hangar_watermark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wm_wrap.add_child(_hangar_watermark)
 
 	_hangar_container = SubViewportContainer.new()
 	_hangar_container.stretch = true
@@ -3354,8 +3801,12 @@ func _build_drone() -> void:
 	_hangar_viewport = SubViewport.new()
 	_hangar_viewport.own_world_3d = true
 	_hangar_viewport.transparent_bg = true
-	_hangar_viewport.msaa_3d = Viewport.MSAA_2X
+	_hangar_viewport.msaa_3d = Viewport.MSAA_4X
 	_hangar_viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+	_hangar_viewport.scaling_3d_scale = 1.0
+	_hangar_viewport.anisotropic_filtering_level = Viewport.ANISOTROPY_8X
+	_hangar_viewport.use_debanding = true
+	_hangar_viewport.positional_shadow_atlas_size = 1024
 	_hangar_viewport.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
 	_hangar_container.add_child(_hangar_viewport)
 
@@ -3366,7 +3817,7 @@ func _build_drone() -> void:
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for side in ["left", "right", "top", "bottom"]:
-		overlay.add_theme_constant_override("margin_%s" % side, _gap(16))
+		overlay.add_theme_constant_override("margin_%s" % side, _gap(14))
 	showroom_card.add_child(overlay)
 
 	var ov_box := VBoxContainer.new()
@@ -3375,7 +3826,7 @@ func _build_drone() -> void:
 	overlay.add_child(ov_box)
 
 	# Top Specs Overlay
-	var info_panel := _panel(Color(0.02, 0.05, 0.04, 0.80), Color(0.3, 0.45, 0.35, 0.5), 1, 10)
+	var info_panel := _panel(Color(0.031, 0.031, 0.036, 0.88), VoltThemeScript.BORDER_STRONG, 1, 12)
 	info_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ov_box.add_child(info_panel)
 
@@ -3384,11 +3835,44 @@ func _build_drone() -> void:
 	info_v.add_theme_constant_override("separation", _gap(2))
 	info_panel.add_child(info_v)
 
-	_hangar_drone_name = _label("«ГРІМ-7»", 28, MenuUI.TEXT)
-	info_v.add_child(_hangar_drone_name)
-	_hangar_drone_tag = _label("ТАКТИЧНИЙ 8–10\" • FPV", 13, MenuUI.FPV_AMBER)
+	var info_top := HBoxContainer.new()
+	info_top.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	info_v.add_child(info_top)
+
+	_hangar_drone_name = _label("«ГРІМ-7»", 22, VoltThemeScript.TEXT, VoltThemeScript.font_display())
+	info_top.add_child(_hangar_drone_name)
+
+	info_top.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
+
+	var hangar_orbit_pill := PanelContainer.new()
+	hangar_orbit_pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hangar_orbit_pill.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hangar_orbit_pill.add_theme_stylebox_override("panel", VoltThemeScript.pill_box(
+			Color(0.055, 0.055, 0.062, 0.85), VoltThemeScript.BORDER, _gap(8), _gap(4)))
+	info_top.add_child(hangar_orbit_pill)
+
+	var hangar_orbit_row := HBoxContainer.new()
+	hangar_orbit_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hangar_orbit_row.add_theme_constant_override("separation", _gap(4))
+	hangar_orbit_pill.add_child(hangar_orbit_row)
+
+	var hangar_orbit_ico := TextureRect.new()
+	hangar_orbit_ico.texture = MenuIcons.icon_rotate(VoltThemeScript.STONE_DIM, 14)
+	hangar_orbit_ico.custom_minimum_size = Vector2(_fs_small(12), _fs_small(12))
+	hangar_orbit_ico.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	hangar_orbit_ico.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	hangar_orbit_ico.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hangar_orbit_row.add_child(hangar_orbit_ico)
+
+	var hangar_orbit_lbl := _label("360°", 10, VoltThemeScript.STONE_DIM, VoltThemeScript.font_mono())
+	hangar_orbit_lbl.add_theme_font_size_override("font_size", _fs_small(10))
+	hangar_orbit_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hangar_orbit_row.add_child(hangar_orbit_lbl)
+
+	_hangar_drone_tag = _label("ТАКТИЧНИЙ 8–10\" • FPV", 12, VoltThemeScript.YELLOW, VoltThemeScript.font_mono())
 	info_v.add_child(_hangar_drone_tag)
-	_hangar_specs_lbl = _label("МАСА: 1400 г • TWR: 3.5:1 • МОТОРИ: 1350 KV", 12, MenuUI.MUTED)
+	_hangar_specs_lbl = _label("МАСА: 1400 г • TWR: 3.5:1 • МОТОРИ: 1350 KV",
+			11, VoltThemeScript.STONE_DIM, VoltThemeScript.font_mono())
 	info_v.add_child(_hangar_specs_lbl)
 	info_v.add_child(_build_perf_bars_row(_hangar_perf_bars))
 
@@ -3397,13 +3881,27 @@ func _build_drone() -> void:
 	# Centered Bottom Selection Bar
 	var sel_bar := HBoxContainer.new()
 	sel_bar.alignment = BoxContainer.ALIGNMENT_CENTER
-	sel_bar.add_theme_constant_override("separation", _gap(12))
+	sel_bar.add_theme_constant_override("separation", _gap(10))
 	ov_box.add_child(sel_bar)
 
-	_hangar_select_btn = _button("ОБРАТИ ЦЕЙ ДРОН", 52, true)
-	_hangar_select_btn.custom_minimum_size = Vector2(_fs(360), _fs(52))
+	_hangar_select_btn = _button("ОБРАТИ ЦЕЙ ДРОН", 48, true)
+	_hangar_select_btn.custom_minimum_size = Vector2(_fs(320), _fs(48))
+	_hangar_select_btn.add_theme_constant_override("h_separation", _gap(8))
 	_hangar_select_btn.pressed.connect(_on_hangar_choose_pressed)
 	sel_bar.add_child(_hangar_select_btn)
+
+	var hangar_shell_btn := _button("", 48, false, "secondary")
+	hangar_shell_btn.name = "HangarShellSpinButton"
+	hangar_shell_btn.icon = MenuIcons.icon_rotate(VoltThemeScript.YELLOW, 18)
+	hangar_shell_btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hangar_shell_btn.expand_icon = false
+	hangar_shell_btn.custom_minimum_size = Vector2(_ui_sz(44), _fs(48))
+	hangar_shell_btn.tooltip_text = "Скид гільз" if not is_en else "Roll & drop shells"
+	hangar_shell_btn.pressed.connect(func():
+		if _hangar_diorama != null and is_instance_valid(_hangar_diorama):
+			_hangar_diorama.apply_swipe_spin(0.45)
+	)
+	sel_bar.add_child(hangar_shell_btn)
 
 	_load_hangar_model(_hangar_preview_idx)
 	_update_hangar_info(_hangar_preview_idx)
@@ -3413,25 +3911,41 @@ func _setup_hangar_3d_world() -> void:
 	var env := Environment.new()
 	env.background_mode = Environment.BG_CLEAR_COLOR
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.72, 0.80, 0.75)
-	env.ambient_light_energy = 1.35
+	env.ambient_light_color = Color(0.78, 0.78, 0.76)
+	env.ambient_light_energy = 1.15
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 1.08
+	env.tonemap_exposure = 1.12
 	var world := WorldEnvironment.new()
 	world.environment = env
+	world.set_meta("studio_env", true)
 	_hangar_viewport.add_child(world)
 
 	var key := DirectionalLight3D.new()
-	key.light_energy = 2.4
+	key.light_energy = 2.55
 	key.light_color = Color(1.0, 0.96, 0.88)
+	key.shadow_enabled = true
+	key.shadow_bias = 0.02
+	key.directional_shadow_max_distance = 6.0
 	key.look_at_from_position(Vector3(2.5, 3.5, 2.8), Vector3.ZERO, Vector3.UP)
 	_hangar_viewport.add_child(key)
 
 	var fill := DirectionalLight3D.new()
-	fill.light_energy = 1.0
-	fill.light_color = Color(0.65, 0.85, 0.78)
+	fill.light_energy = 1.35
+	fill.light_color = Color(0.68, 0.78, 0.92)
 	fill.look_at_from_position(Vector3(-2.8, 1.8, -2.0), Vector3.ZERO, Vector3.UP)
 	_hangar_viewport.add_child(fill)
+
+	var rim := DirectionalLight3D.new()
+	rim.light_energy = 1.65
+	rim.light_color = Color(1.0, 0.89, 0.25)
+	rim.rotation_degrees = Vector3(22.0, -142.0, 0.0)
+	_hangar_viewport.add_child(rim)
+
+	var front := DirectionalLight3D.new()
+	front.light_energy = 0.95
+	front.light_color = Color(0.92, 0.93, 0.95)
+	front.rotation_degrees = Vector3(-12.0, 4.0, 0.0)
+	_hangar_viewport.add_child(front)
 
 	var ring := MeshInstance3D.new()
 	var cyl := CylinderMesh.new()
@@ -3442,9 +3956,9 @@ func _setup_hangar_3d_world() -> void:
 	ring.mesh = cyl
 	ring.position = Vector3(0.0, -0.1875, 0.0)
 	var ring_mat := StandardMaterial3D.new()
-	ring_mat.albedo_color = Color(0.12, 0.17, 0.15)
-	ring_mat.roughness = 0.85
-	ring_mat.metallic = 0.3
+	ring_mat.albedo_color = Color(0.075, 0.078, 0.088)
+	ring_mat.roughness = 0.72
+	ring_mat.metallic = 0.35
 	ring.material_override = ring_mat
 	_hangar_viewport.add_child(ring)
 
@@ -3459,7 +3973,7 @@ func _setup_hangar_3d_world() -> void:
 	h_ring.position = Vector3(0.0, -0.1770, 0.0)
 	var h_ring_mat := StandardMaterial3D.new()
 	h_ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	h_ring_mat.albedo_color = MenuUI.ACCENT
+	h_ring_mat.albedo_color = VoltThemeScript.YELLOW
 	h_ring.material_override = h_ring_mat
 	_hangar_viewport.add_child(h_ring)
 	_hangar_pad_rotator = _add_tactical_podium_details(_hangar_viewport, -0.1770, 0.50)
@@ -3492,13 +4006,13 @@ func _add_tactical_podium_details(vp: Node, top_y: float, radius: float) -> Node
 	inner_ring.position = Vector3(0.0, top_y + 0.001, 0.0)
 	var ir_mat := StandardMaterial3D.new()
 	ir_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	ir_mat.albedo_color = Color(0.95, 0.76, 0.30, 0.85)
+	ir_mat.albedo_color = VoltThemeScript.YELLOW
 	inner_ring.material_override = ir_mat
 	pad_rotator.add_child(inner_ring)
 
-	# 8 radial compass ticks + 4 outer corner lugs with amber LED pips
+	# 8 radial compass ticks + 4 outer corner lugs
 	var lug_mat := StandardMaterial3D.new()
-	lug_mat.albedo_color = Color(0.20, 0.25, 0.21)
+	lug_mat.albedo_color = Color(0.11, 0.115, 0.125)
 	lug_mat.roughness = 0.65
 	lug_mat.metallic = 0.45
 	for i in range(8):
@@ -3540,7 +4054,7 @@ func _load_hangar_model(preset_idx: int) -> void:
 	await DroneCatalog.wait_for_model(preset_idx)
 	if token != _hangar_load_token or not is_instance_valid(_hangar_holder):
 		return
-	var model: Node3D = DroneCatalog.attach_model(_hangar_holder, preset_idx)
+	var model: Node3D = DroneCatalog.attach_model(_hangar_holder, preset_idx, true)
 	if model == null:
 		_fit_hangar_camera()
 		return
@@ -3557,6 +4071,7 @@ func _load_hangar_model(preset_idx: int) -> void:
 		return
 	MenuUI.fit_preview_model(model, target_sz, -0.1775)
 	_ensure_preview_scale(_hangar_holder, model, target_sz, -0.1775)
+	_enable_preview_shadows(model)
 	_fit_hangar_camera()
 	model.visible = true
 
@@ -3579,8 +4094,11 @@ func _fit_hangar_camera() -> void:
 func _update_hangar_info(preset_idx: int) -> void:
 	var p := DroneCatalog.preset(preset_idx)
 	var is_en := MenuUI.is_english()
+	var d_name := MenuUI.translate_text(DroneCatalog.get_drone_name(preset_idx))
 	if _hangar_drone_name != null and is_instance_valid(_hangar_drone_name):
-		_hangar_drone_name.text = MenuUI.translate_text(DroneCatalog.get_drone_name(preset_idx))
+		_hangar_drone_name.text = d_name
+	if _hangar_watermark != null and is_instance_valid(_hangar_watermark):
+		_hangar_watermark.text = d_name.to_upper()
 	if _hangar_drone_tag != null and is_instance_valid(_hangar_drone_tag):
 		_hangar_drone_tag.text = MenuUI.translate_text(DroneCatalog.get_drone_tag(preset_idx))
 	if _hangar_specs_lbl != null and is_instance_valid(_hangar_specs_lbl):
@@ -3589,29 +4107,31 @@ func _update_hangar_info(preset_idx: int) -> void:
 		var kv: int = int(p.get("kv", 2000))
 		var tilt: int = int(p.get("cam_tilt", 25))
 		if is_en:
-			_hangar_specs_lbl.text = "MASS: %d g • TWR: %.1f:1 • MOTORS: %d KV • CAM TILT: %d°" % [mass, twr, kv, tilt]
+			_hangar_specs_lbl.text = "MASS %dG // TWR %.1f:1 // %d KV // TILT %d°" % [mass, twr, kv, tilt]
 		else:
-			_hangar_specs_lbl.text = "МАСА: %d г • TWR: %.1f:1 • МОТОРИ: %d KV • КУТ КАМЕРИ: %d°" % [mass, twr, kv, tilt]
+			_hangar_specs_lbl.text = "МАСА %dГ // ТЯГА %.1f:1 // %d KV // КАМЕРА %d°" % [mass, twr, kv, tilt]
 	_update_perf_bars(_hangar_perf_bars, p)
 	if _hangar_select_btn != null and is_instance_valid(_hangar_select_btn):
 		var duid := Progress.drone_unlock_id(preset_idx)
 		var dcost := Progress.price_of(duid)
+		_hangar_select_btn.modulate = Color.WHITE
 		if not Progress.is_unlocked(duid) and dcost > 0:
+			_hangar_select_btn.icon = MenuIcons.icon_lock(VoltThemeScript.YELLOW, 18)
+			VoltThemeScript.apply_button_variant(_hangar_select_btn, "active_soft", 10)
 			if _pending_unlock_id == duid:
-				_hangar_select_btn.text = ("CONFIRM UNLOCK · ◈ %d?" if is_en else "ПІДТВЕРДИТИ · ◈ %d?") % dcost
-				_hangar_select_btn.modulate = Color(1.0, 0.92, 0.55)
+				_hangar_select_btn.text = ("CONFIRM UNLOCK · %d?" if is_en else "ПІДТВЕРДИТИ · %d?") % dcost
 			elif Progress.coins < dcost:
-				_hangar_select_btn.text = ("🔒 NEED ◈ %d COINS" if is_en else "🔒 ПОТРІБНО ◈ %d") % dcost
-				_hangar_select_btn.modulate = Color(0.95, 0.72, 0.55)
+				_hangar_select_btn.text = ("NEED %d COINS" if is_en else "ПОТРІБНО %d МОН.") % dcost
 			else:
-				_hangar_select_btn.text = ("🔒 UNLOCK FOR ◈ %d" if is_en else "🔒 ВІДКРИТИ ЗА ◈ %d") % dcost
-				_hangar_select_btn.modulate = Color(1.0, 0.90, 0.65)
+				_hangar_select_btn.text = ("UNLOCK FOR %d" if is_en else "ВІДКРИТИ ЗА %d") % dcost
 		elif preset_idx == Global.drone_preset:
+			_hangar_select_btn.icon = MenuIcons.icon_check(VoltThemeScript.TEXT_DARK, 18)
 			_hangar_select_btn.text = "SELECTED FOR SORTIES" if is_en else "ОБРАНО ДЛЯ ВИЛЬОТІВ"
-			_hangar_select_btn.modulate = Color(0.75, 1.0, 0.75)
+			VoltThemeScript.apply_button_variant(_hangar_select_btn, "stone", 10)
 		else:
+			_hangar_select_btn.icon = MenuIcons.icon_play(VoltThemeScript.TEXT_DARK, 16)
 			_hangar_select_btn.text = "SELECT THIS CRAFT" if is_en else "ОБРАТИ ЦЕЙ ДРОН"
-			_hangar_select_btn.modulate = Color(1.0, 1.0, 1.0)
+			VoltThemeScript.apply_button_variant(_hangar_select_btn, "primary", 10)
 
 
 func _update_hangar_list_styles() -> void:
@@ -3626,49 +4146,49 @@ func _update_hangar_list_styles() -> void:
 			var duid := Progress.drone_unlock_id(idx)
 			var dcost := Progress.price_of(duid)
 			var is_locked := (not Progress.is_unlocked(duid) and dcost > 0)
-			var mark := ("  🔒 ◈%d" % dcost) if is_locked \
-					else (("  [ SELECTED ✓ ]" if is_en else "  [ ОБРАНО ✓ ]") if is_cur else "")
+			var mark := ("  [ %d CR ]" % dcost) if is_locked \
+					else (("  [ SELECTED ]" if is_en else "  [ ОБРАНО ]") if is_cur else "")
 
 			var title_lbl := c.find_child("TitleLabel", true, false) as Label
 			var tag_lbl := c.find_child("TagLabel", true, false) as Label
 
 			if title_lbl != null:
-				title_lbl.text = "%d. %s%s" % [idx + 1,
+				title_lbl.text = "%02d. %s%s" % [idx + 1,
 						MenuUI.translate_text(DroneCatalog.get_drone_name(idx)), mark]
 				if is_sel:
-					title_lbl.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+					title_lbl.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
 				elif is_cur:
-					title_lbl.add_theme_color_override("font_color", Color(0.95, 0.90, 0.55))
+					title_lbl.add_theme_color_override("font_color", VoltThemeScript.STONE)
 				else:
-					title_lbl.add_theme_color_override("font_color", Color(0.90, 0.94, 0.92))
+					title_lbl.add_theme_color_override("font_color", VoltThemeScript.TEXT)
 
 			if tag_lbl != null:
 				tag_lbl.text = MenuUI.translate_text(
 						DroneCatalog.get_drone_tag(idx).to_upper())
 				if is_sel:
-					tag_lbl.add_theme_color_override("font_color", Color(0.55, 0.92, 0.68))
+					tag_lbl.add_theme_color_override("font_color", VoltThemeScript.STONE)
 				elif is_cur:
-					tag_lbl.add_theme_color_override("font_color", Color(0.90, 0.78, 0.45))
+					tag_lbl.add_theme_color_override("font_color", VoltThemeScript.GOOD)
 				else:
-					tag_lbl.add_theme_color_override("font_color", Color(0.65, 0.78, 0.70))
+					tag_lbl.add_theme_color_override("font_color", VoltThemeScript.STONE_DIM)
 
 			var bg_col: Color
 			var b_col: Color
 			var b_w: int = 1
 			if is_sel:
-				bg_col = Color(0.12, 0.25, 0.18, 0.98)
-				b_col = Color(0.48, 0.85, 0.60, 0.95)
+				bg_col = VoltThemeScript.YELLOW_SOFT
+				b_col = VoltThemeScript.YELLOW
 				b_w = 2
 			elif is_cur:
-				bg_col = Color(0.06, 0.12, 0.08, 0.90)
-				b_col = Color(0.88, 0.76, 0.46, 0.75)
+				bg_col = VoltThemeScript.SURFACE_2
+				b_col = VoltThemeScript.STONE_DIM
 			else:
-				bg_col = Color(0.035, 0.075, 0.055, 0.85)
-				b_col = Color(0.24, 0.38, 0.30, 0.60)
+				bg_col = VoltThemeScript.SURFACE
+				b_col = VoltThemeScript.BORDER
 
-			c.add_theme_stylebox_override("normal", _panel_style(bg_col, b_col, b_w, 8))
-			c.add_theme_stylebox_override("hover", _panel_style(bg_col.lightened(0.08), b_col.lightened(0.1), b_w, 8))
-			c.add_theme_stylebox_override("pressed", _panel_style(bg_col.darkened(0.1), b_col, b_w, 8))
+			c.add_theme_stylebox_override("normal", _panel_style(bg_col, b_col, b_w, 10))
+			c.add_theme_stylebox_override("hover", _panel_style(VoltThemeScript.SURFACE_HOVER, VoltThemeScript.BORDER_STRONG, b_w, 10))
+			c.add_theme_stylebox_override("pressed", _panel_style(VoltThemeScript.YELLOW_SOFT, VoltThemeScript.YELLOW, 2, 10))
 
 
 func _on_hangar_choose_pressed() -> void:
@@ -3766,7 +4286,7 @@ func _build_settings() -> void:
 	if not compact:
 		settings_heading = "SETTINGS & SIMULATION" if MenuUI.is_english() \
 				else "НАЛАШТУВАННЯ ТА СИМУЛЯЦІЯ"
-	var heading := _label(settings_heading, 32, MenuUI.TEXT)
+	var heading := _label(settings_heading, 22, VoltThemeScript.TEXT, VoltThemeScript.font_display())
 	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(heading)
@@ -3797,8 +4317,8 @@ func _build_settings() -> void:
 
 	for td in tab_defs:
 		var tab_id: String = td["id"]
-		var btn := _button(td["label"], 48, tab_id == _settings_tab)
-		btn.add_theme_font_size_override("font_size", _fs(16 if compact else 20))
+		var btn := _button(td["label"], 44, tab_id == _settings_tab)
+		btn.add_theme_font_size_override("font_size", _fs(15 if compact else 17))
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		btn.pressed.connect(func():
 			_settings_tab = tab_id
@@ -3826,15 +4346,12 @@ func _switch_settings_tab() -> void:
 	for tab_id in _settings_tab_buttons.keys():
 		var b: Button = _settings_tab_buttons[tab_id]
 		var is_active: bool = (tab_id == _settings_tab)
-		var normal_bg: Color = Color(0.72, 0.82, 0.65, 0.98) if is_active else Color(0.04, 0.08, 0.065, 0.88)
-		var border: Color = Color(0.88, 0.76, 0.46, 0.9) if is_active else Color(0.32, 0.48, 0.38, 0.6)
-		b.add_theme_stylebox_override("normal", _panel_style(normal_bg, border, 1, 12))
-		b.add_theme_color_override("font_color", Color(0.06, 0.09, 0.07) if is_active else MenuUI.TEXT)
+		VoltThemeScript.apply_button_variant(b, "primary" if is_active else "secondary", 10)
 		b.modulate = Color(1.0, 1.0, 1.0, 1.0)
 
 
 func _build_settings_tab_sim() -> void:
-	var card := _panel(Color(0.025, 0.065, 0.05, 0.92), Color(0.38, 0.54, 0.42, 0.55), 1, 16)
+	var card := _panel(VoltThemeScript.SURFACE, VoltThemeScript.BORDER, 1, 16)
 	card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_settings_body_container.add_child(card)
 	_settings_panels["sim"] = card
@@ -3855,23 +4372,23 @@ func _build_settings_tab_sim() -> void:
 	sv.add_child(_label(
 			("TRAINING / REALISM" if is_en else "ТРЕНАЖЕР / РЕАЛІЗМ") if compact \
 			else ("TRAINING / SIMULATION REALISM" if is_en else "ТРЕНАЖЕР / СИМУЛЯЦІЯ РЕАЛІЗМУ"),
-			20 if compact else 24, MenuUI.FPV_AMBER))
+			18 if compact else 20, VoltThemeScript.YELLOW, VoltThemeScript.font_mono()))
 	sv.add_child(_label(
 			("Assists active in flight" if is_en else "Полегшення під час польоту") if compact \
 			else ("Assists and physics apply during flight" if is_en else "Полегшення та фізика діють одразу під час польоту"),
-			13 if compact else 14, MenuUI.MUTED))
+			13 if compact else 14, VoltThemeScript.STONE_DIM))
 
 	var prof_row: BoxContainer
 	if compact:
 		var prof_vbox := VBoxContainer.new()
 		prof_vbox.add_theme_constant_override("separation", _gap(6))
 		prof_row = prof_vbox
-		sv.add_child(_label("Профіль:" if not is_en else "PROFILE:", 16, MenuUI.TEXT))
+		sv.add_child(_label("Профіль:" if not is_en else "PROFILE:", 16, VoltThemeScript.TEXT))
 	else:
 		var prof_hbox := HBoxContainer.new()
 		prof_hbox.add_theme_constant_override("separation", _gap(12))
 		prof_row = prof_hbox
-		prof_row.add_child(_label("Профіль реалізму:" if not is_en else "Realism profile:", 20, MenuUI.TEXT))
+		prof_row.add_child(_label("Профіль реалізму:" if not is_en else "Realism profile:", 18, VoltThemeScript.TEXT))
 
 	var cur_prof: String = str(GameSettings.hud_config.get("realism_profile", GameSettings.REALISM_ARCADE))
 	var arcade_text := ("ARCADE" if is_en else "АРКАДА") if compact \
@@ -3888,14 +4405,14 @@ func _build_settings_tab_sim() -> void:
 
 	arcade_btn.pressed.connect(func():
 		GameSettings.apply_realism_profile(GameSettings.REALISM_ARCADE)
-		arcade_btn.modulate = Color(1, 1, 1, 1)
-		combat_btn.modulate = Color(1, 1, 1, 0.6)
+		VoltThemeScript.apply_button_variant(arcade_btn, "primary", 10)
+		VoltThemeScript.apply_button_variant(combat_btn, "secondary", 10)
 		_refresh_sim_toggles()
 	)
 	combat_btn.pressed.connect(func():
 		GameSettings.apply_realism_profile(GameSettings.REALISM_COMBAT)
-		combat_btn.modulate = Color(1, 1, 1, 1)
-		arcade_btn.modulate = Color(1, 1, 1, 0.6)
+		VoltThemeScript.apply_button_variant(combat_btn, "primary", 10)
+		VoltThemeScript.apply_button_variant(arcade_btn, "secondary", 10)
 		_refresh_sim_toggles()
 	)
 	sv.add_child(prof_row)
@@ -3921,7 +4438,7 @@ func _build_settings_tab_sim() -> void:
 		var label_txt: String = item[1]
 		var row := HBoxContainer.new()
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var lbl := _label(label_txt, 16 if compact else 18, MenuUI.TEXT)
+		var lbl := _label(label_txt, 16 if compact else 17, VoltThemeScript.TEXT)
 		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(lbl)
 
@@ -3937,7 +4454,7 @@ func _build_settings_tab_sim() -> void:
 
 	sv.add_child(_label(("TOUCH HUD" if is_en else "СЕНСОРНИЙ HUD") if compact \
 			else ("СЕНСОРНЕ КЕРУВАННЯ (TOUCH)" if not is_en else "TOUCH CONTROLS"),
-			18 if compact else 20, MenuUI.FPV_AMBER))
+			16 if compact else 18, VoltThemeScript.YELLOW, VoltThemeScript.font_mono()))
 
 	var touch_grid := GridContainer.new()
 	touch_grid.columns = 1 if compact else 2
@@ -3956,7 +4473,7 @@ func _build_settings_tab_sim() -> void:
 		var t_def: bool = bool(t_item[2])
 		var trow := HBoxContainer.new()
 		trow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var tlbl := _label(t_lbl_txt, 16 if compact else 18, MenuUI.TEXT)
+		var tlbl := _label(t_lbl_txt, 16 if compact else 17, VoltThemeScript.TEXT)
 		tlbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		trow.add_child(tlbl)
 		var tsw := ToggleSwitch.new(bool(Global.menu_settings.get(t_key, t_def)))
@@ -3974,7 +4491,7 @@ func _build_settings_tab_sim() -> void:
 	ctrl_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var ctrl_text := ("Режим пульта" if compact else "Режим пульта (вимкнути сенсорні стіки)") \
 			if not is_en else ("Controller mode" if compact else "Controller-only mode (disable touch sticks)")
-	var ctrl_lbl := _label(ctrl_text, 16 if compact else 18, MenuUI.TEXT)
+	var ctrl_lbl := _label(ctrl_text, 16 if compact else 17, VoltThemeScript.TEXT)
 	ctrl_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ctrl_row.add_child(ctrl_lbl)
 	var is_ctrl_locked := str(Global.menu_settings.get("touch_input_mode", "auto")).to_lower() == "controller"
@@ -3993,18 +4510,21 @@ func _build_settings_tab_sim() -> void:
 	var touch_layout_label := ("TOUCH LAYOUT" if is_en else "НАЛАШТУВАТИ HUD") \
 			if compact else ("CUSTOMIZE TOUCH LAYOUT" if is_en \
 			else "НАЛАШТУВАТИ РОЗТАШУВАННЯ HUD")
-	var touch_layout_button := _button(touch_layout_label, 52, true)
+	var touch_layout_button := _button(touch_layout_label, 48, true)
+	touch_layout_button.icon = MenuIcons.icon_sliders(VoltThemeScript.TEXT_DARK, 18)
+	touch_layout_button.add_theme_constant_override("h_separation", _gap(8))
 	touch_layout_button.pressed.connect(_open_touch_layout_settings)
 	sv.add_child(touch_layout_button)
 
 	var sens_row := HBoxContainer.new()
 	sens_row.add_theme_constant_override("separation", _gap(12))
 	var sens_lbl := _label("Чутливість:" if compact else "Чутливість сенсора:",
-			16 if compact else 18, MenuUI.TEXT)
+			16 if compact else 17, VoltThemeScript.TEXT)
 	sens_lbl.custom_minimum_size.x = _fs(128 if compact else 210)
 	sens_row.add_child(sens_lbl)
 	var cur_sens := clampf(float(Global.menu_settings.get("touch_sensitivity", 1.0)), 0.4, 1.6)
-	var sens_val_lbl := _label("%.2fx" % cur_sens, 16 if compact else 18, MenuUI.FPV_GREEN)
+	var sens_val_lbl := _label("%.2fx" % cur_sens,
+			16 if compact else 17, VoltThemeScript.YELLOW, VoltThemeScript.font_mono())
 	sens_val_lbl.custom_minimum_size.x = _fs(48 if compact else 64)
 	var sens_sl := _slider(cur_sens, 0.4, 1.6, 0.05, func(val: float):
 		var v := clampf(val, 0.4, 1.6)
@@ -4022,11 +4542,12 @@ func _build_settings_tab_sim() -> void:
 	var expo_row := HBoxContainer.new()
 	expo_row.add_theme_constant_override("separation", _gap(12))
 	var expo_lbl := _label("Експо:" if compact else "Експо сенсора:",
-			16 if compact else 18, MenuUI.TEXT)
+			16 if compact else 17, VoltThemeScript.TEXT)
 	expo_lbl.custom_minimum_size.x = _fs(128 if compact else 210)
 	expo_row.add_child(expo_lbl)
 	var cur_expo := clampf(float(Global.menu_settings.get("touch_expo", 0.2)), 0.0, 0.7)
-	var expo_val_lbl := _label("%.2f" % cur_expo, 16 if compact else 18, MenuUI.FPV_GREEN)
+	var expo_val_lbl := _label("%.2f" % cur_expo,
+			16 if compact else 17, VoltThemeScript.YELLOW, VoltThemeScript.font_mono())
 	expo_val_lbl.custom_minimum_size.x = _fs(48 if compact else 64)
 	var expo_sl := _slider(cur_expo, 0.0, 0.7, 0.05, func(val: float):
 		var v := clampf(val, 0.0, 0.7)
@@ -4057,7 +4578,7 @@ func _refresh_sim_toggles() -> void:
 
 func _build_settings_tab_hud() -> void:
 	var compact := _vsize().x < 700.0
-	var card := _panel(Color(0.025, 0.065, 0.05, 0.92), Color(0.38, 0.54, 0.42, 0.55), 1, 16)
+	var card := _panel(VoltThemeScript.SURFACE, VoltThemeScript.BORDER, 1, 16)
 	card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_settings_body_container.add_child(card)
 	_settings_panels["hud"] = card
@@ -4074,13 +4595,13 @@ func _build_settings_tab_hud() -> void:
 	var hud_heading := ("HUD / OSD" if MenuUI.is_english() else "НАЛАШТУВАННЯ HUD / OSD") \
 			if compact else ("COMBAT / FLIGHT HUD ELEMENTS" if MenuUI.is_english() \
 			else "ЕЛЕМЕНТИ БОЙОВОГО ТА ПОЛЬОТНОГО ІНТЕРФЕЙСУ (HUD / OSD)")
-	sv.add_child(_label(hud_heading, 18 if compact else 24, MenuUI.FPV_AMBER))
+	sv.add_child(_label(hud_heading, 17 if compact else 20, VoltThemeScript.YELLOW, VoltThemeScript.font_mono()))
 
 	# FPS Counter row (Toggle + Slider 5..60 + Number)
 	var fps_row := HBoxContainer.new()
 	fps_row.add_theme_constant_override("separation", _gap(12))
 	var fps_lbl := _label("FPS:" if compact else ("FPS:" if MenuUI.is_english() else "Лічильник FPS:"),
-			16 if compact else 18, MenuUI.TEXT)
+			16 if compact else 17, VoltThemeScript.TEXT)
 	fps_row.add_child(fps_lbl)
 
 	var is_fps_on: bool = int(GameSettings.hud_config.get("fps", 0)) > 0
@@ -4088,7 +4609,7 @@ func _build_settings_tab_hud() -> void:
 	fps_row.add_child(fps_sw)
 
 	var cur_fps_rate: int = maxi(5, int(GameSettings.hud_config.get("fps", 20)))
-	_fps_label_hud = _label("%d" % cur_fps_rate, 18, MenuUI.FPV_GREEN)
+	_fps_label_hud = _label("%d" % cur_fps_rate, 18, VoltThemeScript.YELLOW, VoltThemeScript.font_mono())
 	_fps_label_hud.custom_minimum_size.x = _fs(40)
 
 	_fps_slider_hud = _slider(cur_fps_rate, 5, 60, 1, func(val: float):
@@ -4137,7 +4658,7 @@ func _build_settings_tab_hud() -> void:
 		var label_txt: String = item[1]
 		var row := HBoxContainer.new()
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var lbl := _label(label_txt, 16 if compact else 18, MenuUI.TEXT)
+		var lbl := _label(label_txt, 16 if compact else 17, VoltThemeScript.TEXT)
 		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(lbl)
 
@@ -4170,7 +4691,7 @@ func _build_settings_tab_hud() -> void:
 func _build_settings_tab_gfx() -> void:
 	var compact := _vsize().x < 700.0
 	var is_en := MenuUI.is_english()
-	var card := _panel(Color(0.025, 0.065, 0.05, 0.92), Color(0.38, 0.54, 0.42, 0.55), 1, 16)
+	var card := _panel(VoltThemeScript.SURFACE, VoltThemeScript.BORDER, 1, 16)
 	card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_settings_body_container.add_child(card)
 	_settings_panels["gfx"] = card
@@ -4187,7 +4708,7 @@ func _build_settings_tab_gfx() -> void:
 	var gfx_heading := ("GRAPHICS / FPS" if is_en else "ГРАФІКА / FPS") if compact \
 			else ("GRAPHICS & IPHONE 14 OPTIMIZATION" if is_en \
 			else "ГРАФІКА ТА ОПТИМІЗАЦІЯ ДЛЯ IPHONE 14")
-	sv.add_child(_label(gfx_heading, 18 if compact else 24, MenuUI.FPV_AMBER))
+	sv.add_child(_label(gfx_heading, 17 if compact else 20, VoltThemeScript.YELLOW, VoltThemeScript.font_mono()))
 
 	# 3 Quality Presets Row
 	var q_row: BoxContainer
@@ -4231,7 +4752,7 @@ func _build_settings_tab_gfx() -> void:
 	fpv_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	fpv_row.add_child(_label(("FPV CHANNEL:" if is_en else "FPV-КАНАЛ:") if compact \
 			else ("FPV video channel:" if is_en else "FPV-канал (відеолінк):"),
-			16 if compact else 18, MenuUI.TEXT))
+			16 if compact else 17, VoltThemeScript.TEXT))
 	var fpv_opt := OptionButton.new()
 	fpv_opt.custom_minimum_size = Vector2(_fs(100 if compact else 190), _fs(40))
 	_style_option_button(fpv_opt)
@@ -4251,7 +4772,7 @@ func _build_settings_tab_gfx() -> void:
 	res_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	res_row.add_child(_label(("RESOLUTION:" if is_en else "РОЗДІЛЬНІСТЬ:") if compact \
 			else ("Resolution scale:" if is_en else "Масштаб роздільності:"),
-			16 if compact else 18, MenuUI.TEXT))
+			16 if compact else 17, VoltThemeScript.TEXT))
 	var res_opt := OptionButton.new()
 	res_opt.custom_minimum_size = Vector2(_fs(96 if compact else 160), _fs(40))
 	_style_option_button(res_opt)
@@ -4275,7 +4796,7 @@ func _build_settings_tab_gfx() -> void:
 	sh_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sh_row.add_child(_label(("SHADOWS:" if is_en else "ТІНІ:") if compact \
 			else ("Shadow quality:" if is_en else "Якість тіней:"),
-			16 if compact else 18, MenuUI.TEXT))
+			16 if compact else 17, VoltThemeScript.TEXT))
 	var sh_opt := OptionButton.new()
 	sh_opt.custom_minimum_size = Vector2(_fs(96 if compact else 160), _fs(40))
 	_style_option_button(sh_opt)
@@ -4296,7 +4817,7 @@ func _build_settings_tab_gfx() -> void:
 	msaa_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	msaa_row.add_child(_label(("MSAA:" if is_en else "MSAA:") if compact \
 			else ("Anti-aliasing (MSAA):" if is_en else "Згладжування (MSAA):"),
-			16 if compact else 18, MenuUI.TEXT))
+			16 if compact else 17, VoltThemeScript.TEXT))
 	var msaa_opt := OptionButton.new()
 	msaa_opt.custom_minimum_size = Vector2(_fs(80 if compact else 160), _fs(40))
 	_style_option_button(msaa_opt)
@@ -4317,7 +4838,7 @@ func _build_settings_tab_gfx() -> void:
 	fish_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	fish_row.add_child(_label(("LENS:" if is_en else "ОБ'ЄКТИВ:") if compact \
 			else ("Fisheye lens:" if is_en else "FPV-об'єктив (риб'яче око):"),
-			16 if compact else 18, MenuUI.TEXT))
+			16 if compact else 17, VoltThemeScript.TEXT))
 	var fish_opt := OptionButton.new()
 	fish_opt.custom_minimum_size = Vector2(_fs(88 if compact else 160), _fs(40))
 	_style_option_button(fish_opt)
@@ -4337,7 +4858,7 @@ func _build_settings_tab_gfx() -> void:
 	fps_lim_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	fps_lim_row.add_child(_label(("FPS LIMIT:" if is_en else "FPS ЛІМІТ:") if compact \
 			else ("FPS limit:" if is_en else "Обмеження FPS:"),
-			16 if compact else 18, MenuUI.TEXT))
+			16 if compact else 17, VoltThemeScript.TEXT))
 	var fps_lim_opt := OptionButton.new()
 	fps_lim_opt.custom_minimum_size = Vector2(_fs(100 if compact else 190), _fs(40))
 	_style_option_button(fps_lim_opt)
@@ -4362,7 +4883,7 @@ func _build_settings_tab_gfx() -> void:
 	vsync_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vsync_row.add_child(_label(("V-SYNC" if is_en else "V-SYNC") if compact \
 			else ("Vertical sync (V-Sync):" if is_en else "Вертикальна синхронізація (V-Sync):"),
-			16 if compact else 18, MenuUI.TEXT))
+			16 if compact else 17, VoltThemeScript.TEXT))
 	var vsync_sw := ToggleSwitch.new(bool(Graphics.graphics_settings.get("vsync", true)))
 	vsync_sw.toggled.connect(func(on: bool):
 		Graphics.graphics_settings["vsync"] = on
@@ -4375,7 +4896,7 @@ func _build_settings_tab_gfx() -> void:
 
 	var reset_gfx_text := ("RESET GRAPHICS" if MenuUI.is_english() else "СКИНУТИ ГРАФІКУ") if compact \
 			else ("RESET GRAPHICS TO DEFAULTS" if MenuUI.is_english() else "СКИНУТИ ГРАФІКУ ДО СТАНДАРТНИХ")
-	var reset_gfx_btn := _button(reset_gfx_text, 48)
+	var reset_gfx_btn := _button(reset_gfx_text, 44)
 	reset_gfx_btn.custom_minimum_size.x = _fs(150 if compact else 280)
 	reset_gfx_btn.pressed.connect(func():
 		Graphics.reset_to_defaults()
@@ -4394,7 +4915,7 @@ func _refresh_gfx_tab() -> void:
 
 func _build_settings_tab_sys() -> void:
 	var compact := _vsize().x < 700.0
-	var card := _panel(Color(0.025, 0.065, 0.05, 0.92), Color(0.38, 0.54, 0.42, 0.55), 1, 16)
+	var card := _panel(VoltThemeScript.SURFACE, VoltThemeScript.BORDER, 1, 16)
 	card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_settings_body_container.add_child(card)
 	_settings_panels["sys"] = card
@@ -4412,7 +4933,7 @@ func _build_settings_tab_sys() -> void:
 	var is_en := MenuUI.is_english()
 	var sys_heading := ("AUDIO / SYSTEM" if is_en else "ЗВУК / СИСТЕМА") if compact \
 			else ("AUDIO & SYSTEM" if is_en else "ЗВУК ТА СИСТЕМА")
-	sv.add_child(_label(sys_heading, 18 if compact else 24, MenuUI.FPV_AMBER))
+	sv.add_child(_label(sys_heading, 17 if compact else 20, VoltThemeScript.YELLOW, VoltThemeScript.font_mono()))
 
 	# 1. Master Volume
 	var vol_box := VBoxContainer.new()
@@ -4420,16 +4941,16 @@ func _build_settings_tab_sys() -> void:
 	var vol_hdr := HBoxContainer.new()
 	vol_hdr.add_child(_label(("Volume" if is_en else "Гучність") if compact \
 			else ("Master Audio Volume" if is_en else "Загальна гучність аудіо"),
-			16 if compact else 20, MenuUI.TEXT))
+			16 if compact else 18, VoltThemeScript.TEXT))
 	var cur_vol: float = round(float(Audio.audio_settings.get("master_volume", 1.0)) * 100.0)
-	var vol_lbl := _label("%d%%" % int(cur_vol), 16 if compact else 20, MenuUI.FPV_GREEN)
+	var vol_lbl := _label("%d%%" % int(cur_vol), 16 if compact else 18, VoltThemeScript.YELLOW, VoltThemeScript.font_mono())
 	vol_lbl.custom_minimum_size.x = _fs(48 if compact else 60)
 	vol_hdr.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
 	vol_hdr.add_child(vol_lbl)
 	vol_box.add_child(vol_hdr)
 	vol_box.add_child(_label(("Motors, wind, radio & FX" if is_en else "Мотори, вітер, радіо й ефекти") if compact \
 			else ("Controls motors, prop wash, wind, radio and effects" if is_en else "Регулює звук моторів FPV, свист гвинтів, вітер та ефекти"),
-			12 if compact else 14, MenuUI.MUTED))
+			12 if compact else 14, VoltThemeScript.STONE_DIM))
 
 	var vol_slider := _slider(cur_vol, 0, 100, 1, func(val: float):
 		vol_lbl.text = "%d%%" % int(val)
@@ -4471,9 +4992,9 @@ func _build_settings_tab_sys() -> void:
 			bv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			bv.add_theme_constant_override("separation", _gap(2))
 			var bh := HBoxContainer.new()
-			bh.add_child(_label(btitle, 14 if compact else 15, MenuUI.TEXT))
+			bh.add_child(_label(btitle, 14 if compact else 15, VoltThemeScript.TEXT))
 			bh.add_child(_spacer(0, Control.SIZE_EXPAND_FILL))
-			var bl := _label("%d%%" % int(bval), 14 if compact else 15, MenuUI.FPV_CYAN)
+			var bl := _label("%d%%" % int(bval), 14 if compact else 15, VoltThemeScript.YELLOW, VoltThemeScript.font_mono())
 			bh.add_child(bl)
 			bv.add_child(bh)
 			var bs := _slider(bval, 0, 100, 1, func(val: float):
@@ -4491,10 +5012,10 @@ func _build_settings_tab_sys() -> void:
 	hap_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hap_info.add_child(_label(("Haptics" if is_en else "Тактильний відгук") if compact \
 			else ("Haptic Feedback (Vibration)" if is_en else "Тактильний відгук (Haptics / Вібрація)"),
-			16 if compact else 20, MenuUI.TEXT))
+			16 if compact else 18, VoltThemeScript.TEXT))
 	hap_info.add_child(_label(("Impact / landing vibration" if is_en else "Вібрація при ударах і посадці") if compact \
 			else ("Taptic Engine feedback on G-force, landing and impacts" if is_en else "Вібрація Taptic Engine iPhone при перевантаженнях, торканні землі та вибухах"),
-			12 if compact else 14, MenuUI.MUTED))
+			12 if compact else 14, VoltThemeScript.STONE_DIM))
 	hap_box.add_child(hap_info)
 	var is_hap: bool = bool(Global.menu_settings.get("haptics_enabled", true))
 	var hap_sw := ToggleSwitch.new(is_hap)
@@ -4509,10 +5030,11 @@ func _build_settings_tab_sys() -> void:
 	var safe_box := HBoxContainer.new()
 	var safe_info := VBoxContainer.new()
 	safe_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	safe_info.add_child(_label("Safe area" if compact else "iPhone Safe Area / Dynamic Island", 16 if compact else 20, MenuUI.TEXT))
+	safe_info.add_child(_label("Safe area" if compact else "iPhone Safe Area / Dynamic Island",
+			16 if compact else 18, VoltThemeScript.TEXT))
 	safe_info.add_child(_label(("Notch / home bar" if is_en else "Виріз / домашня панель") if compact \
 			else ("Automatic insets for Notch, Dynamic Island and Home bar" if is_en else "Автоматичні поля від динамічного острова (Dynamic Island) та закруглень"),
-			12 if compact else 14, MenuUI.MUTED))
+			12 if compact else 14, VoltThemeScript.STONE_DIM))
 	safe_box.add_child(safe_info)
 	var sm := MenuUI.get_safe_margins(_vsize())
 	var safe_tag_text := "ACTIVE" if is_en else "АКТИВНА"
@@ -4520,7 +5042,7 @@ func _build_settings_tab_sys() -> void:
 		safe_tag_text = ("ACTIVE (L%d T%d R%d B%d)" if is_en else "АКТИВНА (Л%d В%d П%d Н%d)") % [
 			int(sm.get("left", 0)), int(sm.get("top", 0)),
 			int(sm.get("right", 0)), int(sm.get("bottom", 0))]
-	var safe_tag := _label(safe_tag_text, 16, MenuUI.FPV_GREEN)
+	var safe_tag := _label(safe_tag_text, 15, VoltThemeScript.GOOD, VoltThemeScript.font_mono())
 	safe_box.add_child(safe_tag)
 	sv.add_child(safe_box)
 
@@ -4530,10 +5052,10 @@ func _build_settings_tab_sys() -> void:
 	lang_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	lang_info.add_child(_label(("Language" if is_en else "Мова інтерфейсу") if compact \
 			else ("Interface & HUD Language" if is_en else "Мова інтерфейсу та HUD"),
-			16 if compact else 20, MenuUI.TEXT))
+			16 if compact else 18, VoltThemeScript.TEXT))
 	lang_info.add_child(_label(("Menus and HUD language" if is_en else "Мова меню та HUD") if compact \
 			else ("Switch between Ukrainian and English across menus and telemetry" if is_en else "Перемикання української та англійської мов для меню, дронів та OSD"),
-			12 if compact else 14, MenuUI.MUTED))
+			12 if compact else 14, VoltThemeScript.STONE_DIM))
 	lang_box.add_child(lang_info)
 	var lang_btn := _button("EN / UA" if compact else ("ENGLISH (EN) → UA" if is_en else "УКРАЇНСЬКА (UA) → EN"), 42, true)
 	lang_btn.custom_minimum_size = Vector2(_ui_sz(100 if compact else 230), _ui_sz(42))
@@ -4548,12 +5070,12 @@ func _build_settings_tab_sys() -> void:
 	var gc_sys_title := ("Game Center & Records" if Global.is_game_center_available() else "Pilot Records & Stats") \
 			if is_en else ("Game Center та рекорди" if Global.is_game_center_available() else "Рекорди та статистика пілота")
 	gc_info.add_child(_label(("Records" if is_en else "Рекорди") if compact else gc_sys_title,
-			16 if compact else 20, MenuUI.TEXT))
+			16 if compact else 18, VoltThemeScript.TEXT))
 	gc_info.add_child(_label(("Leaderboard" if is_en else "Таблиця лідерів") if compact \
-			else Global.get_leaderboard_summary(is_en), 12 if compact else 14, MenuUI.MUTED))
+			else Global.get_leaderboard_summary(is_en), 12 if compact else 14, VoltThemeScript.STONE_DIM))
 	gc_box.add_child(gc_info)
 	var gc_btn := _button(("OPEN" if is_en else "ВІДКРИТИ"), 40, false)
-	gc_btn.icon = MenuIcons.icon_trophy(MenuUI.FPV_AMBER, 22)
+	gc_btn.icon = MenuIcons.icon_trophy(VoltThemeScript.YELLOW, 20)
 	gc_btn.expand_icon = false
 	gc_btn.add_theme_constant_override("h_separation", _gap(8))
 	gc_btn.custom_minimum_size = Vector2(_ui_sz(88 if compact else 150), _ui_sz(40))
@@ -4567,10 +5089,10 @@ func _build_settings_tab_sys() -> void:
 	rad_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rad_info.add_child(_label(("Radio Chatter" if is_en else "Радіоефір у місіях") if compact \
 			else ("Mission Radio Chatter Mode" if is_en else "Режим голосового радіоефіру в місіях"),
-			16 if compact else 20, MenuUI.TEXT))
+			16 if compact else 18, VoltThemeScript.TEXT))
 	rad_info.add_child(_label(("Start & end only / Full / Off" if is_en else "Лише старт і фініш / Повний / Вимк.") if compact \
 			else ("Play voice callouts only at mission start and completion (no replay on respawn)" if is_en else "Озвучення лише на старті та в кінці місії (без повторів після респавну)"),
-			12 if compact else 14, MenuUI.MUTED))
+			12 if compact else 14, VoltThemeScript.STONE_DIM))
 	rad_box.add_child(rad_info)
 	var cur_rmode := int(Global.menu_settings.get("radio_chatter_mode", 2))
 	var rmode_names_ua := ["ВИМК.", "СТАРТ / ФІНІШ", "ПОВНИЙ"]
@@ -4594,13 +5116,15 @@ func _build_settings_tab_sys() -> void:
 	elrs_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	elrs_info.add_child(_label(("ELRS Wi-Fi Guide" if is_en else "Підключення ELRS Wi-Fi") if compact \
 			else ("ELRS Wi-Fi & RC Transmitter Guide" if is_en else "Довідка: Як підключити пульт через ELRS Wi-Fi"),
-			16 if compact else 20, MenuUI.TEXT))
+			16 if compact else 18, VoltThemeScript.TEXT))
 	elrs_info.add_child(_label(("Step-by-step setup (UDP 14550)" if is_en else "Покрокова інструкція (UDP 14550)") if compact \
 			else ("Step-by-step instructions to connect an ExpressLRS transmitter over Wi-Fi" if is_en else "Покрокова інструкція з підключення апаратури ExpressLRS по Wi-Fi"),
-			12 if compact else 14, MenuUI.MUTED))
+			12 if compact else 14, VoltThemeScript.STONE_DIM))
 	elrs_box.add_child(elrs_info)
 	var elrs_btn := _button("GUIDE" if is_en else "ІНСТРУКЦІЯ", 40, false)
-	elrs_btn.custom_minimum_size = Vector2(_ui_sz(96 if compact else 155), _ui_sz(40))
+	elrs_btn.icon = MenuIcons.icon_wifi(VoltThemeScript.YELLOW, 18)
+	elrs_btn.add_theme_constant_override("h_separation", _gap(8))
+	elrs_btn.custom_minimum_size = Vector2(_ui_sz(106 if compact else 160), _ui_sz(40))
 	elrs_btn.pressed.connect(_open_elrs_guide_modal)
 	elrs_box.add_child(elrs_btn)
 	sv.add_child(elrs_box)
@@ -4613,7 +5137,7 @@ func _open_elrs_guide_modal() -> void:
 	var is_en := MenuUI.is_english()
 	var backdrop := ColorRect.new()
 	backdrop.name = "MobileElrsGuideModal"
-	backdrop.color = Color(0.01, 0.02, 0.02, 0.94)
+	backdrop.color = Color(0.02, 0.02, 0.025, 0.94)
 	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	backdrop.z_index = 95
 	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -4628,7 +5152,7 @@ func _open_elrs_guide_modal() -> void:
 	margin.add_theme_constant_override("margin_bottom", int(sm["bottom"]) + _gap(18))
 	backdrop.add_child(margin)
 
-	var card := _panel(Color(0.02, 0.055, 0.045, 0.99), MenuUI.FPV_CYAN, 2, 18)
+	var card := _panel(Color(0.039, 0.039, 0.045, 0.99), VoltThemeScript.YELLOW_BORDER, 2, 16)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	margin.add_child(card)
@@ -4640,11 +5164,13 @@ func _open_elrs_guide_modal() -> void:
 	var hdr := HBoxContainer.new()
 	var title := _label(
 		"HOW TO CONNECT RC TRANSMITTER VIA ELRS Wi-Fi" if is_en else "ЯК ПІДКЛЮЧИТИ ПУЛЬТ ЧЕРЕЗ ELRS Wi-Fi",
-		20, MenuUI.FPV_AMBER)
+		19, VoltThemeScript.YELLOW, VoltThemeScript.font_display())
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hdr.add_child(title)
 	var close_btn := _button("CLOSE" if is_en else "ЗАКРИТИ", 38, true)
-	close_btn.custom_minimum_size = Vector2(_ui_sz(125), _ui_sz(38))
+	close_btn.icon = MenuIcons.icon_close(VoltThemeScript.TEXT_DARK, 16)
+	close_btn.add_theme_constant_override("h_separation", _gap(6))
+	close_btn.custom_minimum_size = Vector2(_ui_sz(132), _ui_sz(38))
 	close_btn.pressed.connect(func(): backdrop.queue_free())
 	hdr.add_child(close_btn)
 	vbox.add_child(hdr)
@@ -4691,10 +5217,11 @@ func _open_elrs_guide_modal() -> void:
 		+ "   • CH7 (SC): Payload Drop (DROP)\n"
 		+ "   • CH8 (SD): Warhead Detonate (DETONATE)"
 	)
-	var body_lbl := _label(guide_txt, 15, MenuUI.TEXT)
+	var body_lbl := _label(guide_txt, 15, VoltThemeScript.TEXT)
 	body_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(body_lbl)
+	VoltThemeScript.animate_pop_in(card, 0.16)
 
 
 func _on_toggle_language() -> void:
@@ -4709,10 +5236,7 @@ func _reset_screen_refs() -> void:
 	_hangar_load_token += 1
 	_is_dragging_hero = false
 	_is_dragging_hangar = false
-	_coin_chip = null
-	_coin_label = null
 	_pending_unlock_id = ""
-	_main_logo = null
 	_main_hero = null
 	_hero_container = null
 	_hero_viewport = null
@@ -4720,9 +5244,11 @@ func _reset_screen_refs() -> void:
 	_hero_camera = null
 	_hero_diorama = null
 	_hero_pad_rotator = null
+	_hero_watermark = null
 	_hero_drone_name = null
 	_hero_drone_tag = null
 	_hero_drone_specs = null
+	_hero_index_lbl = null
 	_maps_row = null
 	_play_modes_row = null
 	_mission_row = null
@@ -4760,6 +5286,7 @@ func _reset_screen_refs() -> void:
 	_hangar_camera = null
 	_hangar_diorama = null
 	_hangar_pad_rotator = null
+	_hangar_watermark = null
 	_hangar_drone_name = null
 	_hangar_drone_tag = null
 	_hangar_specs_lbl = null
@@ -4809,17 +5336,20 @@ func _rebuild_screens() -> void:
 		_lang_top_btn.text = "EN" if MenuUI.is_english() else "UA"
 	if _back_btn != null and is_instance_valid(_back_btn):
 		_back_btn.text = " " + MenuUI.translate_text("НАЗАД")
+	if _coin_label != null and is_instance_valid(_coin_label):
+		_coin_label.text = str(maxi(0, Progress.coins))
 	if _top_brand != null and is_instance_valid(_top_brand):
-		var logo_lbl := _top_brand.get_node_or_null("TopBrandLogo") as Label
-		var sub_lbl := _top_brand.get_node_or_null("TopBrandSub") as Label
+		var logo_lbl := _top_brand.find_child("TopBrandLogo", true, false) as Label
+		var sub_lbl := _top_brand.find_child("TopBrandSub", true, false) as Label
 		if logo_lbl != null:
 			logo_lbl.text = "HEAVENLY HORIZON" if MenuUI.is_english() else "НЕБЕСНИЙ ГОРИЗОНТ"
 		if sub_lbl != null:
-			sub_lbl.text = "TACTICAL FPV SIMULATOR  •  MOBILE TERMINAL" if MenuUI.is_english() \
-					else "ТАКТИЧНИЙ FPV-СИМУЛЯТОР  •  МОБІЛЬНИЙ ТЕРМІНАЛ"
+			sub_lbl.text = "TACTICAL FPV SIMULATOR" if MenuUI.is_english() \
+					else "ТАКТИЧНИЙ FPV-СИМУЛЯТОР"
 	_apply_masthead_layout()
 	_show(keep)
 	_update_status()
+	_update_nav_capsule()
 	MenuUI.localize_tree(self)
 	_rebuilding_screens = false
 
@@ -4828,6 +5358,8 @@ func _spacer(height: float, flags: int = Control.SIZE_SHRINK_CENTER) -> Control:
 	var c := Control.new()
 	c.custom_minimum_size.y = _fs(height)
 	c.size_flags_vertical = flags
+	if (flags & Control.SIZE_EXPAND) != 0:
+		c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return c
 
