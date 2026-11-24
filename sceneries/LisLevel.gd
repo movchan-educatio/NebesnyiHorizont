@@ -72,6 +72,27 @@ func _neutralize_map_extras() -> void:
 		(light as DirectionalLight3D).visible = false
 
 
+func _tune_map_environment() -> void:
+	super._tune_map_environment()
+	var we := get_node_or_null("WorldEnvironment") as WorldEnvironment
+	if we != null and we.environment != null:
+		var env := we.environment
+		env.volumetric_fog_enabled = false
+		env.volumetric_fog_density = 0.0
+		env.fog_height_density = 0.0
+		env.ssr_enabled = false
+		env.sdfgi_enabled = false
+		env.ssao_enabled = false
+		env.glow_enabled = false
+		if _weather != 3:
+			env.fog_enabled = true
+			env.fog_density = 0.00055
+			env.fog_aerial_perspective = 0.32
+	var sun := get_node_or_null("Sun") as DirectionalLight3D
+	if sun != null:
+		sun.light_volumetric_fog_energy = 0.0
+
+
 func _authored_freestyle_waypoints() -> Array:
 	if _map_instance != null:
 		var gates := _map_instance.get_node_or_null("FPVGates")
