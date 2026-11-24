@@ -28,6 +28,7 @@ static func create_windmill(pos: Vector3, yaw: float = 0.0) -> Node3D:
 	var script: GDScript = load("res://scripts/util/MovingWindmill.gd") as GDScript
 	var root: Node3D = script.new() as Node3D
 	root.name = "MovingWindmill"
+	root.set_meta("no_batch", true)
 	root.position = pos
 	root.rotation.y = yaw
 

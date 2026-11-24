@@ -17,6 +17,7 @@ signal step_advanced(step: int)
 signal training_completed
 
 const MenuUI := preload("res://GUI/ui/MenuUI.gd")
+const VoltThemeScript := preload("res://GUI/mobile/VoltTheme.gd")
 const CombatTargetScript = preload("res://combat/combat_target.gd")
 
 enum Step { ARM_TAKEOFF = 0, APPROACH = 1, DESTROY = 2, COMPLETED = 3 }
@@ -557,7 +558,7 @@ func _build_completion(hud_root: Node) -> void:
 	hud_root.add_child(_completion)
 
 	var dim := ColorRect.new()
-	dim.color = Color(0.01, 0.02, 0.012, 0.76)
+	dim.color = Color(0.02, 0.02, 0.025, 0.88)
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	_completion.add_child(dim)
@@ -569,27 +570,30 @@ func _build_completion(hud_root: Node) -> void:
 
 	var panel := PanelContainer.new()
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	panel.custom_minimum_size = Vector2(620, 0)
+	panel.custom_minimum_size = Vector2(640, 0)
 	panel.add_theme_stylebox_override("panel",
-			MenuUI.feel_style(MenuUI.FPV_PANEL, MenuUI.FPV_GREEN, 2, 12, 24, 22))
+			VoltThemeScript.panel_box(Color(0.055, 0.056, 0.064, 0.96),
+			VoltThemeScript.YELLOW_BORDER, 2, 18, 30, 24, 18))
 	center.add_child(panel)
 
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 10)
+	vb.add_theme_constant_override("separation", 12)
 	panel.add_child(vb)
 
 	var title := Label.new()
 	title.text = _tx("✓ ЦІЛЬ УРАЖЕНО", "✓ TARGET DESTROYED")
-	title.add_theme_font_size_override("font_size", 28)
-	title.add_theme_color_override("font_color", MenuUI.ACCENT)
+	title.add_theme_font_override("font", VoltThemeScript.font_display())
+	title.add_theme_font_size_override("font_size", 26)
+	title.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(title)
 
 	var sub := Label.new()
 	sub.text = _tx("БОЙОВЕ ТРЕНУВАННЯ ЗАВЕРШЕНО · 3/3 КРОКИ",
 			"COMBAT TRAINING COMPLETE · 3/3 STEPS")
-	sub.add_theme_font_size_override("font_size", 15)
-	sub.add_theme_color_override("font_color", MenuUI.WARN_AMBER)
+	sub.add_theme_font_override("font", VoltThemeScript.font_mono())
+	sub.add_theme_font_size_override("font_size", 14)
+	sub.add_theme_color_override("font_color", VoltThemeScript.STONE_DIM)
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(sub)
 
@@ -598,8 +602,9 @@ func _build_completion(hud_root: Node) -> void:
 			+ "Наступний крок — бойовий виліт у кампанії.",
 			"You went from the first ARM to your first target hit. "
 			+ "The next step is a combat sortie in the campaign.")
-	body.add_theme_font_size_override("font_size", 14)
-	body.add_theme_color_override("font_color", MenuUI.FPV_TEXT)
+	body.add_theme_font_override("font", VoltThemeScript.font_ui())
+	body.add_theme_font_size_override("font_size", 15)
+	body.add_theme_color_override("font_color", VoltThemeScript.TEXT)
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(body)
@@ -609,13 +614,19 @@ func _build_completion(hud_root: Node) -> void:
 	row.add_theme_constant_override("separation", 12)
 	vb.add_child(row)
 
-	var again := MenuUI.feel_button(_tx("↻ ЩЕ РАЗ", "↻ REPEAT"), 46, true)
-	again.custom_minimum_size = Vector2(220, 46)
+	var again := Button.new()
+	again.text = _tx("↻ ЩЕ РАЗ", "↻ REPEAT")
+	again.custom_minimum_size = Vector2(230, 54)
+	again.add_theme_font_size_override("font_size", 15)
+	VoltThemeScript.apply_button_variant(again, "primary", 12)
 	again.pressed.connect(restart_session)
 	row.add_child(again)
 
-	var menu := MenuUI.feel_button(_tx("У ГОЛОВНЕ МЕНЮ", "MAIN MENU"), 46, false)
-	menu.custom_minimum_size = Vector2(220, 46)
+	var menu := Button.new()
+	menu.text = _tx("У ГОЛОВНЕ МЕНЮ", "MAIN MENU")
+	menu.custom_minimum_size = Vector2(230, 54)
+	menu.add_theme_font_size_override("font_size", 15)
+	VoltThemeScript.apply_button_variant(menu, "secondary", 12)
 	menu.pressed.connect(_go_to_menu)
 	row.add_child(menu)
 

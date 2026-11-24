@@ -38,6 +38,7 @@ static func create_radar(pos: Vector3, yaw: float = 0.0) -> Node3D:
 	var script: GDScript = load("res://scripts/util/MovingRadar.gd") as GDScript
 	var root: Node3D = script.new() as Node3D
 	root.name = "MovingRadar"
+	root.set_meta("no_batch", true)
 	root.position = pos
 	root.rotation.y = yaw
 

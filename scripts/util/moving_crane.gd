@@ -98,6 +98,7 @@ static func create_gantry_crane(pos: Vector3, yaw: float, travel_len: float = 70
 	var script: GDScript = load("res://scripts/util/moving_crane.gd") as GDScript
 	var root: Node3D = script.new() as Node3D
 	root.name = "MovingGantryCrane"
+	root.set_meta("no_batch", true)
 	root.crane_type = CraneType.GANTRY_RAIL
 	root.travel_distance = travel_len
 	root.position = pos
@@ -238,6 +239,7 @@ static func create_rotating_tower_crane(pos: Vector3, yaw: float) -> Node3D:
 	var script: GDScript = load("res://scripts/util/moving_crane.gd") as GDScript
 	var root: Node3D = script.new() as Node3D
 	root.name = "RotatingTowerCrane"
+	root.set_meta("no_batch", true)
 	root.crane_type = CraneType.ROTATING_TOWER
 	root.position = pos
 	root.rotation.y = yaw

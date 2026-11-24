@@ -250,6 +250,10 @@ static func _place(root: Node3D, pack: Node3D, terrain, map_name: String,
 	inst.position = Vector3(site.x, base_y, site.y)
 	inst.rotation.y = yaw
 	inst.scale = Vector3.ONE * effective_scl
+	if not floating:
+		var box_p := _local_aabb(inst)
+		ground = float(terrain.call("footprint_min_height", map_name, site, clampf(box_p.size.x * effective_scl, 0.5, 24.0), clampf(box_p.size.z * effective_scl, 0.5, 24.0), yaw))
+		inst.position.y = ground - 0.12 - box_p.position.y * effective_scl
 	if inst.is_inside_tree():
 		inst.force_update_transform()
 	_apply_material(inst, prop_name)
@@ -319,6 +323,11 @@ static func _place_forge(root: Node3D, pack: Node3D, terrain, map_name: String,
 	if inst.is_inside_tree():
 		inst.force_update_transform()
 	var box := _local_aabb(inst)
+	if not floating:
+		ground = float(terrain.call("footprint_min_height", map_name, site, clampf(box.size.x * scl, 0.5, 26.0), clampf(box.size.z * scl, 0.5, 26.0), yaw))
+		inst.position.y = ground - 0.14 - box.position.y * scl
+		if inst.is_inside_tree():
+			inst.force_update_transform()
 	var lod := clampf(650.0 + box.size.y * 12.0, 650.0, 1200.0)
 	for child in inst.find_children("*", "MeshInstance3D", true, false):
 		var mi := child as MeshInstance3D

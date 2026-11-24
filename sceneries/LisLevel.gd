@@ -215,6 +215,7 @@ func _spawn_training_rings() -> void:
 		_rings_total += 1
 	_ensure_next_ring_preview()
 	_sync_active_training_ring(false)
+	call_deferred("_refresh_route_after_physics")
 	print("[LisLevel] spawned %d authored kit_ring_gate checkpoints" % _rings_total)
 
 

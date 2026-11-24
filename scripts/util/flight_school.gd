@@ -16,6 +16,7 @@ class_name FlightSchool
 extends Node
 
 const MenuUI := preload("res://GUI/ui/MenuUI.gd")
+const VoltThemeScript := preload("res://GUI/mobile/VoltTheme.gd")
 
 signal lesson_advanced(step: int, title: String)
 signal course_completed
@@ -926,16 +927,9 @@ func _build_help_overlay(hud_root: Node) -> void:
 	var panel := PanelContainer.new()
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	panel.custom_minimum_size = Vector2(minf(860.0, vp_sz.x * 0.88), minf(520.0, vp_sz.y * 0.86))
-	var psb := StyleBoxFlat.new()
-	psb.bg_color = Color(0.035, 0.055, 0.040, 0.97)
-	psb.border_color = MenuUI.WARN_AMBER
-	psb.set_border_width_all(2)
-	psb.set_corner_radius_all(6)
-	psb.content_margin_left = 26
-	psb.content_margin_right = 26
-	psb.content_margin_top = 18
-	psb.content_margin_bottom = 16
-	panel.add_theme_stylebox_override("panel", psb)
+	panel.add_theme_stylebox_override("panel",
+			VoltThemeScript.panel_box(Color(0.055, 0.056, 0.064, 0.96),
+			VoltThemeScript.YELLOW_BORDER, 2, 18, 28, 20, 18))
 	center.add_child(panel)
 
 	var vb := VBoxContainer.new()
@@ -945,14 +939,16 @@ func _build_help_overlay(hud_root: Node) -> void:
 	var title := Label.new()
 	title.text = _tx("ШКОЛА ПІЛОТА · ПЕРШИЙ ПОЛІТ",
 			"FPV FLIGHT SCHOOL · FIRST FLIGHT")
+	title.add_theme_font_override("font", VoltThemeScript.font_display())
 	title.add_theme_font_size_override("font_size", 22)
-	title.add_theme_color_override("font_color", MenuUI.WARN_AMBER)
+	title.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
 	vb.add_child(title)
 	var sub := Label.new()
 	sub.text = _tx("6 коротких модулів · орієнтовно 15–25 хвилин · помилки не караються",
 			"6 short modules · about 15–25 minutes · mistakes are part of learning")
+	sub.add_theme_font_override("font", VoltThemeScript.font_mono())
 	sub.add_theme_font_size_override("font_size", 13)
-	sub.add_theme_color_override("font_color", Color(0.72, 0.85, 0.74))
+	sub.add_theme_color_override("font_color", VoltThemeScript.STONE_DIM)
 	vb.add_child(sub)
 
 	var diagrams := HBoxContainer.new()
@@ -1015,17 +1011,7 @@ func _build_help_overlay(hud_root: Node) -> void:
 	close_btn.custom_minimum_size = Vector2(280, 56)
 	close_btn.focus_mode = Control.FOCUS_NONE
 	close_btn.add_theme_font_size_override("font_size", 17)
-	close_btn.add_theme_color_override("font_color", Color(0.05, 0.08, 0.06))
-	var csb := StyleBoxFlat.new()
-	csb.bg_color = MenuUI.ACCENT
-	csb.set_corner_radius_all(8)
-	csb.content_margin_left = 18
-	csb.content_margin_right = 18
-	close_btn.add_theme_stylebox_override("normal", csb)
-	var csb_hover := csb.duplicate() as StyleBoxFlat
-	csb_hover.bg_color = MenuUI.ACCENT.lightened(0.12)
-	close_btn.add_theme_stylebox_override("hover", csb_hover)
-	close_btn.add_theme_stylebox_override("pressed", csb_hover)
+	VoltThemeScript.apply_button_variant(close_btn, "primary", 12, 20, 8)
 	close_btn.pressed.connect(close_help)
 	close_btn_row.add_child(close_btn)
 
@@ -1035,7 +1021,7 @@ func _build_help_overlay(hud_root: Node) -> void:
 			else _tx("ENTER — ПОЧАТИ / ПРОДОВЖИТИ", "ENTER — START / RESUME")
 	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	footer.add_theme_font_size_override("font_size", 14)
-	footer.add_theme_color_override("font_color", MenuUI.ACCENT)
+	footer.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
 	vb.add_child(footer)
 
 

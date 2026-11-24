@@ -122,8 +122,11 @@ static func build(root: Node3D, map_name: String, quality: int = -1) -> void:
 		if site.x < -900.0:
 			continue
 		var yaw := float(spec["yaw"])
-		var gy := float(terrain.footprint_surface_height(map_name, site,
-				30.0, 24.0, yaw)) - 0.20
+		var min_gy := float(terrain.footprint_min_height(map_name, site,
+				30.0, 24.0, yaw))
+		var max_gy := float(terrain.footprint_surface_height(map_name, site,
+				30.0, 24.0, yaw))
+		var gy := minf(min_gy - 0.22, max_gy - 0.35)
 		var node: Node3D = _build_stunt(military, String(spec["builder"]), root,
 				Vector3(site.x, gy, site.y), yaw)
 		if node != null:
@@ -184,13 +187,16 @@ static func build(root: Node3D, map_name: String, quality: int = -1) -> void:
 			if overlap:
 				continue
 			placed_dress.append(p)
-			var support := float(terrain.mesh_surface_height(map_name, p.x, p.y))
 			var s := rng.randf_range(0.82, 1.22)
 			var sy := rng.randf_range(0.9, 1.15) * s
 			var aabb := mesh.get_aabb()
-			# Put the visible bottom on the rendered surface; this also works
+			var support := float(terrain.footprint_min_height(map_name, p,
+					maxf(aabb.size.x * s, 1.2), maxf(aabb.size.z * s, 1.2), 0.0)) \
+					if aabb.size.x * s > 1.4 or aabb.size.z * s > 1.4 \
+					else float(terrain.mesh_surface_height(map_name, p.x, p.y))
+			# Put the visible bottom firmly on the rendered surface; this also works
 			# for library meshes whose pivot is at the centre instead of base.
-			var y := support - aabb.position.y * sy + 0.02
+			var y := support - aabb.position.y * sy - 0.06
 			var b := Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(
 					Vector3(s, sy, s))
 			xfs.append(Transform3D(b, Vector3(p.x, y, p.y)))

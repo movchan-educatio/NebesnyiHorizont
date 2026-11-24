@@ -68,6 +68,7 @@ static func create_patrol_boat(wps: Array[Vector3], water_y: float, yaw: float =
 	var script: GDScript = load("res://scripts/util/MovingPatrolBoat.gd") as GDScript
 	var root: Node3D = script.new() as Node3D
 	root.name = "MovingPatrolBoat"
+	root.set_meta("no_batch", true)
 	var clamped_wps: Array[Vector3] = []
 	for wp in wps:
 		clamped_wps.append(Vector3(clampf(wp.x, -178.0, 178.0), wp.y, clampf(wp.z, -178.0, 178.0)))

@@ -98,9 +98,9 @@ static func build(mode: int, mission_id: int, map_name: String,
 					VoltThemeScript.panel_box(VoltThemeScript.YELLOW, VoltThemeScript.YELLOW, 0, 4, 0, 0, 0))
 		else:
 			bar.add_theme_stylebox_override("background",
-					MenuUI.feel_style(Color(0.02, 0.04, 0.03, 0.9), MenuUI.FPV_BORDER, 1, 1, 0, 0))
+					VoltThemeScript.panel_box(Color(0.06, 0.062, 0.07, 0.94), VoltThemeScript.BORDER, 1, 4, 0, 0, 0))
 			bar.add_theme_stylebox_override("fill",
-					MenuUI.feel_style(MenuUI.FPV_GREEN, MenuUI.FPV_GREEN, 0, 1, 0, 0))
+					VoltThemeScript.panel_box(VoltThemeScript.YELLOW, VoltThemeScript.YELLOW, 0, 4, 0, 0, 0))
 		box.add_child(bar)
 
 	var tip := Label.new()

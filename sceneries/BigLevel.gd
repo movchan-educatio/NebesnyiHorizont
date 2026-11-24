@@ -35,6 +35,7 @@ const GhostScript = preload("res://drone/Ghost.gd")
 const FreestyleCourseScript = preload("res://scripts/util/freestyle_course.gd")
 const CourseRouteGuideScript = preload("res://scripts/util/course_route_guide.gd")
 const MissionDroneSwitcherScript = preload("res://scripts/util/mission_drone_switcher.gd")
+const VoltThemeScript = preload("res://GUI/mobile/VoltTheme.gd")
 const MAIN_MENU := "res://GUI/MainMenu.tscn"
 const MOBILE_MENU := "res://GUI/mobile/MobileMenu.tscn"
 
@@ -101,9 +102,15 @@ var _test_frames := -1
 var _test_y0 := 0.0
 var _test_max := -1e9
 var _results: Control = null
+var _results_panel: PanelContainer = null
+var _results_kicker: Label = null
+var _results_retry_btn: Button = null
 var _results_stats: Label = null
+var _chain_brief_layer: CanvasLayer = null
 var _chain_brief: Control = null
+var _chain_brief_panel: PanelContainer = null
 var _chain_brief_start: Button = null
+var _briefing_hid_touch := false
 var _telem_left: Label = null
 var _telem_right: Label = null
 var _battery := 25.2
@@ -2623,6 +2630,7 @@ func _on_respawned() -> void:
 		_mission_time = 0.0
 		_freestyle_ghost_saved_once = false
 	_sync_active_training_ring(false)
+	_reset_custom_training_course()
 	_ghost_record_samples.clear()
 	_ghost_record_timer = 0.0
 	_ghost_play_timer = 0.0
@@ -3066,10 +3074,23 @@ func _show_results(reason: String) -> void:
 	_results.visible = true
 	if _results_title != null:
 		_results_title.text = MenuUI.translate_text(reason)
-		if _mission_failed:
-			_results_title.add_theme_color_override("font_color", MenuUI.DANGER)
+		_results_title.add_theme_color_override("font_color",
+				VoltThemeScript.DANGER if _mission_failed else VoltThemeScript.YELLOW)
+	if _results_kicker != null:
+		if Global.play_mode == Global.PlayMode.COMBAT and Global.special_mission == 0:
+			_results_kicker.text = _txt("МІСІЯ %d/4  //  ЗВІТ ВИЛЬОТУ" % Global.combat_mission,
+					"MISSION %d/4  //  SORTIE DEBRIEF" % Global.combat_mission)
+		elif Global.play_mode == Global.PlayMode.COMBAT:
+			_results_kicker.text = _txt("СПЕЦОПЕРАЦІЯ  //  ЗВІТ ВИЛЬОТУ",
+					"SPECIAL OP  //  SORTIE DEBRIEF")
+		elif Global.play_mode == Global.PlayMode.TRAINING:
+			_results_kicker.text = _txt("ФРІСТАЙЛ  //  РЕЗУЛЬТАТ",
+					"FREESTYLE  //  RESULTS")
 		else:
-			_results_title.add_theme_color_override("font_color", MenuUI.FPV_TEXT)
+			_results_kicker.text = _txt("ШКОЛА ПІЛОТА  //  РЕЗУЛЬТАТ",
+					"FLIGHT SCHOOL  //  RESULTS")
+		_results_kicker.add_theme_color_override("font_color",
+				VoltThemeScript.DANGER if _mission_failed else VoltThemeScript.YELLOW)
 	var coins_before := Progress.coins if Progress != null else 0
 	var score_mult: float = Global.get_difficulty_score_multiplier() if Global.play_mode == Global.PlayMode.COMBAT else 1.0
 	var final_score := int(round(_score * score_mult))
@@ -3203,7 +3224,7 @@ func _show_results(reason: String) -> void:
 		Global.set_tutorial_completed(true)
 		if _results_title != null:
 			_results_title.text = _txt("ШКОЛУ ПІЛОТА ЗАВЕРШЕНО!", "FLIGHT SCHOOL COMPLETE!")
-			_results_title.add_theme_color_override("font_color", MenuUI.ACCENT)
+			_results_title.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
 	elif Global.special_mission > 0:
 		award_line = "%s %s · %s [%s]\n" % [
 			_txt("РЕЙТИНГ         ", "RATING          "),
@@ -3309,10 +3330,18 @@ func _show_results(reason: String) -> void:
 			best_line, diff_line, award_line, campaign_line, breakdown_line,
 			_txt("ЧАС ПОЛЬОТУ     ", "FLIGHT TIME     "), _format_time(_mission_time),
 			score_label, final_score, coins_line]
+	if _results_retry_btn != null:
+		VoltThemeScript.apply_button_variant(_results_retry_btn,
+				"secondary" if can_next else "primary", 12, 16, 10)
+		_results_retry_btn.add_theme_font_size_override("font_size", 15)
+	if _results_panel != null:
+		VoltThemeScript.animate_pop_in(_results_panel, 0.18)
 	get_tree().paused = true
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	if can_next and _next_mission_btn != null:
 		_next_mission_btn.grab_focus()
+	elif _results_retry_btn != null:
+		_results_retry_btn.grab_focus()
 
 
 func _hide_mobile_gameplay_hud() -> void:
@@ -4066,8 +4095,11 @@ func _build_training_ring_positions() -> void:
 
 
 var _next_ring_preview: MeshInstance3D = null
+var _active_ring_beacon: MeshInstance3D = null
+var _active_ring_beacon_mat: StandardMaterial3D = null
 var _next_turn_arrow: Node3D = null
 var _ring_clean_streak: int = 0
+var _route_refresh_seq: int = 0
 
 
 func _spawn_training_rings() -> void:
@@ -4079,6 +4111,10 @@ func _spawn_training_rings() -> void:
 	if _next_ring_preview != null and is_instance_valid(_next_ring_preview):
 		_next_ring_preview.queue_free()
 	_next_ring_preview = null
+	if _active_ring_beacon != null and is_instance_valid(_active_ring_beacon):
+		_active_ring_beacon.queue_free()
+	_active_ring_beacon = null
+	_active_ring_beacon_mat = null
 	if _next_turn_arrow != null and is_instance_valid(_next_turn_arrow):
 		_next_turn_arrow.queue_free()
 	_next_turn_arrow = null
@@ -4113,11 +4149,32 @@ func _spawn_training_rings() -> void:
 		_rings_total += 1
 	_ensure_next_ring_preview()
 	_sync_active_training_ring(false)
+	call_deferred("_refresh_route_after_physics")
 
 
 func _ensure_next_ring_preview() -> void:
 	if _triggers == null:
 		return
+	if _active_ring_beacon == null or not is_instance_valid(_active_ring_beacon):
+		var beacon := MeshInstance3D.new()
+		beacon.name = "ActiveTrainingRingBeacon"
+		var b_torus := TorusMesh.new()
+		b_torus.inner_radius = 6.35
+		b_torus.outer_radius = 7.05
+		b_torus.rings = 28
+		b_torus.ring_segments = 8
+		beacon.mesh = b_torus
+		beacon.rotation.x = PI * 0.5
+		var b_mat := StandardMaterial3D.new()
+		b_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		b_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		b_mat.albedo_color = Color(1.0, 0.96, 0.35, 0.96)
+		b_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		beacon.material_override = b_mat
+		beacon.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_triggers.add_child(beacon)
+		_active_ring_beacon = beacon
+		_active_ring_beacon_mat = b_mat
 	if _next_ring_preview != null and is_instance_valid(_next_ring_preview):
 		return
 	var preview := MeshInstance3D.new()
@@ -4131,10 +4188,8 @@ func _ensure_next_ring_preview() -> void:
 	preview.rotation.x = PI * 0.5
 	var mat := StandardMaterial3D.new()
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = Color(0.20, 0.86, 0.78, 0.24)
-	mat.emission_enabled = true
-	mat.emission = Color(0.20, 0.86, 0.78)
-	mat.emission_energy_multiplier = 0.35
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(1.0, 0.72, 0.14, 0.42)
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	preview.material_override = mat
 	preview.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -4176,7 +4231,15 @@ func _sync_active_training_ring(animate_pop: bool = false) -> void:
 		r.visible = true
 		var label := r.get_node_or_null("GateNumber") as Label3D
 		if label != null:
-			label.visible = is_active
+			var show_lbl := (_rings_passed < _rings_total) and (
+					(i >= _rings_passed and i <= _rings_passed + 2) or i == _rings_total - 1)
+			label.visible = show_lbl
+			if not is_active:
+				label.scale = Vector3.ONE
+				if i == _rings_total - 1:
+					label.modulate = Color(0.32, 0.96, 1.0, 0.95)
+				else:
+					label.modulate = Color(1.0, 0.86, 0.45, 0.88)
 		r.set_deferred("monitoring", is_active)
 		if is_active:
 			if animate_pop and is_inside_tree():
@@ -4186,8 +4249,27 @@ func _sync_active_training_ring(animate_pop: bool = false) -> void:
 				tw.tween_property(r, "scale", Vector3.ONE, 0.22)
 			else:
 				r.scale = Vector3.ONE
+	if _rings_passed == 0 and not animate_pop and _route_guide != null and is_instance_valid(_route_guide):
+		_route_guide.call("clear_cache")
 	_ensure_next_ring_preview()
 	_update_course_route_guide()
+	if _active_ring_beacon != null and is_instance_valid(_active_ring_beacon):
+		if _rings_passed >= 0 and _rings_passed < _training_rings.size() and _rings_passed < _rings_total:
+			var cr := _training_rings[_rings_passed]
+			if cr != null and is_instance_valid(cr):
+				_active_ring_beacon.visible = true
+				var cur_radius := float(cr.get_meta("ring_radius", 6.2))
+				var base_s := clampf(cur_radius / 6.2, 0.32, 1.6)
+				_active_ring_beacon.set_meta("base_scale", base_s)
+				_active_ring_beacon.scale = Vector3.ONE * base_s
+				_active_ring_beacon.global_position = cr.global_position
+				_active_ring_beacon.global_transform = Transform3D(
+						cr.global_transform.basis.orthonormalized() * Basis(Vector3.RIGHT, PI * 0.5),
+						cr.global_position)
+			else:
+				_active_ring_beacon.visible = false
+		else:
+			_active_ring_beacon.visible = false
 	if _next_ring_preview != null and is_instance_valid(_next_ring_preview):
 		var next_idx := _rings_passed + 1
 		if next_idx < _training_rings.size() and _rings_passed < _rings_total:
@@ -4197,13 +4279,29 @@ func _sync_active_training_ring(animate_pop: bool = false) -> void:
 				var next_radius := float(nr.get_meta("ring_radius", 6.2))
 				_next_ring_preview.scale = Vector3.ONE * clampf(next_radius / 6.2, 0.32, 1.6)
 				_next_ring_preview.global_position = nr.global_position
-				_next_ring_preview.global_rotation = Vector3(PI * 0.5, nr.global_rotation.y, 0.0)
+				_next_ring_preview.global_transform = Transform3D(
+						nr.global_transform.basis.orthonormalized() * Basis(Vector3.RIGHT, PI * 0.5),
+						nr.global_position)
 			else:
 				_next_ring_preview.visible = false
 		else:
 			_next_ring_preview.visible = false
 		if _next_turn_arrow != null and is_instance_valid(_next_turn_arrow):
 			_next_turn_arrow.visible = false
+
+
+func _refresh_route_after_physics() -> void:
+	_route_refresh_seq += 1
+	var seq := _route_refresh_seq
+	for _i in range(2):
+		if not is_inside_tree():
+			return
+		await get_tree().physics_frame
+		if seq != _route_refresh_seq or not is_inside_tree():
+			return
+	if _route_guide != null and is_instance_valid(_route_guide):
+		_route_guide.call("clear_cache")
+	_update_course_route_guide()
 
 
 func _update_course_route_guide() -> void:
@@ -4308,7 +4406,8 @@ func _on_ring_entered(body: Node3D, ring: Area3D) -> void:
 func _update_training_ring_highlight(delta: float) -> void:
 	if _training_rings.is_empty():
 		return
-	_ring_pulse += delta * 3.6
+	_ring_pulse += delta * 7.2
+	var blink := 0.5 + 0.5 * sin(_ring_pulse)
 	var next_idx := mini(_rings_passed, _training_rings.size() - 1)
 	var course_live := _rings_passed < _rings_total
 	for i in range(_training_rings.size()):
@@ -4326,19 +4425,25 @@ func _update_training_ring_highlight(delta: float) -> void:
 			base_col = ring.get_meta("ring_base_color") as Color
 		if frame_mat != null:
 			if course_live and i == next_idx and ring.visible:
-				frame_mat.albedo_color = base_col.lightened(0.18)
-				frame_mat.emission = base_col.lightened(0.10)
-				frame_mat.emission_energy_multiplier = 4.6 + sin(_ring_pulse) * 1.1
+				var dark_col := base_col.darkened(0.66)
+				var peak_col := Color(1.0, 0.98, 0.42)
+				frame_mat.albedo_color = dark_col.lerp(peak_col, blink)
+				frame_mat.emission = dark_col.lerp(Color(1.0, 0.94, 0.22), blink)
+				frame_mat.emission_energy_multiplier = lerpf(0.22, 1.85, blink)
 				if glow_mat != null:
-					glow_mat.albedo_color = Color(base_col.r, base_col.g, base_col.b, 0.34)
-					glow_mat.emission_energy_multiplier = 2.0
+					glow_mat.albedo_color = Color(1.0, 0.84, 0.12, lerpf(0.06, 0.44, blink))
+					glow_mat.emission_energy_multiplier = lerpf(0.18, 1.4, blink)
+				var lbl := ring.get_node_or_null("GateNumber") as Label3D
+				if lbl != null:
+					lbl.scale = Vector3.ONE * lerpf(0.95, 1.18, blink)
+					lbl.modulate = Color(1.0, 0.60, 0.10, 0.92).lerp(Color(1.0, 0.99, 0.62, 1.0), blink)
 			elif course_live and i == next_idx + 1 and ring.visible:
 				frame_mat.albedo_color = base_col
 				frame_mat.emission = base_col
-				frame_mat.emission_energy_multiplier = 2.2
+				frame_mat.emission_energy_multiplier = 1.6
 				if glow_mat != null:
-					glow_mat.albedo_color = Color(base_col.r, base_col.g, base_col.b, 0.20)
-					glow_mat.emission_energy_multiplier = 1.0
+					glow_mat.albedo_color = Color(base_col.r, base_col.g, base_col.b, 0.22)
+					glow_mat.emission_energy_multiplier = 0.95
 			elif i < _rings_passed:
 				var passed_col := base_col.darkened(0.62)
 				frame_mat.albedo_color = passed_col
@@ -4359,9 +4464,18 @@ func _update_training_ring_highlight(delta: float) -> void:
 		if mat == null:
 			continue
 		if course_live and i == next_idx and ring.visible:
-			mat.emission_energy_multiplier = 1.15 + sin(_ring_pulse) * 0.20
+			mat.albedo_color = Color(0.35, 0.28, 0.08).lerp(Color(1.0, 0.98, 0.45), blink)
+			mat.emission_energy_multiplier = lerpf(0.25, 1.6, blink)
 		else:
 			mat.emission_energy_multiplier = 0.45
+	if _active_ring_beacon != null and is_instance_valid(_active_ring_beacon) and _active_ring_beacon.visible:
+		var base_s := float(_active_ring_beacon.get_meta("base_scale", 1.0))
+		_active_ring_beacon.scale = Vector3.ONE * (base_s * lerpf(0.97, 1.07, blink))
+		if _active_ring_beacon_mat != null:
+			_active_ring_beacon_mat.albedo_color = Color(1.0, 0.56, 0.06, 0.14).lerp(
+					Color(1.0, 0.98, 0.45, 0.96), blink)
+	if _route_guide != null and is_instance_valid(_route_guide):
+		_route_guide.call("set_pulse", blink)
 
 
 func _checkpoint_visual(cp: Area3D) -> MeshInstance3D:
@@ -9135,7 +9249,7 @@ func _build_results() -> void:
 		_hud.add_child(_results)
 
 	var dim := ColorRect.new()
-	dim.color = Color(0.04, 0.06, 0.04, 0.88)
+	dim.color = Color(0.02, 0.02, 0.025, 0.88)
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_results.add_child(dim)
 
@@ -9145,45 +9259,59 @@ func _build_results() -> void:
 	_results.add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(760, 0)
-	var panel_sb := StyleBoxFlat.new()
-	panel_sb.bg_color = MenuUI.PANEL
-	panel_sb.border_color = MenuUI.BORDER_HIGHLIGHT
-	panel_sb.set_border_width_all(2)
-	panel_sb.border_width_left = 6
-	panel_sb.set_corner_radius_all(3)
-	panel_sb.content_margin_left = 36
-	panel_sb.content_margin_right = 36
-	panel_sb.content_margin_top = 28
-	panel_sb.content_margin_bottom = 28
-	panel.add_theme_stylebox_override("panel", panel_sb)
+	panel.custom_minimum_size = Vector2(780, 0)
+	panel.add_theme_stylebox_override("panel",
+			VoltThemeScript.panel_box(Color(0.055, 0.056, 0.064, 0.96),
+			VoltThemeScript.YELLOW_BORDER, 2, 18, 34, 26, 20))
 	center.add_child(panel)
+	_results_panel = panel
 
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 18)
+	box.add_theme_constant_override("separation", 14)
 	panel.add_child(box)
+
+	var kicker := Label.new()
+	kicker.text = _txt("ЗВІТ ВИЛЬОТУ // VOLT", "SORTIE DEBRIEF // VOLT")
+	kicker.add_theme_font_override("font", VoltThemeScript.font_mono())
+	kicker.add_theme_font_size_override("font_size", 13)
+	kicker.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
+	kicker.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(kicker)
+	_results_kicker = kicker
 
 	var title := Label.new()
 	title.text = _txt("МІСІЮ ВИКОНАНО", "MISSION COMPLETE")
-	title.add_theme_font_size_override("font_size", 34)
-	title.add_theme_color_override("font_color", MenuUI.FPV_TEXT)
-	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
-	title.add_theme_constant_override("outline_size", 4)
+	title.add_theme_font_override("font", VoltThemeScript.font_display())
+	title.add_theme_font_size_override("font_size", 28)
+	title.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
+	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.92))
+	title.add_theme_constant_override("outline_size", 3)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(title)
 	_results_title = title
 
-	box.add_child(MenuUI.hline())
+	var div_top := ColorRect.new()
+	div_top.color = VoltThemeScript.BORDER
+	div_top.custom_minimum_size = Vector2(0, 1)
+	box.add_child(div_top)
+
+	var stats_card := PanelContainer.new()
+	stats_card.add_theme_stylebox_override("panel",
+			VoltThemeScript.panel_box(Color(1.0, 1.0, 1.0, 0.035),
+			VoltThemeScript.BORDER, 1, 12, 22, 16, 0))
+	box.add_child(stats_card)
 
 	_results_stats = Label.new()
-	_results_stats.add_theme_font_size_override("font_size", 20)
-	_results_stats.add_theme_color_override("font_color", MenuUI.TEXT)
+	_results_stats.add_theme_font_override("font", VoltThemeScript.font_mono())
+	_results_stats.add_theme_font_size_override("font_size", 16)
+	_results_stats.add_theme_color_override("font_color", VoltThemeScript.TEXT)
 	_results_stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(_results_stats)
+	stats_card.add_child(_results_stats)
 
 	_results_career_label = Label.new()
-	_results_career_label.add_theme_font_size_override("font_size", 18)
-	_results_career_label.add_theme_color_override("font_color", MenuUI.ACCENT)
+	_results_career_label.add_theme_font_override("font", VoltThemeScript.font_mono())
+	_results_career_label.add_theme_font_size_override("font_size", 15)
+	_results_career_label.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
 	_results_career_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_results_career_label.visible = false
 	box.add_child(_results_career_label)
@@ -9193,34 +9321,43 @@ func _build_results() -> void:
 	_results_career_bar.max_value = 100.0
 	_results_career_bar.value = 0.0
 	_results_career_bar.show_percentage = false
-	_results_career_bar.custom_minimum_size = Vector2(460, 14)
+	_results_career_bar.custom_minimum_size = Vector2(500, 10)
+	_results_career_bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	var bar_bg := StyleBoxFlat.new()
-	bar_bg.bg_color = Color(0.08, 0.12, 0.09, 0.9)
-	bar_bg.set_corner_radius_all(4)
+	bar_bg.bg_color = Color(1.0, 1.0, 1.0, 0.10)
+	bar_bg.set_corner_radius_all(99)
 	var bar_fill := StyleBoxFlat.new()
-	bar_fill.bg_color = MenuUI.ACCENT
-	bar_fill.set_corner_radius_all(4)
+	bar_fill.bg_color = VoltThemeScript.YELLOW
+	bar_fill.set_corner_radius_all(99)
 	_results_career_bar.add_theme_stylebox_override("background", bar_bg)
 	_results_career_bar.add_theme_stylebox_override("fill", bar_fill)
 	_results_career_bar.visible = false
 	box.add_child(_results_career_bar)
 
-	box.add_child(MenuUI.hline())
+	var div_bot := ColorRect.new()
+	div_bot.color = VoltThemeScript.BORDER
+	div_bot.custom_minimum_size = Vector2(0, 1)
+	box.add_child(div_bot)
 
 	var buttons := HBoxContainer.new()
-	buttons.add_theme_constant_override("separation", 14)
+	buttons.add_theme_constant_override("separation", 12)
 	_next_mission_btn = Button.new()
 	_next_mission_btn.text = _txt("НАСТУПНА МІСІЯ  →", "NEXT MISSION  →")
-	_next_mission_btn.custom_minimum_size = Vector2(0, 52)
+	_next_mission_btn.custom_minimum_size = Vector2(0, 56)
 	_next_mission_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_next_mission_btn.visible = false
+	VoltThemeScript.apply_button_variant(_next_mission_btn, "primary", 12, 16, 10)
+	_next_mission_btn.add_theme_font_override("font", VoltThemeScript.font_display())
+	_next_mission_btn.add_theme_font_size_override("font_size", 15)
 	_next_mission_btn.pressed.connect(_on_next_mission_pressed)
 	buttons.add_child(_next_mission_btn)
 	_results_lb_btn = Button.new()
 	_results_lb_btn.text = _txt("ТАБЛИЦЯ ЛІДЕРІВ", "LEADERBOARD")
-	_results_lb_btn.custom_minimum_size = Vector2(0, 52)
+	_results_lb_btn.custom_minimum_size = Vector2(0, 56)
 	_results_lb_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_results_lb_btn.visible = get_node_or_null("/root/GameCenter") != null
+	VoltThemeScript.apply_button_variant(_results_lb_btn, "secondary", 12, 16, 10)
+	_results_lb_btn.add_theme_font_size_override("font_size", 15)
 	_results_lb_btn.pressed.connect(_on_leaderboard_pressed)
 	buttons.add_child(_results_lb_btn)
 	_results_dvr_btn = Button.new()
@@ -9228,22 +9365,29 @@ func _build_results() -> void:
 	_results_dvr_btn.text = _txt("ПОВТОР УДАРУ (DVR)", "STRIKE REPLAY (DVR)") \
 			if Global.play_mode == Global.PlayMode.COMBAT \
 			else _txt("ПОВТОР ПОЛЬОТУ (DVR)", "FLIGHT REPLAY (DVR)")
-	_results_dvr_btn.custom_minimum_size = Vector2(0, 52)
+	_results_dvr_btn.custom_minimum_size = Vector2(0, 56)
 	_results_dvr_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_results_dvr_btn.visible = (Global.play_mode == Global.PlayMode.COMBAT \
 			or (Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training))
+	VoltThemeScript.apply_button_variant(_results_dvr_btn, "secondary", 12, 16, 10)
+	_results_dvr_btn.add_theme_font_size_override("font_size", 15)
 	_results_dvr_btn.pressed.connect(_on_dvr_replay_pressed)
 	buttons.add_child(_results_dvr_btn)
 	var retry := Button.new()
 	retry.text = _txt("ПРОЙТИ ЩЕ РАЗ", "RETRY")
-	retry.custom_minimum_size = Vector2(0, 52)
+	retry.custom_minimum_size = Vector2(0, 56)
 	retry.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	VoltThemeScript.apply_button_variant(retry, "secondary", 12, 16, 10)
+	retry.add_theme_font_size_override("font_size", 15)
 	retry.pressed.connect(_on_retry_pressed)
 	buttons.add_child(retry)
+	_results_retry_btn = retry
 	var menu := Button.new()
 	menu.text = _txt("ГОЛОВНЕ МЕНЮ", "MAIN MENU")
-	menu.custom_minimum_size = Vector2(0, 52)
+	menu.custom_minimum_size = Vector2(0, 56)
 	menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	VoltThemeScript.apply_button_variant(menu, "secondary", 12, 16, 10)
+	menu.add_theme_font_size_override("font_size", 15)
 	menu.pressed.connect(_on_menu_pressed)
 	buttons.add_child(menu)
 	box.add_child(buttons)
@@ -9496,10 +9640,19 @@ func _build_chain_briefing() -> void:
 	_chain_brief.process_mode = Node.PROCESS_MODE_ALWAYS
 	_chain_brief.visible = false
 	_chain_brief.theme = MenuUI.theme()
-	_hud.add_child(_chain_brief)
+	if _is_mobile_runtime():
+		_chain_brief_layer = CanvasLayer.new()
+		_chain_brief_layer.name = "MobileBriefingCanvasLayer"
+		_chain_brief_layer.layer = 120
+		_chain_brief_layer.process_mode = Node.PROCESS_MODE_ALWAYS
+		_chain_brief_layer.visible = false
+		add_child(_chain_brief_layer)
+		_chain_brief_layer.add_child(_chain_brief)
+	else:
+		_hud.add_child(_chain_brief)
 
 	var dim := ColorRect.new()
-	dim.color = Color(0.015, 0.03, 0.025, 0.93)
+	dim.color = Color(0.02, 0.02, 0.025, 0.90)
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_chain_brief.add_child(dim)
 
@@ -9511,43 +9664,62 @@ func _build_chain_briefing() -> void:
 	var panel := PanelContainer.new()
 	panel.custom_minimum_size = Vector2(820, 0)
 	panel.add_theme_stylebox_override("panel",
-			MenuUI.feel_style(MenuUI.PANEL, MenuUI.FPV_GREEN, 2, 3, 30, 24))
+			VoltThemeScript.panel_box(Color(0.055, 0.056, 0.064, 0.96),
+			VoltThemeScript.YELLOW_BORDER, 2, 18, 34, 26, 20))
 	center.add_child(panel)
+	_chain_brief_panel = panel
 
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 12)
+	box.add_theme_constant_override("separation", 14)
 	panel.add_child(box)
 
 	var code := Label.new()
 	code.text = _txt("БРИФІНГ КАМПАНІЇ  ·  TAC-0%d / 4",
 			"CAMPAIGN BRIEFING  ·  TAC-0%d / 4") % Global.combat_mission
-	code.add_theme_font_size_override("font_size", 14)
-	code.add_theme_color_override("font_color", MenuUI.FPV_AMBER)
+	code.add_theme_font_override("font", VoltThemeScript.font_mono())
+	code.add_theme_font_size_override("font_size", 13)
+	code.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
 	box.add_child(code)
 
 	var title := Label.new()
 	title.text = _combat_mission_banner(Global.combat_mission)
-	title.add_theme_font_size_override("font_size", 28)
-	title.add_theme_color_override("font_color", MenuUI.FPV_TEXT)
-	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-	title.add_theme_constant_override("outline_size", 4)
+	title.add_theme_font_override("font", VoltThemeScript.font_display())
+	title.add_theme_font_size_override("font_size", 26)
+	title.add_theme_color_override("font_color", VoltThemeScript.TEXT)
+	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.92))
+	title.add_theme_constant_override("outline_size", 3)
 	box.add_child(title)
 
-	box.add_child(MenuUI.hline())
+	var div := ColorRect.new()
+	div.color = VoltThemeScript.BORDER
+	div.custom_minimum_size = Vector2(0, 1)
+	box.add_child(div)
+
+	var info_card := PanelContainer.new()
+	info_card.add_theme_stylebox_override("panel",
+			VoltThemeScript.panel_box(Color(1.0, 1.0, 1.0, 0.035),
+			VoltThemeScript.BORDER, 1, 12, 20, 14, 0))
+	box.add_child(info_card)
+
+	var info_vb := VBoxContainer.new()
+	info_vb.add_theme_constant_override("separation", 10)
+	info_card.add_child(info_vb)
 
 	var tasks := Label.new()
 	tasks.text = _mission_chain_tasks(Global.combat_mission)
-	tasks.add_theme_font_size_override("font_size", 15)
-	tasks.add_theme_color_override("font_color", MenuUI.TEXT)
+	tasks.add_theme_font_override("font", VoltThemeScript.font_ui())
+	tasks.add_theme_font_size_override("font_size", 16)
+	tasks.add_theme_color_override("font_color", VoltThemeScript.TEXT)
 	tasks.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	box.add_child(tasks)
+	info_vb.add_child(tasks)
 
 	var phases := Label.new()
 	phases.text = _mission_phase_plan_text(Global.combat_mission)
-	phases.add_theme_font_size_override("font_size", 13)
-	phases.add_theme_color_override("font_color", MenuUI.FPV_CYAN)
+	phases.add_theme_font_override("font", VoltThemeScript.font_mono())
+	phases.add_theme_font_size_override("font_size", 14)
+	phases.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
 	phases.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	box.add_child(phases)
+	info_vb.add_child(phases)
 
 	var progress := Label.new()
 	progress.text = _txt(
@@ -9555,8 +9727,9 @@ func _build_chain_briefing() -> void:
 		"CAMPAIGN %d/4 · ★ %d/12 · DIFFICULTY: %s · TIME LIMIT: %s") % [
 		Global.campaign_completed_count(), Global.campaign_stars_total(),
 		Global.get_difficulty_name(), _format_countdown(Global.get_difficulty_time_limit())]
-	progress.add_theme_font_size_override("font_size", 12)
-	progress.add_theme_color_override("font_color", MenuUI.FPV_MUTED)
+	progress.add_theme_font_override("font", VoltThemeScript.font_mono())
+	progress.add_theme_font_size_override("font_size", 13)
+	progress.add_theme_color_override("font_color", VoltThemeScript.STONE_DIM)
 	box.add_child(progress)
 
 	var actions := HBoxContainer.new()
@@ -9567,15 +9740,10 @@ func _build_chain_briefing() -> void:
 	actions.add_child(spacer)
 	_chain_brief_start = Button.new()
 	_chain_brief_start.text = _txt("  ▶  ПОЧАТИ ВИЛІТ  ", "  ▶  START SORTIE  ")
-	_chain_brief_start.custom_minimum_size = Vector2(280, 48)
+	_chain_brief_start.custom_minimum_size = Vector2(300, 56)
+	VoltThemeScript.apply_button_variant(_chain_brief_start, "primary", 12, 20, 10)
+	_chain_brief_start.add_theme_font_override("font", VoltThemeScript.font_display())
 	_chain_brief_start.add_theme_font_size_override("font_size", 16)
-	_chain_brief_start.add_theme_color_override("font_color", MenuUI.BUTTON_ACTIVE_TEXT)
-	_chain_brief_start.add_theme_stylebox_override("normal",
-			MenuUI.feel_style(MenuUI.BUTTON_ACTIVE, MenuUI.FPV_GREEN, 2, 1, 14, 6))
-	_chain_brief_start.add_theme_stylebox_override("hover",
-			MenuUI.feel_style(MenuUI.BUTTON_ACTIVE.lightened(0.08), MenuUI.FPV_GREEN, 2, 1, 14, 6))
-	_chain_brief_start.add_theme_stylebox_override("pressed",
-			MenuUI.feel_style(MenuUI.BUTTON_ACTIVE.darkened(0.08), MenuUI.FPV_GREEN, 2, 1, 14, 6))
 	_chain_brief_start.pressed.connect(_close_chain_briefing)
 	actions.add_child(_chain_brief_start)
 
@@ -9613,7 +9781,18 @@ func _show_chain_briefing() -> void:
 		return
 	get_tree().paused = true
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	_briefing_hid_touch = false
+	if _touch_controls != null and bool(_touch_controls.get("enabled")):
+		_briefing_hid_touch = true
+		if _touch_controls.has_method("set_enabled"):
+			_touch_controls.call("set_enabled", false)
+		elif _touch_controls is CanvasLayer:
+			(_touch_controls as CanvasLayer).visible = false
+	if _chain_brief_layer != null:
+		_chain_brief_layer.visible = true
 	_chain_brief.visible = true
+	if _chain_brief_panel != null:
+		VoltThemeScript.animate_pop_in(_chain_brief_panel, 0.18)
 	if _chain_brief_start != null:
 		_chain_brief_start.grab_focus()
 
@@ -9621,6 +9800,14 @@ func _show_chain_briefing() -> void:
 func _close_chain_briefing() -> void:
 	if _chain_brief != null:
 		_chain_brief.visible = false
+	if _chain_brief_layer != null:
+		_chain_brief_layer.visible = false
+	if _briefing_hid_touch and _touch_controls != null:
+		_briefing_hid_touch = false
+		if _touch_controls.has_method("set_enabled"):
+			_touch_controls.call("set_enabled", true)
+		elif _touch_controls is CanvasLayer:
+			(_touch_controls as CanvasLayer).visible = true
 	get_tree().paused = false
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	if _is_mobile_runtime():
@@ -9674,6 +9861,22 @@ func _idle_start_hint() -> String:
 
 func _hud_custom_training_target() -> Dictionary:
 	return {}
+
+
+func _hud_training_counts() -> Vector2i:
+	return Vector2i(_rings_passed, _rings_total)
+
+
+func _hud_training_next_pos() -> Vector3:
+	if _rings_passed >= 0 and _rings_passed < _training_rings.size():
+		var r := _training_rings[_rings_passed]
+		if r != null and is_instance_valid(r) and r.visible:
+			return r.global_position
+	return Vector3.ZERO
+
+
+func _reset_custom_training_course() -> void:
+	pass
 
 
 func _update_nav_marker() -> void:
@@ -10200,19 +10403,18 @@ func _update_hud() -> void:
 						short_name, time_str, _txt("ТРЕНУВАННЯ", "TRAINING"),
 						_combat_training.get_status_line()]
 			else:
+				var counts := _hud_training_counts()
 				var dist_text := ""
 				var flyer := get_node_or_null("Drone") as Node3D
-				if flyer != null and _rings_passed < _training_rings.size():
-					var next_gate := _training_rings[_rings_passed]
-					if next_gate != null and is_instance_valid(next_gate):
-						dist_text = " · %dm" % int(flyer.global_position.distance_to(
-								next_gate.global_position))
-				if _rings_total <= 0:
+				var next_pos := _hud_training_next_pos()
+				if flyer != null and next_pos != Vector3.ZERO:
+					dist_text = " · %dm" % int(flyer.global_position.distance_to(next_pos))
+				if counts.y <= 0:
 					_hud_label.text = "%s\n%s · %d" % [short_name, time_str, _score]
 				else:
 					_hud_label.text = "%s\n%s · %s %d/%d · %d%s" % [
 							short_name, time_str, _txt("ВОРОТА", "GATES"),
-							_rings_passed, _rings_total, _score, dist_text]
+							counts.x, counts.y, _score, dist_text]
 		_:
 			var combat_time_limit: float = Global.get_difficulty_time_limit()
 			var time_left := maxf(0.0, combat_time_limit - _mission_time)

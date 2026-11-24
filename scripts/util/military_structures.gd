@@ -1774,9 +1774,9 @@ static func spawn_map_military_objects(root: Node3D, map_name: String) -> void:
 
 	for i in range(picked.size()):
 		var p2 := picked[i]
-		var y: float = float(terrain.footprint_surface_height(map_name, p2, 10.0, 10.0, 0.0)) - 0.15
-		var pos3 := Vector3(p2.x, y, p2.y)
 		var yaw := float(i) * 0.85 + sin(float(i) * 2.3) * 0.5
+		var y: float = float(terrain.footprint_min_height(map_name, p2, 10.0, 10.0, yaw)) - 0.20
+		var pos3 := Vector3(p2.x, y, p2.y)
 		var builder_id := int(pool[i % pool.size()])
 		terrain.add_contact_shadow(root, map_name, p2, 14.0, "MilStruct_%d" % i)
 

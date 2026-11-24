@@ -33,6 +33,7 @@ static func track_point(t: float, y_elev: float = 0.0) -> Vector3:
 
 
 func _ready() -> void:
+	set_meta("no_batch", true)
 	# Initial placement of train
 	_update_train_poses()
 

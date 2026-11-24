@@ -670,6 +670,56 @@ static func footprint_surface_height(map_name: String, p: Vector2,
 	return h
 
 
+## Lowest rendered-surface sample under a rotated rectangular footprint.
+## Ensures open-legged structures and skirtless props seat every corner firmly.
+static func footprint_min_height(map_name: String, p: Vector2,
+		w: float, d: float, yaw: float) -> float:
+	var basis := Basis(Vector3.UP, yaw)
+	var h := mesh_surface_height(map_name, p.x, p.y)
+	for sx in [-0.5, 0.0, 0.5]:
+		for sz in [-0.5, 0.0, 0.5]:
+			if sx == 0.0 and sz == 0.0:
+				continue
+			var off := basis * Vector3(w * sx, 0.0, d * sz)
+			h = minf(h, mesh_surface_height(map_name, p.x + off.x, p.y + off.z))
+	return h
+
+
+static func _node_world_aabb(root: Node3D) -> AABB:
+	var box := AABB()
+	var has_box := false
+	var meshes: Array[MeshInstance3D] = []
+	if root is MeshInstance3D:
+		meshes.append(root as MeshInstance3D)
+	meshes.append_array(root.find_children("*", "MeshInstance3D", true, false))
+	for mi in meshes:
+		if mi == null or mi.mesh == null or not mi.visible:
+			continue
+		var world_bb := mi.global_transform * mi.get_aabb()
+		if not has_box:
+			box = world_bb
+			has_box = true
+		else:
+			box = box.merge(world_bb)
+	return box
+
+
+static func ground_node_to_terrain(node: Node3D, map_name: String, sink: float = 0.16) -> void:
+	if node == null:
+		return
+	if node.is_inside_tree():
+		node.force_update_transform()
+	var bb := _node_world_aabb(node)
+	if bb.size.y < 0.05:
+		return
+	var cen := bb.get_center()
+	var min_y := footprint_min_height(map_name, Vector2(cen.x, cen.z),
+			clampf(bb.size.x, 0.5, 28.0), clampf(bb.size.z, 0.5, 28.0), node.rotation.y)
+	node.position.y += (min_y - sink) - bb.position.y
+	if node.is_inside_tree():
+		node.force_update_transform()
+
+
 static func water_level(map_name: String) -> float:
 	match map_name:
 		"village":
@@ -2834,7 +2884,7 @@ static func _instantiate_sculpted_glb(parent: Node3D, glb_path: String,
 
 
 static func _add_mobile_pipe_rack(root: Node3D, map_name: String, p: Vector2) -> void:
-	var gy := _height(map_name, p.x, p.y)
+	var gy := footprint_min_height(map_name, p, 20.0, 8.0, 0.0)
 	var node := Node3D.new()
 	node.name = "MobileHero2_PipeRack"
 	node.position = Vector3(p.x, gy, p.y)
@@ -2847,11 +2897,12 @@ static func _add_mobile_pipe_rack(root: Node3D, map_name: String, p: Vector2) ->
 		var rust := _pbr("hall_rust", Color(0.60, 0.44, 0.32), 0.3)
 		_add_box(node, Vector3(0.0, 0.12, 0.0), Vector3(20.0, 0.24, 6.0), steel)
 		_add_cylinder(node, Vector3(0.0, 8.4, 0.0), 0.5, 20.6, rust, PI * 0.5)
+	ground_node_to_terrain(node, map_name, 0.18)
 	_keep_poi_detail(node, 1200.0)
 
 
 static func _add_mobile_boathouse(root: Node3D, map_name: String, p: Vector2) -> void:
-	var gy := _height(map_name, p.x, p.y)
+	var gy := footprint_min_height(map_name, p, 10.0, 8.0, 0.0)
 	var node := Node3D.new()
 	node.name = "MobileHero2_Boathouse"
 	node.position = Vector3(p.x, gy, p.y)
@@ -2862,11 +2913,12 @@ static func _add_mobile_boathouse(root: Node3D, map_name: String, p: Vector2) ->
 	if forged == null:
 		var wood := _pbr("wood", Color(0.62, 0.50, 0.36), 0.3)
 		_add_box(node, Vector3(0.0, 2.0, 0.0), Vector3(8.0, 0.24, 5.4), wood)
+	ground_node_to_terrain(node, map_name, 0.20)
 	_keep_poi_detail(node, 1200.0)
 
 
 static func _add_mobile_silo_bank(root: Node3D, map_name: String, p: Vector2) -> void:
-	var gy := _height(map_name, p.x, p.y)
+	var gy := footprint_min_height(map_name, p, 14.0, 8.0, 0.0)
 	var node := Node3D.new()
 	node.name = "MobileHero3_SiloBank"
 	node.position = Vector3(p.x, gy, p.y)
@@ -2879,11 +2931,12 @@ static func _add_mobile_silo_bank(root: Node3D, map_name: String, p: Vector2) ->
 		_add_cylinder(node, Vector3(-4.5 + float(i) * 3.0, 6.2, 0.0), 1.5, 11.6, silo)
 		_add_cylinder(node, Vector3(-4.5 + float(i) * 3.0, 12.1, 0.0), 1.56, 0.5, rust, 0.0, false)
 	_add_cylinder(node, Vector3(0.0, 4.6, 0.0), 0.3, 10.0, rust, PI * 0.5, false)
+	ground_node_to_terrain(node, map_name, 0.18)
 	_keep_poi_detail(node, 1200.0)
 
 
 static func _add_mobile_market_stalls(root: Node3D, map_name: String, p: Vector2) -> void:
-	var gy := _height(map_name, p.x, p.y)
+	var gy := footprint_min_height(map_name, p, 14.0, 10.0, 0.0)
 	var node := Node3D.new()
 	node.name = "MobileHero3_MarketStalls"
 	node.position = Vector3(p.x, gy, p.y)
@@ -2900,11 +2953,12 @@ static func _add_mobile_market_stalls(root: Node3D, map_name: String, p: Vector2
 				_add_box(node, Vector3(bx + side * 1.7, 1.15, bz), Vector3(0.15, 2.0, 3.8), wood)
 			_add_prism(node, Vector3(bx, 1.8, bz), Vector3(4.2, 0.8, 4.2),
 					awning if (i + row) % 2 == 0 else awning2)
+	ground_node_to_terrain(node, map_name, 0.16)
 	_keep_poi_detail(node, 1200.0)
 
 
 static func _add_mobile_water_cistern(root: Node3D, map_name: String, p: Vector2) -> void:
-	var gy := _height(map_name, p.x, p.y)
+	var gy := footprint_min_height(map_name, p, 9.0, 9.0, 0.0)
 	var node := Node3D.new()
 	node.name = "MobileHero3_WaterCistern"
 	node.position = Vector3(p.x, gy, p.y)
@@ -2915,11 +2969,12 @@ static func _add_mobile_water_cistern(root: Node3D, map_name: String, p: Vector2
 	if forged == null:
 		var steel := _pbr("hall_metal", Color(0.62, 0.64, 0.64), 0.2)
 		_add_cylinder(node, Vector3(0.0, 7.0, 0.0), 3.0, 13.0, steel)
+	ground_node_to_terrain(node, map_name, 0.20)
 	_keep_poi_detail(node, 1200.0)
 
 
 static func _add_mobile_pier_house(root: Node3D, map_name: String, p: Vector2) -> void:
-	var gy := _height(map_name, p.x, p.y)
+	var gy := footprint_min_height(map_name, p, 14.0, 10.0, 0.0)
 	var node := Node3D.new()
 	node.name = "MobileHero3_PierHouse"
 	node.position = Vector3(p.x, gy, p.y)
@@ -2930,11 +2985,12 @@ static func _add_mobile_pier_house(root: Node3D, map_name: String, p: Vector2) -
 	if forged == null:
 		var wood := _pbr("wood", Color(0.52, 0.42, 0.28), 0.3)
 		_add_box(node, Vector3(0.0, 1.9, 0.0), Vector3(13.0, 0.3, 6.2), wood)
+	ground_node_to_terrain(node, map_name, 0.20)
 	_keep_poi_detail(node, 1200.0)
 
 
 static func _add_mobile_wind_turbine(root: Node3D, map_name: String, p: Vector2) -> void:
-	var gy := _height(map_name, p.x, p.y)
+	var gy := footprint_min_height(map_name, p, 8.0, 8.0, 0.0) - 0.20
 	var node := Node3D.new()
 	node.name = "MobileHero_WindTurbine"
 	node.position = Vector3(p.x, gy, p.y)
@@ -2956,7 +3012,7 @@ static func _add_mobile_wind_turbine(root: Node3D, map_name: String, p: Vector2)
 
 
 static func _add_mobile_grain_elevator(root: Node3D, map_name: String, p: Vector2) -> void:
-	var gy := _height(map_name, p.x, p.y)
+	var gy := footprint_min_height(map_name, p, 12.0, 8.0, 0.0)
 	var node := Node3D.new()
 	node.name = "MobileHero_GrainElevator"
 	node.position = Vector3(p.x, gy, p.y)
@@ -2972,24 +3028,31 @@ static func _add_mobile_grain_elevator(root: Node3D, map_name: String, p: Vector
 	_add_box(node, Vector3(0.0, 15.4, 0.0), Vector3(11.6, 3.6, 5.4), concrete)
 	_add_box(node, Vector3(0.0, 15.4, 3.2), Vector3(1.0, 2.6, 1.0), rust, 0.0, false)
 	_add_cylinder(node, Vector3(0.0, 9.2, 0.0), 0.5, 8.0, rust, 0.0, false)
+	ground_node_to_terrain(node, map_name, 0.20)
 	_keep_poi_detail(node, 1200.0)
 
 
 static func _add_mobile_flare_stack(root: Node3D, map_name: String, p: Vector2) -> void:
-	var gy := _height(map_name, p.x, p.y)
+	var gy := footprint_min_height(map_name, p, 8.0, 8.0, 0.0)
 	var node := Node3D.new()
 	node.name = "MobileHero_FlareStack"
 	node.position = Vector3(p.x, gy, p.y)
 	root.add_child(node)
 	# Sculpted industrial smokestack + lattice derrick tower + burner shroud
-	_instantiate_sculpted_glb(node,
+	var stack_inst := _instantiate_sculpted_glb(node,
 			"res://Assets/handcrafted/forge/industrial_03_smokestack_breached_flue.glb",
 			"hall_concrete", Color(1.12, 1.10, 1.06))
+	ground_node_to_terrain(node, map_name, 0.22)
+	var stack_top_y := 33.4
+	if stack_inst != null:
+		var stack_bb := _node_world_aabb(stack_inst)
+		if stack_bb.size.y > 1.0:
+			stack_top_y = stack_bb.end.y - node.global_position.y
 	var steel := _pbr("hall_metal", Color(0.48, 0.50, 0.52), 0.28)
 	var rust := _pbr("hall_rust", Color(0.62, 0.38, 0.24), 0.30)
-	# Burner tip assembly & wind shroud crown at top of stack
-	_add_cylinder(node, Vector3(0.0, 33.4, 0.0), 1.05, 1.4, steel, 0.0, false)
-	_add_cylinder(node, Vector3(0.0, 34.4, 0.0), 0.52, 1.2, rust, 0.0, false)
+	# Burner tip assembly & wind shroud crown seated flush onto smokestack mouth
+	_add_cylinder(node, Vector3(0.0, stack_top_y - 0.15, 0.0), 1.05, 1.4, steel, 0.0, false)
+	_add_cylinder(node, Vector3(0.0, stack_top_y + 0.85, 0.0), 0.52, 1.2, rust, 0.0, false)
 	var flame_mat := StandardMaterial3D.new()
 	flame_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	flame_mat.albedo_color = Color(1.0, 0.58, 0.18)
@@ -3005,7 +3068,7 @@ static func _add_mobile_flare_stack(root: Node3D, map_name: String, p: Vector2) 
 	flame_cone.radial_segments = 10
 	flame.mesh = flame_cone
 	flame.material_override = flame_mat
-	flame.position = Vector3(0.0, 35.4, 0.0)
+	flame.position = Vector3(0.0, stack_top_y + 1.85, 0.0)
 	flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	flame.set_meta("no_batch", true)
 	node.add_child(flame)
@@ -3013,17 +3076,20 @@ static func _add_mobile_flare_stack(root: Node3D, map_name: String, p: Vector2) 
 
 
 static func _add_mobile_lighthouse(root: Node3D, map_name: String, p: Vector2) -> void:
-	var gy := _height(map_name, p.x, p.y)
+	var gy := footprint_min_height(map_name, p, 8.0, 8.0, 0.0) - 0.22
 	var node := Node3D.new()
 	node.name = "MobileHero_Lighthouse"
 	node.position = Vector3(p.x, gy, p.y)
 	root.add_child(node)
-	# Adjacent marsh boardwalk keeper pavilion (kept well clear of lighthouse mast so they never overlap)
-	_instantiate_sculpted_glb(node,
+	# Adjacent marsh boardwalk keeper pavilion, grounded cleanly at its own terrain spot
+	var pav_site := p + Vector2(20.5, 5.0)
+	var pav_y := footprint_min_height(map_name, pav_site, 10.0, 8.0, 0.15) - 0.22
+	var pav := _instantiate_sculpted_glb(node,
 			"res://Assets/handcrafted/forge/swamp_22_marsh_boardwalk_tower.glb",
-			"wood", Color(1.06, 1.04, 1.00), Vector3(20.5, 0.0, 5.0), 0.15,
+			"wood", Color(1.06, 1.04, 1.00), Vector3(20.5, pav_y - gy, 5.0), 0.15,
 			Vector3.ONE * 0.85)
-	register_structure_exclusion(p + Vector2(20.5, 5.0), Vector2(10.0, 8.0), 12.0)
+	ground_node_to_terrain(pav, map_name, 0.22)
+	register_structure_exclusion(pav_site, Vector2(10.0, 8.0), 12.0)
 	var tower_mesh := _get_shared_landmark_mesh("NavBeaconTower")
 	var tower_mat := _pbr("hall_metal", Color.WHITE, 0.26)
 	if tower_mesh != null and tower_mat != null:
@@ -5308,10 +5374,10 @@ static func _poi_watchtower(root: Node3D, map_name: String, p: Vector2) -> void:
 	var site := _reserve_near_site(root, map_name, p, 12.0, 28.0, false)
 	if site == Vector2.INF:
 		site = _poi_site(map_name, p)
-	var gy := footprint_surface_height(map_name, site, 12.0, 12.0, 0.0)
+	var gy := footprint_min_height(map_name, site, 12.0, 12.0, 0.25)
 	var tower := Node3D.new()
 	tower.name = "POI_Watchtower_" + map_name
-	tower.position = Vector3(site.x, gy - 0.10, site.y)
+	tower.position = Vector3(site.x, gy - 0.16, site.y)
 	tower.rotation.y = 0.25
 	root.add_child(tower)
 	_tag_signature_landmark(tower, tower.name)
@@ -5320,6 +5386,7 @@ static func _poi_watchtower(root: Node3D, map_name: String, p: Vector2) -> void:
 	_instantiate_sculpted_glb(tower,
 			"res://Assets/handcrafted/forge/swamp_09_rotting_watchtower_marsh.glb",
 			"wood", Color(1.12, 1.08, 1.02))
+	ground_node_to_terrain(tower, map_name, 0.24)
 	_keep_poi_detail(tower, 1200.0)
 
 	var wreck_target := Vector2(clampf(site.x - 24.0, -154.0, 154.0),
@@ -8492,11 +8559,15 @@ static func prepare_city(city: Node3D) -> void:
 static func _is_batch_excluded(node: Node) -> bool:
 	var cur := node
 	while cur != null:
-		if cur.has_meta("no_batch"):
+		if cur.has_meta("no_batch") or cur is AnimatableBody3D:
 			return true
 		var n := str(cur.name)
 		if n.begins_with("MobileGroundPatch") or n.begins_with("SmokePlume") \
-				or n.begins_with("ContactShadow") or n == "MobilePropPack":
+				or n.begins_with("ContactShadow") or n == "MobilePropPack" \
+				or n.begins_with("Moving") or n.begins_with("Rotating") \
+				or n in ["SlewingJib", "GantryCarrier", "CrabTrolley", "HoistRig",
+						"TowerTrolley", "TowerHoist", "RotorMount",
+						"RadarBaseBody", "WindmillTowerBody"]:
 			return true
 		cur = cur.get_parent()
 	return false
