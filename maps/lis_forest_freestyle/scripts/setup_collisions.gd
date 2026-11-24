@@ -2,6 +2,8 @@ extends Node3D
 ## Builds collision from the real placed meshes. No proxy pile at world origin,
 ## no invisible walls between objects. Foliage uses alpha scissor (no shimmer).
 
+const LisRingsScript = preload("res://maps/lis_forest_freestyle/scripts/lis_freestyle_rings.gd")
+
 var bodies_created: int = 0
 var _built: bool = false
 
@@ -22,6 +24,9 @@ func _build() -> void:
 	if _built:
 		return
 	_built = true
+	var gates_node := LisRingsScript.build_markers(self)
+	var scatter_node := get_node_or_null("ScatterMultiMesh") as Node3D
+	LisRingsScript.clear_scatter_near_gates(scatter_node, gates_node, 8.5)
 	_fix_foliage_materials(self)
 	_tune_materials(self)
 	_tune_sawmill_materials(self)
@@ -139,7 +144,9 @@ func _walk(node: Node) -> void:
 			var is_freestyle: bool = n.begins_with("FS_") and n.ends_with("_geo")
 			var is_colonly: bool = "-colonly" in n or "-convcolonly" in n
 			if (is_freestyle or is_colonly) and child.mesh != null:
-				_make_body(child as MeshInstance3D, is_freestyle)
+				var concave_struct: bool = ("bridge" in n or "trestle" in n or "sawmill" in n \
+						or "watchtower" in n or "ruins" in n or "treehouse" in n)
+				_make_body(child as MeshInstance3D, is_freestyle or concave_struct)
 		_walk(child)
 
 func _make_body(src: MeshInstance3D, use_trimesh: bool) -> void:

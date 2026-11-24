@@ -5,6 +5,7 @@ extends "res://sceneries/BigLevel.gd"
 
 const MAP_SCENE := "res://maps/lis_forest_freestyle/lis_freestyle_map.tscn"
 const LisWaterMaskScript = preload("res://maps/lis_forest_freestyle/scripts/lis_water_mask.gd")
+const LisRingsScript = preload("res://maps/lis_forest_freestyle/scripts/lis_freestyle_rings.gd")
 const DEFAULT_SPAWN := Vector3(-176.0, 9.0, 205.0)
 
 ## Маршрут із восьми зон карти (див. Spawn_Z01…Z08 у вихідній сцені).
@@ -72,7 +73,128 @@ func _neutralize_map_extras() -> void:
 
 
 func _authored_freestyle_waypoints() -> Array:
+	if _map_instance != null:
+		var gates := _map_instance.get_node_or_null("FPVGates")
+		if gates != null and gates.get_child_count() > 0:
+			var out: Array = []
+			for ch in gates.get_children():
+				if ch is Marker3D:
+					out.append((ch as Marker3D).global_position)
+			if not out.is_empty():
+				return out
 	return COURSE_WAYPOINTS
+
+
+func _spawn_training_rings() -> void:
+	_rings_total = 0
+	for old_ring in _training_rings:
+		if is_instance_valid(old_ring):
+			old_ring.queue_free()
+	_training_rings.clear()
+	_training_ring_positions.clear()
+	_freestyle_ring_specs.clear()
+	if _next_ring_preview != null and is_instance_valid(_next_ring_preview):
+		_next_ring_preview.queue_free()
+	_next_ring_preview = null
+	if _next_turn_arrow != null and is_instance_valid(_next_turn_arrow):
+		_next_turn_arrow.queue_free()
+	_next_turn_arrow = null
+	_ring_clean_streak = 0
+	if Global.play_mode != Global.PlayMode.TRAINING or Global.combat_training:
+		return
+	if _triggers == null or _map_instance == null:
+		return
+	var gates_node := _map_instance.get_node_or_null("FPVGates")
+	if gates_node == null or gates_node.get_child_count() == 0:
+		gates_node = LisRingsScript.build_markers(_map_instance, Callable(self, "_find_ground_y"))
+	if gates_node == null:
+		return
+	var ring_mesh: ArrayMesh = LisRingsScript.get_ring_mesh(_map_instance)
+	var markers: Array[Marker3D] = []
+	for ch in gates_node.get_children():
+		if ch is Marker3D:
+			markers.append(ch as Marker3D)
+	var total := markers.size()
+	for i in range(total):
+		var marker := markers[i]
+		var radius := float(marker.get_meta("radius", 4.6))
+		var style := String(marker.get_meta("style", "vertical"))
+		var base_col := Color(0.08, 0.72, 0.58)
+		if style == "dive" or style == "under_bridge" or style == "over_trestle":
+			base_col = Color(0.86, 0.48, 0.12)
+		elif i == 0:
+			base_col = Color(0.14, 0.84, 0.44)
+		elif i == total - 1:
+			base_col = Color(0.92, 0.68, 0.16)
+
+		var gate := Area3D.new()
+		gate.name = "LisGate%02d" % (i + 1)
+		_triggers.add_child(gate)
+		gate.global_transform = Transform3D(marker.global_transform.basis.orthonormalized(), marker.global_position)
+
+		var col_shape := CollisionShape3D.new()
+		col_shape.name = "CoreTrigger"
+		var sphere := SphereShape3D.new()
+		sphere.radius = maxf(2.4, radius * 0.92)
+		col_shape.shape = sphere
+		gate.add_child(col_shape)
+
+		var frame_mat := StandardMaterial3D.new()
+		frame_mat.albedo_color = base_col
+		frame_mat.metallic = 0.25
+		frame_mat.roughness = 0.38
+		frame_mat.emission_enabled = true
+		frame_mat.emission = base_col
+		frame_mat.emission_energy_multiplier = 1.0
+		frame_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+
+		if ring_mesh != null:
+			var mi := MeshInstance3D.new()
+			mi.name = "RingMesh"
+			mi.mesh = ring_mesh
+			mi.scale = Vector3.ONE * radius
+			mi.material_override = frame_mat
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			gate.add_child(mi)
+
+		var lbl := Label3D.new()
+		lbl.name = "GateNumber"
+		if i == 0:
+			lbl.text = "START 1/%d" % total
+		elif i == total - 1:
+			lbl.text = "FINISH %d/%d" % [total, total]
+		else:
+			lbl.text = "%d/%d" % [i + 1, total]
+		lbl.font_size = 64
+		lbl.pixel_size = 0.022
+		lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		lbl.no_depth_test = false
+		lbl.modulate = Color(1.0, 0.97, 0.84, 0.96)
+		lbl.outline_modulate = Color(0.02, 0.04, 0.06, 0.92)
+		lbl.outline_size = 10
+		lbl.position = Vector3(0.0, radius + 0.9, 0.0)
+		gate.add_child(lbl)
+
+		gate.set_meta("training_ring_index", i)
+		gate.set_meta("ring_radius", radius)
+		gate.set_meta("ring_frame_mat", frame_mat)
+		gate.set_meta("ring_base_color", base_col)
+		gate.visible = true
+		gate.monitoring = (i == 0)
+		gate.body_entered.connect(_on_ring_entered.bind(gate))
+		_training_rings.append(gate)
+		_training_ring_positions.append(marker.global_position)
+		_freestyle_ring_specs.append({
+			"pos": marker.global_position,
+			"dir": -marker.global_transform.basis.z.normalized(),
+			"size": radius,
+			"shape": 0,
+			"color": base_col,
+		})
+		_rings_total += 1
+	_ensure_next_ring_preview()
+	_sync_active_training_ring(false)
+	print("[LisLevel] spawned %d authored kit_ring_gate checkpoints" % _rings_total)
 
 
 func _find_ground_y(x: float, z: float) -> float:
