@@ -192,6 +192,7 @@ func _build_chunks(mid: String, meshes: Array[Mesh], entries: Array) -> void:
 			var keep_shadow := CONIFERS.has(mid) and mi == 0
 			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if keep_shadow \
 					else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			mmi.set_meta("instance_transforms", list.duplicate())
 			add_child(mmi)
 			chunk_count += 1
 			instance_count += list.size()

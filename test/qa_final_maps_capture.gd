@@ -24,6 +24,11 @@ func _ready() -> void:
 		await _capture_hero_cards()
 		get_tree().quit(0)
 		return
+	if capture_mode == "menu":
+		get_window().size = Vector2i(1280, 720)
+		await _capture_mobile_menu()
+		get_tree().quit(0)
+		return
 
 	get_window().size = Vector2i(1280, 720)
 	await _capture_forest()
@@ -42,14 +47,21 @@ func _ready() -> void:
 func _hide_all_ui(node: Node) -> void:
 	if node == null or not is_instance_valid(node):
 		return
+	var tc := get_node_or_null("/root/TouchControls")
+	if tc != null and tc.has_method("set_enabled"):
+		tc.call("set_enabled", false)
+	_hide_ui_recursive(node)
+
+
+func _hide_ui_recursive(node: Node) -> void:
+	if node == null or not is_instance_valid(node):
+		return
 	if node is CanvasLayer:
 		(node as CanvasLayer).visible = false
 	if node is Control and node != self and not (node is SubViewportContainer):
-		var p := node.get_parent()
-		if p is CanvasLayer or p == get_tree().root:
-			(node as Control).visible = false
+		(node as Control).visible = false
 	for ch in node.get_children():
-		_hide_all_ui(ch)
+		_hide_ui_recursive(ch)
 
 
 func _set_cam(parent: Node, at: Vector3, look: Vector3, fov: float = 70.0) -> void:
@@ -74,14 +86,24 @@ func _clear_cam() -> void:
 	_cam = null
 
 
-func _sample_perf_and_save(tag: String, filename: String, wait_frames: int = 12) -> void:
+func _sample_perf_and_save(tag: String, filename: String, wait_frames: int = 12,
+		level: Node = null) -> void:
+	get_viewport().scaling_3d_scale = 0.67
 	_hide_all_ui(get_tree().root)
+	if level != null and level.has_method("_hide_mobile_gameplay_hud"):
+		level.call("_hide_mobile_gameplay_hud")
 	# Warm up camera frustum/shaders before timing
 	for _i in range(4):
 		await get_tree().process_frame
+		_hide_all_ui(get_tree().root)
 	var t0 := Time.get_ticks_usec()
 	for _i in range(wait_frames):
 		await get_tree().process_frame
+		_hide_all_ui(get_tree().root)
+	await RenderingServer.frame_pre_draw
+	_hide_all_ui(get_tree().root)
+	if level != null and level.has_method("_hide_mobile_gameplay_hud"):
+		level.call("_hide_mobile_gameplay_hud")
 	await RenderingServer.frame_post_draw
 	var dt_ms := float(Time.get_ticks_usec() - t0) / 1000.0 / float(wait_frames)
 	var measured_fps := 1000.0 / maxf(dt_ms, 0.01)
@@ -168,37 +190,37 @@ func _capture_forest() -> void:
 	}
 
 	_set_cam(level, Vector3(0.0, 460.0, 1.0), Vector3(0.0, 0.0, 0.0), 62.0)
-	await _sample_perf_and_save("lis_01_topdown", "lis_01_topdown.png")
+	await _sample_perf_and_save("lis_01_topdown", "lis_01_topdown.png", 12, level)
 
 	_set_cam(level, Vector3(-430.0, 300.0, 520.0), Vector3(0.0, 12.0, -10.0), 60.0)
-	await _sample_perf_and_save("lis_02_aerial", "lis_02_aerial.png")
+	await _sample_perf_and_save("lis_02_aerial", "lis_02_aerial.png", 12, level)
 
 	var gy3 := _ground_y_of(level, -98.0, 192.0)
 	_set_cam(level, Vector3(-98.0, gy3 + 12.0, 192.0), Vector3(-70.0, 10.0, 120.0), 78.0)
-	await _sample_perf_and_save("lis_03_sawmill", "lis_03_sawmill.png")
+	await _sample_perf_and_save("lis_03_sawmill", "lis_03_sawmill.png", 12, level)
 
 	var gy4 := _ground_y_of(level, 8.0, 22.0)
 	_set_cam(level, Vector3(8.0, maxf(gy4 + 12.0, 8.0), 22.0), Vector3(18.0, -4.0, -80.0), 78.0)
-	await _sample_perf_and_save("lis_04_river_bridges", "lis_04_river_bridges.png")
+	await _sample_perf_and_save("lis_04_river_bridges", "lis_04_river_bridges.png", 12, level)
 
 	var gy5 := _ground_y_of(level, 198.0, -98.0)
 	_set_cam(level, Vector3(198.0, gy5 + 14.0, -98.0), Vector3(195.0, 42.0, -165.0), 78.0)
-	await _sample_perf_and_save("lis_05_watchtower", "lis_05_watchtower.png")
+	await _sample_perf_and_save("lis_05_watchtower", "lis_05_watchtower.png", 12, level)
 
 	var gy6 := _ground_y_of(level, -218.0, -38.0)
 	_set_cam(level, Vector3(-218.0, gy6 + 12.0, -38.0), Vector3(-190.0, 18.0, -110.0), 78.0)
-	await _sample_perf_and_save("lis_06_ruins", "lis_06_ruins.png")
+	await _sample_perf_and_save("lis_06_ruins", "lis_06_ruins.png", 12, level)
 
 	var gy7 := _ground_y_of(level, 152.0, 172.0)
 	_set_cam(level, Vector3(152.0, gy7 + 14.0, 172.0), Vector3(150.0, 22.0, 60.0), 78.0)
-	await _sample_perf_and_save("lis_07_treehouse", "lis_07_treehouse.png")
+	await _sample_perf_and_save("lis_07_treehouse", "lis_07_treehouse.png", 12, level)
 
 	var gy8 := _ground_y_of(level, 95.0, 305.0)
 	_set_cam(level, Vector3(95.0, gy8 + 14.0, 305.0), Vector3(95.0, 14.0, 180.0), 78.0)
-	await _sample_perf_and_save("lis_08_trestle", "lis_08_trestle.png")
+	await _sample_perf_and_save("lis_08_trestle", "lis_08_trestle.png", 12, level)
 
 	_set_cam(level, Vector3(0.0, 38.0, 85.0), Vector3(0.0, 0.0, 0.0), 72.0)
-	await _sample_perf_and_save("lis_center_origin", "lis_center_origin.png")
+	await _sample_perf_and_save("lis_center_origin", "lis_center_origin.png", 12, level)
 
 	_clear_cam()
 	level.queue_free()
@@ -256,28 +278,28 @@ func _capture_oilrig() -> void:
 	}
 
 	_set_cam(level, Vector3(1150.0, 740.0, 1280.0), Vector3(0.0, 260.0, 0.0), 52.0)
-	await _sample_perf_and_save("oilrig_01_overview", "oilrig_01_overview.png")
+	await _sample_perf_and_save("oilrig_01_overview", "oilrig_01_overview.png", 12, level)
 
 	_set_cam(level, Vector3(-60.0, 510.0, 1120.0), Vector3(-450.0, 240.0, 450.0), 48.0)
-	await _sample_perf_and_save("oilrig_03_closeup", "oilrig_03_closeup.png")
+	await _sample_perf_and_save("oilrig_03_closeup", "oilrig_03_closeup.png", 12, level)
 
 	_set_cam(level, Vector3(-450.0, 620.0, 452.0), Vector3(-450.0, 0.0, 450.0), 68.0)
-	await _sample_perf_and_save("oilrig_05_moonpool", "oilrig_05_moonpool.png")
+	await _sample_perf_and_save("oilrig_05_moonpool", "oilrig_05_moonpool.png", 12, level)
 
 	_set_cam(level, Vector3(-450.0, 42.0, 920.0), Vector3(-450.0, 85.0, 450.0), 68.0)
-	await _sample_perf_and_save("oilrig_06_under_deck", "oilrig_06_under_deck.png")
+	await _sample_perf_and_save("oilrig_06_under_deck", "oilrig_06_under_deck.png", 12, level)
 
 	_set_cam(level, Vector3(-260.0, 395.0, 450.0), Vector3(260.0, 385.0, 450.0), 65.0)
-	await _sample_perf_and_save("oilrig_07_skybridge", "oilrig_07_skybridge.png")
+	await _sample_perf_and_save("oilrig_07_skybridge", "oilrig_07_skybridge.png", 12, level)
 
 	_set_cam(level, Vector3(-20.0, 560.0, 920.0), Vector3(-320.0, 380.0, 480.0), 55.0)
-	await _sample_perf_and_save("oilrig_09_helipad_cranes", "oilrig_09_helipad_cranes.png")
+	await _sample_perf_and_save("oilrig_09_helipad_cranes", "oilrig_09_helipad_cranes.png", 12, level)
 
 	_set_cam(level, Vector3(40.0, 280.0, 760.0), Vector3(0.0, 100.0, 0.0), 58.0)
-	await _sample_perf_and_save("oilrig_10_lagoon_tanker", "oilrig_10_lagoon_tanker.png")
+	await _sample_perf_and_save("oilrig_10_lagoon_tanker", "oilrig_10_lagoon_tanker.png", 12, level)
 
 	_set_cam(level, Vector3(160.0, 820.0, 460.0), Vector3(380.0, 720.0, 260.0), 50.0)
-	await _sample_perf_and_save("oilrig_flare_closeup", "oilrig_flare_closeup.png")
+	await _sample_perf_and_save("oilrig_flare_closeup", "oilrig_flare_closeup.png", 12, level)
 
 	_clear_cam()
 	level.queue_free()
@@ -294,13 +316,17 @@ func _capture_hero_cards() -> void:
 	var lis_level := (load("res://sceneries/LisLevel.tscn") as PackedScene).instantiate()
 	add_child(lis_level)
 	await get_tree().create_timer(2.0).timeout
-	_hide_all_ui(get_tree().root)
 	var ld := lis_level.get_node_or_null("Drone") as Node3D
 	if ld != null:
 		ld.visible = false
-	_set_cam(lis_level, Vector3(-135.0, 72.0, 178.0), Vector3(45.0, 18.0, -45.0), 62.0)
+	_set_cam(lis_level, Vector3(-135.0, 68.0, 172.0), Vector3(38.0, 14.0, -52.0), 60.0)
 	for _i in range(12):
 		await get_tree().process_frame
+		_hide_all_ui(get_tree().root)
+	await RenderingServer.frame_pre_draw
+	_hide_all_ui(get_tree().root)
+	if lis_level.has_method("_hide_mobile_gameplay_hud"):
+		lis_level.call("_hide_mobile_gameplay_hud")
 	await RenderingServer.frame_post_draw
 	var limg := get_viewport().get_texture().get_image()
 	if limg != null:
@@ -318,13 +344,17 @@ func _capture_hero_cards() -> void:
 	var rig_level := (load("res://sceneries/OilRigLevel.tscn") as PackedScene).instantiate()
 	add_child(rig_level)
 	await get_tree().create_timer(2.0).timeout
-	_hide_all_ui(get_tree().root)
 	var rd := rig_level.get_node_or_null("Drone") as Node3D
 	if rd != null:
 		rd.visible = false
-	_set_cam(rig_level, Vector3(1060.0, 680.0, 1180.0), Vector3(0.0, 290.0, 0.0), 50.0)
+	_set_cam(rig_level, Vector3(920.0, 560.0, 1020.0), Vector3(-60.0, 310.0, 60.0), 50.0)
 	for _i in range(12):
 		await get_tree().process_frame
+		_hide_all_ui(get_tree().root)
+	await RenderingServer.frame_pre_draw
+	_hide_all_ui(get_tree().root)
+	if rig_level.has_method("_hide_mobile_gameplay_hud"):
+		rig_level.call("_hide_mobile_gameplay_hud")
 	await RenderingServer.frame_post_draw
 	var rimg := get_viewport().get_texture().get_image()
 	if rimg != null:
@@ -334,3 +364,26 @@ func _capture_hero_cards() -> void:
 	rig_level.queue_free()
 	for _i in range(4):
 		await get_tree().physics_frame
+
+
+func _capture_mobile_menu() -> void:
+	var menu_packed := load("res://GUI/mobile/MobileMenu.tscn") as PackedScene
+	if menu_packed == null:
+		return
+	var menu := menu_packed.instantiate()
+	add_child(menu)
+	for _i in range(6):
+		await get_tree().process_frame
+	if menu.has_method("_show"):
+		menu.call("_show", "play")
+	for _i in range(10):
+		await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	var img := get_viewport().get_texture().get_image()
+	if img != null:
+		var out_p := ProjectSettings.globalize_path("res://" + _out_dir + "/mobile_menu_cards.png")
+		img.save_png(out_p)
+		print("[FINAL-CAP] menu saved: ", _out_dir, "/mobile_menu_cards.png ", img.get_size())
+	menu.queue_free()
+	for _i in range(3):
+		await get_tree().process_frame

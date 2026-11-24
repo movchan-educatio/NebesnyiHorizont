@@ -213,8 +213,11 @@ static func clear_scatter_near_gates(scatter_node: Node3D, gates_node: Node3D,
 				or String(mmi_node.name).contains("trunk")
 		var tree_h := 17.0 if is_tree else 4.0
 		var mmi_xf := mmi_node.global_transform
+		var cached_meta: Variant = mmi_node.get_meta("instance_transforms", null)
+		var cached_list: Array = cached_meta if cached_meta is Array else []
+		var meta_dirty := false
 		for idx in range(mm.instance_count):
-			var inst_xf := mm.get_instance_transform(idx)
+			var inst_xf: Transform3D = cached_list[idx] if idx < cached_list.size() else mm.get_instance_transform(idx)
 			if inst_xf.basis.x.length_squared() < 0.0001:
 				continue
 			var wpos := mmi_xf * inst_xf.origin
@@ -226,8 +229,13 @@ static func clear_scatter_near_gates(scatter_node: Node3D, gates_node: Node3D,
 					# Clear ground props near gate and conifers whose trunk/crown overlaps gate elevation
 					if gpos.y - gr - 3.5 <= wpos.y + tree_h and wpos.y <= gpos.y + gr + 2.5:
 						mm.set_instance_transform(idx, zero_xf)
+						if idx < cached_list.size():
+							cached_list[idx] = zero_xf
+							meta_dirty = true
 						cleared += 1
 						break
+		if meta_dirty:
+			mmi_node.set_meta("instance_transforms", cached_list)
 	if cleared > 0:
 		print("[LIS-RINGS] cleared %d interfering scatter instances near gates" % cleared)
 	return cleared
