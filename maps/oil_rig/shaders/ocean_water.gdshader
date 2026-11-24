@@ -22,30 +22,38 @@ void vertex() {
 }
 
 void fragment() {
+	float dist = distance(CAMERA_POSITION_WORLD, v_world);
 	vec2 uv1 = v_world.xz * 0.014 + vec2(TIME * wave_speed, TIME * wave_speed * 0.55);
 	vec2 uv2 = v_world.xz * 0.026 + vec2(-TIME * wave_speed * 0.72, TIME * wave_speed * 0.41);
 	vec3 a = texture(wave_a, uv1).rgb * 2.0 - 1.0;
 	vec3 b = texture(wave_b, uv2).rgb * 2.0 - 1.0;
-	vec3 wn = normalize(vec3(a.x + b.x, 2.6, a.y + b.y));
+	vec3 wn_raw = normalize(vec3(a.x + b.x, 2.6, a.y + b.y));
+	float ripple_att = 1.0 - smoothstep(220.0, 2200.0, dist);
+	vec3 wn = normalize(mix(vec3(0.0, 1.0, 0.0), wn_raw, ripple_att));
 
 	vec3 V = normalize(CAMERA_POSITION_WORLD - v_world);
 	float facing = clamp(dot(vec3(0.0, 1.0, 0.0), V), 0.0, 1.0);
-	float fres = pow(1.0 - facing, 3.0);
-	vec3 col = mix(deep_color, shallow_color, clamp(0.10 + fres * 0.92, 0.0, 1.0));
+	float fres = pow(1.0 - facing, 3.2);
+	vec3 col = mix(deep_color, shallow_color, clamp(0.10 + fres * 0.86, 0.0, 1.0));
+	col = mix(col, vec3(0.54, 0.72, 0.88), fres * 0.42);
 
 	vec3 L = normalize(sun_dir);
 	vec3 H = normalize(L + V);
-	float spec = pow(max(dot(wn, H), 0.0), 128.0);
-	col += vec3(1.0, 0.95, 0.84) * spec * 1.25;
+	float spec = pow(max(dot(wn, H), 0.0), 128.0) * (0.25 + 0.75 * ripple_att);
+	col += vec3(1.0, 0.95, 0.84) * spec * 1.15;
 
 	vec2 fuv = v_world.xz / world_size + vec2(0.5);
 	float foam = texture(foam_mask, fuv).r;
 	foam *= 0.72 + 0.28 * sin(TIME * 1.6 + v_world.x * 0.06 + v_world.z * 0.05);
-	col = mix(col, foam_color, clamp(foam, 0.0, 1.0) * 0.95);
+	foam *= (1.0 - smoothstep(900.0, 1200.0, max(abs(v_world.x), abs(v_world.z))));
+	col = mix(col, foam_color, clamp(foam, 0.0, 1.0) * 0.92);
+
+	float horizon_fade = smoothstep(1700.0, 2950.0, dist);
+	col = mix(col, vec3(0.55, 0.72, 0.86), horizon_fade);
 
 	ALBEDO = col;
 	NORMAL = normalize((VIEW_MATRIX * vec4(wn, 0.0)).xyz);
-	ROUGHNESS = 0.10;
-	METALLIC = 0.08;
-	SPECULAR = 1.0;
+	ROUGHNESS = mix(0.12, 0.35, horizon_fade);
+	METALLIC = 0.06;
+	SPECULAR = 1.0 - horizon_fade * 0.7;
 }

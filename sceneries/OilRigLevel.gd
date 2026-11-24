@@ -4,10 +4,15 @@ extends "res://sceneries/BigLevel.gd"
 ## BigLevel. Бойові спавни навмисно заглушені, як в UmanLevel.
 
 const MAP_SCENE := "res://maps/oil_rig/oil_rig_map.tscn"
+const MapRuntimeScript = preload("res://maps/oil_rig/scripts/map_runtime.gd")
 const DEFAULT_SPAWN := Vector3(-204.0, 407.04, 510.0)
 
 var _map_instance: Node3D = null
 var _water_zone: Area3D = null
+var _rig_gates_passed: Dictionary = {}
+var _rig_lap_start: float = -1.0
+var _rig_best_lap: float = 0.0
+var _rig_gate_triggers: Array[Area3D] = []
 
 
 func _map_path() -> String:
@@ -48,6 +53,7 @@ func _load_map() -> void:
 		fallback_ground.visible = false
 	_attach_atlas_materials()
 	_connect_water_kill()
+	_setup_oilrig_gate_triggers()
 
 
 func _neutralize_map_extras() -> void:
@@ -80,12 +86,17 @@ func _attach_atlas_materials() -> void:
 		"MAT_FlameCore": load("res://maps/oil_rig/materials/flame.tres"),
 		"MAT_Light": load("res://maps/oil_rig/materials/light.tres"),
 	}
+	var flame_outer: Material = load("res://maps/oil_rig/materials/flame_outer.tres")
 	var applied := 0
 	for child in _map_instance.find_children("*", "MeshInstance3D", true, false):
 		var mi := child as MeshInstance3D
 		if mi == null or mi.mesh == null:
 			continue
 		for surface in range(mi.mesh.get_surface_count()):
+			if mi.name == "MS_flare_emissive" and surface == 0 and flame_outer != null:
+				mi.set_surface_override_material(surface, flame_outer)
+				applied += 1
+				continue
 			var src: Material = mi.get_surface_override_material(surface)
 			if src == null:
 				src = mi.mesh.surface_get_material(surface)
@@ -105,19 +116,23 @@ func _tune_map_environment() -> void:
 	var we := get_node_or_null("WorldEnvironment") as WorldEnvironment
 	if we != null and we.environment != null:
 		var env := we.environment
-		env.tonemap_exposure = 0.98
-		env.tonemap_white = 1.35
-		env.ambient_light_energy = 0.55
-		env.ambient_light_sky_contribution = 0.55
-		env.adjustment_brightness = 0.98
-		env.adjustment_contrast = 1.02
-		env.adjustment_saturation = 1.08
+		env.tonemap_exposure = 1.05
+		env.tonemap_white = 1.45
+		env.ambient_light_energy = 0.62
+		env.ambient_light_sky_contribution = 0.65
+		env.adjustment_brightness = 1.0
+		env.adjustment_contrast = 1.04
+		env.adjustment_saturation = 1.06
 		# Source Environment_env: linear fog, colour 0.55/0.70/0.80, density
 		# 0.00085.  BigLevel's height fog is centred at _ground_y + 16 (~411 m)
 		# and drowned the sea (at y=0) in grey — restore the authored fog mode.
 		env.fog_height_density = 0.0
 		env.fog_aerial_perspective = 0.0
+		env.volumetric_fog_enabled = false
 		env.volumetric_fog_density = 0.0
+		env.ssr_enabled = false
+		env.sdfgi_enabled = false
+		env.ssao_enabled = false
 		# The 0.00085 value in the source .tscn is authored for close FPV views;
 		# from the review camera (1 km up) it whites out the whole rig.  Keep
 		# the authored fog colour but only a trace of distance haze so the rig
@@ -126,11 +141,6 @@ func _tune_map_environment() -> void:
 		env.fog_light_energy = 0.25
 		env.fog_density = 0.000015
 		env.glow_enabled = false
-		# The Blender verification renders use the CC0 kloofendal HDRI that
-		# ships with the source (scripts/cc0_cache/kloofendal_2k.hdr, 01_build_scene.py:470-492).
-		# The Godot package never received it; restore it here so the clouds
-		# and the metal reflections match renders/*.png. Kept inside the
-		# oilrig map folder so no other level is affected.
 		var pano := PanoramaSkyMaterial.new()
 		pano.panorama = load("res://maps/oil_rig/textures/kloofendal_sky.png")
 		var sky := Sky.new()
@@ -141,11 +151,11 @@ func _tune_map_environment() -> void:
 	var sun := get_node_or_null("Sun") as DirectionalLight3D
 	if sun != null:
 		sun.rotation_degrees = Vector3(-38.0, 120.0, 0.0)
-		sun.light_energy = 1.55
-		sun.light_color = Color(1.0, 0.94, 0.84, 1.0)
+		sun.light_energy = 1.65
+		sun.light_color = Color(1.0, 0.94, 0.85, 1.0)
 	var fill := get_node_or_null("FillLight") as DirectionalLight3D
 	if fill != null:
-		fill.light_energy = 0.18
+		fill.light_energy = 0.24
 
 
 func _connect_water_kill() -> void:
@@ -199,6 +209,10 @@ func _special_ground_point(x: float, z: float) -> Vector3:
 
 
 func _find_oilrig_spawn() -> Vector3:
+	return _find_oilrig_spawn_transform().origin
+
+
+func _find_oilrig_spawn_transform() -> Transform3D:
 	if _map_instance != null:
 		var points := _map_instance.find_child("SpawnPoints", true, false)
 		if points != null:
@@ -206,19 +220,21 @@ func _find_oilrig_spawn() -> Vector3:
 			if not markers.is_empty():
 				var marker = markers[randi() % markers.size()]
 				if marker is Node3D:
-					return (marker as Node3D).global_position
+					var m3 := marker as Node3D
+					return Transform3D(m3.global_transform.basis.orthonormalized(), m3.global_position)
 	var respawn := get_node_or_null("Respawn") as Node3D
 	if respawn != null:
-		return respawn.global_position
-	return DEFAULT_SPAWN
+		return Transform3D(respawn.global_transform.basis.orthonormalized(), respawn.global_position)
+	return Transform3D(Basis.IDENTITY, DEFAULT_SPAWN)
 
 
 func _place_drone_over_ground() -> void:
 	var d := get_node_or_null("Drone")
 	if d == null:
 		return
-	var pos := _find_oilrig_spawn() + Vector3(0.0, 2.0, 0.0)
-	var spawn_xform := Transform3D(Basis.IDENTITY, pos)
+	var sp := _find_oilrig_spawn_transform()
+	var pos := sp.origin + Vector3(0.0, 2.0, 0.0)
+	var spawn_xform := Transform3D(sp.basis, pos)
 	var respawn := get_node_or_null("Respawn") as Node3D
 	if respawn != null:
 		respawn.global_transform = spawn_xform
@@ -258,6 +274,70 @@ func _build_frontline_props() -> void:
 
 func _spawn_training_rings() -> void:
 	pass
+
+
+func _setup_oilrig_gate_triggers() -> void:
+	for old in _rig_gate_triggers:
+		if is_instance_valid(old):
+			old.queue_free()
+	_rig_gate_triggers.clear()
+	_rig_gates_passed.clear()
+	_rig_lap_start = -1.0
+	if _triggers == null or _map_instance == null:
+		return
+	var gates_node := _map_instance.get_node_or_null("FPVGates")
+	if gates_node == null:
+		return
+	for idx in MapRuntimeScript.SELECTED_GATE_INDICES:
+		var marker := gates_node.get_node_or_null("Gate_%02d" % idx) as Marker3D
+		if marker == null:
+			continue
+		var area := Area3D.new()
+		area.name = "RigGateTrigger_%02d" % idx
+		_triggers.add_child(area)
+		area.global_transform = Transform3D(marker.global_transform.basis.orthonormalized(), marker.global_position)
+		var cs := CollisionShape3D.new()
+		var sp := SphereShape3D.new()
+		var s := marker.scale.length() / sqrt(3.0)
+		sp.radius = maxf(4.5, s * 4.5)
+		cs.shape = sp
+		area.add_child(cs)
+		area.monitoring = true
+		area.body_entered.connect(_on_oilrig_gate_entered.bind(idx))
+		_rig_gate_triggers.append(area)
+	print("[OilRigLevel] active gate triggers ready: %d/30 (_rings_total=%d)" % [_rig_gate_triggers.size(), _rings_total])
+
+
+func _on_oilrig_gate_entered(body: Node3D, gate_idx: int) -> void:
+	if body == null:
+		return
+	if not (body == get_node_or_null("Drone") or body.is_in_group("drone")):
+		return
+	var now_s := float(Time.get_ticks_msec()) / 1000.0
+	if _rig_gates_passed.is_empty():
+		_rig_lap_start = now_s
+	if _rig_gates_passed.has(gate_idx):
+		return
+	_rig_gates_passed[gate_idx] = true
+	var passed := _rig_gates_passed.size()
+	var total := maxi(_rig_gate_triggers.size(), 1)
+	var elapsed := maxf(0.0, now_s - _rig_lap_start)
+	_score += 50
+	if Audio != null and Audio.has_method("play_radio_confirm_beep"):
+		Audio.call("play_radio_confirm_beep", -9.0)
+	Haptics.trigger_ui_tap()
+	if passed >= total:
+		if _rig_best_lap <= 0.0 or elapsed < _rig_best_lap:
+			_rig_best_lap = elapsed
+		_set_flash(_txt(
+			"ВОРОТА %d/%d · КОЛО %.1fs · РЕКОРД %.1fs" % [passed, total, elapsed, _rig_best_lap],
+			"GATES %d/%d · LAP %.1fs · BEST %.1fs" % [passed, total, elapsed, _rig_best_lap]
+		))
+		_rig_gates_passed.clear()
+		_rig_lap_start = now_s
+	else:
+		_set_flash(_txt("ВОРОТА %d/%d · %.1fs" % [passed, total, elapsed],
+				"GATES %d/%d · %.1fs" % [passed, total, elapsed]))
 
 
 func _spawn_vehicles() -> void:

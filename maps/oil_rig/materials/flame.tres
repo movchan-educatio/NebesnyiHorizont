@@ -4,3 +4,8 @@
 
 [resource]
 shader = ExtResource("1")
+shader_parameter/hot_color = Color(1, 0.92, 0.55, 1)
+shader_parameter/tip_color = Color(1, 0.25, 0.02, 1)
+shader_parameter/flame_base = 74.5
+shader_parameter/flame_height = 9.5
+shader_parameter/speed = 2.6

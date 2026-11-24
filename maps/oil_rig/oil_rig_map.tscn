@@ -52,10 +52,18 @@ size = Vector3(0.32, 1.5, 0.32)
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_post"]
 resource_name = "MAT_Post"
 albedo_texture = ExtResource("7")
-normal_texture = ExtResource("8")
-orm_texture = ExtResource("9")
-roughness = 1.0
 metallic = 1.0
+metallic_texture = ExtResource("9")
+metallic_texture_channel = 2
+roughness = 1.0
+roughness_texture = ExtResource("9")
+roughness_texture_channel = 1
+normal_enabled = true
+normal_scale = 0.85
+normal_texture = ExtResource("8")
+ao_enabled = true
+ao_texture = ExtResource("9")
+ao_texture_channel = 0
 uv1_scale = Vector2(0.25, 0.25)
 uv1_offset = Vector2(0.5, 0)
 cull_mode = 2
@@ -4098,199 +4106,199 @@ shape = SubResource("BoxShape3D_b43")
 
 [node name="FPVGates" type="Node3D" parent="." groups=["fpv_gates"]]
 
-[node name="Gate_00" type="Marker3D" parent="FPVGates"]
+[node name="Gate_00" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(-2.86957, 0, 0, 0, 2.86957, 0, 0, 0, -2.86957, -546, 825.6, 366)
 metadata/tag = "derrick_dive"
 
-[node name="Gate_01" type="Marker3D" parent="FPVGates"]
+[node name="Gate_01" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(-2.86957, 0, 0, 0, 2.86957, 0, 0, 0, -2.86957, -360, 825.6, 540)
 metadata/tag = "derrick_dive"
 
-[node name="Gate_02" type="Marker3D" parent="FPVGates"]
+[node name="Gate_02" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(-3.91304, 0, 0, 0, 3.91304, 0, 0, 0, -3.91304, -450, 480, 450)
 metadata/tag = "moonpool_top"
 
-[node name="Gate_03" type="Marker3D" parent="FPVGates"]
+[node name="Gate_03" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(-3.91304, 0, 0, 0, 3.91304, 0, 0, 0, -3.91304, -450, 96, 450)
 metadata/tag = "moonpool_bottom"
 
-[node name="Gate_04" type="Marker3D" parent="FPVGates"]
+[node name="Gate_04" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 0, 0, -3.52174, -3.52174, 0, 0, -450, 230.4, 585)
 metadata/tag = "hangar"
 
-[node name="Gate_05" type="Marker3D" parent="FPVGates"]
+[node name="Gate_05" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 3.52174, 0, 0, 0, 0, -3.52174, -315, 316.8, 450)
 metadata/tag = "hangar"
 
-[node name="Gate_06" type="Marker3D" parent="FPVGates"]
+[node name="Gate_06" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 3.52174, 0, 0, 0, 0, -3.52174, -585, 316.8, 450)
 metadata/tag = "hangar"
 
-[node name="Gate_07" type="Marker3D" parent="FPVGates"]
+[node name="Gate_07" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 0, 0, -3.52174, -3.52174, 0, 0, -450, 86.4, 750)
 metadata/tag = "under_arch"
 
-[node name="Gate_08" type="Marker3D" parent="FPVGates"]
+[node name="Gate_08" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 3.52174, 0, 0, 0, 0, -3.52174, -150, 86.4, 450)
 metadata/tag = "under_arch"
 
-[node name="Gate_09" type="Marker3D" parent="FPVGates"]
+[node name="Gate_09" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 0, 0, -3.52174, -3.52174, 0, 0, -450, 86.4, 150)
 metadata/tag = "under_arch"
 
-[node name="Gate_10" type="Marker3D" parent="FPVGates"]
+[node name="Gate_10" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 3.52174, 0, 0, 0, 0, -3.52174, -750, 86.4, 450)
 metadata/tag = "under_arch"
 
-[node name="Gate_11" type="Marker3D" parent="FPVGates"]
+[node name="Gate_11" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(-2.86957, 0, 0, 0, 2.86957, 0, 0, 0, -2.86957, 354, 825.6, 366)
 metadata/tag = "derrick_dive"
 
-[node name="Gate_12" type="Marker3D" parent="FPVGates"]
+[node name="Gate_12" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(-2.86957, 0, 0, 0, 2.86957, 0, 0, 0, -2.86957, 540, 825.6, 540)
 metadata/tag = "derrick_dive"
 
-[node name="Gate_13" type="Marker3D" parent="FPVGates"]
+[node name="Gate_13" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(-3.91304, 0, 0, 0, 3.91304, 0, 0, 0, -3.91304, 450, 480, 450)
 metadata/tag = "moonpool_top"
 
-[node name="Gate_14" type="Marker3D" parent="FPVGates"]
+[node name="Gate_14" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(-3.91304, 0, 0, 0, 3.91304, 0, 0, 0, -3.91304, 450, 96, 450)
 metadata/tag = "moonpool_bottom"
 
-[node name="Gate_15" type="Marker3D" parent="FPVGates"]
+[node name="Gate_15" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 0, 0, -3.52174, -3.52174, 0, 0, 450, 230.4, 585)
 metadata/tag = "hangar"
 
-[node name="Gate_16" type="Marker3D" parent="FPVGates"]
+[node name="Gate_16" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 3.52174, 0, 0, 0, 0, -3.52174, 585, 316.8, 450)
 metadata/tag = "hangar"
 
-[node name="Gate_17" type="Marker3D" parent="FPVGates"]
+[node name="Gate_17" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 3.52174, 0, 0, 0, 0, -3.52174, 315, 316.8, 450)
 metadata/tag = "hangar"
 
-[node name="Gate_18" type="Marker3D" parent="FPVGates"]
+[node name="Gate_18" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 0, 0, -3.52174, -3.52174, 0, 0, 450, 86.4, 750)
 metadata/tag = "under_arch"
 
-[node name="Gate_19" type="Marker3D" parent="FPVGates"]
+[node name="Gate_19" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 3.52174, 0, 0, 0, 0, -3.52174, 750, 86.4, 450)
 metadata/tag = "under_arch"
 
-[node name="Gate_20" type="Marker3D" parent="FPVGates"]
+[node name="Gate_20" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 0, 0, -3.52174, -3.52174, 0, 0, 450, 86.4, 150)
 metadata/tag = "under_arch"
 
-[node name="Gate_21" type="Marker3D" parent="FPVGates"]
+[node name="Gate_21" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 3.52174, 0, 0, 0, 0, -3.52174, 150, 86.4, 450)
 metadata/tag = "under_arch"
 
-[node name="Gate_22" type="Marker3D" parent="FPVGates"]
+[node name="Gate_22" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(-2.86957, 0, 0, 0, 2.86957, 0, 0, 0, -2.86957, 354, 825.6, -534)
 metadata/tag = "derrick_dive"
 
-[node name="Gate_23" type="Marker3D" parent="FPVGates"]
+[node name="Gate_23" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(-2.86957, 0, 0, 0, 2.86957, 0, 0, 0, -2.86957, 540, 825.6, -360)
 metadata/tag = "derrick_dive"
 
-[node name="Gate_24" type="Marker3D" parent="FPVGates"]
+[node name="Gate_24" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(-3.91304, 0, 0, 0, 3.91304, 0, 0, 0, -3.91304, 450, 480, -450)
 metadata/tag = "moonpool_top"
 
-[node name="Gate_25" type="Marker3D" parent="FPVGates"]
+[node name="Gate_25" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(-3.91304, 0, 0, 0, 3.91304, 0, 0, 0, -3.91304, 450, 96, -450)
 metadata/tag = "moonpool_bottom"
 
-[node name="Gate_26" type="Marker3D" parent="FPVGates"]
+[node name="Gate_26" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 0, 0, -3.52174, -3.52174, 0, 0, 450, 230.4, -315)
 metadata/tag = "hangar"
 
-[node name="Gate_27" type="Marker3D" parent="FPVGates"]
+[node name="Gate_27" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 3.52174, 0, 0, 0, 0, -3.52174, 585, 316.8, -450)
 metadata/tag = "hangar"
 
-[node name="Gate_28" type="Marker3D" parent="FPVGates"]
+[node name="Gate_28" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 3.52174, 0, 0, 0, 0, -3.52174, 315, 316.8, -450)
 metadata/tag = "hangar"
 
-[node name="Gate_29" type="Marker3D" parent="FPVGates"]
+[node name="Gate_29" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 0, 0, -3.52174, -3.52174, 0, 0, 450, 86.4, -150)
 metadata/tag = "under_arch"
 
-[node name="Gate_30" type="Marker3D" parent="FPVGates"]
+[node name="Gate_30" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 3.52174, 0, 0, 0, 0, -3.52174, 750, 86.4, -450)
 metadata/tag = "under_arch"
 
-[node name="Gate_31" type="Marker3D" parent="FPVGates"]
+[node name="Gate_31" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 0, 0, -3.52174, -3.52174, 0, 0, 450, 86.4, -750)
 metadata/tag = "under_arch"
 
-[node name="Gate_32" type="Marker3D" parent="FPVGates"]
+[node name="Gate_32" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 3.52174, 0, 0, 0, 0, -3.52174, 150, 86.4, -450)
 metadata/tag = "under_arch"
 
-[node name="Gate_33" type="Marker3D" parent="FPVGates"]
+[node name="Gate_33" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(-2.86957, 0, 0, 0, 2.86957, 0, 0, 0, -2.86957, -546, 825.6, -534)
 metadata/tag = "derrick_dive"
 
-[node name="Gate_34" type="Marker3D" parent="FPVGates"]
+[node name="Gate_34" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(-2.86957, 0, 0, 0, 2.86957, 0, 0, 0, -2.86957, -360, 825.6, -360)
 metadata/tag = "derrick_dive"
 
-[node name="Gate_35" type="Marker3D" parent="FPVGates"]
+[node name="Gate_35" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(-3.91304, 0, 0, 0, 3.91304, 0, 0, 0, -3.91304, -450, 480, -450)
 metadata/tag = "moonpool_top"
 
-[node name="Gate_36" type="Marker3D" parent="FPVGates"]
+[node name="Gate_36" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(-3.91304, 0, 0, 0, 3.91304, 0, 0, 0, -3.91304, -450, 96, -450)
 metadata/tag = "moonpool_bottom"
 
-[node name="Gate_37" type="Marker3D" parent="FPVGates"]
+[node name="Gate_37" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 0, 0, -3.52174, -3.52174, 0, 0, -450, 230.4, -315)
 metadata/tag = "hangar"
 
-[node name="Gate_38" type="Marker3D" parent="FPVGates"]
+[node name="Gate_38" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 3.52174, 0, 0, 0, 0, -3.52174, -315, 316.8, -450)
 metadata/tag = "hangar"
 
-[node name="Gate_39" type="Marker3D" parent="FPVGates"]
+[node name="Gate_39" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 3.52174, 0, 0, 0, 0, -3.52174, -585, 316.8, -450)
 metadata/tag = "hangar"
 
-[node name="Gate_40" type="Marker3D" parent="FPVGates"]
+[node name="Gate_40" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 0, 0, -3.52174, -3.52174, 0, 0, -450, 86.4, -150)
 metadata/tag = "under_arch"
 
-[node name="Gate_41" type="Marker3D" parent="FPVGates"]
+[node name="Gate_41" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 3.52174, 0, 0, 0, 0, -3.52174, -150, 86.4, -450)
 metadata/tag = "under_arch"
 
-[node name="Gate_42" type="Marker3D" parent="FPVGates"]
+[node name="Gate_42" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 0, 0, -3.52174, -3.52174, 0, 0, -450, 86.4, -750)
 metadata/tag = "under_arch"
 
-[node name="Gate_43" type="Marker3D" parent="FPVGates"]
+[node name="Gate_43" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.52174, 0, 3.52174, 0, 0, 0, 0, -3.52174, -750, 86.4, -450)
 metadata/tag = "under_arch"
 
-[node name="Gate_44" type="Marker3D" parent="FPVGates"]
+[node name="Gate_44" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.3913, 0, 0, 0, -3.3913, -3.3913, 0, -0, 0, 326.4, 450)
 metadata/tag = "under_bridge"
 
-[node name="Gate_45" type="Marker3D" parent="FPVGates"]
+[node name="Gate_45" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, -3.3913, 0, -3.3913, 0, -0, 0, 0, -3.3913, 450, 326.4, 0)
 metadata/tag = "under_bridge"
 
-[node name="Gate_46" type="Marker3D" parent="FPVGates"]
+[node name="Gate_46" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.3913, 0, 0, 0, -3.3913, -3.3913, 0, -0, 0, 326.4, -450)
 metadata/tag = "under_bridge"
 
-[node name="Gate_47" type="Marker3D" parent="FPVGates"]
+[node name="Gate_47" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, -3.3913, 0, -3.3913, 0, -0, 0, 0, -3.3913, -450, 326.4, 0)
 metadata/tag = "under_bridge"
 
-[node name="Gate_48" type="Marker3D" parent="FPVGates"]
+[node name="Gate_48" type="Marker3D" parent="FPVGates" groups=["fpv_gates"]]
 transform = Transform3D(0, 3.91304, 0, 3.91304, 0, 0, 0, 0, -3.91304, 0, 316.8, 0)
 metadata/tag = "tanker_deck"
 

@@ -29,18 +29,24 @@ float vnoise(vec2 p) {
 }
 
 void vertex() {
-	v_h = clamp((VERTEX.y - flame_base) / flame_height, 0.0, 1.0);
-	v_u = UV.y * 4.0;
+	v_h = clamp((VERTEX.y - flame_base) / max(flame_height, 0.1), 0.0, 1.0);
+	float ang = atan(VERTEX.z, VERTEX.x - 55.0);
+	v_u = sin(ang) * 1.6 + cos(ang) * 1.1;
+	float h2 = v_h * v_h;
+	float sway = sin(TIME * 3.1 + VERTEX.y * 0.45) * 0.55 * h2;
+	float puff = cos(TIME * 4.3 + VERTEX.y * 0.7) * 0.35 * h2;
+	VERTEX.x += sway;
+	VERTEX.z += puff;
 }
 
 void fragment() {
 	float t = TIME * speed;
 	float n = vnoise(vec2(v_h * 5.0 + v_u, v_u * 1.5 - t));
 	float n2 = vnoise(vec2(v_u * 3.0 - t * 0.6, v_h * 8.0 + t * 0.4));
-	float turb = (n - 0.5) * 0.30 + (n2 - 0.5) * 0.14;
+	float turb = (n - 0.5) * 0.32 + (n2 - 0.5) * 0.16;
 	float h = clamp(v_h + turb - 0.05, 0.0, 1.0);
 	vec3 col = mix(hot_color, tip_color, pow(h, 0.8));
-	float alpha = (1.0 - h) * (0.55 + 0.45 * n);
+	float alpha = (1.0 - h) * (0.58 + 0.42 * n);
 	ALBEDO = col;
 	EMISSION = col * (2.6 + 2.2 * (1.0 - h));
 	ALPHA = clamp(alpha, 0.0, 1.0);

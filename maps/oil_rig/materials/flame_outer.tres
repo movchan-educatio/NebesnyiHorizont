@@ -1,0 +1,11 @@
+[gd_resource type="ShaderMaterial" load_steps=2 format=3]
+
+[ext_resource type="Shader" path="res://maps/oil_rig/shaders/flame.gdshader" id="1"]
+
+[resource]
+shader = ExtResource("1")
+shader_parameter/hot_color = Color(1, 0.56, 0.08, 1)
+shader_parameter/tip_color = Color(0.88, 0.14, 0.015, 1)
+shader_parameter/flame_base = 75.0
+shader_parameter/flame_height = 12.5
+shader_parameter/speed = 2.1
