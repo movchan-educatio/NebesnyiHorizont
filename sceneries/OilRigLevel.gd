@@ -336,6 +336,14 @@ func _spawn_training_rings() -> void:
 	pass
 
 
+func _update_course_route_guide() -> void:
+	pass
+
+
+func _refresh_route_after_physics() -> void:
+	pass
+
+
 func _setup_oilrig_gate_triggers() -> void:
 	for old in _rig_gate_triggers:
 		if is_instance_valid(old):
@@ -350,6 +358,7 @@ func _setup_oilrig_gate_triggers() -> void:
 	if _rig_markers_root != null and is_instance_valid(_rig_markers_root):
 		_rig_markers_root.queue_free()
 		_rig_markers_root = null
+		_route_guide = null
 	_rig_active_torus = null
 	_rig_active_mat = null
 	_rig_active_halo = null
@@ -608,6 +617,7 @@ func _sync_oilrig_active_gate() -> void:
 	if _route_guide == null or not is_instance_valid(_route_guide):
 		_route_guide = CourseRouteGuideScript.new()
 		_rig_markers_root.add_child(_route_guide)
+	_route_guide.visible = true
 	var rig_gates: Array[Dictionary] = []
 	var rig_exclude: Array[RID] = []
 	if d is CollisionObject3D:
