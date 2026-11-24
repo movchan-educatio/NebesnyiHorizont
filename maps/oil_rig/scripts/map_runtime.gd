@@ -127,24 +127,24 @@ static func _build_industrial_ring_mesh() -> ArrayMesh:
 
 	# Surface 0: Beveled octagonal steel collar (atlas_structures tile i=2 grey steel [0.52..0.72, 0.02..0.22])
 	var prof := [
-		Vector2(r_mid + 0.28, 0.14),
-		Vector2(r_mid + 0.16, 0.28),
-		Vector2(r_mid - 0.14, 0.28),
-		Vector2(r_mid - 0.24, 0.14),
-		Vector2(r_mid - 0.24, -0.14),
-		Vector2(r_mid - 0.14, -0.28),
-		Vector2(r_mid + 0.16, -0.28),
-		Vector2(r_mid + 0.28, -0.14),
+		Vector2(r_mid + 0.30, 0.16),
+		Vector2(r_mid + 0.16, 0.30),
+		Vector2(r_mid - 0.14, 0.30),
+		Vector2(r_mid - 0.24, 0.16),
+		Vector2(r_mid - 0.24, -0.16),
+		Vector2(r_mid - 0.14, -0.30),
+		Vector2(r_mid + 0.16, -0.30),
+		Vector2(r_mid + 0.30, -0.16),
 	]
 	_add_ring_band_surface(out, sides, prof, Rect2(0.52, 0.02, 0.20, 0.20),
 			load(MAT_DIR + "structures.tres") as Material)
 
-	# Surface 1: Inner glowing amber signal trim (MAT_Emissive)
+	# Surface 1: Inner glowing amber signal trim sitting clearly inside & along inner lip
 	var glow_prof := [
-		Vector2(r_mid - 0.22, 0.09),
-		Vector2(r_mid - 0.28, 0.06),
-		Vector2(r_mid - 0.28, -0.06),
-		Vector2(r_mid - 0.22, -0.09),
+		Vector2(r_mid - 0.20, 0.13),
+		Vector2(r_mid - 0.36, 0.09),
+		Vector2(r_mid - 0.36, -0.09),
+		Vector2(r_mid - 0.20, -0.13),
 	]
 	_add_ring_band_surface(out, sides, glow_prof, Rect2(0.0, 0.0, 1.0, 1.0),
 			load(MAT_DIR + "emissive.tres") as Material)

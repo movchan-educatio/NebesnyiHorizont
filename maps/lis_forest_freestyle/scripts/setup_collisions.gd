@@ -204,7 +204,7 @@ func _tune_materials(node: Node) -> void:
 			elif nm == "rock_09":
 				sm.albedo_color = Color(0.70, 0.68, 0.60, 1.0)
 			elif nm.contains("needle"):
-				sm.albedo_color = Color(0.80, 0.92, 0.78, 1.0)
+				sm.albedo_color = Color(0.56, 0.70, 0.50, 1.0)
 			else:
 				continue
 			seen[mat.get_instance_id()] = true
@@ -238,21 +238,21 @@ func _upgrade_structure_materials(node: Node) -> void:
 				sm.metallic = 0.0
 				match key:
 					"mat_concrete_found":
-						sm.albedo_texture = _stex("res://maps/lis_forest_freestyle/meshes/freestyle_protos_brick_moss_001_diff.jpg")
+						sm.albedo_texture = _stex("res://maps/lis_forest_freestyle/meshes/terrain_rock_09_diff_1k.jpg")
 						sm.normal_enabled = true
-						sm.normal_texture = _stex("res://maps/lis_forest_freestyle/meshes/freestyle_protos_brick_moss_001_nor_gl.jpg")
-						sm.roughness_texture = _stex("res://maps/lis_forest_freestyle/meshes/freestyle_protos_brick_moss_001_arm.jpg")
+						sm.normal_texture = _stex("res://maps/lis_forest_freestyle/meshes/terrain_rock_09_nor_gl_1k.jpg")
+						sm.roughness_texture = _stex("res://maps/lis_forest_freestyle/meshes/terrain_rock_09_arm_1k.jpg")
 						sm.roughness_texture_channel = StandardMaterial3D.TEXTURE_CHANNEL_GREEN
-						sm.albedo_color = Color(0.56, 0.60, 0.52, 1.0)
+						sm.albedo_color = Color(0.48, 0.54, 0.40, 1.0)
 						sm.roughness = 0.96
-						sm.uv1_scale = Vector3(0.20, 0.20, 0.20)
+						sm.uv1_scale = Vector3(0.18, 0.18, 0.18)
 					"mat_concrete":
 						sm.albedo_texture = _stex("res://maps/lis_forest_freestyle/meshes/structures_concrete_floor_worn_001_diff.jpg")
 						sm.normal_enabled = true
 						sm.normal_texture = _stex("res://maps/lis_forest_freestyle/meshes/structures_concrete_floor_worn_001_nor_gl.jpg")
 						sm.roughness_texture = _stex("res://maps/lis_forest_freestyle/meshes/structures_concrete_floor_worn_001_arm.jpg")
 						sm.roughness_texture_channel = StandardMaterial3D.TEXTURE_CHANNEL_GREEN
-						sm.albedo_color = Color(0.76, 0.77, 0.72, 1.0)
+						sm.albedo_color = Color(0.72, 0.73, 0.68, 1.0)
 						sm.roughness = 0.92
 						sm.uv1_scale = Vector3(0.22, 0.22, 0.22)
 					"mat_stone", "mat_stone_found":
@@ -261,7 +261,7 @@ func _upgrade_structure_materials(node: Node) -> void:
 						sm.normal_texture = _stex("res://maps/lis_forest_freestyle/meshes/structures_cliff_side_nor_gl.jpg")
 						sm.roughness_texture = _stex("res://maps/lis_forest_freestyle/meshes/structures_cliff_side_arm.jpg")
 						sm.roughness_texture_channel = StandardMaterial3D.TEXTURE_CHANNEL_GREEN
-						sm.albedo_color = Color(0.70, 0.72, 0.66, 1.0)
+						sm.albedo_color = Color(0.66, 0.68, 0.62, 1.0)
 						sm.roughness = 0.90
 						sm.uv1_scale = Vector3(0.18, 0.18, 0.18)
 					"mat_wood", "mat_wood_found":
@@ -274,12 +274,12 @@ func _upgrade_structure_materials(node: Node) -> void:
 						sm.roughness = 0.82
 						sm.uv1_scale = Vector3(0.32, 0.32, 0.32)
 					"mat_metal", "mat_metal_found":
-						sm.albedo_texture = _stex("res://maps/lis_forest_freestyle/meshes/structures_black_painted_planks_diff.jpg")
+						sm.albedo_texture = _stex("res://maps/lis_forest_freestyle/meshes/structures_concrete_floor_worn_001_diff.jpg")
 						sm.normal_enabled = true
-						sm.normal_texture = _stex("res://maps/lis_forest_freestyle/meshes/structures_black_painted_planks_nor_gl.jpg")
-						sm.metallic = 0.42
+						sm.normal_texture = _stex("res://maps/lis_forest_freestyle/meshes/structures_concrete_floor_worn_001_nor_gl.jpg")
+						sm.metallic = 0.38
 						sm.roughness = 0.56
-						sm.albedo_color = Color(0.72, 0.76, 0.79, 1.0)
+						sm.albedo_color = Color(0.62, 0.67, 0.72, 1.0)
 						sm.uv1_scale = Vector3(0.28, 0.28, 0.28)
 				cache[key] = sm
 			m.set_surface_override_material(i, cache[key])

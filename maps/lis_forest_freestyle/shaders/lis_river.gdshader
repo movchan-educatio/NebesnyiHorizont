@@ -4,10 +4,10 @@ render_mode blend_mix, depth_draw_opaque, cull_disabled, specular_schlick_ggx;
 // Lightweight mobile mountain-river water shader for lis_forest_freestyle (2 texture fetches).
 // Scrolls along river UV.y with soft bank-edge foam, replacing blocky river_foam.
 uniform sampler2D wave_norm : filter_linear_mipmap, repeat_enable;
-uniform vec3 deep_color : source_color = vec3(0.032, 0.088, 0.082);
-uniform vec3 shallow_color : source_color = vec3(0.11, 0.23, 0.21);
-uniform vec3 sky_refl_color : source_color = vec3(0.46, 0.58, 0.64);
-uniform vec3 foam_color : source_color = vec3(0.84, 0.90, 0.92);
+uniform vec3 deep_color : source_color = vec3(0.024, 0.070, 0.066);
+uniform vec3 shallow_color : source_color = vec3(0.08, 0.18, 0.16);
+uniform vec3 sky_refl_color : source_color = vec3(0.34, 0.45, 0.50);
+uniform vec3 foam_color : source_color = vec3(0.62, 0.70, 0.72);
 uniform vec3 sun_dir = vec3(-0.42, 0.72, -0.35);
 
 varying vec3 v_world;
@@ -30,18 +30,18 @@ void fragment() {
 	float fres = pow(1.0 - facing, 3.0);
 
 	float edge = clamp(min(UV.x, 1.0 - UV.x), 0.0, 0.5);
-	float bank_t = 1.0 - smoothstep(0.02, 0.24, edge);
-	vec3 water_col = mix(deep_color, shallow_color, bank_t * 0.75 + fres * 0.35);
-	water_col = mix(water_col, sky_refl_color, fres * 0.55);
+	float bank_t = 1.0 - smoothstep(0.02, 0.16, edge);
+	vec3 water_col = mix(deep_color, shallow_color, bank_t * 0.65 + fres * 0.30);
+	water_col = mix(water_col, sky_refl_color, fres * 0.45);
 
 	vec3 L = normalize(sun_dir);
 	vec3 H = normalize(L + V);
 	float spec = pow(max(dot(wn, H), 0.0), 96.0) * (0.2 + 0.8 * ripple_att);
-	water_col += vec3(1.0, 0.94, 0.84) * spec * 0.75;
+	water_col += vec3(1.0, 0.94, 0.84) * spec * 0.65;
 
-	float ripple_foam = (n1.x * 0.5 + n2.y * 0.5 + 0.35) * bank_t;
-	float foam = smoothstep(0.32, 0.72, bank_t * 0.78 + ripple_foam * 0.38);
-	water_col = mix(water_col, foam_color, foam * 0.65);
+	float ripple_foam = smoothstep(0.42, 0.82, n1.x * 0.5 + n2.y * 0.5 + 0.48);
+	float foam = bank_t * ripple_foam * (0.55 + 0.45 * sin(v_world.z * 0.15 + TIME * 1.1));
+	water_col = mix(water_col, foam_color, clamp(foam, 0.0, 1.0) * 0.45);
 
 	ALBEDO = water_col;
 	NORMAL = normalize((VIEW_MATRIX * vec4(wn, 0.0)).xyz);

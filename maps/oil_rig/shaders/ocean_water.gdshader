@@ -48,12 +48,14 @@ void fragment() {
 	foam *= (1.0 - smoothstep(900.0, 1200.0, max(abs(v_world.x), abs(v_world.z))));
 	col = mix(col, foam_color, clamp(foam, 0.0, 1.0) * 0.92);
 
-	float horizon_fade = smoothstep(1700.0, 2950.0, dist);
-	col = mix(col, vec3(0.55, 0.72, 0.86), horizon_fade);
+	float horizon_fade = smoothstep(1550.0, 2750.0, dist);
+	vec3 horizon_col = vec3(0.20, 0.31, 0.42);
+	col = mix(col, horizon_col, horizon_fade);
 
 	ALBEDO = col;
 	NORMAL = normalize((VIEW_MATRIX * vec4(wn, 0.0)).xyz);
-	ROUGHNESS = mix(0.12, 0.35, horizon_fade);
-	METALLIC = 0.06;
-	SPECULAR = 1.0 - horizon_fade * 0.7;
+	ROUGHNESS = mix(0.12, 0.92, horizon_fade);
+	METALLIC = mix(0.06, 0.0, horizon_fade);
+	SPECULAR = 1.0 - horizon_fade;
+	ALPHA = 1.0 - smoothstep(2100.0, 2900.0, dist);
 }
