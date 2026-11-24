@@ -56,28 +56,28 @@ script = ExtResource("4_scatter")
 groups = ["lis_spawnpoints"]
 
 [node name="Spawn_Z01" type="Marker3D" parent="SpawnPoints"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -215, 8, -205)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -176, 8, 205)
 
 [node name="Spawn_Z02" type="Marker3D" parent="SpawnPoints"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -70, 10, -120)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -160, 9.5, 120)
 
 [node name="Spawn_Z03" type="Marker3D" parent="SpawnPoints"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 35, -8, 45)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -48, 8, -45)
 
 [node name="Spawn_Z04" type="Marker3D" parent="SpawnPoints"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 195, 58, 165)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 195, 35, -118)
 
 [node name="Spawn_Z05" type="Marker3D" parent="SpawnPoints"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -20, 16, 195)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -55, 11, -195)
 
 [node name="Spawn_Z06" type="Marker3D" parent="SpawnPoints"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -190, 24, 95)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -190, 23.5, -45)
 
 [node name="Spawn_Z07" type="Marker3D" parent="SpawnPoints"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 150, 16, -95)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 226, 9.5, 95)
 
 [node name="Spawn_Z08" type="Marker3D" parent="SpawnPoints"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 95, 14, -235)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 115, 12.5, 212)
 
 [node name="FPVCamera" type="Camera3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -215, 11, -205)

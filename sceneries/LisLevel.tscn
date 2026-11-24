@@ -8,7 +8,7 @@ script = ExtResource("2_script")
 frontline_map = "lis_forest_freestyle"
 
 [node name="Respawn" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -215, 10, -205)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -176, 9, 205)
 
 [node name="Drone" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -215, 10, -205)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -176, 9, 205)

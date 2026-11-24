@@ -4,16 +4,18 @@ extends "res://sceneries/BigLevel.gd"
 ## керування, HUD, місії, техніка, піхота, DVR) успадковується від BigLevel.
 
 const MAP_SCENE := "res://maps/lis_forest_freestyle/lis_freestyle_map.tscn"
-const DEFAULT_SPAWN := Vector3(-215.0, 10.0, -205.0)
+const LisWaterMaskScript = preload("res://maps/lis_forest_freestyle/scripts/lis_water_mask.gd")
+const DEFAULT_SPAWN := Vector3(-176.0, 9.0, 205.0)
 
 ## Маршрут із восьми зон карти (див. Spawn_Z01…Z08 у вихідній сцені).
 const COURSE_WAYPOINTS := [
-	Vector3(-215, 13, -205), Vector3(-70, 14, -120), Vector3(35, 6, 45),
-	Vector3(195, 60, 165), Vector3(-20, 20, 195), Vector3(-190, 28, 95),
-	Vector3(150, 20, -95), Vector3(95, 18, -235),
+	Vector3(-176, 11, 205), Vector3(-160, 13, 120), Vector3(-48, 12, -45),
+	Vector3(195, 42, -118), Vector3(-55, 18, -195), Vector3(-190, 26, -45),
+	Vector3(226, 14, 95), Vector3(115, 17, 212),
 ]
 
 var _map_instance: Node3D = null
+var _water_mask: LisWaterMask = null
 
 
 func _map_path() -> String:
@@ -29,8 +31,8 @@ func _scatter_legacy_map(_instance: Node3D) -> void:
 
 
 func _ready() -> void:
-	MAP_GROUND_SAFE = 300.0
-	MAP_FLIGHT_BOUND = 330.0
+	MAP_GROUND_SAFE = 286.0
+	MAP_FLIGHT_BOUND = 340.0
 	MAP_AIR_SAFE = 315.0
 	_ground_y = 8.0
 	set_meta("disable_procedural_grass", true)
@@ -40,6 +42,9 @@ func _ready() -> void:
 
 func _load_map() -> void:
 	super._load_map()
+	var fallback_ground := get_node_or_null("Ground/MeshInstance3D") as MeshInstance3D
+	if fallback_ground != null:
+		fallback_ground.visible = false
 	var root := get_node_or_null("MapRoot")
 	if root != null:
 		for c in root.get_children():
@@ -49,6 +54,8 @@ func _load_map() -> void:
 	if _map_instance != null and _map_instance.has_method("_build"):
 		_map_instance.call("_build")
 	_neutralize_map_extras()
+	_water_mask = LisWaterMaskScript.new()
+	_water_mask.build(self, _map_instance)
 
 
 func _neutralize_map_extras() -> void:
@@ -116,21 +123,111 @@ func _find_ground_y(x: float, z: float) -> float:
 func _is_ground_spot_clear(x: float, z: float) -> bool:
 	if absf(x) > MAP_GROUND_SAFE or absf(z) > MAP_GROUND_SAFE:
 		return false
-	return not FrontlineTerrainScript.forest_is_water(x, z, _find_ground_y(x, z))
+	if _water_mask != null and _water_mask.ready_ok:
+		return _water_mask.is_spot_valid(x, z, true)
+	return not LisWaterMaskScript.is_wet_point(x, z, _find_ground_y(x, z), true)
+
+
+func _spawn_is_wet(x: float, z: float, ground: float) -> bool:
+	return LisWaterMaskScript.is_wet_point(x, z, ground, false)
+
+
+func _find_dry_spot(x: float, z: float) -> Vector2:
+	if _water_mask != null and _water_mask.ready_ok:
+		var dry := _water_mask.nearest_dry_spot(x, z, true, true)
+		return Vector2(dry.x, dry.z)
+	return super._find_dry_spot(x, z)
 
 
 func _special_ground_point(x: float, z: float) -> Vector3:
 	var px := clampf(x, -MAP_GROUND_SAFE, MAP_GROUND_SAFE)
 	var pz := clampf(z, -MAP_GROUND_SAFE, MAP_GROUND_SAFE)
+	if _water_mask != null and _water_mask.ready_ok:
+		var dry := _water_mask.nearest_dry_spot(px, pz, true, true)
+		return Vector3(dry.x, dry.y + 0.05, dry.z)
 	if not _is_ground_spot_clear(px, pz):
-		var dry := _find_dry_spot(px, pz)
-		px = dry.x
-		pz = dry.y
+		var dry2 := _find_dry_spot(px, pz)
+		px = dry2.x
+		pz = dry2.y
 	return Vector3(px, _find_ground_y(px, pz) + 0.05, pz)
 
 
+func _sanitize_ground_waypoints(wps: Array, closed_loop: bool = true) -> Array:
+	if wps.is_empty():
+		return wps
+	if _water_mask != null and _water_mask.ready_ok:
+		return _water_mask.build_dry_route(wps, true, closed_loop)
+	return super._sanitize_ground_waypoints(wps, closed_loop)
+
+
 func _map_water_level() -> float:
-	return FrontlineTerrainScript.FOREST_WATER_Y
+	return LisWaterMaskScript.WATER_LEVEL
+
+
+func _physics_process(delta: float) -> void:
+	super._physics_process(delta)
+	_enforce_dry_ground_units()
+
+
+func _enforce_dry_ground_units() -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	for n in tree.get_nodes_in_group("vehicle"):
+		if not is_instance_valid(n) or not (n is Node3D):
+			continue
+		var v := n as Node3D
+		if bool(v.get("is_destroyed")):
+			continue
+		var k := int(v.get("kind"))
+		if k == Vehicle.Kind.HELI or k == Vehicle.Kind.SHAHED:
+			continue
+		_keep_unit_on_dry_bank(v, true)
+	for n in tree.get_nodes_in_group("enemy_infantry"):
+		if not is_instance_valid(n) or not (n is Node3D):
+			continue
+		var inf := n as Node3D
+		if bool(inf.get("is_destroyed")):
+			continue
+		_keep_unit_on_dry_bank(inf, false)
+
+
+func _keep_unit_on_dry_bank(unit: Node3D, is_vehicle: bool) -> void:
+	var p := unit.global_position
+	var buf := LisWaterMaskScript.SHORE_BUFFER_VEH if is_vehicle else LisWaterMaskScript.SHORE_BUFFER_INF
+	var look := 3.2 if is_vehicle else 1.6
+	var fwd := -unit.global_transform.basis.z
+	fwd.y = 0.0
+	if fwd.length_squared() > 0.001:
+		fwd = fwd.normalized()
+	else:
+		fwd = Vector3.FORWARD
+	var ahead := p + fwd * look
+	var cur_wet := LisWaterMaskScript.is_wet_point(p.x, p.z, p.y, is_vehicle)
+	var ahead_near := LisWaterMaskScript.distance_to_water_edge(ahead.x, ahead.z) < buf
+	if not cur_wet and not ahead_near:
+		return
+	var bank := LisWaterMaskScript.bank_side(p.x, p.z)
+	var inland_dir := Vector3(float(bank), 0.0, 0.0)
+	if cur_wet:
+		var rx := LisWaterMaskScript.river_center_x(p.z)
+		var hw := LisWaterMaskScript.river_half_width(p.z)
+		var target_x := clampf(rx + float(bank) * (hw + buf + 2.5), -MAP_GROUND_SAFE, MAP_GROUND_SAFE)
+		var dry := _water_mask.nearest_dry_spot(target_x, p.z, is_vehicle, true) if (_water_mask != null and _water_mask.ready_ok) \
+				else Vector3(target_x, _find_ground_y(target_x, p.z), p.z)
+		unit.global_position = Vector3(dry.x, dry.y + (0.1 if is_vehicle else 0.0), dry.z)
+	var inland_yaw := atan2(-inland_dir.x, -inland_dir.z)
+	unit.rotation.y = inland_yaw
+	if not is_vehicle:
+		unit.set("_patrol_dir", -float(unit.get("_patrol_dir")) if unit.get("_patrol_dir") != null else -1.0)
+		unit.set("_strafe_dir", -float(unit.get("_strafe_dir")) if unit.get("_strafe_dir") != null else -1.0)
+		if unit.get("_panic_dir") is Vector3:
+			unit.set("_panic_dir", inland_dir)
+	else:
+		var wps = unit.get("_waypoints")
+		if wps is Array and not (wps as Array).is_empty():
+			var idx := int(unit.get("_wp_index"))
+			unit.set("_wp_index", (idx + 1) % (wps as Array).size())
 
 
 func _find_lis_spawn() -> Vector3:
