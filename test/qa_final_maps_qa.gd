@@ -233,6 +233,8 @@ func _test_oilrig() -> void:
 	var space: PhysicsDirectSpaceState3D = (level as Node3D).get_world_3d().direct_space_state
 	var sphere := SphereShape3D.new()
 	sphere.radius = 2.6
+	var rim_sphere := SphereShape3D.new()
+	rim_sphere.radius = 0.85
 	var exclude: Array[RID] = []
 	if drone is CollisionObject3D:
 		exclude.append((drone as CollisionObject3D).get_rid())
@@ -246,6 +248,7 @@ func _test_oilrig() -> void:
 				continue
 			var nrm := m.global_transform.basis.y.normalized()
 			var p0 := m.global_position
+			var gate_blocked := false
 			for off in [-10.0, 0.0, 10.0]:
 				var q := PhysicsShapeQueryParameters3D.new()
 				q.shape = sphere
@@ -255,8 +258,26 @@ func _test_oilrig() -> void:
 				var res: Array = space.intersect_shape(q, 2)
 				if not res.is_empty():
 					blocked += 1
+					gate_blocked = true
 					print("[FINAL-QA]   OilRig blocked ", m.name, " off=", off, " col=", res[0].get("collider"))
 					break
+			if not gate_blocked:
+				var ux := m.global_transform.basis.x.normalized()
+				var uz := m.global_transform.basis.z.normalized()
+				var r_rim := m.global_transform.basis.x.length() * 4.6
+				for rim_i in range(8):
+					var ang := (float(rim_i) / 8.0) * TAU
+					var rim_pt := p0 + ux * (cos(ang) * r_rim) + uz * (sin(ang) * r_rim)
+					var rq := PhysicsShapeQueryParameters3D.new()
+					rq.shape = rim_sphere
+					rq.collision_mask = 1
+					rq.exclude = exclude
+					rq.transform = Transform3D(Basis.IDENTITY, rim_pt)
+					var rim_res: Array = space.intersect_shape(rq, 2)
+					if not rim_res.is_empty():
+						blocked += 1
+						print("[FINAL-QA]   OilRig rim blocked ", m.name, " rim_i=", rim_i, " col=", rim_res[0].get("collider"))
+						break
 	_check(blocked == 0, "OilRig 30/30 обраних воріт вільні для прольоту (blocked=%d)" % blocked)
 
 	# 3. Checkpoint triggers + _rings_total == 0

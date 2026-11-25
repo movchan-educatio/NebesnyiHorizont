@@ -99,6 +99,16 @@ func _nudge_clear_hangar_gates() -> void:
 		if m != null:
 			var nrm := m.transform.basis.y.normalized()
 			m.position += nrm * (8.0 / RIG_SCALE)
+	# The 4 derrick_dive gates are authored at the exact (X, Z) axis of the
+	# green derrick lattice towers (local_y 364.8..1036.8), embedding the ring
+	# rim inside steel beams. Offset them laterally toward each platform's open
+	# center (+60, -80, +60 in map-local units -> >20 m clear of the mast,
+	# >15 m outside the ring rim, world_y = 261 m) before VisibleGateRings and
+	# triggers populate.
+	for idx in [0, 11, 22, 33]:
+		var m := gates_node.get_node_or_null("Gate_%02d" % idx) as Marker3D
+		if m != null:
+			m.position += Vector3(60.0, -80.0, 60.0)
 
 
 func _neutralize_map_extras() -> void:
