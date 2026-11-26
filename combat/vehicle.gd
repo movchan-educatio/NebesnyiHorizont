@@ -2755,7 +2755,7 @@ func _is_water_hazard(x: float, z: float) -> bool:
 		# mission on village/wetlands, where dry corridors barely exist.
 		return false
 	var fmap := _frontline_map()
-	if fmap.is_empty() or fmap == "airport":
+	if fmap.is_empty() or fmap == "airport" or fmap == "ruins":
 		return false
 	if fmap == "lis_forest_freestyle":
 		return FrontlineTerrainScript.forest_is_water(x, z, _ground_y(x, z))
@@ -2808,7 +2808,7 @@ func _frontline_map() -> String:
 ## ground units; only fall back to raycasts on the legacy GLB maps.
 func _terrain_ground(x: float, z: float) -> Dictionary:
 	var map := _frontline_map()
-	if map == "airport" or map == "lis_forest_freestyle":
+	if map == "airport" or map == "lis_forest_freestyle" or map == "ruins":
 		# Airport and the forest use authored GLB terrain; the analytic
 		# height field returns 0 and would make vehicles float over the river.
 		# The level owns a physics raycast ground probe for both.

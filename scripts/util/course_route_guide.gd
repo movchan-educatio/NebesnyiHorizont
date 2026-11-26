@@ -698,18 +698,35 @@ func _sample_ground_surface(x: float, z: float, ref_y: float,
 	var surface := NAN
 	var normal := Vector3.UP
 	if space != null:
-		var query := PhysicsRayQueryParameters3D.create(
-				Vector3(x, ref_y + 40.0, z), Vector3(x, ref_y - 60.0, z))
-		query.collision_mask = 1
-		query.exclude = exclude_rids
-		var hit := space.intersect_ray(query)
-		if not hit.is_empty():
-			surface = (hit["position"] as Vector3).y
-			var hit_n: Variant = hit.get("normal", Vector3.UP)
-			if hit_n is Vector3 and (hit_n as Vector3).length_squared() > 0.01:
-				normal = (hit_n as Vector3).normalized()
+		if map_name == "ruins":
+			# Cast from just above the flight line first so the yellow guide ribbon
+			# stays on the floor inside tunnels, halls, and underpasses instead of
+			# snapping onto rooftops or the viaduct deck overhead.
+			var low_q := PhysicsRayQueryParameters3D.create(
+					Vector3(x, maxf(ref_y + 0.45, 2.2), z), Vector3(x, -10.0, z))
+			low_q.collision_mask = 1
+			low_q.exclude = exclude_rids
+			var low_hit := space.intersect_ray(low_q)
+			if not low_hit.is_empty():
+				surface = (low_hit["position"] as Vector3).y
+				var lhn: Variant = low_hit.get("normal", Vector3.UP)
+				if lhn is Vector3 and (lhn as Vector3).length_squared() > 0.01:
+					normal = (lhn as Vector3).normalized()
+		if is_nan(surface):
+			var query := PhysicsRayQueryParameters3D.create(
+					Vector3(x, ref_y + 40.0, z), Vector3(x, ref_y - 60.0, z))
+			query.collision_mask = 1
+			query.exclude = exclude_rids
+			var hit := space.intersect_ray(query)
+			if not hit.is_empty():
+				surface = (hit["position"] as Vector3).y
+				var hit_n: Variant = hit.get("normal", Vector3.UP)
+				if hit_n is Vector3 and (hit_n as Vector3).length_squared() > 0.01:
+					normal = (hit_n as Vector3).normalized()
 	if is_nan(surface):
-		if not map_name.is_empty():
+		if map_name == "ruins":
+			surface = 0.0
+		elif not map_name.is_empty():
 			surface = maxf(FrontlineTerrainScript.mesh_surface_height(
 					map_name, x, z), water_level)
 		else:

@@ -40,6 +40,7 @@ const MAP_META := [
 	{"id": "lis_forest_freestyle", "name": "ЛІС", "name_en": "FOREST", "tag": "ВСІ МІСІЇ", "tag_en": "ALL MISSIONS", "diff": "СЕРЕДНЯ", "diff_en": "MEDIUM", "col": "79a58a"},
 	{"id": "promzona_plavni", "name": "ПРОМЗОНА + ПЛАВНІ", "name_en": "INDUSTRIAL & WETLANDS", "tag": "РУЇНИ + ПЛАВНІ", "tag_en": "RUINS + MARSHES", "diff": "СКЛАДНА", "diff_en": "HARD", "col": "c96f67"},
 	{"id": "airport", "name": "АЕРОПОРТ", "name_en": "AIRPORT", "tag": "ФРІСТАЙЛ", "tag_en": "FREESTYLE", "diff": "СЕРЕДНЯ", "diff_en": "MEDIUM", "col": "e2c276"},
+	{"id": "ruins", "name": "РУЇНИ", "name_en": "RUINS", "tag": "ФРІСТАЙЛ + БОЙОВІ", "tag_en": "FREESTYLE + COMBAT", "diff": "СКЛАДНА", "diff_en": "HARD", "col": "e29a52"},
 ]
 const FREESTYLE_ONLY_MAPS := ["oilrig"]
 
@@ -108,6 +109,9 @@ var _hero_drone_tag: Label
 var _hero_drone_specs: Label
 var _hero_index_lbl: Label = null
 var _hero_loaded_preset: int = -1
+var _hero_loading_preset: int = -1
+var _hero_loading_badge: PanelContainer = null
+var _hero_loading_lbl: Label = null
 var _hero_perf_bars: Dictionary = {}
 var _is_dragging_hero := false
 
@@ -1214,7 +1218,7 @@ func _build_nav_capsule(parent: HBoxContainer) -> void:
 		var btn := Button.new()
 		btn.name = "CapsuleNav_" + sid
 		btn.focus_mode = Control.FOCUS_NONE
-		btn.custom_minimum_size = Vector2(_ui_sz(56), _ui_sz(56))
+		btn.custom_minimum_size = Vector2(_ui_sz(66), _ui_sz(66))
 		btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		btn.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
 		btn.expand_icon = false
@@ -1248,8 +1252,8 @@ func _update_nav_capsule() -> void:
 		return
 	var compact := _vsize().x < 700.0
 	_nav_capsule.visible = not is_pause_mode
-	var cap_px := 44 if compact else 56
-	var ico_px := 24 if compact else 30
+	var cap_px := 54 if compact else 66
+	var ico_px := 30 if compact else 36
 	var cap_sz := Vector2(_ui_sz(cap_px), _ui_sz(cap_px))
 	for sid in _nav_buttons.keys():
 		var btn: Button = _nav_buttons[sid] as Button
@@ -1297,7 +1301,7 @@ func _sync_3d_viewports() -> void:
 	_set_viewport_3d_active(_hero_viewport, hero_on)
 	_set_viewport_3d_active(_hangar_viewport, hangar_on)
 	_set_viewport_3d_active(_radio_viewport, radio_on)
-	if hero_on and _hero_loaded_preset != Global.drone_preset:
+	if hero_on and _hero_loaded_preset != Global.drone_preset and _hero_loading_preset != Global.drone_preset:
 		_load_hero_model(Global.drone_preset)
 	if hangar_on and (_hangar_preview_idx != Global.drone_preset \
 			or (_hangar_holder != null and is_instance_valid(_hangar_holder) \
@@ -1320,7 +1324,7 @@ func _show(name: String) -> void:
 	_update_nav_capsule()
 	if name == "main":
 		_update_hero_drone_info(Global.drone_preset)
-		if is_visible_in_tree() and _hero_loaded_preset != Global.drone_preset:
+		if is_visible_in_tree() and _hero_loaded_preset != Global.drone_preset and _hero_loading_preset != Global.drone_preset:
 			_load_hero_model(Global.drone_preset)
 	if name == "play":
 		if _play_modes_row != null:
@@ -1472,14 +1476,21 @@ func _build_3d_hero() -> Control:
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	card.clip_contents = true
 
-	# Giant subtle Unbounded callsign parallax watermark behind the 3D drone
-	var wm_wrap := CenterContainer.new()
+	# Giant subtle Unbounded callsign parallax watermark behind the 3D drone (clipped so long names never widen card)
+	var wm_wrap := Control.new()
 	wm_wrap.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	wm_wrap.clip_contents = true
+	wm_wrap.custom_minimum_size = Vector2.ZERO
 	wm_wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(wm_wrap)
 
 	_hero_watermark = Label.new()
 	_hero_watermark.text = "GRIM-7"
+	_hero_watermark.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_hero_watermark.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hero_watermark.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_hero_watermark.clip_text = true
+	_hero_watermark.custom_minimum_size = Vector2.ZERO
 	_hero_watermark.add_theme_font_override("font", VoltThemeScript.font_display())
 	_hero_watermark.add_theme_font_size_override("font_size", _fs(84))
 	_hero_watermark.add_theme_color_override("font_color", Color(0.918, 0.906, 0.875, 0.055))
@@ -1518,6 +1529,31 @@ func _build_3d_hero() -> Control:
 	for side in ["left", "right", "top", "bottom"]:
 		overlay.add_theme_constant_override("margin_%s" % side, _gap(16))
 	card.add_child(overlay)
+
+	var load_layer := Control.new()
+	load_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	load_layer.clip_contents = true
+	load_layer.custom_minimum_size = Vector2.ZERO
+	load_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(load_layer)
+
+	_hero_loading_badge = PanelContainer.new()
+	_hero_loading_badge.anchor_left = 0.5
+	_hero_loading_badge.anchor_right = 0.5
+	_hero_loading_badge.anchor_top = 1.0
+	_hero_loading_badge.anchor_bottom = 1.0
+	_hero_loading_badge.offset_bottom = -_ui_sz(78)
+	_hero_loading_badge.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_hero_loading_badge.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_hero_loading_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hero_loading_badge.visible = false
+	_hero_loading_badge.add_theme_stylebox_override("panel", VoltThemeScript.pill_box(
+			Color(0.055, 0.055, 0.064, 0.88), VoltThemeScript.YELLOW_BORDER, _gap(14), _gap(6)))
+	load_layer.add_child(_hero_loading_badge)
+
+	_hero_loading_lbl = _label("ЗАВАНТАЖЕННЯ 3D...", 11, VoltThemeScript.YELLOW, VoltThemeScript.font_mono())
+	_hero_loading_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hero_loading_badge.add_child(_hero_loading_lbl)
 
 	var v := VBoxContainer.new()
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1565,15 +1601,21 @@ func _build_3d_hero() -> Control:
 
 	_hero_drone_tag = _label("УДАРНИЙ 8–10\" · БОЙОВИЙ БПЛА", 11, VoltThemeScript.YELLOW, VoltThemeScript.font_mono())
 	_hero_drone_tag.add_theme_font_size_override("font_size", _fs_small(11))
+	_hero_drone_tag.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_hero_drone_tag.custom_minimum_size.x = _ui_sz(288)
 	_hero_drone_tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	info_box.add_child(_hero_drone_tag)
 
 	_hero_drone_name = _label("«ГРІМ-7»", 26, VoltThemeScript.TEXT, VoltThemeScript.font_display())
+	_hero_drone_name.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_hero_drone_name.custom_minimum_size.x = _ui_sz(288)
 	_hero_drone_name.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	info_box.add_child(_hero_drone_name)
 
 	_hero_drone_specs = _label("МАСА 1400Г  //  ТЯГА 3.5:1  //  1350 KV", 11, VoltThemeScript.STONE_DIM, VoltThemeScript.font_mono())
 	_hero_drone_specs.add_theme_font_size_override("font_size", _fs_small(10.5))
+	_hero_drone_specs.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_hero_drone_specs.custom_minimum_size.x = _ui_sz(288)
 	_hero_drone_specs.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	info_box.add_child(_hero_drone_specs)
 
@@ -1920,25 +1962,41 @@ func _enable_preview_shadows(model: Node3D) -> void:
 			gi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 
 
+func _set_hero_loading(active: bool) -> void:
+	if _hero_loading_badge != null and is_instance_valid(_hero_loading_badge):
+		_hero_loading_badge.visible = active
+	if active and _hero_loading_lbl != null and is_instance_valid(_hero_loading_lbl):
+		_hero_loading_lbl.text = "LOADING 3D..." if MenuUI.is_english() else "ЗАВАНТАЖЕННЯ 3D..."
+
+
 func _load_hero_model(preset_idx: int) -> void:
 	if _hero_holder == null or not is_instance_valid(_hero_holder):
 		return
-	_hero_load_token += 1
-	var token := _hero_load_token
-	_hero_loaded_preset = -1
 	var p := DroneCatalog.preset(preset_idx)
 	var is_vtol: bool = str(p.get("name", "")).contains("VTOL") or str(p.get("tag", "")).contains("VTOL")
 	var target_sz: float = 0.46 if is_vtol else 0.52
 	_update_hero_drone_info(preset_idx)
-	for child in _hero_holder.get_children():
-		_hero_holder.remove_child(child)
-		child.queue_free()
+	if preset_idx == _hero_loaded_preset and _hero_holder.get_child_count() > 0:
+		_hero_loading_preset = -1
+		_set_hero_loading(false)
+		return
+	_hero_load_token += 1
+	var token := _hero_load_token
+	_hero_loading_preset = preset_idx
+	if not DroneCatalog.is_model_ready(preset_idx):
+		_set_hero_loading(true)
 	await DroneCatalog.wait_for_model(preset_idx)
 	if token != _hero_load_token or not is_instance_valid(_hero_holder):
 		return
 	var model: Node3D = DroneCatalog.attach_model(_hero_holder, preset_idx, true)
 	if model == null:
+		for child in _hero_holder.get_children():
+			_hero_holder.remove_child(child)
+			child.queue_free()
 		_fit_hero_camera()
+		_hero_loaded_preset = -1
+		_hero_loading_preset = -1
+		_set_hero_loading(false)
 		return
 	model.set_meta("preset_idx", preset_idx)
 	_enable_preview_shadows(model)
@@ -1950,21 +2008,43 @@ func _load_hero_model(preset_idx: int) -> void:
 	# frame occasionally produced an origin-space AABB and a tiny drone.
 	var tree := get_tree()
 	if tree == null or not is_inside_tree():
+		if is_instance_valid(model):
+			if model.get_parent() == _hero_holder:
+				_hero_holder.remove_child(model)
+			model.queue_free()
 		return
 	await tree.process_frame
 	if tree == null or not is_inside_tree():
+		if is_instance_valid(model):
+			if is_instance_valid(_hero_holder) and model.get_parent() == _hero_holder:
+				_hero_holder.remove_child(model)
+			model.queue_free()
 		return
 	await tree.process_frame
 	if tree == null or not is_inside_tree():
+		if is_instance_valid(model):
+			if is_instance_valid(_hero_holder) and model.get_parent() == _hero_holder:
+				_hero_holder.remove_child(model)
+			model.queue_free()
 		return
 	if token != _hero_load_token or not is_instance_valid(_hero_holder) \
 			or not is_instance_valid(model) or model.get_parent() != _hero_holder:
+		if is_instance_valid(model):
+			if is_instance_valid(_hero_holder) and model.get_parent() == _hero_holder:
+				_hero_holder.remove_child(model)
+			model.queue_free()
 		return
+	for child in _hero_holder.get_children():
+		if child != model:
+			_hero_holder.remove_child(child)
+			child.queue_free()
 	MenuUI.fit_preview_model(model, target_sz, -0.205)
 	_ensure_preview_scale(_hero_holder, model, target_sz, -0.205)
 	_fit_hero_camera()
 	model.visible = true
 	_hero_loaded_preset = preset_idx
+	_hero_loading_preset = -1
+	_set_hero_loading(false)
 
 
 func _fit_hero_camera() -> void:
@@ -2029,8 +2109,12 @@ func _update_hero_drone_info(preset_idx: int) -> void:
 	var d_name := MenuUI.translate_text(DroneCatalog.get_drone_name(preset_idx))
 	if _hero_drone_name != null and is_instance_valid(_hero_drone_name):
 		_hero_drone_name.text = d_name
+		var name_fs := _fs(19) if d_name.length() > 20 else (_fs(22) if d_name.length() > 14 else _fs(26))
+		_hero_drone_name.add_theme_font_size_override("font_size", name_fs)
 	if _hero_watermark != null and is_instance_valid(_hero_watermark):
 		_hero_watermark.text = d_name.to_upper()
+		var wm_fs := _fs(60) if d_name.length() > 16 else _fs(84)
+		_hero_watermark.add_theme_font_size_override("font_size", wm_fs)
 	if _hero_drone_tag != null and is_instance_valid(_hero_drone_tag):
 		_hero_drone_tag.text = MenuUI.translate_text(DroneCatalog.get_drone_tag(preset_idx))
 	if _hero_drone_specs != null and is_instance_valid(_hero_drone_specs):
@@ -2064,7 +2148,8 @@ func _uman_cycle_hero(dir: int) -> void:
 		return
 	var total := list.size()
 	var pos := maxi(list.find(Global.drone_preset), 0)
-	var new_idx := list[(pos + dir + total) % total]
+	var new_pos := (pos + dir + total) % total
+	var new_idx := list[new_pos]
 	Global.drone_preset = new_idx
 	Global.menu_settings["drone_preset"] = new_idx
 	DroneCatalog.apply(new_idx)
@@ -2079,8 +2164,8 @@ func _uman_cycle_hero(dir: int) -> void:
 	Global.save_menu_settings()
 	if _play_modes_row != null:
 		_update_play_modes(_play_modes_row)
-	DroneCatalog.prefetch_model(list[(pos + 1) % total])
-	DroneCatalog.prefetch_model(list[(pos - 1 + total) % total])
+	DroneCatalog.prefetch_model(list[(new_pos + 1) % total])
+	DroneCatalog.prefetch_model(list[(new_pos - 1 + total) % total])
 	_load_hero_model(new_idx)
 
 
@@ -3630,7 +3715,7 @@ func _launch(combat_training: bool = false) -> void:
 		Global.special_mission = 0
 	# The non-airport tutorial strip lives on the unified industrial/wetlands map.
 	if _selected_mode == Global.PlayMode.TUTORIAL and not _is_freestyle_map(_selected_map) \
-			and _selected_map != "airport":
+			and _selected_map != "airport" and _selected_map != "ruins":
 		_selected_map = "promzona_plavni"
 	Global.menu_settings["selected_map"] = _selected_map
 	Global.menu_settings["selected_mode"] = _selected_mode
@@ -3644,8 +3729,9 @@ func _launch(combat_training: bool = false) -> void:
 		"uman": "res://sceneries/UmanLevel.tscn",
 		"oilrig": "res://sceneries/OilRigLevel.tscn",
 		"lis_forest_freestyle": "res://sceneries/LisLevel.tscn",
+		"ruins": "res://sceneries/RuinsLevel.tscn",
 	}
-	var launch_map := "promzona_plavni" if (_selected_mode == Global.PlayMode.TUTORIAL and not _is_freestyle_map(_selected_map) and _selected_map != "airport") else _selected_map
+	var launch_map := "promzona_plavni" if (_selected_mode == Global.PlayMode.TUTORIAL and not _is_freestyle_map(_selected_map) and _selected_map != "airport" and _selected_map != "ruins") else _selected_map
 	var path: String = scenes.get(launch_map, "res://sceneries/LisLevel.tscn")
 
 	# Ensure QuadSettings has the active mobile rate profile applied for flight
@@ -3836,6 +3922,7 @@ func _build_drone() -> void:
 					Global.menu_settings["selected_special"] = 0
 				Global.save_menu_settings()
 				_hero_loaded_preset = -1
+				_hero_loading_preset = -1
 				if _play_modes_row != null:
 					_update_play_modes(_play_modes_row)
 				_load_hero_model(cur_i)
@@ -4125,14 +4212,14 @@ func _load_hangar_model(preset_idx: int) -> void:
 	var is_vtol: bool = str(p.get("name", "")).contains("VTOL") or str(p.get("tag", "")).contains("VTOL")
 	var target_sz: float = 0.46 if is_vtol else 0.52
 	_update_hangar_info(preset_idx)
-	for child in _hangar_holder.get_children():
-		_hangar_holder.remove_child(child)
-		child.queue_free()
 	await DroneCatalog.wait_for_model(preset_idx)
 	if token != _hangar_load_token or not is_instance_valid(_hangar_holder):
 		return
 	var model: Node3D = DroneCatalog.attach_model(_hangar_holder, preset_idx, true)
 	if model == null:
+		for child in _hangar_holder.get_children():
+			_hangar_holder.remove_child(child)
+			child.queue_free()
 		_fit_hangar_camera()
 		return
 	model.set_meta("preset_idx", preset_idx)
@@ -4143,16 +4230,36 @@ func _load_hangar_model(preset_idx: int) -> void:
 	# opened in the hangar could be a speck until Next/Previous reloaded it.
 	var tree := get_tree()
 	if tree == null or not is_inside_tree():
+		if is_instance_valid(model):
+			if model.get_parent() == _hangar_holder:
+				_hangar_holder.remove_child(model)
+			model.queue_free()
 		return
 	await tree.process_frame
 	if tree == null or not is_inside_tree():
+		if is_instance_valid(model):
+			if is_instance_valid(_hangar_holder) and model.get_parent() == _hangar_holder:
+				_hangar_holder.remove_child(model)
+			model.queue_free()
 		return
 	await tree.process_frame
 	if tree == null or not is_inside_tree():
+		if is_instance_valid(model):
+			if is_instance_valid(_hangar_holder) and model.get_parent() == _hangar_holder:
+				_hangar_holder.remove_child(model)
+			model.queue_free()
 		return
 	if token != _hangar_load_token or not is_instance_valid(_hangar_holder) \
 			or not is_instance_valid(model) or model.get_parent() != _hangar_holder:
+		if is_instance_valid(model):
+			if is_instance_valid(_hangar_holder) and model.get_parent() == _hangar_holder:
+				_hangar_holder.remove_child(model)
+			model.queue_free()
 		return
+	for child in _hangar_holder.get_children():
+		if child != model:
+			_hangar_holder.remove_child(child)
+			child.queue_free()
 	MenuUI.fit_preview_model(model, target_sz, -0.1775)
 	_ensure_preview_scale(_hangar_holder, model, target_sz, -0.1775)
 	_enable_preview_shadows(model)
@@ -4295,6 +4402,7 @@ func _on_hangar_choose_pressed() -> void:
 		Global.menu_settings["selected_special"] = 0
 	Global.save_menu_settings()
 	_hero_loaded_preset = -1
+	_hero_loading_preset = -1
 	if _play_modes_row != null:
 		_update_play_modes(_play_modes_row)
 	_load_hero_model(_hangar_preview_idx)
@@ -5339,7 +5447,10 @@ func _on_toggle_language() -> void:
 func _reset_screen_refs() -> void:
 	_hero_load_token += 1
 	_hero_loaded_preset = -1
+	_hero_loading_preset = -1
 	_hangar_load_token += 1
+	_hero_loading_badge = null
+	_hero_loading_lbl = null
 	_is_dragging_hero = false
 	_is_dragging_hangar = false
 	_pending_unlock_id = ""

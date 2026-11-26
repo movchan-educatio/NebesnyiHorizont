@@ -48,7 +48,11 @@ static func is_mobile() -> bool:
 ## Dynamic course length per map: the merged Promzona/Plavni arena runs a
 ## 28-gate loop, the legacy maps keep their authored 24-gate courses.
 static func expected_ring_count(map_id: String) -> int:
-	return PROMPZONA_RING_COUNT if map_id == "promzona_plavni" else RING_COUNT
+	if map_id == "promzona_plavni":
+		return PROMPZONA_RING_COUNT
+	if map_id == "ruins":
+		return 29
+	return RING_COUNT
 
 
 static func _neon_material(col: Color) -> StandardMaterial3D:

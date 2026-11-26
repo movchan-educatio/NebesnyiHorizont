@@ -633,6 +633,8 @@ static func _normalize_map_name(raw: String) -> String:
 		return "oil_rig"
 	if s.begins_with("airport"):
 		return "airport"
+	if s.begins_with("ruins"):
+		return "ruins"
 	return s
 
 

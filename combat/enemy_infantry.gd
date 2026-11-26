@@ -680,7 +680,10 @@ func _can_step(move_dir: Vector3, step_len: float) -> bool:
 				river_ground = float(scene.call("_find_ground_y", to.x, to.z))
 			if FrontlineTerrainScript.forest_is_water(to.x, to.z, river_ground):
 				return false
-		if not map.is_empty() and map != "airport" and map != "lis_forest_freestyle" and map != "oilrig":
+		if map == "ruins":
+			if to.x >= -240.0 and to.x <= 42.0 and absf(to.z - 112.0) < 6.5:
+				return false
+		if not map.is_empty() and map != "airport" and map != "lis_forest_freestyle" and map != "oilrig" and map != "ruins":
 			var cur_h := FrontlineTerrainScript.height_at(map, global_position.x, global_position.z)
 			var next_h := FrontlineTerrainScript.height_at(map, to.x, to.z)
 			var on_bridge := false
@@ -960,7 +963,7 @@ func _snap_to_ground() -> void:
 	var scene := _find_level_scene()
 	if scene != null and scene.get("frontline_map") != null:
 		var map := String(scene.get("frontline_map"))
-		if map == "airport" or map == "lis_forest_freestyle" or map == "oilrig":
+		if map == "airport" or map == "lis_forest_freestyle" or map == "oilrig" or map == "ruins":
 			# Same fix as vehicle.gd: authored GLB colliders override the
 			# procedural height field, so raycast via _find_ground_y().
 			var gy := 0.12

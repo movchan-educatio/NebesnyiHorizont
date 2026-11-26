@@ -1,0 +1,14 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://sceneries/BigLevel.tscn" id="1_base"]
+[ext_resource type="Script" path="res://sceneries/RuinsLevel.gd" id="2_script"]
+
+[node name="RuinsLevel" instance=ExtResource("1_base")]
+script = ExtResource("2_script")
+frontline_map = "ruins"
+
+[node name="Respawn" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 25, 0.14, 72)
+
+[node name="Drone" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 25, 0.14, 72)

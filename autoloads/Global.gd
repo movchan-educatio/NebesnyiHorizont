@@ -744,7 +744,7 @@ func get_leaderboard_summary(is_en: bool = false) -> String:
 	var stars := campaign_stars_total()
 	for m_id in range(1, 5):
 		best_score = maxi(best_score, int(get_mission_record(m_id).get("best_score", 0)))
-	for map_id in ["uman", "promzona_plavni", "industrial", "wetlands", "airport"]:
+	for map_id in ["uman", "promzona_plavni", "industrial", "wetlands", "airport", "ruins"]:
 		best_score = maxi(best_score, int(get_training_record(map_id).get("best_score", 0)))
 	var daily_streak := int(campaign_records.get("daily_challenge", {}).get("streak", 0))
 	if is_en:
@@ -801,7 +801,7 @@ func get_records_report(is_en: bool = false) -> String:
 		lines.append("  • —")
 	lines.append("")
 	lines.append("TRAINING & TIME TRIAL:" if is_en else "ТРЕНУВАННЯ ТА ПОЛІТ НА ЧАС:")
-	for map_id in ["course", "uman", "promzona_plavni", "industrial", "wetlands", "airport"]:
+	for map_id in ["course", "uman", "promzona_plavni", "industrial", "wetlands", "airport", "ruins"]:
 		var trec := get_training_record(map_id)
 		if bool(trec.get("completed", false)):
 			lines.append("  • %s: %.1fs · %s [%s] · %d" % [

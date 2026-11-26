@@ -18,7 +18,7 @@ const PRICES := {
 }
 
 const DEFAULT_UNLOCKED := [
-	"map_oilrig", "map_promzona_plavni", "map_industrial", "map_wetlands", "map_airport",
+	"map_oilrig", "map_promzona_plavni", "map_industrial", "map_wetlands", "map_airport", "map_ruins",
 	"mode_training", "mode_combat", "mode_tutorial", "mode_race",
 ]
 

@@ -1968,7 +1968,8 @@ func _find_ground_y(x: float, z: float) -> float:
 func _is_authored_glb_map() -> bool:
 	return frontline_map == "lis_forest_freestyle" \
 			or frontline_map == "oilrig" \
-			or frontline_map == "airport"
+			or frontline_map == "airport" \
+			or frontline_map == "ruins"
 
 
 func _terrain_height_at(x: float, z: float) -> float:
@@ -8043,6 +8044,11 @@ func _setup_reb() -> void:
 				{"p": Vector2(-165, -90), "r": 190.0, "s": 0.85, "dir": false, "yaw": 0.0, "fov": 75.0},
 				{"p": Vector2(180, -40), "r": 210.0, "s": 0.90, "dir": true, "yaw": -145.0, "fov": 80.0},
 			]
+		"ruins":
+			domes = [
+				{"p": Vector2(-35, -30), "r": 185.0, "s": 0.84, "dir": false, "yaw": 0.0, "fov": 75.0},
+				{"p": Vector2(115, 72), "r": 205.0, "s": 0.88, "dir": true, "yaw": -145.0, "fov": 80.0},
+			]
 		"village":
 			domes = [
 				{"p": Vector2(-52, -68), "r": 120.0, "s": 0.80, "dir": false, "yaw": 0.0, "fov": 70.0},
@@ -11047,6 +11053,12 @@ func _enforce_ground_clearance(_delta: float) -> void:
 			return
 		if p.y < -13.5:
 			drone_body.global_position = Vector3(p.x, -13.0, p.z)
+			if drone_body.linear_velocity.y < 0.0:
+				drone_body.linear_velocity.y = 0.0
+		return
+	if frontline_map == "ruins":
+		if p.y < -0.25:
+			drone_body.global_position = Vector3(p.x, 0.25, p.z)
 			if drone_body.linear_velocity.y < 0.0:
 				drone_body.linear_velocity.y = 0.0
 		return

@@ -13,11 +13,12 @@ const FRONTLINE_LEVELS := {
 	"uman": "res://sceneries/UmanLevel.tscn",
 	"oilrig": "res://sceneries/OilRigLevel.tscn",
 	"lis_forest_freestyle": "res://sceneries/LisLevel.tscn",
+	"ruins": "res://sceneries/RuinsLevel.tscn",
 }
 ## Steppe і Village видалені з гри. Нафтова платформа замінила Умань як
-## фрістайл-карту; Ліс — повноцінна карта з усіма місіями.
+## фрістайл-карту; Ліс і Руїни — повноцінні карти з усіма місіями.
 const FREESTYLE_ONLY_MAPS := ["oilrig"]
-const SELECTABLE_MAPS := ["oilrig", "lis_forest_freestyle", "promzona_plavni", "airport"]
+const SELECTABLE_MAPS := ["oilrig", "lis_forest_freestyle", "promzona_plavni", "airport", "ruins"]
 
 static func _is_freestyle_map(id: String) -> bool:
 	return FREESTYLE_ONLY_MAPS.has(id)
@@ -667,6 +668,7 @@ func _build() -> void:
 		{"id": "lis_forest_freestyle", "uk": "Ліс", "en": "Forest"},
 		{"id": "promzona_plavni", "uk": "ПРОМЗОНА + ПЛАВНІ", "en": "INDUSTRIAL & WETLANDS"},
 		{"id": "airport", "uk": "Аеропорт", "en": "Airport"},
+		{"id": "ruins", "uk": "Руїни", "en": "Ruins"},
 	]
 	_map_buttons.clear()
 	for md in map_defs:
@@ -1814,7 +1816,7 @@ func _launch_current_selection(combat_training: bool = false) -> void:
 	# The flight school has a fixed training strip on the north field of the
 	# village map; the selected combat map must not move the course into water
 	# or a forest.  The combat map choice itself is left untouched.
-	if _selected_mode == Global.PlayMode.TUTORIAL and map_id != "airport":
+	if _selected_mode == Global.PlayMode.TUTORIAL and map_id != "airport" and map_id != "ruins":
 		scene_path = FRONTLINE_LEVELS["promzona_plavni"]
 	Global.menu_settings["selected_map"] = map_id
 	Global.menu_settings["selected_mode"] = _selected_mode

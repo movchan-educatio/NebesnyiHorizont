@@ -136,8 +136,10 @@ static func _title(mode: int) -> String:
 
 static func _context_line(mode: int, mission_id: int, map_name: String,
 		difficulty: String) -> String:
-	var map_upper := map_name.to_upper()
 	var is_en := MenuUI.is_english()
+	var map_upper := map_name.to_upper()
+	if map_name.to_lower() == "ruins":
+		map_upper = "RUINS" if is_en else "РУЇНИ"
 	if mode == Global.PlayMode.COMBAT:
 		if Global.special_mission > 0:
 			var op_prefix := "OP" if is_en else "СО"
