@@ -1,5 +1,6 @@
 extends "res://sceneries/Level.gd"
 
+const CourseRouteGuideScript = preload("res://scripts/util/course_route_guide.gd")
 
 var _run_started := false
 var _run_finished := false
@@ -10,6 +11,8 @@ var _ghost_sample_accum: float = 0.0
 var _result_layer: CanvasLayer = null
 var _result_label: Label = null
 var _help_layer: CanvasLayer = null
+var _route_guide: Node3D = null
+var _last_track_cp: int = -2
 
 
 func _ready() -> void:
@@ -48,6 +51,7 @@ func _ready() -> void:
 
 	_configure_drone_visuals_for_camera(true)
 	_setup_course_ghost()
+	call_deferred("_update_course_route_guide")
 	call_deferred("_spawn_handcrafted_showcase")
 
 
@@ -221,6 +225,7 @@ func _run_autotest() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	_update_course_route_guide()
 	if not _run_started or _run_finished:
 		return
 	var d := get_node_or_null("Drone") as Drone
@@ -337,9 +342,57 @@ func _show_course_result(res: Dictionary, elapsed_s: float) -> void:
 	_result_layer.visible = true
 
 
+func _update_course_route_guide() -> void:
+	var track := get_node_or_null("Track") as Track
+	if track == null or track.checkpoints.is_empty() or track.course_list.is_empty():
+		return
+	if track.current == _last_track_cp and _route_guide != null and is_instance_valid(_route_guide):
+		return
+	var space := get_world_3d().direct_space_state if get_world_3d() != null else null
+	if space == null:
+		return
+	_last_track_cp = track.current
+	if _route_guide == null or not is_instance_valid(_route_guide):
+		_route_guide = CourseRouteGuideScript.new()
+		add_child(_route_guide)
+	var gates: Array[Dictionary] = []
+	var exclude_rids: Array[RID] = []
+	var d := get_node_or_null("Drone") as Node3D
+	if d is CollisionObject3D:
+		exclude_rids.append((d as CollisionObject3D).get_rid())
+	for cp_v in track.checkpoints:
+		if cp_v is CollisionObject3D:
+			exclude_rids.append((cp_v as CollisionObject3D).get_rid())
+	for entry_v in track.course_list:
+		var raw_s := str(entry_v)
+		var back := raw_s.ends_with("b")
+		var cp_idx := (raw_s.rstrip("b") if back else raw_s).to_int()
+		if cp_idx < 0 or cp_idx >= track.checkpoints.size():
+			continue
+		var cp := track.checkpoints[cp_idx] as Node3D
+		if cp == null:
+			continue
+		var fwd := -cp.global_transform.basis.z.normalized()
+		if back:
+			fwd = -fwd
+		gates.append({
+			"pos": cp.global_position,
+			"dir": fwd,
+			"radius": 2.4,
+		})
+	if gates.is_empty():
+		_route_guide.visible = false
+		return
+	_route_guide.visible = true
+	var origin_pt := d.global_position if d != null else Vector3.INF
+	_route_guide.call("update_route", gates, clampi(track.current, 0, gates.size() - 1),
+			space, exclude_rids, origin_pt, "course", -999.0)
+
+
 func _on_course_drone_respawned() -> void:
 	_run_started = false
 	_run_finished = false
+	_last_track_cp = -2
 	if _ghost != null and is_instance_valid(_ghost):
 		_ghost.stop_replay()
 	if _result_layer != null:

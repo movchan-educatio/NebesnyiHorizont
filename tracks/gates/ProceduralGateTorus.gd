@@ -17,7 +17,8 @@ var _blink_t: float = 0.0
 func _process(delta: float) -> void:
 	_blink_t += delta * 7.2
 	if _face_mat != null:
-		FreestyleCourse.apply_gate_blink(_face_mat, _glow_mat, _blink_t, 2, 0)
+		var st := 0 if (checkpoint != null and checkpoint.active) else 2
+		FreestyleCourse.apply_gate_blink(_face_mat, _glow_mat, _blink_t, st, 0)
 
 
 func _add_geometry() -> void:

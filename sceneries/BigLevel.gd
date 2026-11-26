@@ -4586,16 +4586,20 @@ func _update_training_ring_highlight(delta: float) -> void:
 			glow_mat = ring.get_meta("ring_glow_mat") as StandardMaterial3D
 		if frame_mat != null:
 			var blink_state := 2
+			var lbl := ring.get_node_or_null("GateNumber") as Label3D
 			if course_live and i == next_idx and ring.visible:
 				blink_state = 0
-				var lbl := ring.get_node_or_null("GateNumber") as Label3D
 				if lbl != null:
 					lbl.scale = Vector3.ONE * lerpf(0.95, 1.18, blink)
 					lbl.modulate = Color(1.0, 0.45, 0.78, 0.94).lerp(Color(1.0, 0.98, 0.99, 1.0), blink)
-			elif course_live and i == next_idx + 1 and ring.visible:
-				blink_state = 1
-			elif i < _rings_passed:
-				blink_state = 3
+			else:
+				if course_live and i == next_idx + 1 and ring.visible:
+					blink_state = 1
+				elif i < _rings_passed:
+					blink_state = 3
+				if lbl != null:
+					lbl.scale = Vector3.ONE
+					lbl.modulate = Color(0.55, 0.90, 0.60, 0.45) if i < _rings_passed else Color(1.0, 0.97, 0.82, 0.90)
 			FreestyleCourseScript.apply_gate_blink(frame_mat, glow_mat, _ring_pulse, blink_state, i)
 	if _active_ring_beacon != null and is_instance_valid(_active_ring_beacon) and _active_ring_beacon.visible:
 		var base_s := float(_active_ring_beacon.get_meta("base_scale", 1.0))
@@ -4686,7 +4690,7 @@ func _update_training_ghost(delta: float) -> void:
 		while _ghost_play_timer >= 0.05:
 			_ghost_play_timer -= 0.05
 			_ghost_node.frame = (_ghost_node.frame + 1) % _ghost_node.replay.size()
-		_ghost_node.update_transform()
+		_ghost_node.update_transform(clampf(_ghost_play_timer / 0.05, 0.0, 1.0))
 
 
 func _read_ghost_header(path: String) -> Dictionary:

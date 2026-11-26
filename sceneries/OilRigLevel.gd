@@ -29,11 +29,13 @@ var _rig_spawn_xform: Transform3D = Transform3D(Basis.IDENTITY, DEFAULT_SPAWN)
 var _rig_has_spawn: bool = false
 var _rig_active_torus: MeshInstance3D = null
 var _rig_active_mat: StandardMaterial3D = null
+var _rig_active_face_mat: StandardMaterial3D = null
 var _rig_active_halo: MeshInstance3D = null
 var _rig_active_halo_mat: StandardMaterial3D = null
 var _rig_next_torus: MeshInstance3D = null
 var _rig_pulse: float = 0.0
 var _rig_route_refresh_seq: int = 0
+var _rig_static_mat_synced: bool = false
 
 
 func _map_path() -> String:
@@ -371,9 +373,11 @@ func _setup_oilrig_gate_triggers() -> void:
 		_route_guide = null
 	_rig_active_torus = null
 	_rig_active_mat = null
+	_rig_active_face_mat = null
 	_rig_active_halo = null
 	_rig_active_halo_mat = null
 	_rig_next_torus = null
+	_rig_static_mat_synced = false
 	if _triggers == null or _map_instance == null:
 		return
 	var gates_node := _map_instance.get_node_or_null("FPVGates")
@@ -513,14 +517,13 @@ func _build_rig_active_highlights() -> void:
 		return
 	_rig_active_torus = MeshInstance3D.new()
 	_rig_active_torus.name = "ActiveRigGateHighlight"
-	_rig_active_torus.mesh = FreestyleCourseScript.build_horizon_halo_mesh(4.6, true)
-	_rig_active_mat = StandardMaterial3D.new()
-	_rig_active_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_rig_active_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_rig_active_mat.albedo_color = Color(1.0, 0.22, 0.66, 0.96)
-	_rig_active_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	_rig_active_torus.material_override = _rig_active_mat
+	_rig_active_torus.mesh = FreestyleCourseScript.build_horizon_gate_mesh(4.6, true)
+	_rig_active_face_mat = FreestyleCourseScript.create_horizon_face_material(FreestyleCourseScript.GATE_PINK)
+	_rig_active_mat = _rig_active_face_mat
+	_rig_active_torus.set_surface_override_material(0, FreestyleCourseScript.create_horizon_bezel_material())
+	_rig_active_torus.set_surface_override_material(1, _rig_active_face_mat)
 	_rig_active_torus.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_rig_active_torus.visible = false
 	_rig_markers_root.add_child(_rig_active_torus)
 
 	_rig_active_halo = MeshInstance3D.new()
@@ -532,6 +535,7 @@ func _build_rig_active_highlights() -> void:
 	_rig_active_halo_mat.albedo_color = Color(1.0, 0.45, 0.80, 0.90)
 	_rig_active_halo_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_rig_active_halo.material_override = _rig_active_halo_mat
+	_rig_active_halo.visible = false
 	_rig_active_halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_rig_active_torus.add_child(_rig_active_halo)
 
@@ -544,6 +548,7 @@ func _build_rig_active_highlights() -> void:
 	next_mat.albedo_color = Color(1.0, 0.14, 0.56, 0.82)
 	next_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_rig_next_torus.material_override = next_mat
+	_rig_next_torus.visible = false
 	_rig_next_torus.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_rig_markers_root.add_child(_rig_next_torus)
 
@@ -601,7 +606,12 @@ func _sync_oilrig_active_gate() -> void:
 			else:
 				lbl.modulate = Color(1.0, 0.96, 0.82, 0.88)
 	if _rig_active_torus != null:
-		_rig_active_torus.visible = false
+		var active_marker := gates_node.get_node_or_null("Gate_%02d" % _rig_active_gate_idx) as Marker3D if _rig_active_gate_idx >= 0 else null
+		if active_marker != null:
+			_rig_active_torus.global_transform = active_marker.global_transform.scaled_local(Vector3(1.006, 1.06, 1.006))
+			_rig_active_torus.visible = true
+		else:
+			_rig_active_torus.visible = false
 	if _rig_next_torus != null:
 		_rig_next_torus.visible = false
 
@@ -662,14 +672,14 @@ func _process(delta: float) -> void:
 	super._process(delta)
 	_rig_pulse += delta * 7.2
 	var blink := 0.5 + 0.5 * sin(_rig_pulse)
-	if _map_instance != null:
+	if not _rig_static_mat_synced and _map_instance != null:
 		var vr := _map_instance.find_child("VisibleGateRings", true, false)
 		if vr != null and vr.has_meta("gate_face_mat"):
 			var fmat := vr.get_meta("gate_face_mat") as StandardMaterial3D
-			FreestyleCourseScript.apply_gate_blink(fmat, null, _rig_pulse, 0, 0)
-	if _rig_active_mat != null:
-		_rig_active_mat.albedo_color = Color(0.42, 0.04, 0.22, 0.28).lerp(
-				Color(1.0, 0.45, 0.80, 1.0), blink)
+			FreestyleCourseScript.apply_gate_blink(fmat, null, 0.0, 2, 0)
+			_rig_static_mat_synced = true
+	if _rig_active_face_mat != null:
+		FreestyleCourseScript.apply_gate_blink(_rig_active_face_mat, null, _rig_pulse, 0, 0)
 	if _rig_active_halo_mat != null:
 		_rig_active_halo_mat.albedo_color = Color(1.0, 0.12, 0.55, 0.12).lerp(
 				Color(1.0, 0.55, 0.86, 0.96), blink)

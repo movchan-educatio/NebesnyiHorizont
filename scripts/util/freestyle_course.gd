@@ -148,48 +148,44 @@ static func create_horizon_face_material(base_col: Color = GATE_PINK) -> Standar
 
 
 static func apply_gate_blink(frame_mat: StandardMaterial3D, glow_mat: StandardMaterial3D,
-		pulse_time: float, state: int, phase_idx: int = 0) -> void:
+		pulse_time: float, state: int, _phase_idx: int = 0) -> void:
 	if frame_mat == null:
 		return
 	match state:
-		0:  # Active target gate: rapid high-contrast LED strobe (saturated hot-pink, dark letters)
-			var s := 0.5 + 0.5 * sin(pulse_time * 2.2)
-			var k := smoothstep(0.16, 0.84, s)
+		0:  # Active target gate ONLY: vivid high-contrast LED strobe
+			var s := 0.5 + 0.5 * sin(pulse_time * 2.4)
+			var k := smoothstep(0.14, 0.86, s)
 			frame_mat.albedo_color = GATE_PINK_DIM.lerp(GATE_PINK_HOT, k)
 			frame_mat.emission = GATE_PINK.lerp(GATE_PINK_HOT, k)
-			frame_mat.emission_energy_multiplier = lerpf(0.05, 1.35, k)
+			frame_mat.emission_energy_multiplier = lerpf(0.04, 1.50, k)
 			if glow_mat != null:
 				glow_mat.albedo_color = Color(1.0, 0.14, 0.56, lerpf(0.04, 0.35, k))
 				glow_mat.emission = GATE_PINK_HOT
 				glow_mat.emission_energy_multiplier = lerpf(0.10, 1.2, k)
-		1:  # On-deck gate: brisk rhythmic pink blink
-			var s := 0.5 + 0.5 * sin(pulse_time * 1.25 - 0.5)
-			var k := smoothstep(0.15, 0.85, s)
-			frame_mat.albedo_color = GATE_PINK_DIM.lerp(GATE_PINK, k)
+		1:  # On-deck gate: steady brighter non-blinking pink
+			frame_mat.albedo_color = GATE_PINK
 			frame_mat.emission = GATE_PINK
-			frame_mat.emission_energy_multiplier = lerpf(0.05, 0.95, k)
+			frame_mat.emission_energy_multiplier = 0.62
 			if glow_mat != null:
-				glow_mat.albedo_color = Color(1.0, 0.12, 0.54, lerpf(0.03, 0.22, k))
+				glow_mat.albedo_color = Color(1.0, 0.12, 0.54, 0.10)
 				glow_mat.emission = GATE_PINK
-				glow_mat.emission_energy_multiplier = lerpf(0.10, 0.85, k)
-		3:  # Already passed gate: calm dim magenta
-			var passed_col := Color(0.26, 0.04, 0.14)
+				glow_mat.emission_energy_multiplier = 0.45
+		3:  # Already passed gate: steady dim magenta
+			var passed_col := Color(0.24, 0.04, 0.13)
 			frame_mat.albedo_color = passed_col
 			frame_mat.emission = passed_col
 			frame_mat.emission_energy_multiplier = 0.08
 			if glow_mat != null:
 				glow_mat.albedo_color = Color(passed_col.r, passed_col.g, passed_col.b, 0.03)
 				glow_mat.emission_energy_multiplier = 0.06
-		_:  # Upcoming course gates: cascading wave blink
-			var s := 0.5 + 0.5 * sin(pulse_time * 1.05 - float(phase_idx) * 0.48)
-			var k := smoothstep(0.18, 0.82, s)
-			frame_mat.albedo_color = GATE_PINK_DIM.lerp(GATE_PINK, k)
+		_:  # All other inactive/upcoming gates: steady non-blinking pink
+			frame_mat.albedo_color = GATE_PINK
 			frame_mat.emission = GATE_PINK
-			frame_mat.emission_energy_multiplier = lerpf(0.04, 0.78, k)
+			frame_mat.emission_energy_multiplier = 0.44
 			if glow_mat != null:
-				glow_mat.albedo_color = Color(1.0, 0.12, 0.54, lerpf(0.02, 0.16, k))
+				glow_mat.albedo_color = Color(1.0, 0.12, 0.54, 0.06)
 				glow_mat.emission = GATE_PINK
-				glow_mat.emission_energy_multiplier = lerpf(0.08, 0.65, k)
+				glow_mat.emission_energy_multiplier = 0.25
 
 
 static func _rounded_trapezoid_ring(w_bot: float, w_top: float, y_bot: float, y_top: float,

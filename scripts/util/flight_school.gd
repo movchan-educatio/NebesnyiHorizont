@@ -400,7 +400,7 @@ func _create_arch(at: Vector2, width: float, height: float, center_h: float,
 	var sz := clampf(minf(sx, sy), 1.4, 3.0)
 	var face_mat := FreestyleCourseScript.create_horizon_face_material(FreestyleCourseScript.GATE_PINK)
 	var glow_mat := FreestyleCourseScript._glow_material(FreestyleCourseScript.GATE_PINK_HOT)
-	_school_gate_mats.append({"frame": face_mat, "glow": glow_mat})
+	_school_gate_mats.append({"frame": face_mat, "glow": glow_mat, "node": root})
 
 	var panel := MeshInstance3D.new()
 	panel.name = "GatePanel"
@@ -1217,11 +1217,22 @@ func update_flight_school(delta: float) -> void:
 		return
 	course_time += delta
 	_school_gate_pulse += delta * 7.2
+	var active_gate_node: Node = null
+	if current_step == Step.GATES:
+		var gt: Variant = _gate_target().get("node", null)
+		if gt is Node:
+			active_gate_node = gt as Node
+	elif current_step == Step.ACCURACY:
+		var at: Variant = _accuracy_target().get("node", null)
+		if at is Node:
+			active_gate_node = at as Node
 	for gm_idx in range(_school_gate_mats.size()):
 		var gm: Dictionary = _school_gate_mats[gm_idx]
+		var gm_node: Variant = gm.get("node", null)
+		var is_cur: bool = active_gate_node != null and gm_node is Node and (gm_node as Node) == active_gate_node
 		FreestyleCourseScript.apply_gate_blink(
 				gm.get("frame") as StandardMaterial3D, gm.get("glow") as StandardMaterial3D,
-				_school_gate_pulse, 0 if gm_idx == 0 else 2, gm_idx)
+				_school_gate_pulse, 0 if is_cur else 2, gm_idx)
 	_update_toast(delta)
 	_check_pilot_errors(delta)
 

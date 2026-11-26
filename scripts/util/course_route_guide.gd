@@ -11,27 +11,68 @@ extends Node3D
 
 const FrontlineTerrainScript = preload("res://scripts/util/frontline_terrain.gd")
 
-const ACTIVE_COLOR := Color(1.0, 0.90, 0.06, 0.96)
-const ACTIVE_PEAK_COLOR := Color(1.0, 0.99, 0.56, 1.0)
-const PREVIEW_COLOR := Color(1.0, 0.72, 0.10, 0.66)
+const ACTIVE_COLOR := Color(0.02, 0.90, 1.0, 0.92)
+const ACTIVE_CORE_COLOR := Color(0.92, 0.99, 1.0, 1.0)
+const PREVIEW_COLOR := Color(0.04, 0.72, 1.0, 0.52)
+const PREVIEW_CORE_COLOR := Color(0.75, 0.95, 1.0, 1.0)
+const ACTIVE_HALF_WIDTH := 0.085
+const PREVIEW_HALF_WIDTH := 0.055
 const GROUND_COLOR := Color(0.98, 1.0, 0.08, 0.94)
 const GROUND_BORDER_COLOR := Color(0.045, 0.055, 0.065, 0.58)
 const GROUND_WIDTH := 0.34
 const GROUND_BORDER_WIDTH := 0.50
 const GROUND_STEP := 3.0
 
+const UNCRASHED_NEON_SHADER := """
+shader_type spatial;
+render_mode unshaded, cull_disabled, depth_draw_never;
+uniform vec3 neon_color : source_color = vec3(0.02, 0.88, 1.0);
+uniform vec3 core_color : source_color = vec3(0.92, 0.99, 1.0);
+uniform float base_alpha = 0.92;
+uniform float pulse_speed = 9.0;
+uniform float pulse_freq = 0.42;
+uniform float pulse_boost = 0.35;
+void fragment() {
+	float dist_center = abs(UV.y - 0.5) * 2.0;
+	float core = smoothstep(0.62, 0.08, dist_center);
+	float halo = smoothstep(1.0, 0.18, dist_center);
+	float wave = 0.5 + 0.5 * sin(UV.x * pulse_freq - TIME * pulse_speed);
+	float streak = smoothstep(0.55, 0.98, wave);
+	vec3 col = mix(neon_color, core_color, clamp(core * 0.78 + streak * 0.38, 0.0, 1.0));
+	col *= (1.15 + streak * (0.65 + pulse_boost));
+	float cam_dist = length(VERTEX);
+	float near_fade = smoothstep(1.2, 3.2, cam_dist);
+	ALBEDO = col;
+	ALPHA = clamp(halo * base_alpha * COLOR.a * near_fade * (0.72 + 0.28 * streak), 0.0, 1.0);
+}
+"""
+
 var _active_mesh_inst: MeshInstance3D = null
 var _preview_mesh_inst: MeshInstance3D = null
 var _ground_mesh_inst: MeshInstance3D = null
 var _ground_border_mesh_inst: MeshInstance3D = null
 var _tether_mesh_inst: MeshInstance3D = null
-var _active_mat: StandardMaterial3D = null
-var _preview_mat: StandardMaterial3D = null
+var _active_mat: ShaderMaterial = null
+var _preview_mat: ShaderMaterial = null
 var _ground_mat: StandardMaterial3D = null
 var _ground_border_mat: StandardMaterial3D = null
 var _segment_cache: Dictionary = {}
 var _last_paths: Array = []
 var _last_signature: String = ""
+
+
+func _create_neon_shader_mat(neon_col: Color, core_col: Color, alpha: float, speed: float) -> ShaderMaterial:
+	var sh := Shader.new()
+	sh.code = UNCRASHED_NEON_SHADER
+	var mat := ShaderMaterial.new()
+	mat.shader = sh
+	mat.set_shader_parameter("neon_color", Vector3(neon_col.r, neon_col.g, neon_col.b))
+	mat.set_shader_parameter("core_color", Vector3(core_col.r, core_col.g, core_col.b))
+	mat.set_shader_parameter("base_alpha", alpha)
+	mat.set_shader_parameter("pulse_speed", speed)
+	mat.set_shader_parameter("pulse_freq", 0.42)
+	mat.set_shader_parameter("pulse_boost", 0.35)
+	return mat
 
 
 func _init() -> void:
@@ -40,24 +81,14 @@ func _init() -> void:
 	_active_mesh_inst = MeshInstance3D.new()
 	_active_mesh_inst.name = "ActiveRouteRibbon"
 	_active_mesh_inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_active_mat = StandardMaterial3D.new()
-	_active_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_active_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_active_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	_active_mat.albedo_color = ACTIVE_COLOR
-	_active_mat.no_depth_test = false
+	_active_mat = _create_neon_shader_mat(ACTIVE_COLOR, ACTIVE_CORE_COLOR, 0.92, 10.5)
 	_active_mesh_inst.material_override = _active_mat
 	add_child(_active_mesh_inst)
 
 	_preview_mesh_inst = MeshInstance3D.new()
 	_preview_mesh_inst.name = "PreviewRouteRibbon"
 	_preview_mesh_inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_preview_mat = StandardMaterial3D.new()
-	_preview_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_preview_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_preview_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	_preview_mat.albedo_color = PREVIEW_COLOR
-	_preview_mat.no_depth_test = false
+	_preview_mat = _create_neon_shader_mat(PREVIEW_COLOR, PREVIEW_CORE_COLOR, 0.52, 7.5)
 	_preview_mesh_inst.material_override = _preview_mat
 	add_child(_preview_mesh_inst)
 
@@ -116,16 +147,9 @@ func clear_cache() -> void:
 func set_pulse(pulse01: float) -> void:
 	var p := clampf(pulse01, 0.0, 1.0)
 	if _active_mat != null:
-		_active_mat.albedo_color = ACTIVE_COLOR.lerp(ACTIVE_PEAK_COLOR, p * 0.65)
+		_active_mat.set_shader_parameter("pulse_boost", lerpf(0.20, 0.65, p))
 	if _preview_mat != null:
-		_preview_mat.albedo_color = Color(
-				PREVIEW_COLOR.r, PREVIEW_COLOR.g, PREVIEW_COLOR.b, lerpf(0.52, 0.78, p))
-	if _ground_mat != null:
-		_ground_mat.albedo_color = GROUND_COLOR.lerp(ACTIVE_PEAK_COLOR, p * 0.45)
-	if _ground_border_mat != null:
-		_ground_border_mat.albedo_color = Color(
-				GROUND_BORDER_COLOR.r, GROUND_BORDER_COLOR.g,
-				GROUND_BORDER_COLOR.b, lerpf(0.50, 0.68, p))
+		_preview_mat.set_shader_parameter("pulse_boost", lerpf(0.10, 0.35, p))
 
 
 func count_blocked_segments(space: PhysicsDirectSpaceState3D,
@@ -185,7 +209,7 @@ func update_route(gates: Array[Dictionary], active_idx: int,
 		active_paths.append(_get_or_build_segment(
 				"g_%d_%d" % [active_idx - 1, active_idx],
 				prev_g, cur_g, world_space, exclude_rids))
-		for off in range(4):
+		for off in range(3):
 			var a_i := active_idx + off
 			var b_i := a_i + 1
 			if b_i >= gates.size():
@@ -209,7 +233,7 @@ func update_route(gates: Array[Dictionary], active_idx: int,
 		if gates.size() > 1:
 			active_paths.append(_get_or_build_segment(
 					"g_0_1", gates[0], gates[1], world_space, exclude_rids))
-		for off in range(1, 5):
+		for off in range(1, 4):
 			var a_i := off
 			var b_i := a_i + 1
 			if b_i >= gates.size():
@@ -224,11 +248,11 @@ func update_route(gates: Array[Dictionary], active_idx: int,
 	for p_prev in preview_paths:
 		_last_paths.append(p_prev)
 
-	# All freestyle route lines and ground guide ribbons/tethers are disabled across every map.
+	# Single thin Uncrashed-style neon aerial filament only (never double ground lines/tethers).
 	if _active_mesh_inst != null:
-		_active_mesh_inst.mesh = null
+		_active_mesh_inst.mesh = _build_neon_filament_mesh(active_paths, ACTIVE_HALF_WIDTH, false)
 	if _preview_mesh_inst != null:
-		_preview_mesh_inst.mesh = null
+		_preview_mesh_inst.mesh = _build_neon_filament_mesh(preview_paths, PREVIEW_HALF_WIDTH, true)
 	if _ground_mesh_inst != null:
 		_ground_mesh_inst.mesh = null
 	if _ground_border_mesh_inst != null:
@@ -593,6 +617,153 @@ func _smooth_if_clear(pts: Array[Vector3], space: PhysicsDirectSpaceState3D,
 			out.append(pts[i + 1])
 	out.append(pts[pts.size() - 1])
 	return out
+
+
+func _smooth_spline_polyline(pts: PackedVector3Array, subdivs: int = 3) -> PackedVector3Array:
+	var n := pts.size()
+	if n < 3 or subdivs <= 1:
+		return pts
+	var out := PackedVector3Array()
+	out.append(pts[0])
+	for i in range(n - 1):
+		var p0: Vector3 = pts[maxi(i - 1, 0)]
+		var p1: Vector3 = pts[i]
+		var p2: Vector3 = pts[i + 1]
+		var p3: Vector3 = pts[mini(i + 2, n - 1)]
+		for s in range(1, subdivs + 1):
+			var t := float(s) / float(subdivs)
+			var t2 := t * t
+			var t3 := t2 * t
+			var c := 0.5 * (
+				(2.0 * p1)
+				+ (-p0 + p2) * t
+				+ (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+				+ (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3
+			)
+			if c.distance_squared_to(out[out.size() - 1]) > 0.0025:
+				out.append(c)
+	return out
+
+
+func _build_neon_filament_mesh(paths: Array, half_w: float, fade_tail: bool) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var has_verts := false
+
+	var smoothed_list: Array[PackedVector3Array] = []
+	var total_len := 0.0
+	for path_v in paths:
+		var raw_pts := path_v as PackedVector3Array
+		if raw_pts.size() < 2:
+			continue
+		var sp := _smooth_spline_polyline(raw_pts, 3)
+		if sp.size() < 2:
+			continue
+		smoothed_list.append(sp)
+		for i in range(sp.size() - 1):
+			total_len += sp[i].distance_to(sp[i + 1])
+
+	if smoothed_list.is_empty() or total_len < 0.05:
+		return null
+
+	var running_dist := 0.0
+	for p_idx in range(smoothed_list.size()):
+		var pts: PackedVector3Array = smoothed_list[p_idx]
+		var n := pts.size()
+		var sides: Array[Vector3] = []
+		var vups: Array[Vector3] = []
+		var arc_d: PackedFloat32Array = PackedFloat32Array()
+		sides.resize(n)
+		vups.resize(n)
+		arc_d.resize(n)
+
+		var prev_side := Vector3.RIGHT
+		for i in range(n):
+			if i == 0:
+				arc_d[i] = running_dist
+			else:
+				running_dist += pts[i - 1].distance_to(pts[i])
+				arc_d[i] = running_dist
+			var fwd: Vector3
+			if i == 0:
+				fwd = pts[1] - pts[0]
+			elif i == n - 1:
+				fwd = pts[n - 1] - pts[n - 2]
+			else:
+				fwd = (pts[i + 1] - pts[i]).normalized() + (pts[i] - pts[i - 1]).normalized()
+			if fwd.length_squared() < 1e-5:
+				fwd = Vector3.FORWARD
+			else:
+				fwd = fwd.normalized()
+
+			var s_vec: Vector3
+			if i == 0:
+				s_vec = fwd.cross(Vector3.UP)
+				if s_vec.length_squared() < 1e-4:
+					s_vec = fwd.cross(Vector3.FORWARD)
+				s_vec = s_vec.normalized()
+			else:
+				s_vec = prev_side - fwd * prev_side.dot(fwd)
+				if s_vec.length_squared() < 1e-4:
+					s_vec = fwd.cross(Vector3.UP)
+					if s_vec.length_squared() < 1e-4:
+						s_vec = fwd.cross(Vector3.FORWARD)
+				s_vec = s_vec.normalized()
+			prev_side = s_vec
+			var u_vec := s_vec.cross(fwd).normalized()
+			sides[i] = s_vec * half_w
+			vups[i] = u_vec * half_w
+
+		for i in range(n - 1):
+			var a := pts[i]
+			var b := pts[i + 1]
+			if a.distance_squared_to(b) < 0.0004:
+				continue
+			var u0 := arc_d[i]
+			var u1 := arc_d[i + 1]
+			var alpha0 := 1.0
+			var alpha1 := 1.0
+			if fade_tail:
+				alpha0 = lerpf(1.0, 0.08, clampf(u0 / total_len, 0.0, 1.0))
+				alpha1 = lerpf(1.0, 0.08, clampf(u1 / total_len, 0.0, 1.0))
+			elif p_idx == 0 and u0 < 2.2:
+				alpha0 = clampf(u0 / 2.2, 0.12, 1.0)
+				alpha1 = clampf(u1 / 2.2, 0.12, 1.0)
+			var c0 := Color(1.0, 1.0, 1.0, alpha0)
+			var c1 := Color(1.0, 1.0, 1.0, alpha1)
+
+			_emit_uv_quad(st, a - sides[i], a + sides[i], b + sides[i + 1], b - sides[i + 1],
+					u0, u1, c0, c1)
+			_emit_uv_quad(st, a - vups[i], a + vups[i], b + vups[i + 1], b - vups[i + 1],
+					u0, u1, c0, c1)
+			has_verts = true
+
+	if not has_verts:
+		return null
+	return st.commit()
+
+
+func _emit_uv_quad(st: SurfaceTool, v0: Vector3, v1: Vector3, v2: Vector3, v3: Vector3,
+		u0: float, u1: float, c0: Color, c1: Color) -> void:
+	st.set_color(c0)
+	st.set_uv(Vector2(u0, 0.0))
+	st.add_vertex(v0)
+	st.set_color(c0)
+	st.set_uv(Vector2(u0, 1.0))
+	st.add_vertex(v1)
+	st.set_color(c1)
+	st.set_uv(Vector2(u1, 1.0))
+	st.add_vertex(v2)
+
+	st.set_color(c0)
+	st.set_uv(Vector2(u0, 0.0))
+	st.add_vertex(v0)
+	st.set_color(c1)
+	st.set_uv(Vector2(u1, 1.0))
+	st.add_vertex(v2)
+	st.set_color(c1)
+	st.set_uv(Vector2(u1, 0.0))
+	st.add_vertex(v3)
 
 
 func _build_ribbon_mesh(paths: Array, half_w: float, arrow_spacing: float,
