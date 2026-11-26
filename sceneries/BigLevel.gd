@@ -177,6 +177,11 @@ var _heavy_bomber := false
 var _bomb_nodes: Array[Node3D] = []
 var _bomb_sight: BombSight = null
 var _bomb_cooldown := 0.0
+## Horizon-stabilised belly camera for bomber/dropper missions.  It is a level
+## child, not an airframe child, so pitch/roll oscillation never tilts the sight.
+var _bomb_drop_cam: Camera3D = null
+var _bomb_cam_active := false
+var _bomb_cam_zoom := 1
 ## Polled edges make payload switches work even when a radio maps an AUX
 ## toggle to a raw Joypad Axis instead of a Button/synthetic action.
 var _payload_axis_drop_prev := false
@@ -278,6 +283,9 @@ var _freestyle_landmark_aabbs: Array[AABB] = []
 var _pending_airframe_fail := false
 var _victory_scheduled := false
 var _pending_kamikaze_respawn := false
+## Wave B3: enemy FPV interceptors arrive mid-mission, never at t = 0.
+var _kamikaze_wave_triggered := false
+var _kamikaze_wave_count := 0
 var _airframe_fail_timer: Timer = null
 var _kamikaze_respawn_timer: Timer = null
 var _victory_timer: Timer = null
@@ -443,6 +451,12 @@ func _ready() -> void:
 	_configure_dvr_profile()
 	super._ready()
 
+	# Freeze on entry: the spawn is resolved and the drone repositioned below,
+	# so no physics step may move it before the pilot actually arms.
+	var init_d := get_node_or_null("Drone") as RigidBody3D
+	if init_d != null:
+		init_d.freeze = true
+
 	# A retry/reload must always start unpaused and focused. Results menus set
 	# the tree paused, and a stale paused state after a reload used to swallow
 	# the first Space press (so the drone would not arm).
@@ -504,6 +518,21 @@ func _ready() -> void:
 	# Let the freshly instantiated map register its collision before probing it.
 	await get_tree().physics_frame
 	await get_tree().physics_frame
+	if _is_authored_glb_map():
+		# Authored GLB maps bring their static bodies in over several physics
+		# ticks.  Wait until a layer-1 surface actually answers a downward
+		# probe, but never longer than six frames in total.
+		for _probe_frame in range(4):
+			var w3d := get_world_3d()
+			var probe_space := w3d.direct_space_state if w3d != null else null
+			if probe_space != null:
+				var probe := PhysicsRayQueryParameters3D.create(
+						Vector3(0.0, 300.0, 0.0), Vector3(0.0, -300.0, 0.0))
+				probe.collision_mask = 1
+				var probe_hit := probe_space.intersect_ray(probe)
+				if not probe_hit.is_empty():
+					break
+			await get_tree().physics_frame
 
 	# PauseMenu defers MobileMenu._ready(), which reloads Menu.cfg / HUD.cfg on
 	# frame 1 and can clobber env-var or menu-chosen flight mode/preset/HUD.
@@ -567,7 +596,11 @@ func _ready() -> void:
 	_hide_drone_visuals(d)
 	var preset_drone := get_node_or_null("Drone")
 	if preset_drone != null:
-		DroneCatalog.apply_to_drone(preset_drone, Global.drone_preset)
+		# Level._ready() already applies Global.drone_preset before BigLevel
+		# runs.  Only re-apply when the preset actually changed (e.g. an env
+		# override); a second full apply duplicated model/rig setup at startup.
+		if int(preset_drone.get("current_preset_index")) != Global.drone_preset:
+			DroneCatalog.apply_to_drone(preset_drone, Global.drone_preset)
 		_model_root = preset_drone.get_node_or_null("DroneModel") as Node3D
 
 	var cam := get_node_or_null("Drone/FPVCamera") as Camera3D
@@ -1249,6 +1282,30 @@ func _tune_map_environment() -> void:
 				sun.light_energy = 2.95
 				sun.light_color = Color(0.95, 0.84, 0.72)
 				sun.light_volumetric_fog_energy = 3.4
+		"promzona_plavni":
+			# Balanced clear coastal-industrial grade: cool haze over the canal
+			# and marsh, warm concrete and steel in the north yard.
+			env.fog_light_color = Color(0.60, 0.68, 0.72)
+			env.fog_light_energy = 0.54
+			env.fog_density = 0.00026
+			env.fog_aerial_perspective = 0.48
+			env.volumetric_fog_density = 0.0014
+			env.ambient_light_energy = 0.97
+			env.ambient_light_sky_contribution = 0.77
+			env.tonemap_exposure = 1.21
+			amb_col = Color(0.45, 0.56, 0.65)
+			bg_energy = 1.03
+			contrast = 1.05
+			saturation = 1.09
+			fog_h = _ground_y + 14.0
+			fog_h_dens = 0.0110
+			fill_col = Color(0.54, 0.68, 0.86)
+			fill_energy = 0.57
+			if sun != null:
+				sun.rotation_degrees = Vector3(-33.0, 50.0, 0.0)
+				sun.light_energy = 2.92
+				sun.light_color = Color(0.96, 0.86, 0.70)
+				sun.light_volumetric_fog_energy = 3.4
 		"village":
 			env.fog_light_color = Color(0.77, 0.76, 0.68)
 			env.fog_light_energy = 0.52
@@ -1743,6 +1800,12 @@ func _map_path() -> String:
 func _load_map() -> void:
 	if _map_root == null:
 		return
+	if frontline_map == "promzona_plavni":
+		# Merged 768 m Promzona/Plavni battlefield: keep the full authored
+		# dike/canal/industrial layout inside the playable envelope.
+		MAP_FLIGHT_BOUND = 376.0
+		MAP_GROUND_SAFE = 328.0
+		MAP_AIR_SAFE = 362.0
 	var path := _map_path()
 	if path == "":
 		# Frontline maps build their own procedural clipmap terrain.  This has
@@ -1940,6 +2003,13 @@ func _is_ground_spot_clear(x: float, z: float) -> bool:
 			if p2.distance_to(Vector2(sc3.x, sc3.y)) < sc3.z + 2.0:
 				return false
 		var h := _terrain_height_at(x, z)
+		if frontline_map == "promzona_plavni":
+			var canal_z := 10.0 + 12.0 * sin(x * 0.012)
+			var on_span := (absf(x + 110.0) < 10.5 or absf(x - 110.0) < 10.5) \
+					and absf(z - canal_z) < 24.0
+			if on_span:
+				return true
+			return h >= _map_water_level() + 0.42
 		if frontline_map == "industrial":
 			var on_bridge := absf(x) < 16.0
 			var riv_z := -170.0 + 10.0 * sin(x * 0.015)
@@ -1967,10 +2037,15 @@ func _find_dry_spot(x: float, z: float) -> Vector2:
 			if _is_ground_spot_clear(px, pz):
 				return Vector2(px, pz)
 	var best := Vector2(clampf(x, -148.0, 148.0), clampf(z, -148.0, 148.0))
+	var scan_limit := 136
+	if frontline_map == "promzona_plavni":
+		scan_limit = int(MAP_GROUND_SAFE) - 12
+		best = Vector2(clampf(x, -float(scan_limit), float(scan_limit)),
+				clampf(z, -float(scan_limit), float(scan_limit)))
 	var best_d2 := 1.0e12
 	var orig := Vector2(x, z)
-	for gx in range(-136, 137, 24):
-		for gz in range(-136, 137, 24):
+	for gx in range(-scan_limit, scan_limit + 1, 24):
+		for gz in range(-scan_limit, scan_limit + 1, 24):
 			if _is_ground_spot_clear(float(gx), float(gz)):
 				var cand := Vector2(float(gx), float(gz))
 				var d2 := cand.distance_squared_to(orig)
@@ -2065,6 +2140,13 @@ func _sanitize_ground_waypoints(wps: Array, closed_loop: bool = true) -> Array:
 			var proj_t := clampf((c_xz - Vector2(cur_a.x, cur_a.z)).dot(seg_ab) / seg_l2, 0.05, 0.95)
 			var closest := Vector2(cur_a.x, cur_a.z) + seg_ab * proj_t
 			if closest.distance_to(c_xz) < rad:
+				if frontline_map == "promzona_plavni":
+					var canal_z := 10.0 + 12.0 * sin(closest.x * 0.012)
+					var on_bridge := (absf(closest.x + 110.0) < 10.5 \
+							or absf(closest.x - 110.0) < 10.5) \
+							and absf(closest.y - canal_z) < 25.0
+					if on_bridge:
+						continue
 				var perp := Vector2(-seg_ab.y, seg_ab.x).normalized()
 				var side1 := c_xz + perp * (rad + 4.0)
 				var side2 := c_xz - perp * (rad + 4.0)
@@ -2144,9 +2226,14 @@ func _spawn_ground_height(x: float, z: float) -> float:
 	var hit := space.intersect_ray(query)
 	if not hit.is_empty():
 		var hy: float = (hit["position"] as Vector3).y
-		# Only accept the ray when it agrees with the rendered height field by
-		# a small margin.  A hall roof 20 m up or a tree trunk hit is ignored.
-		if absf(hy - surface) <= 1.25:
+		# Authored GLB maps carry their own collidable apron/bridge slabs, whose
+		# height can differ from the analytic surface by more than a metre, so
+		# any layer-1 hit is authoritative there.  On procedural maps keep the
+		# sanity envelope: a hall roof 20 m up or a tree trunk is not ground,
+		# while bridge/apron slabs within the band are.
+		if _is_authored_glb_map():
+			surface = hy
+		elif hy >= surface - 1.5 and hy <= surface + 2.5:
 			surface = hy
 	return surface
 
@@ -2189,6 +2276,17 @@ func _spawn_overlaps_geometry(x: float, z: float, ground: float) -> bool:
 ## using water_level() as a world-wide height wrongly rejected the dry hall
 ## apron (which sits only ~0.6 m above the river surface).
 func _spawn_is_wet(x: float, z: float, ground: float) -> bool:
+	# Promzona/Plavni: the canal is the only deep water, and both authored
+	# bridge decks are dry ground even though the analytic terrain below them
+	# is the canal bed.
+	if frontline_map == "promzona_plavni":
+		var canal_z := 10.0 + 12.0 * sin(x * 0.012)
+		var on_bridge := (absf(x + 110.0) < 10.5 or absf(x - 110.0) < 10.5) \
+				and absf(z - canal_z) < 24.0
+		if on_bridge:
+			return false
+		var canal_wl := _map_water_level()
+		return canal_wl > -100.0 and ground < canal_wl + 0.42
 	# The forest river is authored in the terrain GLB, not in the analytic
 	# frontline height field, so check it before the generic water guard.
 	if frontline_map == "lis_forest_freestyle":
@@ -2251,7 +2349,11 @@ func _place_drone_over_ground() -> void:
 	_spawn_inside_hall = false
 	if Global.play_mode == Global.PlayMode.TUTORIAL:
 		# Flight-school strip centered inside the compact arena bounds.
-		var tut_spawn := _find_dry_spot(-48.0, 138.0)
+		var tut_origin := Vector2(-48.0, 138.0)
+		if frontline_map == "promzona_plavni":
+			# Straight down the flat dry training strip at X = -225.
+			tut_origin = Vector2(-225.0, 145.0)
+		var tut_spawn := _find_dry_spot(tut_origin.x, tut_origin.y)
 		respawn.global_position = Vector3(tut_spawn.x, respawn.global_position.y,
 				tut_spawn.y)
 		respawn.rotation = Vector3.ZERO
@@ -2259,7 +2361,10 @@ func _place_drone_over_ground() -> void:
 		if Global.combat_training:
 			# Combat training reuses the clear north-field strip of the village
 			# map, so the tank always sits on open, obstacle-free ground.
-			var ct_spawn := _find_dry_spot(-48.0, 138.0)
+			var ct_origin := Vector2(-48.0, 138.0)
+			if frontline_map == "promzona_plavni":
+				ct_origin = Vector2(-225.0, 145.0)
+			var ct_spawn := _find_dry_spot(ct_origin.x, ct_origin.y)
 			respawn.global_position = Vector3(ct_spawn.x, respawn.global_position.y,
 					ct_spawn.y)
 			respawn.rotation = Vector3.ZERO
@@ -2271,6 +2376,10 @@ func _place_drone_over_ground() -> void:
 			# High vantage point overlooking the 44m yellow crane and stunt complex
 			respawn.global_position = Vector3(16.0, respawn.global_position.y, 18.0)
 			respawn.rotation = Vector3(deg_to_rad(-8.0), deg_to_rad(-43.0), 0.0)
+		elif frontline_map == "promzona_plavni":
+			# Freestyle launch on the southern dike, aimed straight at Ring 1.
+			respawn.global_position = Vector3(-110.0, respawn.global_position.y, 235.0)
+			respawn.rotation = Vector3.ZERO
 		elif frontline_map != "" and not FrontlineTerrainScript.HALL_SITES.get(frontline_map, {}).is_empty():
 			# Start on the apron OUTSIDE the hero hall.  The old interior spawn
 			# put the drone on the hall floor/road and the first view was often
@@ -2300,7 +2409,12 @@ func _place_drone_over_ground() -> void:
 		# the first move is: arm, climb through the skylight or fly out of the
 		# door, then search for the target block.
 		var site: Dictionary = FrontlineTerrainScript.HALL_SITES.get(frontline_map, {})
-		if not site.is_empty():
+		if frontline_map == "promzona_plavni":
+			# Southern Launch Plateau: overlooks Plavni canals, both bridges
+			# and the North Promzona industrial yard.
+			respawn.global_position = Vector3(0.0, respawn.global_position.y, 275.0)
+			respawn.rotation = Vector3.ZERO
+		elif not site.is_empty():
 			var c: Vector2 = site["center"]
 			var half: Vector2 = site["half"]
 			var spawn: Vector2 = site.get("spawn", Vector2(c.x, c.y + half.y + 26.0))
@@ -2375,11 +2489,21 @@ func _place_drone_over_ground() -> void:
 		# documented 0.3-0.5 m safe offset, with skids clear of its collider.
 		var barrel_top := _setup_launch_barrel(Vector3(respawn.global_position.x,
 				_ground_y, respawn.global_position.z))
-		target.y = maxf(_ground_y + SPAWN_SAFE_OFFSET, _ground_y + barrel_top + 0.03)
+		# The spawn pad's collider top sits 0.16 m above the ground.  Clear it
+		# by the live body half-height (+ a small margin) instead of assuming
+		# the old fixed skid height.
+		var half_y := 0.15
+		var body_col := d.get_node_or_null("BodyCol") as CollisionShape3D
+		if body_col != null and body_col.shape is BoxShape3D:
+			half_y = (body_col.shape as BoxShape3D).size.y * 0.5
+		target.y = maxf(_ground_y + maxf(SPAWN_SAFE_OFFSET, 0.16 + half_y + 0.04),
+				_ground_y + barrel_top + half_y + 0.02)
 	respawn.global_position = target
 	if not _spawn_inside_hall:
 		_add_spawn_pad(Vector2(target.x, target.z), _ground_y)
 	d.global_transform = respawn.global_transform
+	# A teleport must not be read as a hard landing on the very next step.
+	d.reset_motion_history()
 	_drone_prev_pos = d.global_position
 	_drone_last_speed = 0.0
 	_drone_peak_speed = 0.0
@@ -2424,6 +2548,21 @@ func _add_spawn_pad(p: Vector2, y: float) -> void:
 		pad.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(pad)
 	pad.position = Vector3(p.x, y + 0.08, p.y)
+	var pad_col := pad.get_node_or_null("SpawnPadCol") as StaticBody3D
+	if pad_col == null:
+		pad_col = StaticBody3D.new()
+		pad_col.name = "SpawnPadCol"
+		pad_col.collision_layer = 1
+		pad_col.collision_mask = 1
+		var pad_shape := CollisionShape3D.new()
+		var pad_box := BoxShape3D.new()
+		pad_box.size = Vector3(8.0, 1.0, 8.0)
+		pad_shape.shape = pad_box
+		# The visual box is 0.16 m tall and centred at +0.08; -0.42 puts the
+		# 1.0 m collider's top exactly flush with the pad surface (+0.08).
+		pad_shape.position = Vector3(0.0, -0.42, 0.0)
+		pad_col.add_child(pad_shape)
+		pad.add_child(pad_col)
 
 
 ## F2: freeze the airframe for one rendered frame, grab the viewport and put
@@ -2441,7 +2580,12 @@ func _capture_player_screenshot() -> void:
 		d.linear_velocity = Vector3.ZERO
 		d.angular_velocity = Vector3.ZERO
 	await RenderingServer.frame_post_draw
-	var image := get_viewport().get_texture().get_image()
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
+	var vp := get_viewport()
+	if vp == null or vp.get_texture() == null:
+		return
+	var image := vp.get_texture().get_image()
 	var base := OS.get_executable_path().get_base_dir()
 	if not OS.has_feature("template"):
 		base = ProjectSettings.globalize_path("res://")
@@ -2564,9 +2708,13 @@ func _setup_launch_barrel(pos: Vector3) -> float:
 func _on_drone_armed(_mode: int) -> void:
 	var d := get_node_or_null("Drone") as Drone
 	if d != null:
+		# Clear velocities from the frozen spawn/reset first, so the first
+		# physics step cannot interpret the teleport as a hard impact.
+		d.linear_velocity = Vector3.ZERO
+		d.angular_velocity = Vector3.ZERO
+		d.reset_motion_history()
 		# Unfreeze smoothly so throttle lifts off from the barrel without dropping
 		d.freeze = false
-		d.linear_velocity = Vector3.UP * 0.1
 		if d.flight_controller != null and d.flight_controller.flight_mode == FlightController.FlightMode.AUTO:
 			if d.flight_controller.has_method("restore_preferred_flight_mode"):
 				d.flight_controller.call("restore_preferred_flight_mode")
@@ -2598,6 +2746,8 @@ func _on_respawned() -> void:
 	_kill_cam_paused_drone = false
 	_pending_kamikaze_respawn = false
 	_pending_airframe_fail = false
+	_kamikaze_wave_triggered = false
+	_deactivate_bomb_drop_camera()
 	_active_dropped_payloads = 0
 	_pending_post_drop_rearm = false
 	_airframe_consumed_this_life = false
@@ -2755,6 +2905,8 @@ func _resolve_airframe_exhausted() -> void:
 func _start_mission() -> void:
 	_mission_started = true
 	_mission_time = 0.0
+	_kamikaze_wave_triggered = false
+	_kamikaze_wave_count = 0
 	_freestyle_ghost_saved_once = false
 	_payload_drops = 0
 	_payload_hits = 0
@@ -3577,6 +3729,13 @@ func _training_ring_map_clearance(x: float, z: float) -> bool:
 			return false
 		if p.distance_to(Vector2(45.0, -40.0)) < 50.0:
 			return false
+	# Promzona gantry and tower cranes sweep the north yard; keep detached
+	# checkpoints out of both full operating envelopes.
+	if frontline_map == "promzona_plavni":
+		if p.distance_to(Vector2(105.0, -105.0)) < 76.0:
+			return false
+		if p.distance_to(Vector2(-150.0, -210.0)) < 76.0:
+			return false
 	return true
 
 
@@ -3724,9 +3883,22 @@ func _collect_freestyle_landmark_aabbs() -> Array[AABB]:
 	return out
 
 
+## Terrain probe used by the freestyle course.  On Promzona/Plavni the two
+## bridge decks are treated as walkable/flyable ground instead of canal bed.
+func _freestyle_ground_height(x: float, z: float) -> float:
+	var gy := _find_ground_y(x, z)
+	if frontline_map == "promzona_plavni":
+		var canal_z := 10.0 + 12.0 * sin(x * 0.012)
+		var on_bridge := (absf(x + 110.0) < 10.5 or absf(x - 110.0) < 10.5) \
+				and absf(z - canal_z) < 24.0
+		if on_bridge:
+			gy = maxf(gy, 1.15)
+	return gy
+
+
 func _freestyle_gate_clear(pos: Vector3, radius: float,
 		dir: Vector3 = Vector3.ZERO) -> bool:
-	var gy := _find_ground_y(pos.x, pos.z)
+	var gy := _freestyle_ground_height(pos.x, pos.z)
 	if frontline_map == "uman":
 		if has_method("_uman_is_water") and bool(call("_uman_is_water", pos)) and pos.y < 2.2:
 			return false
@@ -3734,6 +3906,14 @@ func _freestyle_gate_clear(pos: Vector3, radius: float,
 		var wl := _map_water_level()
 		if pos.y - maxf(gy, wl) < 2.8:
 			return false
+	elif frontline_map == "promzona_plavni":
+		var canal_z := 10.0 + 12.0 * sin(pos.x * 0.012)
+		var on_bridge := (absf(pos.x + 110.0) < 10.5 or absf(pos.x - 110.0) < 10.5) \
+				and absf(pos.z - canal_z) < 24.0
+		if not on_bridge:
+			var wl := _map_water_level()
+			if pos.y - maxf(gy, wl) < 2.8:
+				return false
 	elif frontline_map == "industrial":
 		if Vector2(pos.x - 85.0, pos.z + 95.0).length() < 36.0 and pos.y - gy < 34.0:
 			return false
@@ -3761,7 +3941,7 @@ func _freestyle_gate_clear(pos: Vector3, radius: float,
 	if dir.length_squared() > 0.1:
 		for dist in [-4.8, 4.8]:
 			var pt := pos + fwd * float(dist)
-			var pt_gy := _find_ground_y(pt.x, pt.z)
+			var pt_gy := _freestyle_ground_height(pt.x, pt.z)
 			if pt.y - pt_gy >= 2.2:
 				probe_offsets.append(fwd * float(dist))
 				probe_radii.append(minf(radius * 0.62, maxf(1.5, pt.y - pt_gy - 0.35)))
@@ -3832,8 +4012,9 @@ func _freestyle_clear_gate_positions(specs: Array[Dictionary]) -> void:
 			continue
 		for mv in moves:
 			var cand := pos + mv
-			var gy := _find_ground_y(cand.x, cand.z)
-			var base_y := maxf(gy, wl) if (frontline_map == "wetlands" or frontline_map == "uman") else gy
+			var gy := _freestyle_ground_height(cand.x, cand.z)
+			var base_y := maxf(gy, wl) if (frontline_map == "wetlands" \
+					or frontline_map == "uman" or frontline_map == "promzona_plavni") else gy
 			var agl := cand.y - base_y
 			if agl < 2.8 or agl > 52.0:
 				continue
@@ -3856,7 +4037,7 @@ func _freestyle_clear_gate_positions(specs: Array[Dictionary]) -> void:
 			if not leg_blocked:
 				break
 			p1.y += 3.5
-			var gy1 := _find_ground_y(p1.x, p1.z)
+			var gy1 := _freestyle_ground_height(p1.x, p1.z)
 			if p1.y - gy1 <= 52.0 and _freestyle_gate_clear(p1, 2.6):
 				specs[i + 1]["pos"] = p1
 			else:
@@ -3887,7 +4068,7 @@ func _freestyle_clear_gate_positions(specs: Array[Dictionary]) -> void:
 		var sp: Dictionary = specs[i]
 		var pos: Vector3 = sp["pos"]
 		var sz := float(sp.get("size", 4.6))
-		var gy := _find_ground_y(pos.x, pos.z)
+		var gy := _freestyle_ground_height(pos.x, pos.z)
 		var fdir: Vector3 = sp["dir"]
 		var flat_dir := Vector3(fdir.x, 0.0, fdir.z)
 		if flat_dir.length_squared() < 0.0001:
@@ -3896,8 +4077,8 @@ func _freestyle_clear_gate_positions(specs: Array[Dictionary]) -> void:
 		var leg_r := sz * 0.92
 		var lp := pos - right_axis * leg_r
 		var rp := pos + right_axis * leg_r
-		var lgy := _find_ground_y(lp.x, lp.z)
-		var rgy := _find_ground_y(rp.x, rp.z)
+		var lgy := _freestyle_ground_height(lp.x, lp.z)
+		var rgy := _freestyle_ground_height(rp.x, rp.z)
 		var over_water := false
 		if frontline_map == "uman" and has_method("_uman_is_water"):
 			over_water = bool(call("_uman_is_water", pos)) \
@@ -3922,7 +4103,7 @@ func _freestyle_clear_gate_positions(specs: Array[Dictionary]) -> void:
 ## landmark facades, or a tight scenery loop.  Returns false when a map has no
 ## authored layout, so the generic safe-course builder can still take over.
 func _build_freestyle_ring_positions() -> bool:
-	var ground_fn := Callable(self, "_find_ground_y")
+	var ground_fn := Callable(self, "_freestyle_ground_height")
 	var specs: Array[Dictionary] = []
 	var map := frontline_map
 	if has_method("_authored_freestyle_waypoints"):
@@ -3933,6 +4114,8 @@ func _build_freestyle_ring_positions() -> bool:
 		if map == "uman":
 			specs = FreestyleCourseScript.loop_waypoints(
 					FreestyleCourseScript.UMAN_WAYPOINTS, ground_fn)
+		elif map == "promzona_plavni":
+			specs = FreestyleCourseScript.hall_waypoints(map, ground_fn)
 		elif map == "airport" or not FrontlineTerrainScript.HALL_SITES.get(map, {}).is_empty():
 			if map == "airport":
 				var landmarks: Array = []
@@ -3952,7 +4135,7 @@ func _build_freestyle_ring_positions() -> bool:
 			specs = FreestyleCourseScript.loop_waypoints(loop, ground_fn)
 	# Pull any gate away from dynamic props, trees, cranes or walls across every map.
 	_freestyle_clear_gate_positions(specs)
-	if specs.size() < FreestyleCourseScript.RING_COUNT:
+	if specs.size() < FreestyleCourseScript.expected_ring_count(map):
 		return false
 	_sweep_trees_near_freestyle_gates(specs)
 	_freestyle_ring_specs = specs
@@ -4339,7 +4522,8 @@ func _update_course_route_guide() -> void:
 	var origin_pt: Vector3 = d.global_position if d != null else (respawn.global_position if respawn != null else Vector3.INF)
 	var space := get_world_3d().direct_space_state if get_world_3d() != null else null
 	if space != null:
-		_route_guide.call("update_route", gates, _rings_passed, space, exclude_rids, origin_pt)
+		_route_guide.call("update_route", gates, _rings_passed, space, exclude_rids, origin_pt,
+				frontline_map, _map_water_level())
 
 
 func _spawn_ring_pass_effect(ring_xf: Transform3D) -> void:
@@ -5410,47 +5594,95 @@ func _spawn_special_or_campaign() -> void:
 	_spawn_kamikaze_drones()
 
 
-## Один виклик для всіх 17 місій: OPERATOR — 1 дрон, ACE — 2, RECRUIT — 0.
-## Дрони є обов'язковими цілями й реально заважають (переслідують і завдають
-## шкоди), але не ламають завершення місії через kill-cam.
+## Wave B3: do NOT spawn interceptors at mission start.  The old opener put
+## 1-2 hunters in the air before the player had even armed, which turned every
+## sortie into a defensive scramble.  This only arms the mid-mission trigger.
 func _spawn_kamikaze_drones() -> void:
-	var count := 0
-	match Global.difficulty:
-		Global.Difficulty.OPERATOR:
-			count = 1
-		Global.Difficulty.ACE:
-			count = 2
-	if count <= 0 or Global.play_mode != Global.PlayMode.COMBAT:
+	_kamikaze_wave_triggered = false
+	_kamikaze_wave_count = 0
+
+
+## Mid-mission trigger: 40% of the objective list down, or 42 s airborne while
+## at least 85 m from the launch pad.  Runs once per life/mission window.
+func _maybe_trigger_kamikaze_wave() -> void:
+	if _kamikaze_wave_triggered or _mission_finished or not _mission_started:
 		return
-	var is_elim_sortie := (Global.special_mission <= 0 \
-			or Global.special_mission in [5, 6, 7, 8, 9, 10, 12])
-	var level_center := Vector3.ZERO
-	var respawn := get_node_or_null("Respawn") as Node3D
-	if respawn != null:
-		level_center = respawn.global_position
+	if Global.play_mode != Global.PlayMode.COMBAT:
+		return
+	# Combat-only check; a freestyle/training sortie can never reach here.
+	if Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training:
+		return
+	var progress_ready := false
+	if _mission_targets_total > 0:
+		var needed := 1
+		if _mission_targets_total > 2:
+			needed = int(ceil(float(_mission_targets_total) * 0.40))
+		progress_ready = _mission_targets_destroyed >= needed
+	var far_ready := false
+	if _mission_time >= 42.0:
+		var pad := get_node_or_null("Respawn") as Node3D
+		var pad_xz := Vector2.ZERO
+		if pad != null:
+			pad_xz = Vector2(pad.global_position.x, pad.global_position.z)
+		var player := get_node_or_null("Drone") as Node3D
+		if player != null:
+			var player_xz := Vector2(player.global_position.x, player.global_position.z)
+			far_ready = player_xz.distance_to(pad_xz) >= 85.0
+	if progress_ready or far_ready:
+		_kamikaze_wave_triggered = true
+		_spawn_kamikaze_wave()
+
+
+## Spawn 1-2 interceptors 210-260 m from the player, ahead/flank and inside the
+## flight bounds, at 25-45 m AGL.  They are a threat wave, not extra objectives,
+## so the mission target count is left untouched.
+func _spawn_kamikaze_wave() -> void:
+	var player := get_node_or_null("Drone") as Node3D
+	if player == null or not is_instance_valid(player):
+		return
+	var count := 2 if Global.difficulty == Global.Difficulty.ACE else 1
+	var fwd := -player.global_transform.basis.z
+	fwd.y = 0.0
+	if fwd.length_squared() < 0.0001:
+		fwd = Vector3.FORWARD
+	fwd = fwd.normalized()
+	var origin := player.global_position
+	var bound := MAP_AIR_SAFE - 6.0
 	for i in range(count):
-		var drone := KamikazeDroneScript.new()
-		drone.variant = i % 2
-		drone.name = "EnemyKamikaze%d" % i
-		var angle := TAU * float(i) / float(maxi(count, 1)) + 0.8
-		var radius: float = 120.0 + float(i) * 22.0
-		var sx := clampf(level_center.x + cos(angle) * radius, -MAP_AIR_SAFE, MAP_AIR_SAFE)
-		var sz := clampf(level_center.z + sin(angle) * radius, -MAP_AIR_SAFE, MAP_AIR_SAFE)
-		var clear := _ensure_enemy_xz_clearance(Vector2(sx, sz),
-				MIN_ENEMY_SPAWN_DIST_AIR, MAP_AIR_SAFE, true)
-		var gy := _find_ground_y(clear.x, clear.y)
-		var sy := maxf(level_center.y + 42.0 + float(i) * 12.0,
-				gy + 48.0 + float(i) * 12.0)
-		var spawn_pos := Vector3(clear.x, sy, clear.y)
-		drone.set_primary_target(is_elim_sortie)
-		add_child(drone)
-		drone.global_position = spawn_pos
-		if _mission_started:
-			drone.activate()
-		drone.destroyed.connect(_on_kamikaze_destroyed.bind(drone))
-		if is_elim_sortie:
-			_mission_targets_total += 1
-		print("[KAMIKAZE] spawned: ", drone.name, " primary=", is_elim_sortie, " at ", spawn_pos)
+		# Pick the ahead/flank heading that keeps the most distance inside the
+		# arena.  A fixed 240 m spike would otherwise clamp onto the perimeter
+		# whenever the player was near a map edge.
+		var best_pos := origin
+		var best_dist := -1.0
+		for offset in [0.0, 0.55, -0.55, 1.15, -1.15]:
+			var dir := fwd.rotated(Vector3.UP, float(offset))
+			var dist := randf_range(210.0, 260.0)
+			var cand := Vector3(
+					clampf(origin.x + dir.x * dist, -bound, bound),
+					0.0,
+					clampf(origin.z + dir.z * dist, -bound, bound))
+			var flat_dist := Vector2(cand.x - origin.x, cand.z - origin.z).length()
+			if flat_dist > best_dist:
+				best_dist = flat_dist
+				best_pos = cand
+		var gy := _find_ground_y(best_pos.x, best_pos.z)
+		var spawn_pos := Vector3(best_pos.x,
+				gy + randf_range(25.0, 45.0), best_pos.z)
+		var enemy := KamikazeDroneScript.new()
+		enemy.variant = (_kamikaze_wave_count + i) % 2
+		enemy.name = "EnemyKamikazeWave%d_%d" % [_kamikaze_wave_count, i]
+		enemy.set_primary_target(false)
+		add_child(enemy)
+		enemy.global_position = spawn_pos
+		enemy.activate()
+		enemy.destroyed.connect(_on_kamikaze_destroyed.bind(enemy))
+		_kamikaze_wave_count += 1
+		print("[KAMIKAZE] wave spawn: ", enemy.name, " at ", spawn_pos,
+				" dist=", roundf(best_dist))
+	var warning := _txt("УВАГА! ВОРОЖИЙ FPV-КАМІКАДЗЕ В СЕКТОРІ!",
+			"WARNING! ENEMY FPV KAMIKAZE IN SECTOR!")
+	_set_flash(warning)
+	_play_radio_callout(warning, false)
 
 
 func _on_kamikaze_destroyed(points: int, unit: Node = null) -> void:
@@ -5781,6 +6013,12 @@ func _setup_special_escort() -> void:
 	else:
 		var raw_pts: Array = []
 		match frontline_map:
+			"promzona_plavni":
+				# West concrete bridge north, then the east timber bridge south:
+				# every leg stays on the two dry dikes or their bridge decks.
+				raw_pts = [Vector2(-110.0, 240.0), Vector2(-110.0, 10.0),
+					Vector2(-110.0, -140.0), Vector2(110.0, -140.0),
+					Vector2(110.0, 10.0), Vector2(110.0, 210.0)]
 			"village":
 				raw_pts = [Vector2(-115.0, -22.0), Vector2(-65.0, -17.0), Vector2(-20.0, -10.0), Vector2(45.0, -16.0), Vector2(115.0, -18.0)]
 			"industrial":
@@ -5852,14 +6090,24 @@ func _setup_special_escort() -> void:
 		_add_vehicle(Vehicle.Kind.APC, [ambush, ambush + Vector3(42.0, 0.0, 18.0)],
 				5.5, true, false, 0.0, false, "btr8")
 	else:
-		_spawn_special_guards([
-			Vector3(-35.0, 0.0, 18.0), Vector3(24.0, 0.0, 16.0),
-			Vector3(82.0, 0.0, -42.0),
-		])
-		var ambush_route := _sanitize_ground_waypoints([
-			Vector3(24.0, 0.0, -48.0), Vector3(68.0, 0.0, -42.0),
-		])
-		_add_vehicle(Vehicle.Kind.APC, ambush_route, 5.5, true, false, 0.0, false, "btr8")
+		if frontline_map == "promzona_plavni":
+			_spawn_special_guards([
+				Vector3(-110.0, 0.0, 165.0), Vector3(110.0, 0.0, -130.0),
+				Vector3(42.0, 0.0, 115.0),
+			])
+			var promzona_ambush := _sanitize_ground_waypoints([
+				Vector3(-110.0, 0.0, 80.0), Vector3(-110.0, 0.0, 140.0),
+			])
+			_add_vehicle(Vehicle.Kind.APC, promzona_ambush, 5.5, true, false, 0.0, false, "btr8")
+		else:
+			_spawn_special_guards([
+				Vector3(-35.0, 0.0, 18.0), Vector3(24.0, 0.0, 16.0),
+				Vector3(82.0, 0.0, -42.0),
+			])
+			var ambush_route := _sanitize_ground_waypoints([
+				Vector3(24.0, 0.0, -48.0), Vector3(68.0, 0.0, -42.0),
+			])
+			_add_vehicle(Vehicle.Kind.APC, ambush_route, 5.5, true, false, 0.0, false, "btr8")
 
 
 func _point_on_route(route: Array[Vector3], t: float) -> Vector3:
@@ -5882,6 +6130,161 @@ func _point_on_route(route: Array[Vector3], t: float) -> Vector3:
 			return a.lerp(b, f)
 		walked += leg
 	return route[route.size() - 1]
+
+
+## Promzona/Plavni special-operation payloads.  Every zone, guard, vehicle
+## route and extraction point below sits on a dry dike, bridge deck, yard road
+## or the flat training strip; none crosses open canal/marsh water.
+func _spawn_promzona_special_mission(mission_id: int) -> void:
+	match mission_id:
+		1:
+			_add_special_zone(Vector3(-110.0, 0.0, 165.0), 34.0, 2.0, "РОЗВІДКА 1/3")
+			_add_special_zone(Vector3(42.0, 0.0, 115.0), 34.0, 2.0, "РОЗВІДКА 2/3")
+			_add_special_zone(Vector3(110.0, 0.0, -130.0), 34.0, 2.0, "РОЗВІДКА 3/3")
+			_spawn_special_guards([
+				Vector3(-110.0, 0.0, 145.0), Vector3(42.0, 0.0, 115.0),
+				Vector3(110.0, 0.0, -130.0),
+			])
+		2:
+			_setup_special_escort()
+		3:
+			_add_special_zone(Vector3(42.0, 0.0, 115.0), 30.0, 3.0, "ЕВАКУАЦІЯ · ПІЛОТ")
+			_add_special_zone(Vector3(-110.0, 0.0, 220.0), 42.0, 3.0, "ЕВАКУАЦІЯ · БАЗА")
+			_special_pickup_prop = _spawn_special_pickup_marker(
+					_special_zones[0]["pos"], true)
+			_spawn_special_guards([
+				Vector3(-110.0, 0.0, 165.0), Vector3(110.0, 0.0, -130.0),
+			])
+		4:
+			_add_special_zone(Vector3(-110.0, 0.0, 145.0), 30.0, 2.0, "ВАНТАЖ · ЗАБРАТИ")
+			_add_special_zone(Vector3(42.0, 0.0, 115.0), 32.0, 2.0, "ВАНТАЖ · ДОСТАВИТИ")
+			_special_pickup_prop = _spawn_special_pickup_marker(
+					_special_zones[0]["pos"], false)
+			_spawn_special_guards([
+				Vector3(110.0, 0.0, -130.0), Vector3(-110.0, 0.0, 165.0),
+			])
+		5:
+			_spawn_promzona_strike(false)
+		6:
+			_spawn_promzona_strike(true)
+		7:
+			_spawn_promzona_rear_convoy()
+		8:
+			_spawn_promzona_oreshnik(false)
+		9:
+			_spawn_promzona_oreshnik(true)
+		10:
+			_spawn_special_missile_intercept()
+		11:
+			_setup_special_dual_escort()
+		12:
+			_setup_promzona_dawn_defense()
+		13:
+			_spawn_promzona_sar_landing()
+
+
+func _spawn_promzona_strike(ew_breach: bool) -> void:
+	_add_vehicle(Vehicle.Kind.SAM, [
+		Vector3(-110.0, 0.0, -40.0), Vector3(-110.0, 0.0, -120.0),
+	], 4.5, true, true)
+	_mission_targets_total += 1
+	_add_vehicle(Vehicle.Kind.BMP, [
+		Vector3(110.0, 0.0, 60.0), Vector3(110.0, 0.0, 160.0),
+	], 8.8, true, true)
+	_mission_targets_total += 1
+	_spawn_special_guards([
+		Vector3(-110.0, 0.0, 165.0), Vector3(110.0, 0.0, -130.0),
+	], false, "spetsnaz" if ew_breach else "")
+	_add_aa_gun(Vector3(42.0, 0.0, 115.0), false)
+	if ew_breach:
+		_spawn_special_guards([Vector3(42.0, 0.0, 115.0)], false, "spetsnaz")
+		_add_aa_gun(Vector3(-110.0, 0.0, 145.0), false)
+
+
+func _spawn_promzona_rear_convoy() -> void:
+	_add_vehicle(Vehicle.Kind.APC, [
+		Vector3(-110.0, 0.0, 180.0), Vector3(-110.0, 0.0, -120.0),
+	], 8.6, true, true, 0.0, true, "btr8")
+	_mission_targets_total += 1
+	_add_vehicle(Vehicle.Kind.APC, [
+		Vector3(110.0, 0.0, -140.0), Vector3(110.0, 0.0, 190.0),
+	], 6.6, true, true, 0.0, true, "mtsm")
+	_mission_targets_total += 1
+	_add_vehicle(Vehicle.Kind.TRUCK, [
+		Vector3(-225.0, 0.0, -150.0), Vector3(-225.0, 0.0, 200.0),
+	], 7.4, true, false, 0.0, true, "ural")
+	_mission_targets_total += 1
+	_spawn_special_guards([
+		Vector3(-110.0, 0.0, 165.0), Vector3(110.0, 0.0, -130.0),
+		Vector3(42.0, 0.0, 115.0),
+	], true, "spetsnaz")
+	_add_aa_gun(Vector3(42.0, 0.0, 115.0), false)
+
+
+func _spawn_promzona_oreshnik(deep_strike: bool) -> void:
+	_add_vehicle(Vehicle.Kind.SAM, [
+		Vector3(-150.0, 0.0, -180.0), Vector3(-60.0, 0.0, -180.0),
+		Vector3(-60.0, 0.0, -100.0), Vector3(-150.0, 0.0, -100.0),
+	], 3.4 if deep_strike else 3.2, true, true, 0.0, true, "oreshnik")
+	_mission_targets_total += 1
+	_add_vehicle(Vehicle.Kind.APC, [
+		Vector3(110.0, 0.0, -140.0), Vector3(110.0, 0.0, 160.0),
+	], 9.0 if deep_strike else 8.4, true, true, 0.0, true, "btr8")
+	_mission_targets_total += 1
+	_spawn_special_guards([
+		Vector3(-110.0, 0.0, 165.0), Vector3(42.0, 0.0, 115.0),
+	], false, "spetsnaz" if deep_strike else "")
+	_add_aa_gun(Vector3(-110.0, 0.0, 145.0), false)
+	if deep_strike:
+		_add_vehicle(Vehicle.Kind.SAM, [
+			Vector3(150.0, 0.0, -230.0), Vector3(150.0, 0.0, -140.0),
+		], 4.5, true, true)
+		_mission_targets_total += 1
+		_add_vehicle(Vehicle.Kind.APC, [
+			Vector3(-110.0, 0.0, -180.0), Vector3(-110.0, 0.0, -80.0),
+		], 6.8, true, true, 0.0, true, "mtsm")
+		_mission_targets_total += 1
+		_spawn_special_guards([Vector3(110.0, 0.0, -130.0)], true, "spetsnaz")
+		_add_aa_gun(Vector3(42.0, 0.0, 115.0), false)
+
+
+func _setup_promzona_dawn_defense() -> void:
+	_dawn_defense_pos = _special_ground_point(0.0, 200.0)
+	_dawn_defense_beacon = _spawn_special_beacon(_dawn_defense_pos,
+			"ОПОРНИЙ ПУНКТ", Color(0.95, 0.76, 0.28))
+	var bmp_route := [
+		_special_ground_point(-110.0, 160.0),
+		_special_ground_point(-110.0, 80.0),
+	]
+	_add_vehicle(Vehicle.Kind.BMP, bmp_route, 7.2, true, true)
+	_mission_targets_total += 1
+	var apc_route := [
+		_special_ground_point(110.0, 160.0),
+		_special_ground_point(110.0, 80.0),
+	]
+	_add_vehicle(Vehicle.Kind.APC, apc_route, 7.8, true, true, 0.0, true, "btr8")
+	_mission_targets_total += 1
+	if Global.difficulty == Global.Difficulty.ACE:
+		var tank_route := [
+			_special_ground_point(-225.0, 150.0),
+			_special_ground_point(-225.0, 80.0),
+		]
+		_add_vehicle(Vehicle.Kind.TANK, tank_route, 5.4, true, true)
+		_mission_targets_total += 1
+	_spawn_special_guards([
+		Vector3(-110.0, 0.0, 165.0), Vector3(110.0, 0.0, 130.0),
+	], true, "spetsnaz")
+	_add_aa_gun(Vector3(-110.0, 0.0, 80.0), false)
+
+
+func _spawn_promzona_sar_landing() -> void:
+	_add_special_zone(Vector3(42.0, 0.0, 115.0), 32.0, 2.5, "РЯТУВАЛЬНА ЗОНА · ПОСАДКА")
+	_add_special_zone(Vector3(-110.0, 0.0, 220.0), 38.0, 2.5, "БАЗА · ПОСАДКА")
+	_special_pickup_prop = _spawn_special_pickup_marker(
+			_special_zones[0]["pos"], true)
+	_spawn_special_guards([
+		Vector3(-110.0, 0.0, 165.0), Vector3(110.0, 0.0, -130.0),
+	], false)
 
 
 func _spawn_special_mission(mission_id: int) -> void:
@@ -5910,6 +6313,8 @@ func _spawn_special_mission(mission_id: int) -> void:
 	_special_extract_active = false
 	_special_extract_hold = 0.0
 	_special_extract_point = _special_ground_point(10.0, 145.0)
+	if frontline_map == "promzona_plavni":
+		_special_extract_point = _special_ground_point(-110.0, 220.0)
 	_special_extract_beacon = null
 	_special_pickup_prop = null
 	_offset_targets = false
@@ -5918,6 +6323,17 @@ func _spawn_special_mission(mission_id: int) -> void:
 	_intercept_warned = false
 	_intercept_leaks = 0
 	_intercept_missiles.clear()
+
+	if frontline_map == "promzona_plavni":
+		_spawn_promzona_special_mission(mission_id)
+		if mission_id >= 5 and mission_id <= 10:
+			_special_extract_beacon = _spawn_special_beacon(_special_extract_point,
+					_txt("ВИХІД · БАЗА", "EXFIL · BASE"), Color(0.35, 0.95, 0.75))
+			_special_extract_beacon.visible = false
+		print("[BigLevel] spawned Special Operation %d (%s), targets=%d" % [
+			mission_id, Global.get_special_mission_name(mission_id), _mission_targets_total
+		])
+		return
 
 	match mission_id:
 		1:
@@ -6345,6 +6761,34 @@ func _setup_special_dual_escort() -> void:
 			if planned.size() >= 2 and planned[0].distance_to(_special_convoy_start) > 30.0:
 				route_b = planned
 				break
+	elif frontline_map == "promzona_plavni":
+		# East bridge first, then the west span on the return leg: the second
+		# convoy stays dry and runs opposite the primary route.
+		var promzona_raw_b: Array = [Vector2(110.0, 235.0), Vector2(110.0, 10.0),
+			Vector2(110.0, -140.0), Vector2(-110.0, -140.0),
+			Vector2(-110.0, 10.0), Vector2(-110.0, 205.0)]
+		var promzona_raw_b_pts: Array = []
+		for p2 in promzona_raw_b:
+			var v2: Vector2 = p2
+			promzona_raw_b_pts.append(_special_ground_point(v2.x, v2.y))
+		promzona_raw_b_pts = _sanitize_ground_waypoints(promzona_raw_b_pts, false)
+		var dense_b_route: Array[Vector3] = []
+		for wp in promzona_raw_b_pts:
+			var v: Vector3 = wp as Vector3
+			dense_b_route.append(_special_ground_point(v.x, v.z))
+		if dense_b_route.size() >= 2:
+			var densified_b: Array[Vector3] = []
+			for i in range(dense_b_route.size() - 1):
+				var a: Vector3 = dense_b_route[i]
+				var b: Vector3 = dense_b_route[i + 1]
+				densified_b.append(a)
+				var steps := maxi(1, int(ceil(a.distance_to(b) / 18.0)))
+				for s in range(1, steps):
+					var p := a.lerp(b, float(s) / float(steps))
+					var dry := _find_dry_spot(p.x, p.z)
+					densified_b.append(_special_ground_point(dry.x, dry.y))
+			densified_b.append(dense_b_route[dense_b_route.size() - 1])
+			route_b = densified_b
 	if route_b.size() < 2:
 		var base_pts: Array = [
 			Vector2(-108.0, 14.0), Vector2(-52.0, 24.0),
@@ -6573,6 +7017,115 @@ func get_special_objective_info() -> Dictionary:
 	return {}
 
 
+## Promzona/Plavni campaign layout.  Recon lives on the dry dikes, armour
+## crosses only on the two authored bridge decks, and the air sorties sweep
+## the full 768 m sector instead of the legacy compact arena.
+func _spawn_promzona_combat_mission(mission_id: int) -> void:
+	match mission_id:
+		1:
+			var spots := [
+				[Vector3(-110.0, 0.0, 145.0), Vector3(0.0, 0.0, 1.0), 16.0],
+				[Vector3(42.0, 0.0, 165.0), Vector3(1.0, 0.0, 0.0), 13.0],
+				[Vector3(110.0, 0.0, 155.0), Vector3(0.0, 0.0, -1.0), 15.0],
+				[Vector3(-35.0, 0.0, 190.0), Vector3(1.0, 0.0, 0.0), 12.0],
+			]
+			var per_spot := 2
+			if Global.difficulty == Global.Difficulty.RECRUIT:
+				per_spot = 1
+			for spot in spots:
+				var base: Vector3 = spot[0]
+				var axis: Vector3 = spot[1]
+				var patrol_dist := float(spot[2])
+				for k in range(per_spot):
+					var lateral := (float(k) - float(per_spot - 1) * 0.5) * 8.0
+					var p := base + Vector3(axis.z, 0.0, -axis.x) * lateral
+					var dry := _find_dry_spot(p.x, p.z)
+					var safe := _ensure_enemy_xz_clearance(
+							dry, 98.0, MAP_GROUND_SAFE - 18.0, false)
+					var variant := "spetsnaz" if (Global.difficulty == Global.Difficulty.ACE and k == 1) else ""
+					_add_mission_infantry(Vector3(safe.x, 0.0, safe.y), axis,
+							patrol_dist, 1.55, true, variant)
+		2:
+			var west_col := [
+				Vector3(-110.0, 0.0, 150.0), Vector3(-110.0, 0.0, 20.0),
+				Vector3(-110.0, 0.0, -180.0),
+			]
+			var east_col := [
+				Vector3(110.0, 0.0, 150.0), Vector3(110.0, 0.0, 20.0),
+				Vector3(110.0, 0.0, -180.0),
+			]
+			_add_vehicle(Vehicle.Kind.TANK, west_col, randf_range(5.2, 6.2), true, true)
+			_mission_targets_total += 1
+			_add_vehicle(Vehicle.Kind.APC, east_col, randf_range(9.8, 11.2), true, true)
+			_mission_targets_total += 1
+			if Global.difficulty != Global.Difficulty.RECRUIT:
+				_add_vehicle(Vehicle.Kind.BMP, [
+					Vector3(104.0, 0.0, -180.0), Vector3(104.0, 0.0, 20.0),
+					Vector3(104.0, 0.0, 150.0),
+				], 8.6, true, true)
+				_mission_targets_total += 1
+			_add_mission_infantry(Vector3(-110.0, 0.0, 165.0), Vector3(0.0, 0.0, 1.0), 14.0, 1.7, false)
+			_add_mission_infantry(Vector3(110.0, 0.0, -130.0), Vector3(0.0, 0.0, -1.0), 12.0, 1.7, false)
+			_add_aa_gun(Vector3(-155.0, 0.0, -120.0), false)
+			_add_aa_gun(Vector3(155.0, 0.0, 110.0), false)
+		3:
+			var heli_pts := []
+			for i in range(10):
+				var t := TAU * float(i) / 10.0
+				heli_pts.append(Vector3(cos(t) * 200.0, 0.0, -90.0 + sin(t) * 170.0))
+			var heli_alt := randf_range(32.0, 48.0)
+			_add_vehicle(Vehicle.Kind.HELI, heli_pts, randf_range(10.5, 12.5),
+					true, true, heli_alt)
+			_mission_targets_total += 1
+			_add_vehicle(Vehicle.Kind.SAM, [
+				Vector3(-150.0, 0.0, -230.0), Vector3(150.0, 0.0, -230.0),
+				Vector3(150.0, 0.0, -110.0), Vector3(-150.0, 0.0, -110.0),
+			], 4.2, true, true)
+			_mission_targets_total += 1
+			if Global.difficulty == Global.Difficulty.ACE:
+				_add_vehicle(Vehicle.Kind.BMP, [
+					Vector3(-110.0, 0.0, 130.0), Vector3(-110.0, 0.0, -80.0),
+				], 8.4, true, true)
+				_mission_targets_total += 1
+			_add_mission_infantry(Vector3(110.0, 0.0, 155.0), Vector3(1.0, 0.0, 0.0), 14.0, 1.7, false)
+			_add_aa_gun(Vector3(-110.0, 0.0, 145.0), false)
+			_add_aa_gun(Vector3(110.0, 0.0, 155.0), false)
+		4:
+			var p_pts1 := [
+				Vector3(-220.0, 0.0, 60.0), Vector3(-220.0, 0.0, -240.0),
+				Vector3(220.0, 0.0, -240.0), Vector3(220.0, 0.0, 60.0),
+			]
+			_add_vehicle(Vehicle.Kind.SHAHED, p_pts1,
+					randf_range(AIR_MISSION_SHAHED_SPEED.x, AIR_MISSION_SHAHED_SPEED.y),
+					true, false, randf_range(34.0, 42.0))
+			_mission_targets_total += 1
+			var p_pts2 := [
+				Vector3(180.0, 0.0, 40.0), Vector3(-180.0, 0.0, 40.0),
+				Vector3(-180.0, 0.0, -200.0), Vector3(180.0, 0.0, -200.0),
+			]
+			_add_vehicle(Vehicle.Kind.SHAHED, p_pts2,
+					randf_range(AIR_MISSION_SHAHED_SPEED.x, AIR_MISSION_SHAHED_SPEED.y),
+					true, false, randf_range(42.0, 52.0))
+			_mission_targets_total += 1
+			_add_vehicle(Vehicle.Kind.SAM, [
+				Vector3(-140.0, 0.0, -230.0), Vector3(-60.0, 0.0, -230.0),
+				Vector3(-60.0, 0.0, -120.0), Vector3(-140.0, 0.0, -120.0),
+			], 4.5, true, true)
+			_mission_targets_total += 1
+			if Global.difficulty != Global.Difficulty.RECRUIT:
+				_add_vehicle(Vehicle.Kind.BMP, [
+					Vector3(-110.0, 0.0, 180.0), Vector3(-110.0, 0.0, -120.0),
+				], 9.2, true, true)
+				_mission_targets_total += 1
+			if Global.difficulty == Global.Difficulty.ACE:
+				_add_vehicle(Vehicle.Kind.APC, [
+					Vector3(110.0, 0.0, -140.0), Vector3(110.0, 0.0, 190.0),
+				], 9.6, true, true, 0.0, true, "btr8")
+				_mission_targets_total += 1
+			_add_aa_gun(Vector3(42.0, 0.0, 165.0), false)
+			_add_aa_gun(Vector3(110.0, 0.0, 155.0), false)
+
+
 ## Structured 4-Stage Escalating Combat Missions (20-minute time limit per mission):
 ##   Mission 1: Find & destroy the enemy Infantry squad (6 patrolling soldiers).
 ##   Mission 2: Find & destroy the T-72 Tank and BTR-90 APC (guarded by infantry).
@@ -6586,6 +7139,15 @@ func _spawn_combat_mission(mission_id: int) -> void:
 	# Dynamic operational deployment zones per sortie (_mission_offset is added directly below).
 	_offset_targets = false
 	_mission_offset = Vector3(randf_range(-28.0, 28.0), 0.0, randf_range(-22.0, 22.0))
+
+	if frontline_map == "promzona_plavni":
+		_spawn_promzona_combat_mission(mission_id)
+		if mission_id != 1:
+			_spawn_frontline_bonus_targets()
+		print("[BigLevel] spawned Promzona/Plavni Combat Mission %d/4 with %d required targets" % [
+			mission_id, _mission_targets_total
+		])
+		return
 
 	match mission_id:
 		1:
@@ -6893,6 +7455,12 @@ func _spawn_reinforcement_wave() -> void:
 func _spawn_frontline_bonus_targets() -> void:
 	var spots: Array = []
 	match frontline_map:
+		"promzona_plavni":
+			spots = [
+				[Vector3(-110.0, 0.0, 165.0), Vector3(0.0, 0.0, 1.0), 14.0],
+				[Vector3(110.0, 0.0, -130.0), Vector3(0.0, 0.0, -1.0), 13.0],
+				[Vector3(42.0, 0.0, 115.0), Vector3(1.0, 0.0, 0.0), 15.0],
+			]
 		"village":
 			spots = [
 				[Vector3(-135.0, 0.0, 85.0), Vector3(1.0, 0.0, 0.0), 14.0],
@@ -7460,6 +8028,11 @@ func _setup_reb() -> void:
 	# to the procedural terrain so the masts always sit on the ground.
 	var domes: Array = []
 	match frontline_map:
+		"promzona_plavni":
+			domes = [
+				{"p": Vector2(-110, 165), "r": 195.0, "s": 0.88, "dir": false, "yaw": 0.0, "fov": 70.0},
+				{"p": Vector2(110, -130), "r": 185.0, "s": 0.86, "dir": true, "yaw": -155.0, "fov": 82.0},
+			]
 		"lis_forest_freestyle":
 			domes = [
 				{"p": Vector2(-150, -90), "r": 205.0, "s": 0.85, "dir": false, "yaw": 0.0, "fov": 75.0},
@@ -7959,6 +8532,9 @@ func _setup_fpv_camera_for_preset() -> void:
 	cam.near = float(p.get("fpv_cam_near", 0.05))
 	cam.far = 4000.0
 	cam.position = p.get("fpv_cam_pos", Vector3(0.0, 0.004, -0.053))
+	# Anti-clip reads this as the camera's home offset; keep it authoritative
+	# even when the lens is currently pulled back from nearby geometry.
+	cam.set_meta("desired_local_pos", cam.position)
 	cam.set_meta("base_pos", cam.position)
 	# Respect each preset's camera tilt with a gentle +3 deg sightline lift
 	# without ever pointing an FPV lens upward into the sky.
@@ -8159,27 +8735,9 @@ func _update_fpv_camera_fx(delta: float) -> void:
 		_dvr_sample_timer += delta
 		if _dvr_sample_timer >= 0.05:
 			_dvr_sample_timer = 0.0
-			_dvr_samples.append({
-				"pos": drone.global_position,
-				"rot": drone.global_rotation,
-				"cam_pos": cam.global_position,
-				"cam_rot": cam.global_rotation,
-				"cam_fov": cam.fov,
-			})
-			if _dvr_samples.size() > 300:
-				_dvr_samples.pop_front()
-		# Record the real FPV picture, not only transforms.  A small rolling
-		# buffer is enough for the debrief replay.  The previous implementation
-		# teleported the live drone around the current world, so the "replay"
-		# looked like gameplay with a REC banner on top.
-		# Frame capture used to be gated behind MEDIUM/HIGH quality and disabled
-		# on mobile altogether.  That left _dvr_frames empty on LOWSPEC/iOS, so
-		# the debrief showed only a frozen camera-path flyby (or "NO RECORDING")
-		# instead of real footage.  Everywhere now records a small rolling
-		# buffer; _configure_dvr_profile() picks cheaper settings on phones.
-		_dvr_frame_timer += delta
-		if _dvr_frame_timer >= 1.0 / float(_dvr_fps):
-			_dvr_frame_timer = 0.0
+			# Transform/velocity/time telemetry only.  The old per-second
+			# viewport readback stalled the render thread; replay now flies
+			# the recorded camera path, and F2 is the sole still-image path.
 			_capture_dvr_frame()
 	# Low-altitude radio horizon multipath scanlines (when flying standard radio below 2.6 m)
 	if _hud != null and _analog_bar_a == null:
@@ -8369,12 +8927,17 @@ func _on_hud_config_rig_updated() -> void:
 ## Removes the persistent loading card created by MainMenu/HelpScreen once the
 ## level has built its terrain and is ready to draw.
 func _dismiss_global_loading_overlay() -> void:
-	var overlay := get_tree().root.get_node_or_null("GlobalLoadingOverlay")
+	var tree := get_tree()
+	if tree == null:
+		return
+	var overlay := tree.root.get_node_or_null("GlobalLoadingOverlay")
 	if overlay == null:
 		# QA: a directly launched scene has no menu loading card, but the
 		# prewarm can still be exercised and timed.
 		if OS.has_environment("DRONE_PREWARM_TEST"):
 			await _prewarm_scene_rendering()
+			if not is_inside_tree() or not is_instance_valid(self):
+				return
 		return
 	# Pay the shader/texture/shadow-cascade upload cost while the loading card
 	# is still covering the screen.  Without this the first frame after the
@@ -8385,9 +8948,16 @@ func _dismiss_global_loading_overlay() -> void:
 			and not OS.has_environment("DRONE_SCREENSHOT") \
 			and not OS.has_environment("DRONE_FPS_BENCH"):
 		await _prewarm_scene_rendering()
-	await get_tree().process_frame
-	await get_tree().process_frame
-	overlay.queue_free()
+		if not is_inside_tree() or not is_instance_valid(self):
+			return
+	await tree.process_frame
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
+	await tree.process_frame
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
+	if is_instance_valid(overlay):
+		overlay.queue_free()
 
 
 ## One full yaw sweep from the spawn (plus a look down at the apron) with the
@@ -8395,10 +8965,14 @@ func _dismiss_global_loading_overlay() -> void:
 ## at least once behind the loading card, so the first controlled frame is
 ## smooth on both the discrete GPU and the Intel UHD target.
 func _prewarm_scene_rendering() -> void:
-	var drone := get_node_or_null("Drone") as Drone
-	if drone == null:
+	var tree := get_tree()
+	if tree == null:
 		return
-	var prev := get_viewport().get_camera_3d()
+	var drone := get_node_or_null("Drone") as Drone
+	if drone == null or not is_instance_valid(drone):
+		return
+	var vp := get_viewport()
+	var prev: Camera3D = vp.get_camera_3d() if vp != null else null
 	var cam := Camera3D.new()
 	cam.name = "PrewarmCamera"
 	cam.fov = 90.0
@@ -8426,9 +9000,18 @@ func _prewarm_scene_rendering() -> void:
 		ReconKillCamScript.prewarm()
 		cam.global_position = eye
 		cam.look_at(blast_at, Vector3.UP)
-		await get_tree().process_frame
-		await get_tree().process_frame
-		await get_tree().process_frame
+		await tree.process_frame
+		if not is_inside_tree() or not is_instance_valid(self) \
+				or not is_instance_valid(cam):
+			return
+		await tree.process_frame
+		if not is_inside_tree() or not is_instance_valid(self) \
+				or not is_instance_valid(cam):
+			return
+		await tree.process_frame
+		if not is_inside_tree() or not is_instance_valid(self) \
+				or not is_instance_valid(cam):
+			return
 		if warm_explosion != null and is_instance_valid(warm_explosion):
 			warm_explosion.queue_free()
 	# The combat SFX are synthesised as AudioStreamWAV in GDScript on first
@@ -8447,20 +9030,29 @@ func _prewarm_scene_rendering() -> void:
 		sfx_script.fire_stream()
 		sfx_script.servo_stream()
 		sfx_script.radio_stream()
-	await get_tree().process_frame
+	await tree.process_frame
+	if not is_inside_tree() or not is_instance_valid(self) \
+			or not is_instance_valid(cam):
+		return
 	for i in range(10):
 		var yaw := TAU * float(i) / 10.0
 		cam.global_position = eye
 		cam.look_at(eye + Vector3(sin(yaw), -0.10, cos(yaw)) * 400.0, Vector3.UP)
 		var t0 := Time.get_ticks_usec()
-		await get_tree().process_frame
+		await tree.process_frame
+		if not is_inside_tree() or not is_instance_valid(self) \
+				or not is_instance_valid(cam):
+			return
 		worst_ms = maxf(worst_ms, float(Time.get_ticks_usec() - t0) / 1000.0)
 	# Extra downward frame warms the apron/road/deck materials right under the
 	# drone, which are the nearest and most expensive to upload.
 	cam.global_position = eye
 	cam.look_at(eye + Vector3(0.0, -4.0, 1.0) * 10.0, Vector3.UP)
 	var t1 := Time.get_ticks_usec()
-	await get_tree().process_frame
+	await tree.process_frame
+	if not is_inside_tree() or not is_instance_valid(self) \
+			or not is_instance_valid(cam):
+		return
 	worst_ms = maxf(worst_ms, float(Time.get_ticks_usec() - t1) / 1000.0)
 	# Second pass from 90 m above the spawn: compile the factory complex, tree
 	# lines and far batches that are not visible from the apron.  Without it the
@@ -8472,7 +9064,10 @@ func _prewarm_scene_rendering() -> void:
 		cam.look_at(eye_high + Vector3(sin(yaw) * 400.0, -25.0,
 				cos(yaw) * 400.0), Vector3.UP)
 		var t2 := Time.get_ticks_usec()
-		await get_tree().process_frame
+		await tree.process_frame
+		if not is_inside_tree() or not is_instance_valid(self) \
+				or not is_instance_valid(cam):
+			return
 		worst_ms = maxf(worst_ms, float(Time.get_ticks_usec() - t2) / 1000.0)
 	# Landmark sweep: render the hall, factory complex, cooling tower, silos and
 	# map centre once so their shader variants are compiled behind the card.
@@ -8508,8 +9103,14 @@ func _prewarm_scene_rendering() -> void:
 			cam.global_position = Vector3(p.x + 38.0, gy + 42.0, p.y + 38.0)
 			cam.look_at(Vector3(p.x, gy + 8.0, p.y), Vector3.UP)
 			var t3 := Time.get_ticks_usec()
-			await get_tree().process_frame
-			await get_tree().process_frame
+			await tree.process_frame
+			if not is_inside_tree() or not is_instance_valid(self) \
+					or not is_instance_valid(cam):
+				return
+			await tree.process_frame
+			if not is_inside_tree() or not is_instance_valid(self) \
+					or not is_instance_valid(cam):
+				return
 			worst_ms = maxf(worst_ms, float(Time.get_ticks_usec() - t3) / 2000.0)
 		# Main flight corridor: walk the take-off axis at 30 m and look ahead.
 		# The first close-up of the hall/factory was still a 0.4-0.7 s shader
@@ -8521,7 +9122,10 @@ func _prewarm_scene_rendering() -> void:
 			cam.global_position = Vector3(corridor_x, cy + 30.0, cz)
 			cam.look_at(Vector3(corridor_x, cy + 18.0, clampf(cz - 80.0, -175.0, 175.0)), Vector3.UP)
 			var t4 := Time.get_ticks_usec()
-			await get_tree().process_frame
+			await tree.process_frame
+			if not is_inside_tree() or not is_instance_valid(self) \
+					or not is_instance_valid(cam):
+				return
 			worst_ms = maxf(worst_ms, float(Time.get_ticks_usec() - t4) / 1000.0)
 		# Second corridor down the map centre line within the compact 384 m arena.
 		if not site.is_empty():
@@ -8532,7 +9136,10 @@ func _prewarm_scene_rendering() -> void:
 				cam.global_position = Vector3(mid_x, cy2 + 30.0, cz2)
 				cam.look_at(Vector3(mid_x, cy2 + 16.0, clampf(cz2 - 80.0, -175.0, 175.0)), Vector3.UP)
 				var t6 := Time.get_ticks_usec()
-				await get_tree().process_frame
+				await tree.process_frame
+				if not is_inside_tree() or not is_instance_valid(self) \
+						or not is_instance_valid(cam):
+					return
 				worst_ms = maxf(worst_ms, float(Time.get_ticks_usec() - t6) / 1000.0)
 	else:
 		# Valley/course: warm the three open-top smokestacks and the factory
@@ -8550,18 +9157,28 @@ func _prewarm_scene_rendering() -> void:
 			cam.global_position = Vector3(p.x + 38.0, gy + 48.0, p.y + 38.0)
 			cam.look_at(Vector3(p.x, gy + 10.0, p.y), Vector3.UP)
 			var t5 := Time.get_ticks_usec()
-			await get_tree().process_frame
-			await get_tree().process_frame
+			await tree.process_frame
+			if not is_inside_tree() or not is_instance_valid(self) \
+					or not is_instance_valid(cam):
+				return
+			await tree.process_frame
+			if not is_inside_tree() or not is_instance_valid(self) \
+					or not is_instance_valid(cam):
+				return
 			worst_ms = maxf(worst_ms, float(Time.get_ticks_usec() - t5) / 2000.0)
-	await get_tree().process_frame
+	await tree.process_frame
+	if not is_inside_tree() or not is_instance_valid(self) \
+			or not is_instance_valid(cam):
+		return
 	print("[PREWARM] yaw_sweep worst_frame_ms=%.1f" % worst_ms)
 	if prev != null and is_instance_valid(prev):
 		prev.current = true
-	else:
+	elif is_instance_valid(drone):
 		var fallback := drone.find_child("FPVCamera", true, false) as Camera3D
 		if fallback != null:
 			fallback.current = true
-	cam.queue_free()
+	if is_instance_valid(cam):
+		cam.queue_free()
 
 
 ## Any airframe with a physical drop gets the wind-corrected CCIP sight.
@@ -8613,10 +9230,120 @@ func _setup_bomber_systems() -> void:
 		_bomb_release_arm = _model_root.find_child("Bomb_Release_Arm", true, false) as Node3D
 
 
-func _bomber_qa_demo() -> void:
-	await get_tree().create_timer(2.0).timeout
+## Creates the stabilised belly camera as a level child (never an airframe
+## child) so drone pitch/roll cannot tilt the drop sight.
+func _ensure_bomb_drop_camera() -> Camera3D:
+	if _bomb_drop_cam != null and is_instance_valid(_bomb_drop_cam):
+		return _bomb_drop_cam
+	_bomb_drop_cam = Camera3D.new()
+	_bomb_drop_cam.name = "BombDropCamera"
+	_bomb_drop_cam.cull_mask = 1
+	_bomb_drop_cam.near = 0.08
+	_bomb_drop_cam.far = 4000.0
+	_bomb_drop_cam.fov = 62.0
+	_bomb_drop_cam.current = false
+	add_child(_bomb_drop_cam)
+	return _bomb_drop_cam
+
+
+func _update_bomb_drop_camera() -> void:
+	if not _bomb_cam_active:
+		return
 	var drone := get_node_or_null("Drone") as Drone
-	if drone == null:
+	var has_drop := bool(DroneCatalog.preset(Global.drone_preset).get("has_drop", false))
+	if drone == null or not is_instance_valid(drone) or not has_drop:
+		_deactivate_bomb_drop_camera()
+		return
+	var cam := _ensure_bomb_drop_camera()
+	var pos := drone.global_position + Vector3(0.0, -0.18, 0.0)
+	var terrain_y := _terrain_height_at(pos.x, pos.z)
+	pos.y = maxf(pos.y, terrain_y + 0.35)
+	var fwd := -drone.global_transform.basis.z
+	fwd.y = 0.0
+	if fwd.length_squared() < 0.0001:
+		fwd = Vector3.FORWARD
+	fwd = fwd.normalized()
+	var right := fwd.cross(Vector3.UP)
+	if right.length_squared() < 0.0001:
+		right = Vector3.RIGHT
+	right = right.normalized()
+	# -Z (camera forward) = straight down; +Y (camera up) = player heading.
+	# This keeps the horizon locked while the airframe oscillates.
+	cam.global_transform = Transform3D(Basis(right, fwd, Vector3.UP), pos)
+	cam.fov = 32.0 if _bomb_cam_zoom >= 2 else 62.0
+	if not cam.current:
+		cam.current = true
+	if _bomb_sight != null and is_instance_valid(_bomb_sight) and not _bomb_sight.bomb_view:
+		_bomb_sight.set_bomb_view(true)
+
+
+func _deactivate_bomb_drop_camera() -> void:
+	_bomb_cam_active = false
+	if _bomb_drop_cam != null and is_instance_valid(_bomb_drop_cam):
+		_bomb_drop_cam.current = false
+	var fpv_cam := get_node_or_null("Drone/FPVCamera") as Camera3D
+	if fpv_cam != null:
+		fpv_cam.set_meta("bomb_view_active", false)
+		if is_inside_tree():
+			fpv_cam.current = true
+	if _bomb_sight != null and is_instance_valid(_bomb_sight):
+		_bomb_sight.set_bomb_view(false)
+
+
+func toggle_bomb_drop_camera() -> void:
+	var has_drop := bool(DroneCatalog.preset(Global.drone_preset).get("has_drop", false))
+	if not has_drop:
+		_set_flash(_txt("КАМЕРА СКИДУ ДОСТУПНА ЛИШЕ ДЛЯ ДРОНІВ З БОМБАМИ",
+				"DROP CAMERA REQUIRES A BOMB-CARRYING DRONE"))
+		return
+	_bomb_cam_active = not _bomb_cam_active
+	var fpv_cam := get_node_or_null("Drone/FPVCamera") as Camera3D
+	if _bomb_cam_active:
+		var cam := _ensure_bomb_drop_camera()
+		cam.fov = 32.0 if _bomb_cam_zoom >= 2 else 62.0
+		_update_bomb_drop_camera()
+		cam.current = true
+		if fpv_cam != null:
+			fpv_cam.set_meta("bomb_view_active", true)
+		if _bomb_sight != null and is_instance_valid(_bomb_sight):
+			_bomb_sight.set_bomb_view(true)
+		_set_flash(_txt("КАМЕРА СКИДУ: УВІМК · N — ВИМК · Z — ZOOM",
+				"DROP CAMERA: ON · N — OFF · Z — ZOOM"))
+	else:
+		_deactivate_bomb_drop_camera()
+		_set_flash(_txt("КАМЕРА СКИДУ: ВИМК", "DROP CAMERA: OFF"))
+	if fpv_cam != null:
+		fpv_cam.set_meta("bomb_view_active", _bomb_cam_active)
+
+
+func toggle_bomb_cam_zoom() -> void:
+	var has_drop := bool(DroneCatalog.preset(Global.drone_preset).get("has_drop", false))
+	if not _bomb_cam_active and not has_drop:
+		return
+	_bomb_cam_zoom = 1 if _bomb_cam_zoom >= 2 else 2
+	if _bomb_drop_cam != null and is_instance_valid(_bomb_drop_cam):
+		_bomb_drop_cam.fov = 32.0 if _bomb_cam_zoom >= 2 else 62.0
+	_set_flash(_txt("ZOOM КАМЕРИ СКИДУ: %d×" % _bomb_cam_zoom,
+			"DROP CAMERA ZOOM: %d×" % _bomb_cam_zoom))
+
+
+func is_bomb_drop_camera_active() -> bool:
+	return _bomb_cam_active
+
+
+func get_bomb_cam_zoom_level() -> int:
+	return _bomb_cam_zoom
+
+
+func _bomber_qa_demo() -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	await tree.create_timer(2.0).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
+	var drone := get_node_or_null("Drone") as Drone
+	if drone == null or not is_instance_valid(drone):
 		return
 	var ground := _terrain_height_at(30.0, 0.0) \
 			if not frontline_map.is_empty() else _ground_y
@@ -8625,16 +9352,22 @@ func _bomber_qa_demo() -> void:
 	drone.linear_velocity = Vector3.ZERO
 	drone.angular_velocity = Vector3.ZERO
 	drone.rotation = Vector3.ZERO
-	await get_tree().create_timer(0.5).timeout
+	await tree.create_timer(0.5).timeout
+	if not is_inside_tree() or not is_instance_valid(self) or not is_instance_valid(drone):
+		return
 	if OS.has_environment("DRONE_BOMBER_THERMAL"):
 		_vision_mode = VisionMode.FLIR_WHITE_HOT
 		_apply_vision_mode()
-		if _bomb_sight != null:
+		if _bomb_sight != null and is_instance_valid(_bomb_sight):
 			_bomb_sight.set_thermal(true)
-	await get_tree().create_timer(2.0).timeout
+	await tree.create_timer(2.0).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 	_drop_heavy_bomb()
 	# Second bomb after the first release animation, useful for the screenshot.
-	await get_tree().create_timer(1.2).timeout
+	await tree.create_timer(1.2).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 	_drop_heavy_bomb()
 
 
@@ -9035,10 +9768,11 @@ func _resolve_payload_explosion_after_damage() -> void:
 	if tree == null:
 		return
 	await tree.physics_frame
-	if not is_inside_tree():
+	if not is_inside_tree() or not is_instance_valid(self):
 		return
 	await tree.physics_frame
-	if not is_inside_tree() or _mission_finished or _victory_scheduled or _pending_combat_complete:
+	if not is_inside_tree() or not is_instance_valid(self) \
+			or _mission_finished or _victory_scheduled or _pending_combat_complete:
 		return
 	var rem := _bomb_nodes.size() if _heavy_bomber else _ammo_count()
 	if rem > 0 or _active_dropped_payloads > 0:
@@ -9129,6 +9863,8 @@ func switch_drone_in_mission(new_preset: int) -> bool:
 			_bomb_sight.visible = true
 	elif _bomb_sight != null and is_instance_valid(_bomb_sight):
 		_bomb_sight.visible = false
+	if _bomb_cam_active and not has_drop:
+		_deactivate_bomb_drop_camera()
 	_respawn_and_rearm()
 	if TouchControls != null and TouchControls.has_method("_sync_payload_buttons"):
 		TouchControls.call("_sync_payload_buttons")
@@ -9420,33 +10156,30 @@ func _configure_dvr_profile() -> void:
 	_dvr_frame_h = 144
 
 
-## Grabs one low-resolution frame of the live FPV viewport for the DVR buffer.
+## Records one lightweight replay sample.  Do NOT read the viewport texture
+## here: the GPU->CPU get_image() stall caused multi-frame hitches every
+## second.  Only the explicit F2 photo hotkey captures a real image now.
 func _capture_dvr_frame() -> void:
-	if _dvr_capture_failed or _dvr_capture_pending:
+	if _dvr_replaying or _mission_finished or not is_inside_tree():
 		return
-	if DisplayServer.get_name() == "headless":
-		_dvr_capture_failed = true
+	var drone := get_node_or_null("Drone") as Drone
+	if drone == null or not is_instance_valid(drone):
 		return
-	# The viewport texture is only readable after the frame has actually been
-	# drawn.  Reading it from _process returned an all-black image, so the
-	# "replay" looked like a black screen with a REC stamp on top.
-	_dvr_capture_pending = true
-	await RenderingServer.frame_post_draw
-	_dvr_capture_pending = false
-	if not is_inside_tree() or _dvr_capture_failed or _mission_finished or _dvr_replaying:
-		return
-	var vp := get_viewport()
-	if vp == null:
-		return
-	var img := vp.get_texture().get_image() if vp.get_texture() != null else null
-	if img == null or img.is_empty():
-		_dvr_capture_failed = true
-		return
-	img.resize(_dvr_frame_w, _dvr_frame_h, Image.INTERPOLATE_BILINEAR)
-	var tex := ImageTexture.create_from_image(img)
-	_dvr_frames.append(tex)
-	while _dvr_frames.size() > _dvr_max_frames:
-		_dvr_frames.pop_front()
+	var cam := get_node_or_null("Drone/FPVCamera") as Camera3D
+	var cam_pos := cam.global_position if cam != null else drone.global_position
+	var cam_rot := cam.global_rotation if cam != null else drone.global_rotation
+	var cam_fov := cam.fov if cam != null else _base_fpv_fov
+	_dvr_samples.append({
+		"t": Time.get_ticks_msec() * 0.001,
+		"pos": drone.global_position,
+		"rot": drone.global_rotation,
+		"vel": drone.linear_velocity,
+		"cam_pos": cam_pos,
+		"cam_rot": cam_rot,
+		"cam_fov": cam_fov,
+	})
+	while _dvr_samples.size() > 300:
+		_dvr_samples.pop_front()
 
 
 func _ensure_dvr_overlay() -> void:
@@ -9532,73 +10265,92 @@ void fragment() {
 
 
 func _on_dvr_replay_pressed() -> void:
-	if _dvr_replaying or _results == null:
+	if _dvr_replaying or _results == null or not is_instance_valid(_results):
+		return
+	var tree := get_tree()
+	if tree == null:
 		return
 	_dvr_replaying = true
-	var was_paused := get_tree().paused
+	var was_paused := tree.paused
 	var results_was_visible := _results_canvas_layer == null \
-			or _results_canvas_layer.visible
-	var hud_was_visible := _hud == null or _hud.visible
+			or not is_instance_valid(_results_canvas_layer) or _results_canvas_layer.visible
+	var hud_was_visible := _hud == null or not is_instance_valid(_hud) or _hud.visible
 	_results.visible = false
-	if _results_canvas_layer != null:
+	if _results_canvas_layer != null and is_instance_valid(_results_canvas_layer):
 		_results_canvas_layer.visible = false
 	_ensure_dvr_overlay()
-	if _dvr_overlay != null:
+	if _dvr_overlay != null and is_instance_valid(_dvr_overlay):
 		_dvr_overlay.visible = true
 	if _dvr_overlay_bg != null and is_instance_valid(_dvr_overlay_bg):
 		_dvr_overlay_bg.visible = (_dvr_frames.size() >= 6 or _dvr_samples.is_empty())
-	if _dvr_overlay_stamp != null:
+	if _dvr_overlay_stamp != null and is_instance_valid(_dvr_overlay_stamp):
 		var b_name := DroneCatalog.get_drone_name(Global.drone_preset)
 		_dvr_overlay_stamp.text = ("● REC  DVR STRIKE REPLAY · %s" if _is_en() \
 				else "● REC  БОРТОВИЙ ЗАПИС (DVR) · %s") % b_name
-	if _dvr_overlay_time != null:
+	if _dvr_overlay_time != null and is_instance_valid(_dvr_overlay_time):
 		_dvr_overlay_time.text = ""
 	# Freeze the world so the replay is a playback, not live gameplay.
-	if _hud != null:
+	if _hud != null and is_instance_valid(_hud):
 		_hud.visible = false
-	get_tree().paused = true
+	tree.paused = true
 	if _dvr_frames.size() >= 6:
 		await _play_dvr_frames()
 	else:
 		await _play_dvr_camera_path()
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 	# Restore the debrief exactly as it was before playback.
-	if _dvr_overlay != null:
+	if _dvr_overlay != null and is_instance_valid(_dvr_overlay):
 		_dvr_overlay.visible = false
-	if _dvr_overlay_rect != null:
+	if _dvr_overlay_rect != null and is_instance_valid(_dvr_overlay_rect):
 		_dvr_overlay_rect.texture = null
-	if _hud != null:
+	if _hud != null and is_instance_valid(_hud):
 		_hud.visible = hud_was_visible
-	if _results_canvas_layer != null:
+	if _results_canvas_layer != null and is_instance_valid(_results_canvas_layer):
 		_results_canvas_layer.visible = results_was_visible
-	if _results != null:
+	if _results != null and is_instance_valid(_results):
 		_results.visible = true
-	get_tree().paused = was_paused
+	tree.paused = was_paused
 	_dvr_replaying = false
 
 
 func _play_dvr_frames() -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
 	var total := _dvr_frames.size()
 	for i in range(total):
-		if not is_inside_tree() or _dvr_overlay_rect == null:
+		if not is_inside_tree() or _dvr_overlay_rect == null \
+				or not is_instance_valid(_dvr_overlay_rect):
 			break
 		_dvr_overlay_rect.texture = _dvr_frames[i]
-		if _dvr_overlay_time != null:
+		if _dvr_overlay_time != null and is_instance_valid(_dvr_overlay_time):
 			var t_sec := int(float(i) / float(_dvr_fps))
 			var total_sec := int(float(total) / float(_dvr_fps))
 			_dvr_overlay_time.text = "▶ PLAY  %02d:%02d / %02d:%02d" % [
 				t_sec / 60, t_sec % 60, total_sec / 60, total_sec % 60]
-		await get_tree().create_timer(1.0 / float(_dvr_fps), true).timeout
+		await tree.create_timer(1.0 / float(_dvr_fps), true).timeout
+		if not is_inside_tree() or not is_instance_valid(self):
+			return
 	# Hold the final (strike) frame for a moment before returning to debrief.
-	await get_tree().create_timer(0.65, true).timeout
+	await tree.create_timer(0.65, true).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 
 
 func _play_dvr_camera_path() -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
 	var drone := get_node_or_null("Drone") as Drone
-	var old_cam := get_viewport().get_camera_3d() if get_viewport() != null else null
+	var vp := get_viewport()
+	var old_cam: Camera3D = vp.get_camera_3d() if vp != null else null
 	if _dvr_samples.is_empty():
-		if _dvr_overlay_time != null:
+		if _dvr_overlay_time != null and is_instance_valid(_dvr_overlay_time):
 			_dvr_overlay_time.text = _txt("ЗАПИС ВІДСУТНІЙ", "NO RECORDING")
-		await get_tree().create_timer(1.2, true).timeout
+		await tree.create_timer(1.2, true).timeout
+		if not is_inside_tree() or not is_instance_valid(self):
+			return
 		return
 	var replay_cam := Camera3D.new()
 	replay_cam.name = "DvrReplayCamera"
@@ -9606,8 +10358,8 @@ func _play_dvr_camera_path() -> void:
 	replay_cam.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(replay_cam)
 	replay_cam.current = true
-	var drone_was_visible := drone != null and drone.visible
-	if drone != null:
+	var drone_was_visible := drone != null and is_instance_valid(drone) and drone.visible
+	if drone != null and is_instance_valid(drone):
 		drone.visible = false
 	var total := _dvr_samples.size()
 	for i in range(total):
@@ -9619,18 +10371,25 @@ func _play_dvr_camera_path() -> void:
 		replay_cam.global_position = cp
 		replay_cam.global_rotation = cr
 		replay_cam.fov = float(sd.get("cam_fov", 100.0))
-		if _dvr_overlay_time != null:
+		if _dvr_overlay_time != null and is_instance_valid(_dvr_overlay_time):
 			var t_sec := int(float(i) * 0.05)
 			var total_sec := int(float(total) * 0.05)
 			_dvr_overlay_time.text = "▶ PLAY  %02d:%02d / %02d:%02d" % [
 				t_sec / 60, t_sec % 60, total_sec / 60, total_sec % 60]
-		await get_tree().create_timer(0.05, true).timeout
-	await get_tree().create_timer(0.4, true).timeout
+		await tree.create_timer(0.05, true).timeout
+		if not is_inside_tree() or not is_instance_valid(self):
+			return
+		if not is_instance_valid(replay_cam):
+			break
+	await tree.create_timer(0.4, true).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 	if old_cam != null and is_instance_valid(old_cam):
 		old_cam.current = true
-	if drone != null:
+	if drone != null and is_instance_valid(drone):
 		drone.visible = drone_was_visible
-	replay_cam.queue_free()
+	if is_instance_valid(replay_cam):
+		replay_cam.queue_free()
 
 
 func _build_chain_briefing() -> void:
@@ -9820,15 +10579,21 @@ func _close_chain_briefing() -> void:
 
 func _set_flash(text: String) -> void:
 	text = MenuUI.translate_text(text)
-	if _hud_message != null:
+	if _hud_message != null and is_instance_valid(_hud_message):
 		_hud_message.text = text
 		_hud_message.visible = not text.is_empty()
 	_flash_token += 1
 	var token := _flash_token
+	var tree := get_tree()
+	if tree == null:
+		return
 	# Short-lived callouts (weather, gates, boost) must not camp in the middle
 	# of the screen for the whole flight.
-	await get_tree().create_timer(3.0).timeout
-	if token == _flash_token and _hud_message != null and _hud_message.text == text:
+	await tree.create_timer(3.0).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
+	if token == _flash_token and _hud_message != null and is_instance_valid(_hud_message) \
+			and _hud_message.text == text:
 		_hud_message.text = ""
 		_hud_message.visible = false
 
@@ -10010,6 +10775,8 @@ func _process(delta: float) -> void:
 		_bomb_cooldown = maxf(_bomb_cooldown - delta, 0.0)
 	if _mission_started and not _mission_finished:
 		_mission_time += delta
+		if Global.play_mode == Global.PlayMode.COMBAT and not _kamikaze_wave_triggered:
+			_maybe_trigger_kamikaze_wave()
 		# A freestyle ghost should exist even if the full 24-gate course is
 		# still too hard: after a decent partial run, bank it as "my ghost".
 		if Global.play_mode == Global.PlayMode.TRAINING and not Global.combat_training \
@@ -10033,6 +10800,7 @@ func _process(delta: float) -> void:
 					_txt("Борт-01, я Штаб. Координати підтверджено, поправка на вітер східний. Роботу дозволяю. Кінець зв'язку.",
 						"Valkyrie-01, HQ copies. Coordinates confirmed, adjust for east crosswind. Cleared hot. Out."),
 					false, "02")
+	_update_bomb_drop_camera()
 	_update_fpv_camera_fx(delta)
 	_update_training_ghost(delta)
 	# The OSD is shaped by the text server.  Refreshing formatted strings at
@@ -10124,10 +10892,15 @@ func _physics_process(delta: float) -> void:
 	_update_wind_simulation(delta)
 	_poll_payload_switch_edges()
 	if OS.has_environment("DRONE_PROBE") and Engine.get_physics_frames() == 30:
+		var probe_world := get_world_3d()
+		var probe_space: PhysicsDirectSpaceState3D = probe_world.direct_space_state if probe_world != null else null
 		for zz in range(-300, 500, 50):
 			var row := ""
 			for xx in range(-300, 301, 50):
-				var q := PhysicsRayQueryParameters3D.create(Vector3(xx, 400, zz), Vector3(xx, -200, zz)); q.collision_mask = 1; var h := get_world_3d().direct_space_state.intersect_ray(q); row += " %s:%.1f" % [str(h["collider"].name).substr(0, 10) if not h.is_empty() else "-", h["position"].y if not h.is_empty() else 0.0]
+				var q := PhysicsRayQueryParameters3D.create(Vector3(xx, 400, zz), Vector3(xx, -200, zz))
+				q.collision_mask = 1
+				var h: Dictionary = probe_space.intersect_ray(q) if probe_space != null else {}
+				row += " %s:%.1f" % [str(h["collider"].name).substr(0, 10) if not h.is_empty() else "-", h["position"].y if not h.is_empty() else 0.0]
 			print("PROBE z=%d: %s" % [zz, row])
 	# Active safety guard: catch drone only if it falls completely off the map into the void (Y < -25m)
 	var drone_body := get_node_or_null("Drone") as Drone
@@ -10498,6 +11271,13 @@ func _input(event: InputEvent) -> void:
 			and event.keycode == KEY_F2:
 		_capture_player_screenshot()
 		get_viewport().set_input_as_handled()
+	if event is InputEventKey and event.is_pressed() and not event.is_echo():
+		if event.keycode == KEY_N:
+			toggle_bomb_drop_camera()
+			get_viewport().set_input_as_handled()
+		elif event.keycode == KEY_Z:
+			toggle_bomb_cam_zoom()
+			get_viewport().set_input_as_handled()
 	if event is InputEventKey and event.is_pressed() and not event.is_echo() \
 			and event.keycode == KEY_F3:
 		var next_q := (QualityManagerScript.get_active_level() + 1) % 3
@@ -10557,11 +11337,20 @@ func _input(event: InputEvent) -> void:
 
 
 func _full_test() -> void:
-	await get_tree().create_timer(3.0).timeout
+	var tree := get_tree()
+	if tree == null:
+		return
+	await tree.create_timer(3.0).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 	var ok := true
 	var d := get_node_or_null("Drone") as Drone
 	print("[FULLTEST] mode=", Global.play_mode, " map_children=", _map_root.get_child_count(),
 			" vehicles=", _vehicles.size(), " infantry=", _infantry_units.size(), " drone=", d != null)
+	if d == null or not is_instance_valid(d):
+		print("[FULLTEST] FAIL no drone")
+		tree.quit()
+		return
 	var targets_count: int = _vehicles.size() + _infantry_units.size() + _mission_targets_total
 	var targets_ok: bool = (Global.play_mode != Global.PlayMode.COMBAT) or (targets_count > 0)
 	var ft_node := get_node_or_null("FrontlineTerrain")
@@ -10592,25 +11381,36 @@ func _full_test() -> void:
 	var mass_before := d.mass
 	var test_preset := 1 if Global.drone_preset == 0 else 0
 	DroneCatalog.apply_to_drone(d, test_preset)
-	await get_tree().create_timer(0.3).timeout
+	await tree.create_timer(0.3).timeout
+	if not is_inside_tree() or not is_instance_valid(self) or not is_instance_valid(d):
+		return
 	ok = ok and absf(d.mass - mass_before) > 0.05
 	print("[FULLTEST] preset mass ", mass_before, " -> ", d.mass)
 	DroneCatalog.apply_to_drone(d, Global.drone_preset)
 
 	# --- arm + mission timer ---
 	_place_drone_over_ground()
-	await get_tree().physics_frame
-	await get_tree().physics_frame
+	await tree.physics_frame
+	if not is_inside_tree() or not is_instance_valid(self) or not is_instance_valid(d):
+		return
+	await tree.physics_frame
+	if not is_inside_tree() or not is_instance_valid(self) or not is_instance_valid(d):
+		return
 	var radio := get_node_or_null("RadioController")
-	d.flight_controller.request_arm(true)
+	if d.flight_controller != null:
+		d.flight_controller.request_arm(true)
 	if radio != null:
 		radio.set("test_throttle", 0.65)
-	await get_tree().create_timer(0.6).timeout
-	ok = ok and d.flight_controller.state_armed and _mission_started
+	await tree.create_timer(0.6).timeout
+	if not is_inside_tree() or not is_instance_valid(self) or not is_instance_valid(d):
+		return
+	ok = ok and d.flight_controller != null and d.flight_controller.state_armed and _mission_started
 	var t0 := _mission_time
-	await get_tree().create_timer(3.0).timeout
+	await tree.create_timer(3.0).timeout
+	if not is_inside_tree() or not is_instance_valid(self) or not is_instance_valid(d):
+		return
 	ok = ok and _mission_time > t0 + 2.0
-	print("[FULLTEST] armed=", d.flight_controller.state_armed, " timer ",
+	print("[FULLTEST] armed=", d.flight_controller != null and d.flight_controller.state_armed, " timer ",
 			t0, " -> ", _mission_time)
 	if radio != null:
 		radio.set("test_throttle", -1.0)
@@ -10618,53 +11418,71 @@ func _full_test() -> void:
 	# --- OSD / rig / weather toggles ---
 	_osd_visible = false
 	_apply_osd()
-	await get_tree().process_frame
-	ok = ok and not _hud.visible
+	await tree.process_frame
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
+	ok = ok and _hud != null and is_instance_valid(_hud) and not _hud.visible
 	_osd_visible = true
 	_apply_osd()
-	ok = ok and _hud.visible
+	ok = ok and _hud != null and is_instance_valid(_hud) and _hud.visible
 	_rig_visible = false
 	_apply_fpv_rig()
-	await get_tree().process_frame
-	ok = ok and (_fpv_rig == null or not _fpv_rig.visible)
+	await tree.process_frame
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
+	ok = ok and (_fpv_rig == null or not is_instance_valid(_fpv_rig) or not _fpv_rig.visible)
 	_rig_visible = true
 	_apply_fpv_rig()
 	var w0 := _weather
 	_weather = (_weather + 1) % 3
 	_apply_weather()
-	await get_tree().create_timer(0.2).timeout
+	await tree.create_timer(0.2).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 	ok = ok and _weather != w0
 	print("[FULLTEST] toggles ok=", ok, " weather ", w0, " -> ", _weather)
 
 	# --- payload drop ---
-	if _fpv_payload != null and _payload_enabled:
+	if _fpv_payload != null and is_instance_valid(_fpv_payload) and _payload_enabled:
 		_drop_fpv_payload()
-		await get_tree().create_timer(0.9).timeout
-		ok = ok and not _fpv_payload.visible
+		await tree.create_timer(0.9).timeout
+		if not is_inside_tree() or not is_instance_valid(self):
+			return
+		ok = ok and is_instance_valid(_fpv_payload) and not _fpv_payload.visible
 		_reset_fpv_payload()
-		ok = ok and _fpv_payload.visible
+		ok = ok and is_instance_valid(_fpv_payload) and _fpv_payload.visible
 		print("[FULLTEST] payload drop/restore ok")
 
 	# --- mode-specific objective ---
 	if Global.play_mode == Global.PlayMode.TRAINING and _rings_total > 0:
-		var ring_area := _triggers.get_child(0) as Area3D
-		var before := _rings_passed
-		_on_ring_entered(d, ring_area)
-		await get_tree().create_timer(0.1).timeout
-		ok = ok and _rings_passed > before
-		print("[FULLTEST] ring passed ", before, " -> ", _rings_passed)
+		var ring_area: Area3D = null
+		if _triggers != null and is_instance_valid(_triggers) and _triggers.get_child_count() > 0:
+			ring_area = _triggers.get_child(0) as Area3D
+		if ring_area != null:
+			var before := _rings_passed
+			_on_ring_entered(d, ring_area)
+			await tree.create_timer(0.1).timeout
+			if not is_inside_tree() or not is_instance_valid(self):
+				return
+			ok = ok and _rings_passed > before
+			print("[FULLTEST] ring passed ", before, " -> ", _rings_passed)
 	elif Global.play_mode == Global.PlayMode.COMBAT:
 		var combat := get_node_or_null("CombatSystem")
 		ok = ok and combat != null
-		if _vehicles.size() > 0 and _vehicles[0] != null:
+		if _vehicles.size() > 0 and _vehicles[0] != null and is_instance_valid(_vehicles[0]):
 			var before_k := int(_kills.get(_vehicles[0].kind, 0))
 			_vehicles[0].take_damage(99999.0, _vehicles[0].global_position + Vector3.UP)
-			await get_tree().create_timer(0.2).timeout
-			ok = ok and int(_kills.get(_vehicles[0].kind, 0)) > before_k
+			await tree.create_timer(0.2).timeout
+			if not is_inside_tree() or not is_instance_valid(self):
+				return
+			if is_instance_valid(_vehicles[0]):
+				ok = ok and int(_kills.get(_vehicles[0].kind, 0)) > before_k
+			else:
+				ok = false
 			print("[FULLTEST] vehicle kill counted")
 
 	print("[FULLTEST] ", "PASS" if ok else "FAIL")
-	get_tree().quit()
+	tree.quit()
 
 
 func _full_test_placeholder() -> void:
@@ -10672,24 +11490,36 @@ func _full_test_placeholder() -> void:
 
 
 func _run_autotest() -> void:
-	await get_tree().create_timer(2.0).timeout
+	var tree := get_tree()
+	if tree == null:
+		return
+	await tree.create_timer(2.0).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 	var d := get_node_or_null("Drone") as Drone
 	print("[BIGMAP] mode=", Global.play_mode, " ground_y=", _ground_y,
 			" drone=", d != null, " vehicles=", _vehicles.size())
-	if d == null:
+	if d == null or not is_instance_valid(d):
 		print("[BIGMAP] FAIL no drone")
+		tree.quit()
 		return
 	_place_drone_over_ground()
-	await get_tree().physics_frame
-	d.flight_controller.request_arm(true)
-	await get_tree().create_timer(0.5).timeout
-	print("[BIGMAP] armed=", d.flight_controller.state_armed,
+	await tree.physics_frame
+	if not is_inside_tree() or not is_instance_valid(self) or not is_instance_valid(d):
+		return
+	if d.flight_controller != null:
+		d.flight_controller.request_arm(true)
+	await tree.create_timer(0.5).timeout
+	if not is_inside_tree() or not is_instance_valid(self) or not is_instance_valid(d):
+		return
+	var armed: bool = d.flight_controller != null and bool(d.flight_controller.state_armed)
+	print("[BIGMAP] armed=", armed,
 			" pos=", d.global_position, " started=", _mission_started)
-	if d.flight_controller.state_armed and absf(d.global_position.y - _ground_y) < 25.0:
+	if armed and absf(d.global_position.y - _ground_y) < 25.0:
 		print("[BIGMAP] PASS big map")
 	else:
 		print("[BIGMAP] FAIL big map")
-	get_tree().quit()
+	tree.quit()
 
 
 func _hide_drone_visuals(node: Node) -> void:
@@ -11166,14 +11996,20 @@ func _apply_combat_fpv_camera(on: bool, p: Dictionary) -> void:
 			# and the lens sits behind them with a shallow down-angle so they
 			# read at the lower edge without blocking the target.
 			cam.position = base + Vector3(0.0, 0.10, 1.35)
+			if not bool(cam.get_meta("bomb_view_active", false)):
+				cam.set_meta("desired_local_pos", cam.position)
 			cam.rotation_degrees = Vector3(base_rot.x - 10.0, base_rot.y, base_rot.z)
 			return
 		var model_size := maxf(float(p.get("model_size", 0.38)), 0.2)
 		var k := clampf(model_size / 0.38, 0.55, 1.6)
 		cam.position = base + Vector3(0.0, 0.075 * k, 0.025 * k)
+		if not bool(cam.get_meta("bomb_view_active", false)):
+			cam.set_meta("desired_local_pos", cam.position)
 		cam.rotation_degrees = base_rot
 	else:
 		cam.position = base
+		if not bool(cam.get_meta("bomb_view_active", false)):
+			cam.set_meta("desired_local_pos", cam.position)
 		cam.rotation_degrees = base_rot
 
 

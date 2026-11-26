@@ -51,6 +51,17 @@ static func is_near_workshop(map_name: String, px: float, pz: float) -> bool:
 				return true
 			if p.distance_to(Vector2(-56.0, -118.0)) < 44.0: # wetlands_dock.glb
 				return true
+		"promzona_plavni":
+			if p.distance_to(Vector2(52.0, -180.0)) < 62.0: # Promzona hero hall
+				return true
+			if p.distance_to(Vector2(-105.0, -245.0)) < 54.0: # factory_complex.glb
+				return true
+			if p.distance_to(Vector2(42.0, 165.0)) < 58.0: # Plavni hall/outpost
+				return true
+			if p.distance_to(Vector2(-56.0, 145.0)) < 46.0: # wetlands dock pad
+				return true
+			if p.distance_to(Vector2(-155.0, 110.0)) < 38.0: # half-sunk barge
+				return true
 	return false
 
 
@@ -1671,7 +1682,8 @@ static func build_park_split_s_frames(parent: Node3D, pos: Vector3, yaw: float) 
 
 static func _is_valid_mil_spot(terrain, map_name: String, px: float, pz: float,
 		hc: Vector2, hhalf: Vector2, sp: Vector2, wl: float) -> bool:
-	if absf(px) > 158.0 or absf(pz) > 158.0:
+	var spot_bound := 310.0 if map_name == "promzona_plavni" else 158.0
+	if absf(px) > spot_bound or absf(pz) > spot_bound:
 		return false
 	if bool(terrain.call("_tutorial_clear_zone", px, pz)):
 		return false
@@ -1695,6 +1707,20 @@ static func _is_valid_mil_spot(terrain, map_name: String, px: float, pz: float,
 		if absf(px - rx) < 22.0:
 			return false
 		if absf(pz - 58.0) < 16.0 and px > 12.0 and px < 156.0:
+			return false
+	if map_name == "promzona_plavni":
+		if h < wl + 0.8:
+			return false
+		# Keep the flat training strip completely free of structures.
+		if absf(px + 225.0) < 44.0 and pz >= -170.0 and pz <= 235.0:
+			return false
+		# Both bridge decks and their approaches.
+		var canal_z := 10.0 + 12.0 * sin(px * 0.012)
+		for bx in [-110.0, 110.0]:
+			if absf(px - bx) < 18.0 and absf(pz - canal_z) < 42.0:
+				return false
+		# Southern launch plateau / spawn.
+		if Vector2(px, pz).distance_to(Vector2(0.0, 275.0)) < 66.0:
 			return false
 	return true
 
@@ -1726,7 +1752,19 @@ static func spawn_map_military_objects(root: Node3D, map_name: String) -> void:
 		Vector2(126.0, -6.0),
 		Vector2(-4.0, -124.0),
 	]
+	var fallback_radius := 144.0
+	if map_name == "promzona_plavni":
+		max_mil_structs = 8
+		fallback_radius = 288.0
+		sectors = [
+			Vector2(-270.0, -280.0), Vector2(-285.0, -195.0),
+			Vector2(170.0, -130.0), Vector2(270.0, -270.0),
+			Vector2(-270.0, 210.0), Vector2(-120.0, 260.0),
+			Vector2(170.0, 200.0), Vector2(280.0, 280.0),
+			Vector2(-50.0, -280.0), Vector2(50.0, 250.0),
+		]
 	var picked: Array[Vector2] = []
+	var reserve_r := 18.0 if map_name == "promzona_plavni" else 12.0
 
 	for sector_idx in range(sectors.size()):
 		if picked.size() >= max_mil_structs:
@@ -1742,7 +1780,7 @@ static func spawn_map_military_objects(root: Node3D, map_name: String) -> void:
 				if not _is_valid_mil_spot(terrain, map_name, px, pz, hc, hhalf, sp, wl):
 					continue
 				if bool(terrain.try_reserve_structure(root, map_name,
-						Vector2(px, pz), 12.0, 28.0, false)):
+						Vector2(px, pz), reserve_r, 28.0, false)):
 					picked.append(Vector2(px, pz))
 					found = true
 					break
@@ -1752,12 +1790,12 @@ static func spawn_map_military_objects(root: Node3D, map_name: String) -> void:
 	var fb_tries := 0
 	while picked.size() < max_mil_structs and fb_tries < 220:
 		fb_tries += 1
-		var fx := sin(float(fb_tries) * 11.3 + float(hash(map_name) % 7)) * 144.0
-		var fz := cos(float(fb_tries) * 17.7 + float(hash(map_name) % 11)) * 144.0
+		var fx := sin(float(fb_tries) * 11.3 + float(hash(map_name) % 7)) * fallback_radius
+		var fz := cos(float(fb_tries) * 17.7 + float(hash(map_name) % 11)) * fallback_radius
 		if not _is_valid_mil_spot(terrain, map_name, fx, fz, hc, hhalf, sp, wl):
 			continue
 		if bool(terrain.try_reserve_structure(root, map_name,
-				Vector2(fx, fz), 12.0, 28.0, false)):
+				Vector2(fx, fz), reserve_r, 28.0, false)):
 			picked.append(Vector2(fx, fz))
 
 	spawned_positions[map_name] = picked
@@ -1769,6 +1807,7 @@ static func spawn_map_military_objects(root: Node3D, map_name: String) -> void:
 		"wetlands": [5, 32, 19, 8, 14, 7, 2],
 		"village": [32, 5, 14, 22, 1, 7, 2],
 		"steppe": [6, 5, 33, 4, 1, 34, 2],
+		"promzona_plavni": [0, 5, 32, 19, 8, 14, 7, 28, 2],
 	}
 	var pool: Array = builder_pools.get(map_name, [0, 8, 9, 14])
 

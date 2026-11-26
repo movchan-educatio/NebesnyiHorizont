@@ -75,8 +75,11 @@ func _flash() -> void:
 	for mesh in _meshes:
 		if is_instance_valid(mesh):
 			mesh.material_overlay = _flash_material
-	await get_tree().create_timer(0.07).timeout
-	if not is_instance_valid(self) or is_destroyed or token != _flash_token:
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
+	await tree.create_timer(0.07).timeout
+	if not is_inside_tree() or not is_instance_valid(self) or is_destroyed or token != _flash_token:
 		return
 	for mesh in _meshes:
 		if is_instance_valid(mesh):

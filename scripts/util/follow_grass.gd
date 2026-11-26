@@ -12,12 +12,15 @@ const FT := preload("res://scripts/util/frontline_terrain.gd")
 
 const GRID_SIDE := 4
 const ARENA_HALF := 160.0
+const PROMZONA_ARENA_HALF := 345.0
 const CHUNK_SIZE := (ARENA_HALF * 2.0) / float(GRID_SIDE)
 const GROUND_GRID_STEP := 8.0
 const GROUND_MISSING := -1000.0
 
 var map_name := ""
 var radius := 160.0
+var _arena_half := ARENA_HALF
+var _chunk_size := CHUNK_SIZE
 var count := 0
 var base_color := Color(0.08, 0.10, 0.035)
 var tip_color := Color(0.24, 0.24, 0.09)
@@ -141,7 +144,9 @@ func setup(p_map: String, quality: int) -> void:
 	map_name = p_map
 	_quality = quality
 	_rng.seed = hash(map_name) + 90210
-	radius = ARENA_HALF
+	_arena_half = PROMZONA_ARENA_HALF if map_name == "promzona_plavni" else ARENA_HALF
+	_chunk_size = (_arena_half * 2.0) / float(GRID_SIDE)
+	radius = _arena_half
 	if map_name == "steppe":
 		base_color = Color(0.052, 0.078, 0.024)
 		tip_color = Color(0.19, 0.24, 0.062)
@@ -181,7 +186,7 @@ func _populate_all_chunks() -> void:
 
 	var is_frontline := not map_name.is_empty() and map_name != "valley"
 	var step := GROUND_GRID_STEP
-	var cells := int(ceil((ARENA_HALF + 8.0) / step))
+	var cells := int(ceil((_arena_half + 8.0) / step))
 	var side := cells * 2 + 1
 	var grid := PackedFloat32Array()
 	var water := -999.0
@@ -213,7 +218,7 @@ func _populate_all_chunks() -> void:
 		max_vis_far = 190.0
 
 	var focus_xz := Vector2(_clear_center.x, _clear_center.z)
-	var half_chunk := CHUNK_SIZE * 0.5
+	var half_chunk := _chunk_size * 0.5
 	# Place the container on its root chunk BEFORE any child is positioned.
 	# The old code moved `self` halfway through the loop, which shifted every
 	# previously added chunk and put its blades on the wrong terrain height.
@@ -221,8 +226,8 @@ func _populate_all_chunks() -> void:
 	var root_rz := -1
 	for rz in range(GRID_SIDE):
 		for rx in range(GRID_SIDE):
-			var rcx := -ARENA_HALF + (float(rx) + 0.5) * CHUNK_SIZE
-			var rcz := -ARENA_HALF + (float(rz) + 0.5) * CHUNK_SIZE
+			var rcx := -_arena_half + (float(rx) + 0.5) * _chunk_size
+			var rcz := -_arena_half + (float(rz) + 0.5) * _chunk_size
 			if Vector2(rcx, rcz).distance_to(focus_xz) < 75.0:
 				root_rx = rx
 				root_rz = rz
@@ -233,15 +238,15 @@ func _populate_all_chunks() -> void:
 		# Off-arena focus: still keep one root batch for readiness checks.
 		root_rx = 0
 		root_rz = 0
-	global_position = Vector3(-ARENA_HALF + (float(root_rx) + 0.5) * CHUNK_SIZE, 0.0,
-			-ARENA_HALF + (float(root_rz) + 0.5) * CHUNK_SIZE)
+	global_position = Vector3(-_arena_half + (float(root_rx) + 0.5) * _chunk_size, 0.0,
+			-_arena_half + (float(root_rz) + 0.5) * _chunk_size)
 	var root_assigned := false
 	var total_instances := 0
 
 	for rz in range(GRID_SIDE):
 		for rx in range(GRID_SIDE):
-			var cx := -ARENA_HALF + (float(rx) + 0.5) * CHUNK_SIZE
-			var cz := -ARENA_HALF + (float(rz) + 0.5) * CHUNK_SIZE
+			var cx := -_arena_half + (float(rx) + 0.5) * _chunk_size
+			var cz := -_arena_half + (float(rz) + 0.5) * _chunk_size
 			var dist_focus := Vector2(cx, cz).distance_to(focus_xz)
 			var tier := 0
 			var density_mult := 1.0
@@ -328,7 +333,7 @@ func _populate_all_chunks() -> void:
 			target_node.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 			target_node.custom_aabb = AABB(
 					Vector3(-half_chunk - 4.0, -90.0, -half_chunk - 4.0),
-					Vector3(CHUNK_SIZE + 8.0, 180.0, CHUNK_SIZE + 8.0))
+					Vector3(_chunk_size + 8.0, 180.0, _chunk_size + 8.0))
 
 	count = total_instances
 	_chunks_populated = true

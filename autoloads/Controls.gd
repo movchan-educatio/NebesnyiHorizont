@@ -30,23 +30,22 @@ var stick_conflicts := []
 ## controller (InputMap.cfg section), unlike the global tuning values.
 var stick_ranges := {}
 
-const STICK_TUNING_VERSION := 6
+const STICK_TUNING_VERSION := 7
 ## Calibration data written before this version came from the old wizard
 ## (threshold-crossing endpoints and a centre sampled mid-return), so it is
 ## discarded once on upgrade instead of silently shifting the neutral point.
 const STICK_CALIBRATION_VERSION := 4
-## Light jitter filter.  It is time-based (independent of FPS) and deliberately
-## short: quick deliberate stick movements pass almost unfiltered, while ADC
-## noise around the centre is smoothed away.  0 = completely raw input.
-const DEFAULT_STICK_SMOOTHING := 0.16
+## Stick smoothing.  0 (the default) = completely raw, zero-lag input: the
+## shaped target reaches the flight controller on the same physics tick.  The
+## pilot can still raise it for a softer feel on noisy radios.
+const DEFAULT_STICK_SMOOTHING := 0.0
 
 ## Controller deadband applied to every stick channel (±0.02 PC default).
 ## Values inside this range are snapped to zero to kill jitter / drift.
 const DEFAULT_STICK_DEADZONE := 0.02
 
-## The phone build keeps the same 2% deadband as before and only uses a
-## slightly lighter smoothing filter for a quicker response.
-const MOBILE_STICK_SMOOTHING := 0.10
+## Phones use the same 2 % deadband and the same zero-lag smoothing default.
+const MOBILE_STICK_SMOOTHING := 0.0
 const MOBILE_STICK_DEADZONE := DEFAULT_STICK_DEADZONE
 @export var stick_deadzone := DEFAULT_STICK_DEADZONE: set = _set_deadzone
 ## Smoothing strength (0.0 = none / instant, 0.5 = strongest).  Internally it
@@ -96,15 +95,19 @@ func apply_stick_filter(channel: String, raw: float, frame_dt: float = -1.0) -> 
 				_stick_filter_frame[channel] = frame
 			return 0.0
 		value = signf(value) * (absf(value) - stick_deadzone) / maxf(1.0 - stick_deadzone, 0.01)
-	if frame_dt < 0.0 and int(_stick_filter_frame.get(channel, -1)) == frame:
-		return clampf(_stick_filtered[channel], -1.0, 1.0)
-	_stick_filter_frame[channel] = frame
 	var dt := frame_dt
 	if dt < 0.0:
 		dt = 1.0 / maxf(float(Engine.physics_ticks_per_second), 30.0)
-	if stick_smoothing <= 0.0001 or dt <= 0.0:
+	# Zero smoothing (the default once more) must add no lag whatsoever: hand
+	# the shaped target straight back, bypassing the per-frame filter cache so
+	# a same-tick touch/gamepad update is visible immediately.
+	if stick_smoothing <= 0.005 or dt <= 0.0:
+		_stick_filter_frame[channel] = frame
 		_stick_filtered[channel] = value
 		return value
+	if frame_dt < 0.0 and int(_stick_filter_frame.get(channel, -1)) == frame:
+		return clampf(_stick_filtered[channel], -1.0, 1.0)
+	_stick_filter_frame[channel] = frame
 	# Time-based one-pole low-pass: the slider always means the same lag at any
 	# FPS.  No delta-speed bypass: a deliberate flick must still be smoothed by
 	# exactly the amount the pilot selected on the smoothing slider.
@@ -224,6 +227,11 @@ const STICK_POSITIVE := {
 
 
 func _ready() -> void:
+	# Deliver touch / pointer / gamepad motion events as soon as they arrive.
+	# Accumulated input batches them until the next frame (or, on some
+	# platforms, until the next physics tick), which adds a hidden frame of
+	# latency to every stick sample.
+	Input.use_accumulated_input = false
 	# Pick up the saved deadband/smoothing immediately, before any GUI reads
 	# them.  The full binding load is deferred because KeyboardControls is a
 	# later autoload and restore_keyboard_shortcuts() needs it to exist.
@@ -412,12 +420,12 @@ func load_input_map(update_controller: bool = false) -> String:
 	var tuning_version := int(config.get_value("controls", "stick_tuning_version", 0))
 	stick_deadzone = clampf(float(config.get_value("controls", "stick_deadzone", stick_deadzone)), 0.0, 0.30)
 	stick_smoothing = clampf(float(config.get_value("controls", "stick_smoothing", stick_smoothing)), 0.0, 0.50)
-	var mobile_tuning := MenuUI.is_mobile_ui()
 	if tuning_version < STICK_TUNING_VERSION:
-		# Old builds defaulted to 0, which felt twitchy on cheap radios.  Only
-		# replace the untouched default; an explicitly customised value stays.
-		if is_zero_approx(stick_smoothing):
-			stick_smoothing = DEFAULT_STICK_SMOOTHING
+		# v7: smoothing defaults to zero so radio, touch and ELRS samples reach
+		# the flight controller on the very same tick.  Profiles written by
+		# older builds stored the old 0.10-0.16 filter, so reset it once here;
+		# the pilot can raise the slider again and that value is preserved.
+		stick_smoothing = DEFAULT_STICK_SMOOTHING
 		# Very large deadbands were a workaround for a badly captured centre.
 		# They turn into a dead spot of their own, so put the sane default back
 		# once the new calibration is in place.
@@ -442,15 +450,9 @@ func load_input_map(update_controller: bool = false) -> String:
 		var tuning_err := config.save(input_map_path)
 		if tuning_err != OK:
 			Global.log_error(tuning_err, "Could not migrate stick tuning settings.")
-	# Mobile-only feel: the deadband stays at the previous 2%; only the
-	# smoothing default is lighter.  A custom slider value is preserved.
-	if mobile_tuning and is_equal_approx(stick_smoothing, 0.16):
-		stick_smoothing = MOBILE_STICK_SMOOTHING
-		config.set_value("controls", "stick_smoothing", stick_smoothing)
-		config.set_value("controls", "stick_tuning_version", STICK_TUNING_VERSION)
-		var mobile_err := config.save(input_map_path)
-		if mobile_err != OK:
-			Global.log_error(mobile_err, "Could not save mobile stick tuning.")
+	# Mobile and PC share the same zero-lag default.  Saved values are kept
+	# as-is here (the one-time v7 migration above already handled old profiles),
+	# so a pilot who deliberately raises smoothing keeps it on every launch.
 	for channel in stick_invert.keys():
 		stick_invert[channel] = bool(config.get_value(
 				"controls", "stick_invert_" + channel, stick_invert[channel]))

@@ -25,6 +25,7 @@ const SELECTED_GATE_INDICES: Array[int] = [
 func _ready() -> void:
 	_restore_atlas_materials()
 	_optimize_distant_shadows()
+	_harden_solid_colliders()
 	call_deferred("_populate")
 
 
@@ -73,6 +74,7 @@ func _optimize_distant_shadows() -> void:
 func _populate() -> void:
 	_populate_posts()
 	_populate_visible_rings()
+	_harden_solid_colliders()
 
 
 func _populate_posts() -> void:
@@ -88,6 +90,28 @@ func _populate_posts() -> void:
 		var p: Array = pts[i]
 		mm.set_instance_transform(i,
 			Transform3D(Basis.IDENTITY, Vector3(p[0], p[1], p[2])))
+
+
+## Authored GLB colliders may be single-sided trimeshes on layer 0.  Harden
+## every one so decks, legs, girders, pipes, helipads and sub-meshes are solid
+## on the drone layer and can be hit from either side.
+func _harden_solid_colliders() -> void:
+	_harden_collider_tree(self)
+
+
+func _harden_collider_tree(node: Node) -> void:
+	if node == null:
+		return
+	if node is StaticBody3D:
+		var body := node as StaticBody3D
+		body.collision_layer = 1
+		body.collision_mask = 1
+		for cs_node in body.find_children("*", "CollisionShape3D", true, false):
+			var shape: Shape3D = (cs_node as CollisionShape3D).shape
+			if shape is ConcavePolygonShape3D:
+				(shape as ConcavePolygonShape3D).backface_collision = true
+	for child in node.get_children():
+		_harden_collider_tree(child)
 
 
 func _populate_visible_rings() -> void:

@@ -3,4 +3,4 @@
 [ext_resource type="PackedScene" path="res://sceneries/BigLevel.tscn" id="1_base"]
 
 [node name="IndustrialLevel" instance=ExtResource("1_base")]
-frontline_map = "industrial"
+frontline_map = "promzona_plavni"

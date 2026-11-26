@@ -151,6 +151,9 @@ func _elrs_axis(index: int) -> float:
 
 
 func _touch_axis(index: int) -> float:
+	# Read the live TouchControls properties, never a cached or blended copy.
+	# TouchControls writes them from _input(), so the physics tick that follows
+	# a finger event already sees the new value with no frame-delayed buffer.
 	var pad := touch()
 	if pad == null:
 		return 0.0
@@ -165,6 +168,20 @@ func _touch_axis(index: int) -> float:
 		3:
 			value = float(pad.get("yaw"))
 	return clampf(value, -1.0, 1.0)
+
+
+## Push a complete touch stick sample into TouchControls on the calling tick.
+## There is deliberately no lerp, smoothing or deferred queue here: the next
+## physics step must see exactly the sample the finger produced.
+func set_sticks(roll_value: float, pitch_value: float, throttle_value: float,
+		yaw_value: float) -> void:
+	var pad := touch()
+	if pad == null:
+		return
+	pad.set("roll", clampf(roll_value, -1.0, 1.0))
+	pad.set("pitch", clampf(pitch_value, -1.0, 1.0))
+	pad.set("throttle", clampf(throttle_value, 0.0, 1.0))
+	pad.set("yaw", clampf(yaw_value, -1.0, 1.0))
 
 
 func _normalize_center(raw: float) -> float:

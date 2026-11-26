@@ -17,6 +17,10 @@ const COURSE_WAYPOINTS := [
 
 var _map_instance: Node3D = null
 var _water_mask: LisWaterMask = null
+var _dry_ground_accum := 0.0
+var _guard_probe_ms := 0
+var _guard_probe_xz := Vector2(1.0e20, 1.0e20)
+var _guard_probe_y := 0.0
 
 
 func _map_path() -> String:
@@ -310,7 +314,12 @@ func _map_water_level() -> float:
 
 func _physics_process(delta: float) -> void:
 	super._physics_process(delta)
-	_enforce_dry_ground_units()
+	# Unit banking checks do not need physics-rate cadence: 4 Hz keeps the
+	# whole vehicle/infantry group scan + water probes off the frame budget.
+	_dry_ground_accum += delta
+	if _dry_ground_accum >= 0.25:
+		_dry_ground_accum = 0.0
+		_enforce_dry_ground_units()
 	_guard_drone_above_terrain()
 
 
@@ -321,7 +330,15 @@ func _guard_drone_above_terrain() -> void:
 	var p := drone.global_position
 	if absf(p.x) > MAP_FLIGHT_BOUND or absf(p.z) > MAP_FLIGHT_BOUND:
 		return
-	var gy := _find_ground_y(p.x, p.z)
+	# Reuse the last ground probe: one full-world raycast per 3 m of travel or
+	# 0.5 s instead of one every physics frame.
+	var now := Time.get_ticks_msec()
+	var xz := Vector2(p.x, p.z)
+	if now - _guard_probe_ms >= 500 or _guard_probe_xz.distance_squared_to(xz) > 9.0:
+		_guard_probe_ms = now
+		_guard_probe_xz = xz
+		_guard_probe_y = _find_ground_y(p.x, p.z)
+	var gy := _guard_probe_y
 	if p.y < gy - 1.2:
 		drone.global_position = Vector3(p.x, gy + 1.2, p.z)
 		var lv := drone.linear_velocity

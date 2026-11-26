@@ -61,6 +61,9 @@ var _stick_filter_ready := false
 
 
 func _ready() -> void:
+	# Run before Drone._physics_process so the sticks sampled here are the ones
+	# the airframe integrates in the same physics step.
+	process_physics_priority = -100
 	target = get_node_or_null(target_path)
 	if target == null and get_tree().current_scene != null:
 		target = get_tree().current_scene.get_node_or_null("Drone")
@@ -272,6 +275,11 @@ func read_input() -> void:
 	var wifi := get_node_or_null("/root/ElrsWifiInput")
 	var touch := get_node_or_null("/root/TouchControls")
 	var mobile := get_node_or_null("/root/MobileInput")
+	# Drain queued ELRS packets before sampling the channels so this physics
+	# tick uses the newest frame instead of one buffered several frames ago.
+	# poll_now() is effectively free when the queue is empty.
+	if wifi != null and wifi.has_method("poll_now"):
+		wifi.poll_now()
 	var touch_active: bool = touch != null and bool(touch.get("enabled")) \
 			and bool(touch.get("touch_mode"))
 	var wifi_active: bool = wifi != null and bool(wifi.get("valid"))
@@ -364,7 +372,7 @@ func read_input() -> void:
 	# response.  Cuts use a shorter tau and a larger cap so power drops fast.
 	var dt := maxf(get_physics_process_delta_time(), 0.0001)
 	var sm := clampf(float(Controls.stick_smoothing), 0.0, 0.5)
-	if sm <= 0.001 or throttle_from_controls or not _throttle_filter_ready or not armed:
+	if sm <= 0.005 or throttle_from_controls or not _throttle_filter_ready or not armed:
 		_throttle_filtered = power
 		_throttle_filter_ready = true
 	else:
@@ -387,7 +395,7 @@ func read_input() -> void:
 	if test_sticks or not _stick_filter_ready or not armed:
 		_stick_filtered = target_sticks
 		_stick_filter_ready = true
-	elif sm <= 0.001:
+	elif sm <= 0.005:
 		_stick_filtered = target_sticks
 	else:
 		# Same time constant on PC and mobile: 0..0.5 on the slider predicts

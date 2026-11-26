@@ -44,6 +44,23 @@ const INNER_SIZE := 96.0
 const INNER_CHUNKS := 2
 const INNER_CELLS := 32          # 1.5 m inner cell (exact 1:2 subdivision)
 
+
+static func _outer_size(map_name: String) -> float:
+	return 768.0 if map_name == "promzona_plavni" else OUTER_SIZE
+
+
+static func _outer_half(map_name: String) -> float:
+	return 384.0 if map_name == "promzona_plavni" else OUTER_HALF
+
+
+static func _inner_size(map_name: String) -> float:
+	return 192.0 if map_name == "promzona_plavni" else INNER_SIZE
+
+
+static func _safe_structure_bound(map_name: String) -> float:
+	return 335.0 if map_name == "promzona_plavni" else SAFE_STRUCTURE_BOUND
+
+
 ## Authored hero interiors.  Every frontline map sits cleanly within ±162 m.
 const HALL_SITES := {
 	"industrial": {
@@ -73,6 +90,13 @@ const HALL_SITES := {
 		"asset": "wetlands_hall.glb", "theme": "wetlands",
 		"spawn": Vector2(72.0, 110.0), "spawn_yaw": PI,
 		"roof_height": 19.5,
+	},
+	"promzona_plavni": {
+		"center": Vector2(52.0, -180.0), "scale": 1.0, "yaw": 0.0,
+		"sink": 0.0, "interior": true, "half": Vector2(68.0, 42.0),
+		"asset": "industrial_hall.glb", "theme": "industrial",
+		"spawn": Vector2(52.0, -118.0), "spawn_yaw": PI,
+		"roof_height": 22.0,
 	},
 }
 
@@ -154,6 +178,8 @@ const STRUCT_AO_CIRCLES := {
 	"steppe": [Vector3(-128.0, 38.0, 12.0), Vector3(-132.0, -132.0, 12.0), Vector3(36.0, 128.0, 14.0)],
 	"industrial": [Vector3(-105.0, -98.0, 28.0), Vector3(-92.0, 56.0, 14.0), Vector3(-48.0, -142.0, 12.0)],
 	"wetlands": [Vector3(-56.0, -118.0, 15.0), Vector3(10.0, 60.0, 12.0)],
+	"promzona_plavni": [Vector3(-105.0, -245.0, 28.0), Vector3(52.0, -180.0, 22.0),
+			Vector3(42.0, 165.0, 18.0), Vector3(-56.0, 145.0, 15.0)],
 }
 
 
@@ -167,11 +193,20 @@ static func get_reserved_areas() -> Array:
 
 
 static func reset_structure_registry(terrain_root: Node) -> void:
-	if terrain_root == null:
+	if terrain_root == null or not is_instance_valid(terrain_root):
 		_structure_registry.clear()
+		_contact_shadow_queues.clear()
 		return
 	var key := terrain_root.get_instance_id()
 	_structure_registry[key] = []
+	var exit_cb := _on_registry_root_tree_exiting.bind(key)
+	if not terrain_root.tree_exiting.is_connected(exit_cb):
+		terrain_root.tree_exiting.connect(exit_cb, CONNECT_ONE_SHOT)
+
+
+static func _on_registry_root_tree_exiting(key: int) -> void:
+	_structure_registry.erase(key)
+	_contact_shadow_queues.erase(key)
 
 
 static func get_reserved_structures(terrain_root: Node) -> Array:
@@ -235,7 +270,8 @@ static func _road_factor(map_name: String, x: float, z: float) -> float:
 static func try_reserve_structure(terrain_root: Node, map_name: String,
 		pos_xz: Vector2, footprint_radius: float,
 		min_corridor: float = 28.0, allow_on_road: bool = false) -> bool:
-	if absf(pos_xz.x) > SAFE_STRUCTURE_BOUND or absf(pos_xz.y) > SAFE_STRUCTURE_BOUND:
+	var structure_bound := _safe_structure_bound(map_name)
+	if absf(pos_xz.x) > structure_bound or absf(pos_xz.y) > structure_bound:
 		return false
 	if not allow_on_road and _road_factor(map_name, pos_xz.x, pos_xz.y) >= 0.22:
 		return false
@@ -246,7 +282,8 @@ static func try_reserve_structure(terrain_root: Node, map_name: String,
 			return false
 	var key := terrain_root.get_instance_id() if terrain_root != null else 0
 	var list: Array = _structure_registry.get(key, [])
-	if list.size() >= MAX_KEY_STRUCTURES:
+	var max_structures := 36 if map_name == "promzona_plavni" else MAX_KEY_STRUCTURES
+	if list.size() >= max_structures:
 		return false
 	for prev in list:
 		var prev_pos: Vector2 = prev["pos"]
@@ -262,9 +299,11 @@ static func try_reserve_structure(terrain_root: Node, map_name: String,
 static func _reserve_near_site(terrain_root: Node, map_name: String,
 		base_xz: Vector2, footprint_radius: float,
 		min_corridor: float = 28.0, allow_on_road: bool = false) -> Vector2:
+	var clamp_bound := 325.0 if map_name == "promzona_plavni" else 152.0
+	var candidate_bound := 325.0 if map_name == "promzona_plavni" else 158.0
 	var clamped_base := Vector2(
-			clampf(base_xz.x, -152.0, 152.0),
-			clampf(base_xz.y, -152.0, 152.0))
+			clampf(base_xz.x, -clamp_bound, clamp_bound),
+			clampf(base_xz.y, -clamp_bound, clamp_bound))
 	var wl := water_level(map_name)
 	for ring in range(0, 10):
 		var rad := 16.0 * float(ring)
@@ -272,7 +311,7 @@ static func _reserve_near_site(terrain_root: Node, map_name: String,
 		for i in range(steps):
 			var a := TAU * float(i) / float(steps) + float(ring) * 0.37
 			var cand := clamped_base + Vector2(cos(a), sin(a)) * rad
-			if absf(cand.x) > 158.0 or absf(cand.y) > 158.0:
+			if absf(cand.x) > candidate_bound or absf(cand.y) > candidate_bound:
 				continue
 			if _height(map_name, cand.x, cand.y) <= wl + 0.6:
 				continue
@@ -427,6 +466,7 @@ static func flush_contact_shadows(root: Node3D) -> void:
 class SmokePlume:
 	extends Node3D
 	var _t := 0.0
+	var _tick := 0.0
 	var _seed := 0.0
 	var _quads: Array[MeshInstance3D] = []
 
@@ -441,9 +481,25 @@ class SmokePlume:
 		_quads.append(q)
 
 	func _process(delta: float) -> void:
-		_t += delta
+		# Distant plumes are visually irrelevant from FPV altitude; skip their
+		# transforms entirely beyond 180 m and throttle the rest to 20 Hz.
+		if not is_inside_tree():
+			return
+		var vp := get_viewport()
+		if vp == null:
+			return
+		var cam := vp.get_camera_3d()
+		if cam != null and cam.global_position.distance_squared_to(global_position) > 32400.0:
+			return
+		_tick += delta
+		if _tick < 0.05:
+			return
+		_t += _tick
+		_tick = 0.0
 		for i in range(_quads.size()):
 			var q := _quads[i]
+			if not is_instance_valid(q):
+				continue
 			var bx := float(q.get_meta("base_x", 0.0))
 			var by := float(q.get_meta("base_y", 0.0))
 			var bz := float(q.get_meta("base_z", 0.0))
@@ -478,31 +534,40 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 	if _is_tutorial_mode():
 		# Keep the entire FlightSchool corridor (spawn -> window -> brake -> landing)
 		# free of POIs, hero structures, freestyle props and vegetation.
-		for rz in [120.0, 80.0, 40.0, 0.0, -15.0, -38.0]:
-			reserve_area(Vector2(-48.0, float(rz)), 28.0)
+		if map_name == "promzona_plavni":
+			for rz in [200.0, 140.0, 80.0, 20.0, -40.0, -100.0, -155.0]:
+				reserve_area(Vector2(-225.0, float(rz)), 34.0)
+		else:
+			for rz in [120.0, 80.0, 40.0, 0.0, -15.0, -38.0]:
+				reserve_area(Vector2(-48.0, float(rz)), 28.0)
 
 	var ground_mat := _ground_material(map_name)
-	var outer_cells := maxi(16, OUTER_CELLS / 2)
+	var outer_size := _outer_size(map_name)
+	var outer_half := _outer_half(map_name)
+	var inner_size := _inner_size(map_name)
+	var inner_chunks := 4 if map_name == "promzona_plavni" else INNER_CHUNKS
+	var outer_cells := 32 if map_name == "promzona_plavni" \
+			else maxi(16, OUTER_CELLS / 2)
 
 	# Outer ring: 8x8 chunks, skip the central 2x2 that the inner ring fills.
-	var outer_chunk := OUTER_SIZE / float(OUTER_CHUNKS)
+	var outer_chunk := outer_size / float(OUTER_CHUNKS)
 	var outer_meshes: Array = []
 	for cz in range(OUTER_CHUNKS):
 		for cx in range(OUTER_CHUNKS):
 			if cx >= 3 and cx <= 4 and cz >= 3 and cz <= 4:
 				continue
-			var ox := -OUTER_SIZE * 0.5 + float(cx) * outer_chunk
-			var oz := -OUTER_SIZE * 0.5 + float(cz) * outer_chunk
+			var ox := -outer_size * 0.5 + float(cx) * outer_chunk
+			var oz := -outer_size * 0.5 + float(cz) * outer_chunk
 			outer_meshes.append(_build_chunk(root, map_name, ox, oz, outer_chunk,
 					outer_cells, ground_mat))
 
 	# Inner high-resolution patch.
-	var inner_chunk := INNER_SIZE / float(INNER_CHUNKS)
+	var inner_chunk := inner_size / float(inner_chunks)
 	var inner_meshes: Array = []
-	for cz in range(INNER_CHUNKS):
-		for cx in range(INNER_CHUNKS):
-			var ox := -INNER_SIZE * 0.5 + float(cx) * inner_chunk
-			var oz := -INNER_SIZE * 0.5 + float(cz) * inner_chunk
+	for cz in range(inner_chunks):
+		for cx in range(inner_chunks):
+			var ox := -inner_size * 0.5 + float(cx) * inner_chunk
+			var oz := -inner_size * 0.5 + float(cz) * inner_chunk
 			inner_meshes.append(_build_chunk(root, map_name, ox, oz, inner_chunk,
 					INNER_CELLS, ground_mat))
 
@@ -583,12 +648,12 @@ static func build_terrain(level: Node3D, map_name: String, base_y: float) -> voi
 		var arch_upgrader = load("res://scripts/util/material_upgrader.gd")
 		if arch_upgrader != null:
 			arch_upgrader.apply_arch_weathering(root, map_name,
-					height_map_tex(map_name), OUTER_HALF, base_y, true)
+					height_map_tex(map_name), outer_half, base_y, true)
 		_apply_prop_detail_weathering(root, map_name, base_y)
 	_add_smoke_plumes(root, map_name, base_y)
 	flush_contact_shadows(root)
 
-	print("[FrontlineTerrain] built ", map_name, " (", OUTER_SIZE, " m clipmap, reserved=",
+	print("[FrontlineTerrain] built ", map_name, " (", outer_size, " m clipmap, reserved=",
 			get_reserved_structures(root).size(), ")")
 
 
@@ -614,11 +679,13 @@ static func height_map_tex(map_name: String) -> ImageTexture:
 	if _height_tex_cache.has(map_name):
 		return _height_tex_cache[map_name]
 	const RES := 128
+	var outer_size := _outer_size(map_name)
+	var outer_half := _outer_half(map_name)
 	var img := Image.create(RES, RES, false, Image.FORMAT_R8)
 	for j in range(RES):
-		var wz := -OUTER_HALF + OUTER_SIZE * (float(j) + 0.5) / float(RES)
+		var wz := -outer_half + outer_size * (float(j) + 0.5) / float(RES)
 		for i in range(RES):
-			var wx := -OUTER_HALF + OUTER_SIZE * (float(i) + 0.5) / float(RES)
+			var wx := -outer_half + outer_size * (float(i) + 0.5) / float(RES)
 			var hn := clampf((_height(map_name, wx, wz) + 16.0) / 64.0, 0.0, 1.0)
 			img.set_pixel(i, j, Color(hn, 0.0, 0.0, 1.0))
 	var tex := ImageTexture.create_from_image(img)
@@ -635,10 +702,14 @@ static func height_map_tex(map_name: String) -> ImageTexture:
 static func mesh_surface_height(map_name: String, x: float, z: float) -> float:
 	if map_name == "airport":
 		return 0.12
-	var outer_cells := maxi(16, OUTER_CELLS / 2)
-	var step := OUTER_SIZE / float(OUTER_CHUNKS * outer_cells)
-	if absf(x) <= INNER_SIZE * 0.5 and absf(z) <= INNER_SIZE * 0.5:
-		step = INNER_SIZE / float(INNER_CHUNKS * INNER_CELLS)  # 1.6 m
+	var outer_size := _outer_size(map_name)
+	var inner_size := _inner_size(map_name)
+	var inner_chunks := 4 if map_name == "promzona_plavni" else INNER_CHUNKS
+	var outer_cells := 32 if map_name == "promzona_plavni" \
+			else maxi(16, OUTER_CELLS / 2)
+	var step := outer_size / float(OUTER_CHUNKS * outer_cells)
+	if absf(x) <= inner_size * 0.5 and absf(z) <= inner_size * 0.5:
+		step = inner_size / float(inner_chunks * INNER_CELLS)
 	var x0 := floorf(x / step) * step
 	var z0 := floorf(z / step) * step
 	var h00 := _height(map_name, x0, z0)
@@ -726,6 +797,8 @@ static func water_level(map_name: String) -> float:
 			return -1.8
 		"wetlands":
 			return -1.2
+		"promzona_plavni":
+			return -1.2
 	return -999.0
 
 
@@ -762,7 +835,31 @@ static func _height(map_name: String, x: float, z: float) -> float:
 	elif map_name == "wetlands":
 		h = _flatten_pad(h, x, z, Vector2(-56.0, -118.0),
 				Vector2(26.0, 20.0), -1.0)
-	if _is_tutorial_mode():
+	elif map_name == "promzona_plavni":
+		h = _flatten_pad(h, x, z, Vector2(-105.0, -245.0),
+				Vector2(56.0, 40.0), 1.6)
+		h = _flatten_pad(h, x, z, Vector2(52.0, -180.0),
+				Vector2(68.0, 42.0), 1.6)
+		h = _flatten_pad(h, x, z, Vector2(-48.0, -285.0),
+				Vector2(28.0, 20.0), 1.6)
+		h = _flatten_pad(h, x, z, Vector2(-157.0, -302.0),
+				Vector2(38.0, 24.0), 1.6)
+		h = _flatten_pad(h, x, z, Vector2(-90.0, -293.0),
+				Vector2(12.0, 12.0), 1.6)
+		h = _flatten_pad(h, x, z, Vector2(-68.0, -273.0),
+				Vector2(20.0, 20.0), 1.6)
+		h = _flatten_pad(h, x, z, Vector2(42.0, 165.0),
+				Vector2(62.0, 42.0), 0.4)
+		h = _flatten_pad(h, x, z, Vector2(-56.0, 145.0),
+				Vector2(26.0, 20.0), -0.8)
+		var plateau_d := Vector2(x, z).distance_to(Vector2(0.0, 275.0))
+		h = lerpf(h, 0.8, 1.0 - smoothstep(40.0, 58.0, plateau_d))
+		# Flat, dry training strip for FlightSchool / CombatTraining.
+		var strip_x := 1.0 - smoothstep(26.0, 40.0, absf(x + 225.0))
+		var strip_z := smoothstep(-178.0, -165.0, z) \
+				* (1.0 - smoothstep(225.0, 238.0, z))
+		h = lerpf(h, 1.2, strip_x * strip_z)
+	if _is_tutorial_mode() and map_name != "promzona_plavni":
 		var wl_tut := water_level(map_name)
 		var tut_dx := maxf(absf(x + 48.0) - 10.0, 0.0)
 		var tut_dz := 0.0
@@ -804,6 +901,8 @@ static func _relief_offset(map_name: String, x: float, z: float) -> float:
 			amp = 2.2
 		"wetlands":
 			amp = 0.0
+		"promzona_plavni":
+			amp = 1.0
 		_:
 			amp = 2.4
 	if _qa_no_relief_cached < 0:
@@ -814,6 +913,13 @@ static func _relief_offset(map_name: String, x: float, z: float) -> float:
 	# of times per rebuild, and a 5-octave version caused 50-100 ms spikes.
 	var mounds := _noise2(x * 0.012 + 31.0, z * 0.012 - 17.0)
 	var ridges := _noise2(x * 0.03 - 9.0, z * 0.03 + 5.0)
+	if map_name == "promzona_plavni":
+		var canal_z := 10.0 + 12.0 * sin(x * 0.012)
+		var canal_fade := smoothstep(26.0, 70.0, absf(z - canal_z))
+		var strip_fade := 1.0 - smoothstep(26.0, 44.0, absf(x + 225.0))
+		var marsh_scale := 0.55 if z > 35.0 else 0.95
+		return (mounds * marsh_scale + ridges * marsh_scale * 0.30) \
+				* canal_fade * (1.0 - strip_fade * 0.92)
 	var d2 := x * x + z * z
 	if d2 < 900.0:
 		return 0.0
@@ -824,6 +930,8 @@ static func _relief_offset(map_name: String, x: float, z: float) -> float:
 static func _base_height(map_name: String, x: float, z: float) -> float:
 	if map_name == "airport":
 		return 0.12
+	if map_name == "promzona_plavni":
+		return _promzona_plavni_base(x, z)
 	match map_name:
 		"village":
 			var h := 1.2 + _fbm(x * 0.005, z * 0.005, 3) * 3.6
@@ -858,6 +966,58 @@ static func _base_height(map_name: String, x: float, z: float) -> float:
 			h -= 3.5 * exp(-pow((x - 85.0) / 55.0, 2.0)) \
 					* exp(-pow((z - 35.0) / 120.0, 2.0))
 			return h
+
+
+## Merged 768 m Promzona/Plavni battlefield.  North of the canal is the
+## industrial yard; south of it is the marsh.  The two biomes blend through
+## the canal band so there is no hard seam in the height field.
+static func _promzona_plavni_base(x: float, z: float) -> float:
+	var canal_z := 10.0 + 12.0 * sin(x * 0.012)
+	# North: undulating industrial terrain with authored dry pads.
+	var north_h := 1.0 + _fbm(x * 0.006, z * 0.006, 3) * 1.6
+	north_h = _flatten_pad(north_h, x, z, Vector2(-105.0, -245.0),
+			Vector2(56.0, 40.0), 1.6)
+	north_h = _flatten_pad(north_h, x, z, Vector2(52.0, -180.0),
+			Vector2(68.0, 42.0), 1.6)
+	north_h = _flatten_pad(north_h, x, z, Vector2(-48.0, -285.0),
+			Vector2(28.0, 20.0), 1.6)
+	# Factory north-west container yard and replacement chimney/cooling-tower
+	# pads: one level apron so the authored containers and open towers sit flush.
+	north_h = _flatten_pad(north_h, x, z, Vector2(-157.0, -302.0),
+			Vector2(38.0, 24.0), 1.6)
+	north_h = _flatten_pad(north_h, x, z, Vector2(-90.0, -293.0),
+			Vector2(12.0, 12.0), 1.6)
+	north_h = _flatten_pad(north_h, x, z, Vector2(-68.0, -273.0),
+			Vector2(20.0, 20.0), 1.6)
+	# South: Plavni marsh with sinuous channels and dry dike ridges.
+	var south_h := -0.35 + _fbm(x * 0.007, z * 0.007, 3) * 1.8
+	for i in range(4):
+		var cz := 95.0 + float(i) * 52.0 + 16.0 * sin(x * 0.011 + float(i) * 1.9)
+		south_h -= 2.5 * exp(-pow((z - cz) / 13.0, 2.0))
+	# Western barge pool: a broad, permanently wet pocket at (-155, 110).
+	south_h -= 3.0 * exp(-pow((x + 155.0) / 42.0, 2.0) \
+			- pow((z - 110.0) / 18.0, 2.0))
+	for i in range(3):
+		var dike_x := -110.0 + float(i) * 110.0
+		if is_equal_approx(dike_x, 0.0) and (z < 210.0 or z > 340.0):
+			continue
+		south_h += 1.35 * exp(-pow((x - dike_x) / 6.0, 2.0))
+	south_h = _flatten_pad(south_h, x, z, Vector2(42.0, 165.0),
+			Vector2(30.0, 22.0), 0.4)
+	south_h = _flatten_pad(south_h, x, z, Vector2(-56.0, 145.0),
+			Vector2(26.0, 20.0), -0.8)
+	var plateau_d := Vector2(x, z).distance_to(Vector2(0.0, 275.0))
+	south_h = lerpf(south_h, 0.8, 1.0 - smoothstep(40.0, 58.0, plateau_d))
+	var h := lerpf(north_h, south_h, smoothstep(-10.0, 35.0, z))
+	# Central canal across the full X range.
+	h -= 4.4 * exp(-pow((z - canal_z) / 16.0, 2.0))
+	# Dry bridge approach causeways rising to the abutments at ±110 m.
+	for bx in [-110.0, 110.0]:
+		var strip_x := 1.0 - smoothstep(11.0, 25.0, absf(x - bx))
+		var approach := smoothstep(14.0, 34.0, absf(z - canal_z))
+		var near_canal := 1.0 - smoothstep(70.0, 110.0, absf(z - canal_z))
+		h = lerpf(h, 1.0, strip_x * approach * near_canal)
+	return h
 
 
 # --------------------------------------------------------------------- noise
@@ -1202,6 +1362,14 @@ static func _build_mountain_backdrop(root: Node3D, map_name: String) -> void:
 			col_low = Color(0.22, 0.29, 0.25)
 			col_high = Color(0.39, 0.46, 0.45)
 			col_haze = Color(0.61, 0.69, 0.71)
+		"promzona_plavni":
+			h_inner0 = 20.0
+			h_inner1 = 50.0
+			h_outer0 = 40.0
+			h_outer1 = 88.0
+			col_low = Color(0.23, 0.28, 0.27)
+			col_high = Color(0.42, 0.47, 0.48)
+			col_haze = Color(0.58, 0.65, 0.68)
 
 	# Keep every mountain vertex strictly outside the 960 m square HorizonRing
 	# skirt (990 m on cardinal axes .. 1420 m at 45-degree corners) so rings
@@ -1295,6 +1463,9 @@ static func _build_mountain_backdrop(root: Node3D, map_name: String) -> void:
 		"wetlands":
 			sun_euler = Vector3(-20.0, 30.0, 0.0)
 			sun_warm = Color(0.96, 0.87, 0.70)
+		"promzona_plavni":
+			sun_euler = Vector3(-22.0, 54.0, 0.0)
+			sun_warm = Color(0.98, 0.85, 0.69)
 	var sun_basis := Basis.from_euler(Vector3(deg_to_rad(sun_euler.x),
 			deg_to_rad(sun_euler.y), 0.0))
 	mat.set_shader_parameter("sun_dir", sun_basis.z.normalized())
@@ -1324,10 +1495,10 @@ static func _pick_outer_horizon_point(rng: RandomNumberGenerator,
 static func _build_themed_horizon_props(root: Node3D, map_name: String) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(map_name) + 9941
-	var half_edge := OUTER_HALF  # 192.0 m
-	var outer_margin := maxf(SAFE_STRUCTURE_BOUND + 98.0, half_edge + 88.0)  # 280.0 m
-	var min_r := 360.0
-	var max_r := 540.0
+	var half_edge := _outer_half(map_name)
+	var outer_margin := maxf(_safe_structure_bound(map_name) + 98.0, half_edge + 88.0)
+	var min_r := 360.0 if map_name != "promzona_plavni" else half_edge + 180.0
+	var max_r := 540.0 if map_name != "promzona_plavni" else half_edge + 360.0
 	var canopy := FOLIAGE.make_canopy_mesh(7, 4, 0.24, 1.0, 1.0)
 	var hill_mesh := FOLIAGE.make_canopy_mesh(8, 4, 0.08, 1.0, 1.0)
 	var base_tree := Color(0.18, 0.25, 0.13)
@@ -1345,6 +1516,9 @@ static func _build_themed_horizon_props(root: Node3D, map_name: String) -> void:
 		"wetlands":
 			base_tree = Color(0.15, 0.23, 0.14)
 			base_hill = Color(0.19, 0.24, 0.15)
+		"promzona_plavni":
+			base_tree = Color(0.17, 0.24, 0.14)
+			base_hill = Color(0.22, 0.26, 0.18)
 
 	var tree_xfs: Array = []
 	var tree_cols: Array = []
@@ -1398,7 +1572,7 @@ static func _build_themed_horizon_props(root: Node3D, map_name: String) -> void:
 		if mmi != null:
 			mmi.visibility_range_begin = 60.0
 			mmi.visibility_range_begin_margin = 20.0
-			mmi.visibility_range_end = 190.0
+			mmi.visibility_range_end = 190.0 if map_name != "promzona_plavni" else 430.0
 			mmi.visibility_range_end_margin = 35.0
 			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 
@@ -1502,14 +1676,14 @@ static func _build_industrial_complex(root: Node3D) -> void:
 	_add_box(root, Vector3(hx, hy + 9.0, hz), Vector3(70.0, 18.0, 26.0),
 			concrete, 0.0, true)
 	_add_box(root, Vector3(hx, hy + 18.5, hz), Vector3(71.0, 0.7, 27.0),
-			roof, 0.0, false)
+			roof, 0.0, true)
 	for i in range(6):
 		var wz := hz - 10.0 + float(i) * 4.0
 		# Large panoramic industrial windows with dark steel frames
 		_add_box(root, Vector3(hx + 35.2, hy + 11.0, wz),
-				Vector3(0.25, 2.6, 3.2), steel, 0.0, false)
+				Vector3(0.25, 2.6, 3.2), steel, 0.0, true)
 		_add_box(root, Vector3(hx + 35.2, hy + 6.0, wz),
-				Vector3(0.25, 2.6, 3.2), steel, 0.0, false)
+				Vector3(0.25, 2.6, 3.2), steel, 0.0, true)
 
 	# Brick chimney: hollow, open top + a base arch (two fly-through openings).
 	var cx := -55.0
@@ -1560,10 +1734,10 @@ static func _build_industrial_complex(root: Node3D) -> void:
 		_add_box(root, Vector3(wx, wy + 5.0, wz), Vector3(40.0, 10.0, 18.0),
 				steel, 0.0, true)
 		_add_box(root, Vector3(wx, wy + 10.4, wz), Vector3(40.8, 0.5, 18.8),
-				rust, 0.0, false)
+				rust, 0.0, true)
 		for j in range(5):
 			_add_box(root, Vector3(wx - 14.0 + float(j) * 7.0, wy + 5.0, wz + 9.2),
-					Vector3(4.0, 5.0, 0.2), roof, 0.0, false)
+					Vector3(4.0, 5.0, 0.2), roof, 0.0, true)
 
 	# Container stacks near the rails.
 	var palette := [Color(0.16, 0.30, 0.44), Color(0.55, 0.16, 0.12),
@@ -1576,7 +1750,7 @@ static func _build_industrial_complex(root: Node3D) -> void:
 		if i >= 4:
 			by += 2.7
 		_add_box(root, Vector3(bx, by + 1.4, bz), Vector3(6.4, 2.7, 2.6),
-				mat, 0.0, false)
+				mat, 0.0, true)
 
 
 ## Handcrafted river + bridge for the industrial valley.  The terrain height
@@ -1677,27 +1851,27 @@ static func _build_industrial_river(root: Node3D) -> void:
 	_add_box(root, Vector3(0.0, 1.32, zc0), Vector3(36.4, 0.95, 17.2), conc, 0.0, true)
 	_add_box(root, Vector3(0.0, 1.84, zc0), Vector3(36.2, 0.12, 13.6), asphalt, 0.0, false)
 	for side_z in [-7.6, 7.6]:
-		_add_box(root, Vector3(0.0, 1.96, zc0 + side_z), Vector3(36.4, 0.32, 1.75), conc, 0.0, false)
+		_add_box(root, Vector3(0.0, 1.96, zc0 + side_z), Vector3(36.4, 0.32, 1.75), conc, 0.0, true)
 	# Under-deck longitudinal steel I-beam girders & transverse cross-beams
 	for gz in [-6.2, -2.1, 2.1, 6.2]:
-		_add_box(root, Vector3(0.0, 0.55, zc0 + gz), Vector3(35.8, 0.65, 0.38), rust_girder, 0.0, false)
+		_add_box(root, Vector3(0.0, 0.55, zc0 + gz), Vector3(35.8, 0.65, 0.38), rust_girder, 0.0, true)
 	for gx in [-14.0, -7.0, 0.0, 7.0, 14.0]:
-		_add_box(root, Vector3(gx, 0.62, zc0), Vector3(0.45, 0.55, 15.8), steel, 0.0, false)
+		_add_box(root, Vector3(gx, 0.62, zc0), Vector3(0.45, 0.55, 15.8), steel, 0.0, true)
 	# Flared concrete river piers with pier caps & cutwater noses
 	for px in [-14.0, 14.0]:
-		_add_box(root, Vector3(px, 0.10, zc0), Vector3(2.2, 0.65, 16.2), conc, 0.0, false)
+		_add_box(root, Vector3(px, 0.10, zc0), Vector3(2.2, 0.65, 16.2), conc, 0.0, true)
 		for pz in [-6.5, 6.5]:
 			_add_cylinder(root, Vector3(px, -2.4, zc0 + pz), 1.25, 9.0, conc, 0.0, true)
-			_add_cylinder(root, Vector3(px, 0.0, zc0 + pz), 1.45, 0.55, rust_girder, 0.0, false)
+			_add_cylinder(root, Vector3(px, 0.0, zc0 + pz), 1.45, 0.55, rust_girder, 0.0, true)
 	# Bank abutment walls & wing walls
 	for px in [-16.6, 16.6]:
 		_add_box(root, Vector3(px, -0.8, zc0), Vector3(1.5, 3.4, 17.4), conc, 0.0, true)
 	# Steel bridge parapets with vertical stanchions and double rails
 	for side_z in [-8.25, 8.25]:
 		_add_box(root, Vector3(0.0, 2.85, zc0 + side_z), Vector3(36.4, 0.16, 0.18), steel, 0.0, true)
-		_add_box(root, Vector3(0.0, 2.42, zc0 + side_z), Vector3(36.4, 0.12, 0.14), rust_girder, 0.0, false)
+		_add_box(root, Vector3(0.0, 2.42, zc0 + side_z), Vector3(36.4, 0.12, 0.14), rust_girder, 0.0, true)
 		for post_x in range(-16, 17, 4):
-			_add_box(root, Vector3(float(post_x), 2.48, zc0 + side_z), Vector3(0.22, 0.92, 0.24), steel, 0.0, false)
+			_add_box(root, Vector3(float(post_x), 2.48, zc0 + side_z), Vector3(0.22, 0.92, 0.24), steel, 0.0, true)
 
 
 static func spawn_handcrafted_on_ground(level: Node3D, path: String,
@@ -1745,6 +1919,17 @@ static func _spawn_handcrafted_assets(root: Node3D, map_name: String) -> void:
 			["res://Assets/handcrafted/wetlands_dock.glb",
 				Vector3(-56.0, _height("wetlands", -56.0, -118.0) - 0.10, -118.0), 18.0, true],
 		],
+		"promzona_plavni": [
+			["res://Assets/handcrafted/factory_complex.glb",
+				Vector3(-105.0, _height("promzona_plavni", -105.0, -245.0) - 0.15, -245.0),
+				34.0, true],
+			["res://Assets/handcrafted/freight_train.glb",
+				Vector3(-48.0, _height("promzona_plavni", -48.0, -285.0) - 0.10, -285.0),
+				18.0, false],
+			["res://Assets/handcrafted/wetlands_dock.glb",
+				Vector3(-56.0, _height("promzona_plavni", -56.0, 145.0) - 0.10, 145.0),
+				18.0, true],
+		],
 	}
 	for spec in specs.get(map_name, []):
 		var path: String = spec[0]
@@ -1767,8 +1952,9 @@ static func _spawn_handcrafted_assets(root: Node3D, map_name: String) -> void:
 		root.add_child(n)
 		n.position = pos
 		_apply_triplanar(n)
-		if path.ends_with("factory_complex.glb"):
-			_replace_factory_chimney(root, n)
+		if path.ends_with("factory_complex.glb") \
+				and (map_name == "industrial" or map_name == "promzona_plavni"):
+			_replace_factory_chimney(root, n, map_name)
 		elif path.ends_with("farm_complex.glb"):
 			_replace_farm_silos(root, n)
 		_hide_handcrafted_windows(n)
@@ -1785,7 +1971,8 @@ static func _spawn_handcrafted_assets(root: Node3D, map_name: String) -> void:
 ## visual mesh with a segmented shell that has two large opposite openings
 ## (about 4.6 x 8 m) and matching trimesh collision, so the pilot can fly
 ## through the tower.  The rest of the factory GLB is untouched.
-static func _replace_factory_chimney(root: Node3D, factory: Node3D) -> void:
+static func _replace_factory_chimney(root: Node3D, factory: Node3D,
+		map_name: String = "industrial") -> void:
 	for child in factory.find_children("*", "MeshInstance3D", true, false):
 		var mi := child as MeshInstance3D
 		if mi != null and (String(mi.name).to_lower().begins_with("chim") \
@@ -1794,33 +1981,48 @@ static func _replace_factory_chimney(root: Node3D, factory: Node3D) -> void:
 	# The old solid stack was cut out of hall_main (Blender).  The open-top
 	# replacement stands just east of the hall, clear of its wall and roof, so
 	# both the top and the base arches are open to the outside air.
+	var is_promzona := map_name == "promzona_plavni"
+	var height_map := "promzona_plavni" if is_promzona else "industrial"
+	var factory_origin := factory.global_position
+	# The merged Promzona map moves the whole factory.  Keep every replacement
+	# structure at the same authored offset from the factory instead of the old
+	# industrial world coordinates, so nothing lands over the containers or hall.
 	var center := Vector3(-90.0, 0.0, -146.0)
+	if is_promzona:
+		center = Vector3(factory_origin.x + 15.0, 0.0, factory_origin.z - 48.0)
 	reserve_area(Vector2(center.x, center.z), 9.0)
-	center.y = _height("industrial", center.x, center.z)
+	center.y = _height(height_map, center.x, center.z)
 	var root_inv := root.transform.affine_inverse()
 	var local_base := root_inv * center
+	var tower_root := Node3D.new()
+	tower_root.name = "FactoryTower_" + map_name
+	root.add_child(tower_root)
 	var height := 32.0
 	var radius := 4.0
 	var mat := _pbr("brick", Color(0.50, 0.23, 0.15), 0.38)
 	var chimney_inner := _pbr("brick", Color(0.42, 0.26, 0.20), 0.45)
-	_open_tower(root, local_base, radius, 0.72, height, mat, chimney_inner,
+	_open_tower(tower_root, local_base, radius, 0.72, height, mat, chimney_inner,
 			{"deg": 70.0, "min_h": 0.0, "max_h": 6.0, "count": 2},
 			"FactoryChimneyTop")
 	for h in [7.6, 19.5, 31.2]:
-		_add_ring(root, local_base + Vector3(0.0, h, 0.0),
+		var ring := _add_ring(tower_root, local_base + Vector3(0.0, h, 0.0),
 				radius + 0.05, 0.15, mat)
+		ring.set_meta("qa_attached_subpart", true)
 	# Hyperboloid open-top cooling tower near the factory yard (inside ±150 m).
 	var concrete := _pbr("concrete", Color(0.76, 0.74, 0.69), 0.30)
 	var steel := _pbr("steel", Color(0.70, 0.72, 0.74), 0.22)
 	var rust := _pbr("steel", Color(0.48, 0.28, 0.18), 0.34)
 	var tower_inner := _pbr("concrete", Color(0.56, 0.54, 0.50), 0.40)
-	var ct_pos := Vector3(-68.0, _height("industrial", -68.0, -126.0), -126.0)
+	var ct_pos := Vector3(-68.0, 0.0, -126.0)
+	if is_promzona:
+		ct_pos = Vector3(factory_origin.x + 37.0, 0.0, factory_origin.z - 28.0)
+	ct_pos.y = _height(height_map, ct_pos.x, ct_pos.z)
 	reserve_area(Vector2(ct_pos.x, ct_pos.z), 18.0)
 	var ct_profile: Array[Vector2] = [
 		Vector2(14.5, 0.0), Vector2(13.5, 4.0), Vector2(11.2, 12.0),
 		Vector2(10.5, 19.0), Vector2(11.3, 25.0), Vector2(12.2, 30.0),
 	]
-	_open_tower_profile(root, root_inv * ct_pos, ct_profile, 0.80,
+	_open_tower_profile(tower_root, root_inv * ct_pos, ct_profile, 0.80,
 			concrete, tower_inner,
 			{"deg": 65.0, "min_h": 0.0, "max_h": 7.5, "count": 2},
 			"FactoryCoolingTower")
@@ -1830,16 +2032,22 @@ static func _replace_factory_chimney(root: Node3D, factory: Node3D) -> void:
 		Vector2(-128.0, -56.0),
 		Vector2(-68.0, -74.0),
 	]
+	if is_promzona:
+		fac_silos = [
+			Vector2(factory_origin.x - 23.0, factory_origin.z + 42.0),
+			Vector2(factory_origin.x + 37.0, factory_origin.z + 24.0),
+		]
 	for i in range(fac_silos.size()):
 		var fsp := fac_silos[i]
 		reserve_area(fsp, 9.0)
-		var spos := Vector3(fsp.x, _height("industrial", fsp.x, fsp.y), fsp.y)
-		_open_tower(root, root_inv * spos, 4.5, 0.72, 19.0, steel, silo_inner,
+		var spos := Vector3(fsp.x, _height(height_map, fsp.x, fsp.y), fsp.y)
+		_open_tower(tower_root, root_inv * spos, 4.5, 0.72, 19.0, steel, silo_inner,
 				{"deg": 70.0, "min_h": 0.0, "max_h": 4.2, "count": 2},
 				"FactorySilo%d" % i)
 		for sh in [6.2, 12.5, 18.4]:
-			_add_ring(root, root_inv * spos + Vector3(0.0, sh, 0.0),
-					4.56, 0.12, rust)
+			var silo_ring := _add_ring(tower_root,
+					root_inv * spos + Vector3(0.0, sh, 0.0), 4.56, 0.12, rust)
+			silo_ring.set_meta("qa_attached_subpart", true)
 
 
 static func _replace_farm_silos(root: Node3D, farm: Node3D) -> void:
@@ -1916,7 +2124,7 @@ static func _add_mesh_collision(body: StaticBody3D, mi: MeshInstance3D) -> void:
 		var shape := sm.create_trimesh_shape()
 		if shape == null:
 			continue
-		shape.backface_collision = false
+		shape.backface_collision = true
 		var cs := CollisionShape3D.new()
 		cs.shape = shape
 		cs.transform = mi.transform
@@ -1946,7 +2154,7 @@ static func _add_handcrafted_collision(node: Node3D) -> void:
 			var shape := sm.create_trimesh_shape()
 			if shape == null:
 				continue
-			shape.backface_collision = false
+			shape.backface_collision = true
 			var cs := CollisionShape3D.new()
 			cs.shape = shape
 			body.add_child(cs)
@@ -2097,7 +2305,8 @@ static func _apply_triplanar(node: Node) -> void:
 ## the cheap density that makes the open maps read as working farmland instead
 ## of an empty green field.
 static func _build_crop_fields(root: Node3D, map_name: String) -> void:
-	if map_name == "industrial" or map_name == "wetlands":
+	if map_name == "industrial" or map_name == "wetlands" \
+			or map_name == "promzona_plavni":
 		return
 	var mobile := OS.get_name() == "iOS" or OS.has_feature("mobile") \
 			or OS.has_environment("MOBILE_UI")
@@ -2539,6 +2748,18 @@ static func _ground_material(map_name: String) -> ShaderMaterial:
 			"macro_contrast": 0.36,
 			"normal_strength": 1.0,
 		},
+		"promzona_plavni": {
+			"grass_tint": Color(0.58, 0.74, 0.39),
+			"dirt_tint": Color(0.76, 0.69, 0.54),
+			"rock_tint": Color(0.86, 0.87, 0.79),
+			"mud_tint": Color(0.58, 0.61, 0.44),
+			"map_edge_tint": Color(0.21, 0.25, 0.16),
+			"detail_scale": 0.29,
+			"macro_scale": 0.016,
+			"grass_bias": 0.28,
+			"macro_contrast": 0.32,
+			"normal_strength": 1.0,
+		},
 	}
 	var conf: Dictionary = cfg.get(map_name, cfg["steppe"])
 	if (OS.get_name() == "iOS" or OS.has_feature("mobile") \
@@ -2549,9 +2770,12 @@ static func _ground_material(map_name: String) -> ShaderMaterial:
 		if uniforms.has(key):
 			mat.set_shader_parameter(key, conf[key])
 	if uniforms.has("map_edge_start"):
-		mat.set_shader_parameter("map_edge_start", 176.0 if _is_mobile_platform() else 1000.0)
+		var edge_start := 320.0 if map_name == "promzona_plavni" else 176.0
+		mat.set_shader_parameter("map_edge_start",
+				edge_start if _is_mobile_platform() else 1000.0)
 	if uniforms.has("map_edge_end"):
-		mat.set_shader_parameter("map_edge_end", OUTER_HALF if _is_mobile_platform() else 1100.0)
+		mat.set_shader_parameter("map_edge_end",
+				_outer_half(map_name) if _is_mobile_platform() else 1100.0)
 
 	var wl := water_level(map_name)
 	mat.set_shader_parameter("wet_height", wl)
@@ -2562,6 +2786,9 @@ static func _ground_material(map_name: String) -> ShaderMaterial:
 	elif map_name == "wetlands":
 		mat.set_shader_parameter("mud_amount", 0.92)
 		mat.set_shader_parameter("wet_falloff", 5.5)
+	elif map_name == "promzona_plavni":
+		mat.set_shader_parameter("mud_amount", 0.58)
+		mat.set_shader_parameter("wet_falloff", 4.6)
 	else:
 		mat.set_shader_parameter("wet_falloff", 4.0)
 	if uniforms.has("cloud_shadow_strength"):
@@ -2613,6 +2840,11 @@ static func _mobile_ground_palette(map_name: String, source: Dictionary) -> Dict
 			conf["grass_tint"] = Color(0.49, 0.68, 0.44)
 			conf["mud_tint"] = Color(0.49, 0.56, 0.45)
 			conf["macro_contrast"] = 0.38
+		"promzona_plavni":
+			conf["grass_tint"] = Color(0.52, 0.70, 0.42)
+			conf["dirt_tint"] = Color(0.68, 0.64, 0.53)
+			conf["mud_tint"] = Color(0.47, 0.54, 0.42)
+			conf["macro_contrast"] = 0.36
 	return conf
 
 
@@ -2716,6 +2948,12 @@ static func _build_mobile_hero_landmarks(root: Node3D, map_name: String) -> void
 			["boathouse", Vector2(-122.0, 112.0)],
 			["pier_house", Vector2(-95.0, -45.0)],
 		],
+		"promzona_plavni": [
+			["flare_stack", Vector2(138.0, -120.0)],
+			["pipe_rack", Vector2(-150.0, -300.0)],
+			["boathouse", Vector2(-120.0, 200.0)],
+			["lighthouse", Vector2(155.0, 230.0)],
+		],
 	}
 	var list: Array = specs.get(map_name, [])
 	for entry in list:
@@ -2770,8 +3008,8 @@ static func _add_mobile_fuel_depot(root: Node3D, map_name: String, p: Vector2) -
 	for sx in [-1.0, 1.0]:
 		for sz in [-1.0, 1.0]:
 			_add_cylinder(node, Vector3(sx * 4.0, 3.8, sz * 2.8), 1.7, 7.2, tank)
-	_add_cylinder(node, Vector3(0.0, 1.6, 0.0), 0.35, 10.0, pipe, PI * 0.5, false)
-	_add_box(node, Vector3(4.4, 2.0, 0.0), Vector3(0.9, 0.5, 6.0), pipe, 0.0, false)
+	_add_cylinder(node, Vector3(0.0, 1.6, 0.0), 0.35, 10.0, pipe, PI * 0.5, true)
+	_add_box(node, Vector3(4.4, 2.0, 0.0), Vector3(0.9, 0.5, 6.0), pipe, 0.0, true)
 	_keep_poi_detail(node, 1200.0)
 
 
@@ -2788,8 +3026,8 @@ static func _add_mobile_church(root: Node3D, map_name: String, p: Vector2) -> vo
 	_add_prism(node, Vector3(0.0, 8.2, 0.0), Vector3(9.4, 3.6, 7.0), roof)
 	_add_box(node, Vector3(0.0, 10.4, -3.0), Vector3(3.0, 4.2, 2.6), white)
 	_add_prism(node, Vector3(0.0, 13.0, -3.0), Vector3(4.4, 2.4, 4.0), roof)
-	_add_box(node, Vector3(0.0, 12.2, -4.6), Vector3(0.16, 2.6, 0.16), stone, 0.0, false)
-	_add_box(node, Vector3(0.0, 11.6, -4.6), Vector3(1.2, 0.16, 0.16), stone, 0.0, false)
+	_add_box(node, Vector3(0.0, 12.2, -4.6), Vector3(0.16, 2.6, 0.16), stone, 0.0, true)
+	_add_box(node, Vector3(0.0, 11.6, -4.6), Vector3(1.2, 0.16, 0.16), stone, 0.0, true)
 	_keep_poi_detail(node, 1200.0)
 
 
@@ -2929,8 +3167,8 @@ static func _add_mobile_silo_bank(root: Node3D, map_name: String, p: Vector2) ->
 	_add_box(node, Vector3(0.0, 0.16, 0.0), Vector3(13.0, 0.32, 6.0), concrete)
 	for i in range(4):
 		_add_cylinder(node, Vector3(-4.5 + float(i) * 3.0, 6.2, 0.0), 1.5, 11.6, silo)
-		_add_cylinder(node, Vector3(-4.5 + float(i) * 3.0, 12.1, 0.0), 1.56, 0.5, rust, 0.0, false)
-	_add_cylinder(node, Vector3(0.0, 4.6, 0.0), 0.3, 10.0, rust, PI * 0.5, false)
+		_add_cylinder(node, Vector3(-4.5 + float(i) * 3.0, 12.1, 0.0), 1.56, 0.5, rust, 0.0, true)
+	_add_cylinder(node, Vector3(0.0, 4.6, 0.0), 0.3, 10.0, rust, PI * 0.5, true)
 	ground_node_to_terrain(node, map_name, 0.18)
 	_keep_poi_detail(node, 1200.0)
 
@@ -3005,7 +3243,7 @@ static func _add_mobile_wind_turbine(root: Node3D, map_name: String, p: Vector2)
 	for i in range(3):
 		var yaw := TAU * float(i) / 3.0
 		var blade := _add_box(node, Vector3(cos(yaw) * 7.4, 29.2, 0.6 + sin(yaw) * 7.4),
-				Vector3(0.5, 0.34, 13.6), blade_mat, 0.0, false)
+				Vector3(0.5, 0.34, 13.6), blade_mat, 0.0, true)
 		blade.rotation.y = -yaw
 		_keep_poi_detail(blade, 900.0)
 	_keep_poi_detail(node, 1200.0)
@@ -3023,11 +3261,11 @@ static func _add_mobile_grain_elevator(root: Node3D, map_name: String, p: Vector
 	for i in range(3):
 		_add_cylinder(node, Vector3(-3.4 + float(i) * 3.4, 7.6, 0.0), 2.1, 14.2, silo)
 		var cap := _add_cylinder(node, Vector3(-3.4 + float(i) * 3.4, 14.9, 0.0),
-				2.15, 0.6, rust, 0.0, false)
+				2.15, 0.6, rust, 0.0, true)
 		_keep_poi_detail(cap)
 	_add_box(node, Vector3(0.0, 15.4, 0.0), Vector3(11.6, 3.6, 5.4), concrete)
-	_add_box(node, Vector3(0.0, 15.4, 3.2), Vector3(1.0, 2.6, 1.0), rust, 0.0, false)
-	_add_cylinder(node, Vector3(0.0, 9.2, 0.0), 0.5, 8.0, rust, 0.0, false)
+	_add_box(node, Vector3(0.0, 15.4, 3.2), Vector3(1.0, 2.6, 1.0), rust, 0.0, true)
+	_add_cylinder(node, Vector3(0.0, 9.2, 0.0), 0.5, 8.0, rust, 0.0, true)
 	ground_node_to_terrain(node, map_name, 0.20)
 	_keep_poi_detail(node, 1200.0)
 
@@ -3051,8 +3289,8 @@ static func _add_mobile_flare_stack(root: Node3D, map_name: String, p: Vector2) 
 	var steel := _pbr("hall_metal", Color(0.48, 0.50, 0.52), 0.28)
 	var rust := _pbr("hall_rust", Color(0.62, 0.38, 0.24), 0.30)
 	# Burner tip assembly & wind shroud crown seated flush onto smokestack mouth
-	_add_cylinder(node, Vector3(0.0, stack_top_y - 0.15, 0.0), 1.05, 1.4, steel, 0.0, false)
-	_add_cylinder(node, Vector3(0.0, stack_top_y + 0.85, 0.0), 0.52, 1.2, rust, 0.0, false)
+	_add_cylinder(node, Vector3(0.0, stack_top_y - 0.15, 0.0), 1.05, 1.4, steel, 0.0, true)
+	_add_cylinder(node, Vector3(0.0, stack_top_y + 0.85, 0.0), 0.52, 1.2, rust, 0.0, true)
 	var flame_mat := StandardMaterial3D.new()
 	flame_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	flame_mat.albedo_color = Color(1.0, 0.58, 0.18)
@@ -3106,6 +3344,13 @@ static func _add_mobile_lighthouse(root: Node3D, map_name: String, p: Vector2) -
 		t_mi.scale = Vector3(1.15, 0.85, 1.15)
 		t_mi.set_meta("no_batch", true)
 		node.add_child(t_mi)
+		# Solid lattice-mast collider (multi-surface authored mesh).
+		var mast_body := StaticBody3D.new()
+		mast_body.name = "LighthouseMastCollision"
+		mast_body.collision_layer = 1
+		mast_body.collision_mask = 1
+		_add_mesh_collision(mast_body, t_mi)
+		node.add_child(mast_body)
 	var band := _pbr("hall_rust", Color(0.68, 0.24, 0.18), 0.24)
 	var dark_steel := _pbr("hall_metal", Color(0.28, 0.30, 0.32), 0.28)
 	# Lantern cupola gallery, mullions & conical copper roof cap at y = 21.6..23.6 m
@@ -3113,7 +3358,7 @@ static func _add_mobile_lighthouse(root: Node3D, map_name: String, p: Vector2) -
 	for i in range(6):
 		var ang := TAU * float(i) / 6.0
 		_add_box(node, Vector3(cos(ang) * 0.95, 22.35, sin(ang) * 0.95),
-				Vector3(0.10, 1.35, 0.10), dark_steel, ang, false)
+				Vector3(0.10, 1.35, 0.10), dark_steel, ang, true)
 	var cupola := CylinderMesh.new()
 	cupola.top_radius = 0.08
 	cupola.bottom_radius = 1.45
@@ -3126,6 +3371,12 @@ static func _add_mobile_lighthouse(root: Node3D, map_name: String, p: Vector2) -
 	cup_mi.position = Vector3(0.0, 23.45, 0.0)
 	cup_mi.set_meta("no_batch", true)
 	node.add_child(cup_mi)
+	var cupola_body := StaticBody3D.new()
+	cupola_body.name = "LighthouseCupolaCollision"
+	cupola_body.collision_layer = 1
+	cupola_body.collision_mask = 1
+	_add_mesh_collision(cupola_body, cup_mi)
+	node.add_child(cupola_body)
 	var lamp_mat := StandardMaterial3D.new()
 	lamp_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	lamp_mat.albedo_color = Color(0.20, 0.95, 0.55)
@@ -3546,7 +3797,9 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 	const STEP := 24.0
 	const COLLAR_DIVS := 8                # 24 m / 8 = 3.0 m exact TerrainChunk match
 	var mobile := _is_mobile_platform()
-	var hole_grid := OUTER_HALF + STEP if mobile else 188.0
+	var map_outer_half := _outer_half(map_name)
+	var map_outer_size := _outer_size(map_name)
+	var hole_grid := map_outer_half + STEP if mobile else map_outer_half - 4.0
 	var cells := int(EXTENT * 2.0 / STEP)
 	var stride := cells + 1
 	var verts := PackedVector3Array()
@@ -3581,6 +3834,11 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 			dry = Color(0.22, 0.24, 0.15)
 			rock = Color(0.10, 0.19, 0.20)
 			haze_col = Color(0.32, 0.39, 0.39)
+		"promzona_plavni":
+			grass = Color(0.19, 0.24, 0.13)
+			dry = Color(0.31, 0.30, 0.20)
+			rock = Color(0.20, 0.26, 0.24)
+			haze_col = Color(0.36, 0.42, 0.43)
 	if not mobile:
 		match map_name:
 			"steppe":
@@ -3591,13 +3849,16 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 				haze_col = Color(0.56, 0.62, 0.68)
 			"wetlands":
 				haze_col = Color(0.56, 0.64, 0.64)
+			"promzona_plavni":
+				haze_col = Color(0.56, 0.63, 0.66)
 			_:
 				haze_col = Color(0.58, 0.65, 0.72)
 
 	var append_horizon_vert := func(wx: float, wz: float, n_step: float) -> int:
 		var vi := verts.size()
 		var h := _height(map_name, wx, wz)
-		if not mobile and absf(wx) <= 188.5 and absf(wz) <= 188.5:
+		if not mobile and absf(wx) <= map_outer_half - 3.5 \
+				and absf(wz) <= map_outer_half - 3.5:
 			h -= 0.06
 		verts.append(Vector3(wx, h, wz))
 		var dx := _height(map_name, wx + n_step, wz) - _height(map_name, wx - n_step, wz)
@@ -3623,7 +3884,8 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 		else:
 			col = col.lerp(rock, slope * (0.45 if mobile else 0.52))
 		var edge_metric := maxf(absf(wx), absf(wz))
-		var edge_blend := smoothstep(SAFE_STRUCTURE_BOUND, OUTER_HALF, edge_metric) if mobile else 0.0
+		var edge_blend := smoothstep(_safe_structure_bound(map_name), map_outer_half,
+				edge_metric) if mobile else 0.0
 		var edge_tint := grass.lerp(dry, 0.5)
 		col = col.lerp(edge_tint, edge_blend * 0.35)
 		var dist := Vector2(wx, wz).length()
@@ -3653,9 +3915,9 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 			var d := c + 1
 			indices.append_array([a, b, c, b, d, c])
 
-	# Four 24x24 outer corners [±192..±216] x [±192..±216]
-	var c_low := int(round((-OUTER_HALF - base) / STEP)) - 1   # 31 -> -216
-	var c_high := int(round((OUTER_HALF - base) / STEP))        # 48 -> +192
+	# Four 24x24 outer corners just outside the playable terrain edge.
+	var c_low := int(round((-map_outer_half - base) / STEP)) - 1
+	var c_high := int(round((map_outer_half - base) / STEP))
 	var corner_specs: Array = [[c_low, c_low], [c_high, c_low],
 			[c_low, c_high], [c_high, c_high]] if mobile else []
 	for corner in corner_specs:
@@ -3667,10 +3929,10 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 		var d := c + 1
 		indices.append_array([a, b, c, b, d, c])
 
-	# Watertight 3 m -> 24 m stitched collar along all four ±192 m sides.
-	var side_cells := int(round(OUTER_SIZE / STEP))            # 16
-	var g_start := int(round((-OUTER_HALF - base) / STEP))      # 32 -> -192
-	var g_end := int(round((OUTER_HALF - base) / STEP))         # 48 -> +192
+	# Watertight 3 m -> 24 m stitched collar along all four terrain sides.
+	var side_cells := int(round(map_outer_size / STEP))
+	var g_start := int(round((-map_outer_half - base) / STEP))
+	var g_end := int(round((map_outer_half - base) / STEP))
 	var c_step := STEP / float(COLLAR_DIVS)                     # 3.0 m
 	var in_count := side_cells * COLLAR_DIVS + 1
 	var collar_sides: Array = [0, 1, 2, 3] if mobile else []
@@ -3678,12 +3940,12 @@ static func _build_horizon_ring(root: Node3D, map_name: String,
 		var v_in := PackedInt32Array()
 		v_in.resize(in_count)
 		for k in range(in_count):
-			var p := -OUTER_HALF + float(k) * c_step
+			var p := -map_outer_half + float(k) * c_step
 			match side:
-				0: v_in[k] = append_horizon_vert.call(OUTER_HALF, p, c_step)
-				1: v_in[k] = append_horizon_vert.call(-OUTER_HALF, p, c_step)
-				2: v_in[k] = append_horizon_vert.call(p, OUTER_HALF, c_step)
-				_: v_in[k] = append_horizon_vert.call(p, -OUTER_HALF, c_step)
+				0: v_in[k] = append_horizon_vert.call(map_outer_half, p, c_step)
+				1: v_in[k] = append_horizon_vert.call(-map_outer_half, p, c_step)
+				2: v_in[k] = append_horizon_vert.call(p, map_outer_half, c_step)
+				_: v_in[k] = append_horizon_vert.call(p, -map_outer_half, c_step)
 		var mid := COLLAR_DIVS / 2
 		for m in range(side_cells):
 			var k0 := m * COLLAR_DIVS
@@ -3785,7 +4047,7 @@ static func _build_water(root: Node3D, map_name: String) -> void:
 	mat.set_shader_parameter("sky_reflect", Color(0.36, 0.55, 0.80))
 	mat.set_shader_parameter("sky_amount", 0.68)
 	mat.set_shader_parameter("shore_fade", 1.15)
-	if map_name == "wetlands":
+	if map_name == "wetlands" or map_name == "promzona_plavni":
 		mat.set_shader_parameter("deep_color", Color(0.014, 0.036, 0.042))
 		mat.set_shader_parameter("shallow_color", Color(0.036, 0.088, 0.082))
 		mat.set_shader_parameter("sky_reflect", Color(0.32, 0.46, 0.58))
@@ -3802,13 +4064,15 @@ static func _build_water(root: Node3D, map_name: String) -> void:
 	if map_name == "village":
 		var steps := 96
 		var cols := 7
+		var outer_size := _outer_size(map_name)
+		var outer_half := _outer_half(map_name)
 		var verts := PackedVector3Array()
 		var normals := PackedVector3Array()
 		var uvs := PackedVector2Array()
 		var colors := PackedColorArray()
 		var indices := PackedInt32Array()
 		for i in range(steps + 1):
-			var z := -OUTER_HALF + float(i) * (OUTER_SIZE / float(steps))
+			var z := -outer_half + float(i) * (outer_size / float(steps))
 			var x := -140.0 + 18.0 * sin(z * 0.011)
 			var dir := Vector2(18.0 * 0.011 * cos(z * 0.011), 1.0).normalized()
 			var n := Vector2(-dir.y, dir.x)
@@ -3845,11 +4109,13 @@ static func _build_water(root: Node3D, map_name: String) -> void:
 		mesh.surface_set_material(0, mat)
 		mi.mesh = mesh
 	else:
-		# Subdivided 64x64 wetlands water sheet with per-vertex bed depth in COLOR.r
-		# and dry upland quads culled so iPhone TBDR pays zero fill on high banks.
-		var cells := 64
+		# Subdivided water sheet with per-vertex bed depth in COLOR.r and dry
+		# upland quads culled so iPhone TBDR pays zero fill on high banks.
+		var cells := 96 if map_name == "promzona_plavni" else 64
+		var outer_size := _outer_size(map_name)
+		var outer_half := _outer_half(map_name)
 		var stride := cells + 1
-		var step := OUTER_SIZE / float(cells)
+		var step := outer_size / float(cells)
 		var v_count := stride * stride
 		var verts := PackedVector3Array()
 		var normals := PackedVector3Array()
@@ -3862,9 +4128,9 @@ static func _build_water(root: Node3D, map_name: String) -> void:
 		colors.resize(v_count)
 		bed_hs.resize(v_count)
 		for j in range(stride):
-			var wz := -OUTER_HALF + float(j) * step
+			var wz := -outer_half + float(j) * step
 			for i in range(stride):
-				var wx := -OUTER_HALF + float(i) * step
+				var wx := -outer_half + float(i) * step
 				var vi := j * stride + i
 				var bed_h := _height(map_name, wx, wz)
 				bed_hs[vi] = bed_h
@@ -3926,6 +4192,21 @@ static func _road_points(map_name: String) -> Array:
 				PackedVector2Array([Vector2(-164, -166), Vector2(-138, -88), Vector2(-124, 14),
 						Vector2(-86, 102), Vector2(-30, 172)]),
 			]
+		"promzona_plavni":
+			return [
+				PackedVector2Array([Vector2(-110, 310), Vector2(-110, 240),
+						Vector2(-110, 140), Vector2(-110, 40), Vector2(-110, -60),
+						Vector2(-110, -160), Vector2(-110, -260), Vector2(-110, -300)]),
+				PackedVector2Array([Vector2(110, 310), Vector2(110, 240),
+						Vector2(110, 140), Vector2(110, 40), Vector2(110, -60),
+						Vector2(110, -160), Vector2(110, -260), Vector2(110, -300)]),
+				PackedVector2Array([Vector2(-200, -140), Vector2(-80, -140),
+						Vector2(40, -140), Vector2(160, -140), Vector2(220, -140)]),
+				PackedVector2Array([Vector2(-200, -240), Vector2(-80, -240),
+						Vector2(40, -240), Vector2(160, -240), Vector2(200, -240)]),
+				PackedVector2Array([Vector2(0, 275), Vector2(-110, 240)]),
+				PackedVector2Array([Vector2(0, 275), Vector2(110, 240)]),
+			]
 		_:
 			return [
 				PackedVector2Array([Vector2(-182, 166), Vector2(-142, 142), Vector2(-95, 122),
@@ -3938,11 +4219,13 @@ static func _build_roads(root: Node3D, map_name: String) -> void:
 	# Larger texture scale: the old 0.28 UV repeat made the dirt tracks read as
 	# a conveyor-belt pattern from the air on the owner's recording.
 	var mat := _pbr("dirt", Color(0.70, 0.60, 0.43), 0.12)
-	if map_name == "industrial":
+	if map_name == "industrial" or map_name == "promzona_plavni":
 		mat = _pbr("asphalt", Color(0.58, 0.58, 0.57), 0.10)
 	var width := 7.0
 	if map_name == "wetlands":
 		width = 5.0
+	elif map_name == "promzona_plavni":
+		width = 7.5
 	# All road segments on a map share one material, so they go into a single
 	# ArrayMesh.  Building one MeshInstance per ribbon cost 2-4 draws per map
 	# and pushed Village over the 250-draw budget; the merged road is one draw.
@@ -4169,8 +4452,11 @@ static func _build_trenches(root: Node3D, map_name: String) -> void:
 						# Follow the rendered clipmap, not the analytic field:
 						# on the outer 8 m ring the two differ by over a metre and
 						# the sandbag rows visibly hovered over the grass.
-						var support := mesh_surface_height(map_name, pos.x, pos.y)
-						var y := support + 0.22 + float(layer) * 0.33
+						var support := minf(
+								mesh_surface_height(map_name, pos.x, pos.y),
+								minf(mesh_surface_height(map_name, pos.x - 0.45, pos.y),
+										mesh_surface_height(map_name, pos.x + 0.45, pos.y)))
+						var y := support + (0.13 if layer == 0 else 0.34)
 						var basis := Basis(Vector3.UP, atan2(dir.x, dir.y) + rng.randf_range(-0.09, 0.09))
 						transforms.append(Transform3D(basis, Vector3(pos.x, y, pos.y)))
 				if fmod(t, 3.0) < 1.2 and not _is_tutorial_corridor(p.x, p.y) and not _is_wet_contact(map_name, p, 0.65):
@@ -4333,8 +4619,79 @@ static func _build_landmarks(root: Node3D, map_name: String) -> void:
 			pass
 		"wetlands":
 			_build_wetlands(root, map_name)
+		"promzona_plavni":
+			_build_promzona_north(root, map_name)
+			_build_wetlands(root, map_name)
 		_:
 			_build_steppe(root, map_name)
+
+
+## North Promzona ground dressing on top of the handcrafted factory GLB.
+static func _build_promzona_north(root: Node3D, map_name: String) -> void:
+	var concrete := _pbr("concrete", Color(0.80, 0.79, 0.75), 0.17)
+	var brick := _pbr("brick", Color(0.76, 0.60, 0.50), 0.22)
+	var metal := _pbr("steel", Color(0.50, 0.53, 0.55), 0.15)
+	var rust := _pbr("steel", Color(0.50, 0.29, 0.17), 0.22)
+	for spec in [
+		[Vector2(-160.0, -120.0), 40.0, 11.0, 22.0, 0.14, brick],
+		[Vector2(150.0, -250.0), 46.0, 12.0, 24.0, -0.18, concrete],
+		[Vector2(210.0, -90.0), 36.0, 10.0, 20.0, 0.30, concrete],
+	]:
+		_add_hall(root, map_name, spec[0], spec[1], spec[2], spec[3], spec[4],
+				spec[5], metal)
+		reserve_area(spec[0], 34.0)
+	var tank_root := Node3D.new()
+	tank_root.name = "TankCluster_North"
+	root.add_child(tank_root)
+	for centre in [Vector2(-50.0, -220.0), Vector2(140.0, -45.0)]:
+		for i in range(3):
+			var tp: Vector2 = centre + Vector2(float(i) * 15.0, 0.0)
+			var ty := _height(map_name, tp.x, tp.y)
+			_add_cylinder(tank_root, Vector3(tp.x, ty + 4.5, tp.y),
+					5.6, 9.0, metal, 0.0, true)
+			var tank_ring := _add_cylinder(tank_root,
+					Vector3(tp.x, ty + 9.3, tp.y), 5.7, 0.35, rust, 0.0, true)
+			tank_ring.set_meta("qa_attached_subpart", true)
+		reserve_area(centre + Vector2(15.0, 0.0), 30.0)
+	var stack_root := Node3D.new()
+	stack_root.name = "FactoryTower_Smokestack"
+	root.add_child(stack_root)
+	_add_cylinder(stack_root,
+			Vector3(-150.0, _height(map_name, -150.0, -190.0) + 16.0, -190.0),
+			2.2, 32.0, brick, 0.0, true)
+	reserve_area(Vector2(-150.0, -190.0), 12.0)
+	for band in range(3):
+		var band_node := _add_cylinder(stack_root,
+				Vector3(-150.0, _height(map_name, -150.0, -190.0) + 8.0
+						+ float(band) * 7.0, -190.0),
+				2.3, 0.8, concrete, 0.0, true)
+		band_node.set_meta("qa_attached_subpart", true)
+	# Container stacks and pipe runs around the north factory pads.
+	var container_mats := [
+		_pbr("steel", Color(0.55, 0.24, 0.16), 0.28),
+		_pbr("steel", Color(0.18, 0.33, 0.44), 0.28),
+		_pbr("steel", Color(0.22, 0.36, 0.23), 0.28),
+	]
+	for i in range(9):
+		var cp := Vector2(-40.0 + float(i % 3) * 7.0, -120.0 - float(i / 3) * 3.4)
+		var cy := _height(map_name, cp.x, cp.y) + 1.3
+		if i >= 6:
+			cy += 2.50
+		_add_box(root, Vector3(cp.x, cy, cp.y), Vector3(6.4, 2.5, 2.6),
+				container_mats[i % container_mats.size()], 0.0, true)
+	var pipe_root := Node3D.new()
+	pipe_root.name = "PipeBridge_North"
+	root.add_child(pipe_root)
+	for i in range(5):
+		_add_box(pipe_root, Vector3(-180.0 + float(i) * 18.0,
+				_height(map_name, -180.0 + float(i) * 18.0, -70.0) + 2.5, -70.0),
+				Vector3(0.4, 5.0, 0.4), rust, 0.0, true)
+	for i in range(2):
+		_add_box(pipe_root, Vector3(-145.0,
+				_height(map_name, -145.0, -70.0) + 5.0 + float(i) * 0.9, -70.0),
+				Vector3(74.0, 0.35, 0.35), rust, 0.0, true)
+	reserve_area(Vector2(-40.0, -124.0), 22.0)
+	reserve_area(Vector2(-145.0, -70.0), 45.0)
 
 
 # ===========================================================================
@@ -4431,6 +4788,32 @@ static func _build_blender_landmarks(root: Node3D, map_name: String) -> void:
 			if MS_wet != null:
 				MS_wet.spawn_map_military_objects(root, map_name)
 
+		"promzona_plavni":
+			_build_promzona_bridges(root, map_name)
+			var MC_prom = load("res://scripts/util/moving_crane.gd")
+			if MC_prom != null:
+				var g1 := _reserve_near_site(root, map_name, Vector2(105.0, -105.0),
+						14.0, 28.0, false)
+				if g1 != Vector2.INF:
+					root.add_child(MC_prom.create_gantry_crane(
+							Vector3(g1.x, _height(map_name, g1.x, g1.y), g1.y), 0.0, 46.0))
+					add_contact_shadow(root, map_name, g1, 16.0, "PromGantryCrane")
+				var g2 := _reserve_near_site(root, map_name, Vector2(-150.0, -210.0),
+						14.0, 28.0, false)
+				if g2 != Vector2.INF:
+					root.add_child(MC_prom.create_rotating_tower_crane(
+							Vector3(g2.x, _height(map_name, g2.x, g2.y), g2.y), 0.25))
+					add_contact_shadow(root, map_name, g2, 14.0, "PromTowerCrane")
+			for p in [Vector2(-200.0, -260.0), Vector2(190.0, -180.0),
+					Vector2(-180.0, -60.0)]:
+				_asset_on(root, map_name, "hedgehog", p, float(p.x) * 0.01)
+			_asset_on(root, map_name, "sandbag_wall", Vector2(-60.0, -100.0), 0.20)
+			_asset_on(root, map_name, "vegetation/pine_hero", Vector2(-250.0, -300.0), 0.4)
+			_asset_on(root, map_name, "vegetation/oak_hero", Vector2(-300.0, 120.0), 1.1)
+			var MS_prom = load("res://scripts/util/military_structures.gd")
+			if MS_prom != null:
+				MS_prom.spawn_map_military_objects(root, map_name)
+
 		_:
 			var sb1 := _reserve_near_site(root, map_name, Vector2(-95.0, -108.0), 11.0, 28.0, false)
 			if sb1 != Vector2.INF:
@@ -4450,6 +4833,78 @@ static func _build_blender_landmarks(root: Node3D, map_name: String) -> void:
 			var MS_stp = load("res://scripts/util/military_structures.gd")
 			if MS_stp != null:
 				MS_stp.spawn_map_military_objects(root, map_name)
+
+
+## Two solid canal crossings at the ±110 m corridors.  The west span is a
+## concrete girder bridge; the east span is a timber/bailey deck.  Both have
+## continuous box-collision decks flush with the dry approach causeways.
+static func _build_promzona_bridges(root: Node3D, map_name: String) -> void:
+	var concrete := _pbr("hall_concrete", Color(0.68, 0.66, 0.62), 0.18)
+	var asphalt := _pbr("asphalt", Color(0.44, 0.44, 0.46), 0.22)
+	var steel := _pbr("hall_metal", Color(0.44, 0.47, 0.50), 0.24)
+	var rust := _pbr("hall_rust", Color(0.56, 0.36, 0.24), 0.26)
+	var timber := _pbr("wood", Color(0.56, 0.44, 0.30), 0.30)
+	for west in [true, false]:
+		var bx := -110.0 if west else 110.0
+		var cz := 10.0 + 12.0 * sin(bx * 0.012)
+		var bridge_root := Node3D.new()
+		bridge_root.name = "CanalBridgeWest" if west else "CanalBridgeEast"
+		root.add_child(bridge_root)
+		var deck_top := 1.15
+		var deck_len := 46.0
+		var deck_width := 22.0
+		# Structural slab + flush wearing surface.
+		_add_box(bridge_root, Vector3(bx, deck_top - 0.32, cz),
+				Vector3(deck_width, 0.64, deck_len), concrete, 0.0, true)
+		_add_box(bridge_root, Vector3(bx, deck_top + 0.02, cz),
+				Vector3(deck_width - 2.4, 0.08, deck_len - 1.0),
+				asphalt if west else timber, 0.0, false)
+		# Parapets / timber rails with solid collision.
+		for sx in [-1.0, 1.0]:
+			_add_box(bridge_root, Vector3(bx + sx * (deck_width * 0.5 - 0.35),
+					deck_top + 0.60, cz), Vector3(0.55, 1.20, deck_len),
+					concrete if west else timber, 0.0, true)
+			if not west:
+				for post_z in range(-20, 21, 4):
+					_add_box(bridge_root,
+							Vector3(bx + sx * (deck_width * 0.5 - 0.35),
+									deck_top + 1.32, cz + float(post_z)),
+							Vector3(0.22, 0.88, 0.22), timber, 0.0, true)
+		# Under-deck girders / timber bailey chords.
+		for gx in [-7.2, -2.4, 2.4, 7.2]:
+			_add_box(bridge_root, Vector3(bx + gx, deck_top - 0.80, cz),
+					Vector3(0.45, 0.72, deck_len - 2.0),
+					rust if west else steel, 0.0, true)
+		for gz in [-16.0, -8.0, 0.0, 8.0, 16.0]:
+			_add_box(bridge_root, Vector3(bx, deck_top - 0.92, cz + gz),
+					Vector3(deck_width - 2.0, 0.45, 0.42), steel, 0.0, true)
+		# Piers standing in the canal + abutment blocks on both banks.
+		for px in [-7.0, 7.0]:
+			for pz in [-9.0, 9.0]:
+				_add_cylinder(bridge_root, Vector3(bx + px, -1.55, cz + pz),
+						1.15, 5.6, concrete, 0.0, true)
+				_add_cylinder(bridge_root,
+						Vector3(bx + px, deck_top - 0.72, cz + pz),
+						1.35, 0.50, rust, 0.0, true)
+		for sz in [-1.0, 1.0]:
+			_add_box(bridge_root,
+					Vector3(bx, 0.45, cz + sz * (deck_len * 0.5 - 1.5)),
+					Vector3(deck_width + 2.0, 3.0, 3.0), concrete, 0.0, true)
+		# Diagonal braces read as a bailey truss on the timber span.
+		if not west:
+			for k in range(-5, 6):
+				var brace := _add_box(bridge_root,
+						Vector3(bx + 10.4, deck_top + 0.40,
+								cz + float(k) * 4.0),
+						Vector3(0.16, 1.7, 0.16), timber)
+				if brace != null:
+					brace.rotation.x = 0.55
+					brace.position.x = bx - 10.4 if k % 2 == 0 else bx + 10.4
+		reserve_area(Vector2(bx, cz), 30.0)
+		register_structure_exclusion(Vector2(bx, cz),
+				Vector2(deck_width * 0.5, deck_len * 0.5), deck_top + 1.6)
+		add_contact_shadow_rect(root, map_name, Vector2(bx, cz),
+				Vector2(deck_width, deck_len), 0.0, 0.7)
 
 
 ## Low-lying fog volumes: the atmospheric layer that makes the low sun read
@@ -4725,8 +5180,8 @@ static func _build_village(root: Node3D, map_name: String) -> void:
 		_add_prism(root, Vector3(cp.x, cy + 11.2, cp.y), Vector3(14.4, 3.4, 23.4), roof_tile, 0.0)
 		_add_box(root, Vector3(cp.x, cy + 11.0, cp.y - 12.0), Vector3(7.0, 22.0, 7.0), wall_brick, 0.0, true)
 		_add_prism(root, Vector3(cp.x, cy + 23.5, cp.y - 12.0), Vector3(8.0, 4.0, 8.0), roof_metal, 0.0)
-		_add_box(root, Vector3(cp.x, cy + 26.0, cp.y - 12.0), Vector3(0.16, 2.6, 0.16), dark, 0.0, false)
-		_add_box(root, Vector3(cp.x, cy + 26.4, cp.y - 12.0), Vector3(1.4, 0.16, 0.16), dark, 0.0, false)
+		_add_box(root, Vector3(cp.x, cy + 26.0, cp.y - 12.0), Vector3(0.16, 2.6, 0.16), dark, 0.0, true)
+		_add_box(root, Vector3(cp.x, cy + 26.4, cp.y - 12.0), Vector3(1.4, 0.16, 0.16), dark, 0.0, true)
 		for z in [-8.0, -2.0, 4.0, 9.0]:
 			for sx in [-1.0, 1.0]:
 				_add_box(root, Vector3(cp.x + sx * 6.85, cy + 3.4, cp.y + z),
@@ -4734,9 +5189,9 @@ static func _build_village(root: Node3D, map_name: String) -> void:
 				_add_box(root, Vector3(cp.x + sx * 6.53, cy + 5.0, cp.y + z),
 						Vector3(0.08, 2.5, 0.95), glass, 0.0, false)
 		_add_box(root, Vector3(cp.x, cy + 1.35, cp.y + 11.05), Vector3(1.8, 2.7, 0.22),
-				wood, 0.0, false)
+				wood, 0.0, true)
 		_add_box(root, Vector3(cp.x, cy + 2.8, cp.y + 11.12), Vector3(2.2, 0.18, 0.34),
-				roof_tile, 0.0, false)
+				roof_tile, 0.0, true)
 		add_contact_shadow(root, map_name, cp, 15.0, "VillageChurch")
 
 	# Dynamic Scenic Windmill atop the west bluff inside ±152 m.
@@ -4815,17 +5270,17 @@ static func _dress_house(root: Node3D, p: Vector2, y: float, w: float, d: float,
 	# Chimney.
 	var chimney := base + basis * Vector3(w * 0.28, h + 2.65, d * 0.18)
 	_add_box(root, chimney, Vector3(0.72, 3.1, 0.72), stone, yaw, true)
-	_add_box(root, chimney + Vector3(0, 1.6, 0), Vector3(0.9, 0.16, 0.9), roof, yaw, false)
+	_add_box(root, chimney + Vector3(0, 1.6, 0), Vector3(0.9, 0.16, 0.9), roof, yaw, true)
 	# Front door + frame + porch.
 	var door := base + basis * Vector3(0.0, 1.35, d * 0.5 + 0.02)
-	_add_box(root, door, Vector3(1.3, 2.35, 0.12), wood, yaw, false)
+	_add_box(root, door, Vector3(1.3, 2.35, 0.12), wood, yaw, true)
 	for sx in [-0.72, 0.72]:
 		_add_box(root, base + basis * Vector3(sx, 1.35, d * 0.5 + 0.04),
-				Vector3(0.14, 2.55, 0.18), stone, yaw, false)
+				Vector3(0.14, 2.55, 0.18), stone, yaw, true)
 	_add_box(root, base + basis * Vector3(0.0, 2.62, d * 0.5 + 0.04),
-			Vector3(1.68, 0.16, 0.20), stone, yaw, false)
+			Vector3(1.68, 0.16, 0.20), stone, yaw, true)
 	var porch := base + basis * Vector3(0.0, 2.75, d * 0.5 + 0.85)
-	_add_box(root, porch, Vector3(2.2, 0.16, 1.55), roof, yaw, false)
+	_add_box(root, porch, Vector3(2.2, 0.16, 1.55), roof, yaw, true)
 	for sx in [-0.92, 0.92]:
 		_add_box(root, base + basis * Vector3(sx, 1.35, d * 0.5 + 1.45),
 				Vector3(0.13, 2.7, 0.13), wood, yaw, true)
@@ -4833,14 +5288,14 @@ static func _dress_house(root: Node3D, p: Vector2, y: float, w: float, d: float,
 	for sz in [-1.0, 1.0]:
 		for cx in [-0.28 * w, 0.0, 0.28 * w]:
 			var c := base + basis * Vector3(cx, 1.95, sz * (d * 0.5 + 0.06))
-			_add_box(root, c + Vector3(0, 0.67, 0), Vector3(1.24, 0.12, 0.18), stone, yaw, false)
-			_add_box(root, c - Vector3(0, 0.67, 0), Vector3(1.24, 0.12, 0.18), stone, yaw, false)
+			_add_box(root, c + Vector3(0, 0.67, 0), Vector3(1.24, 0.12, 0.18), stone, yaw, true)
+			_add_box(root, c - Vector3(0, 0.67, 0), Vector3(1.24, 0.12, 0.18), stone, yaw, true)
 			for sx in [-0.59, 0.59]:
 				_add_box(root, c + basis * Vector3(sx, 0, 0), Vector3(0.12, 1.46, 0.18),
-						stone, yaw, false)
+						stone, yaw, true)
 				# Open wooden shutters beside the opening.
 				_add_box(root, base + basis * Vector3(cx + sx * 1.75, 1.95, sz * (d * 0.5 + 0.10)),
-						Vector3(0.42, 1.18, 0.07), wood, yaw, false)
+						Vector3(0.42, 1.18, 0.07), wood, yaw, true)
 	# A small front garden and fence; posts collide, rails don't.
 	var garden := base + basis * Vector3(w * 0.58, 0.06, d * 0.12)
 	_add_box(root, garden, Vector3(w * 0.52, 0.12, d * 0.52),
@@ -4878,7 +5333,7 @@ static func _add_simple_house(root: Node3D, map_name: String, p: Vector2,
 	# puts the walls on the rendered surface; the buried stone skirt reaches
 	# the downhill corners without any visible gap.
 	_add_box(root, base + Vector3(0.0, -6.0, 0.0),
-			Vector3(w + 0.7, 12.4, d + 0.7), stone, yaw, false)
+			Vector3(w + 0.7, 12.4, d + 0.7), stone, yaw, true)
 	_add_house_shell(root, p, y, w, d, h, yaw, wall)
 	_add_prism(root, base + Vector3(0, h + 1.1, 0), Vector3(w + 1.2, 2.2, d + 1.2),
 			roof, yaw)
@@ -4908,9 +5363,9 @@ static func _add_simple_house(root: Node3D, map_name: String, p: Vector2,
 				Rect2(-win_w * 0.5, win_bottom, win_w, win_h), 0.35, stone)
 	# Eave and chimney cap.
 	_add_box(root, base + basis * Vector3(0.0, h + 0.06, -d * 0.5 - 0.10),
-			Vector3(w + 0.9, 0.14, 0.45), roof, yaw, false)
+			Vector3(w + 0.9, 0.14, 0.45), roof, yaw, true)
 	_add_box(root, base + basis * Vector3(w * 0.32, h + 2.05, d * 0.2),
-			Vector3(0.85, 0.14, 0.85), stone, yaw, false)
+			Vector3(0.85, 0.14, 0.85), stone, yaw, true)
 
 
 static func _add_fence_line(root: Node3D, center: Vector3, length: float, yaw: float,
@@ -4956,17 +5411,17 @@ static func _add_well(root: Node3D, p: Vector2, y: float, stone: Material,
 	for sx in [-0.82, 0.82]:
 		_add_box(root, base + Vector3(sx, 1.45, 0), Vector3(0.12, 1.8, 0.12),
 				wood, 0.0, true)
-	_add_box(root, base + Vector3(0, 2.32, 0), Vector3(2.1, 0.14, 1.15), roof, 0.0, false)
+	_add_box(root, base + Vector3(0, 2.32, 0), Vector3(2.1, 0.14, 1.15), roof, 0.0, true)
 
 
 static func _add_power_pole(root: Node3D, p: Vector2, y: float, wood: Material,
 		stone: Material) -> void:
 	var base := Vector3(p.x, y, p.y)
 	_add_cylinder(root, base + Vector3(0, 4.0, 0), 0.17, 8.0, wood, 0.0, true)
-	_add_box(root, base + Vector3(0, 7.35, 0), Vector3(2.5, 0.13, 0.13), wood, 0.0, false)
+	_add_box(root, base + Vector3(0, 7.35, 0), Vector3(2.5, 0.13, 0.13), wood, 0.0, true)
 	for sx in [-1.05, 1.05]:
 		_add_box(root, base + Vector3(sx, 7.55, 0), Vector3(0.12, 0.26, 0.12),
-				stone, 0.0, false)
+				stone, 0.0, true)
 	if _current_map != "":
 		add_contact_shadow(root, _current_map, p, 1.3, "PowerPole", 0.62)
 
@@ -5016,7 +5471,7 @@ static func _build_industrial(root: Node3D, map_name: String) -> void:
 			var tp: Vector2 = centre + Vector2(float(i) * 15.0, 0.0)
 			var ty := _height(map_name, tp.x, tp.y)
 			_add_cylinder(root, Vector3(tp.x, ty + 5.0, tp.y), 6.0, 10.0, metal, 0.0, true)
-			_add_cylinder(root, Vector3(tp.x, ty + 10.2, tp.y), 6.1, 0.35, rust, 0.0, false)
+			_add_cylinder(root, Vector3(tp.x, ty + 10.2, tp.y), 6.1, 0.35, rust, 0.0, true)
 	# Procedural outer yards: warehouse grid, container stacks and perimeter road.
 	var yard_mat := _pbr("asphalt", Color(0.55, 0.55, 0.53), 0.18)
 	var container_mats := [
@@ -5056,11 +5511,11 @@ static func _build_industrial(root: Node3D, map_name: String) -> void:
 				var cp := p + off
 				var cy := _height(map_name, cp.x, cp.y) + 1.3
 				if irng.randf() < 0.3:
-					cy += 2.55
+					cy += 2.50
 				_add_box(root, Vector3(cp.x, cy, cp.y),
 						Vector3(6.0, 2.5, 2.4),
 						container_mats[irng.randi_range(0, 3)],
-						irng.randf_range(0.0, TAU), false)
+						irng.randf_range(0.0, TAU), true)
 			yards += 1
 			if yards >= (7 if q_low else 14):
 				break
@@ -5080,23 +5535,23 @@ static func _build_industrial(root: Node3D, map_name: String) -> void:
 	_add_box(root, Vector3(rp.x, ry + 2.0, rp.y), Vector3(26.0, 4.0, 16.0), concrete, 0.0, true)
 	for i in range(6):
 		_add_box(root, Vector3(rp.x - 10.0 + float(i) * 4.0, ry + 4.3, rp.y),
-				Vector3(0.35, 0.35, 17.0), rust, 0.0, false)
+				Vector3(0.35, 0.35, 17.0), rust, 0.0, true)
 
 	# Chimneys.
 	for p in [Vector2(-170, -75), Vector2(-100, -95)]:
 		var y := _height(map_name, p.x, p.y)
 		_add_cylinder(root, Vector3(p.x, y + 15.0, p.y), 1.7, 30.0, brick, 0.0, true)
-		_add_cylinder(root, Vector3(p.x, y + 30.5, p.y), 1.55, 1.0, dark, 0.0, false)
+		_add_cylinder(root, Vector3(p.x, y + 30.5, p.y), 1.55, 1.0, dark, 0.0, true)
 		for band in range(3):
 			_add_cylinder(root, Vector3(p.x, y + 22.0 + float(band) * 3.0, p.y),
-					1.78, 0.8, concrete, 0.0, false)
+					1.78, 0.8, concrete, 0.0, true)
 
 	# Storage tanks.
 	for i in range(4):
 		var p := Vector2(120.0 + float(i) * 26.0, -30.0)
 		var y := _height(map_name, p.x, p.y)
 		_add_cylinder(root, Vector3(p.x, y + 6.0, p.y), 8.0, 12.0, metal, 0.0, true)
-		_add_cylinder(root, Vector3(p.x, y + 12.2, p.y), 8.1, 0.4, rust, 0.0, false)
+		_add_cylinder(root, Vector3(p.x, y + 12.2, p.y), 8.1, 0.4, rust, 0.0, true)
 
 	# Pipe rack.
 	for i in range(5):
@@ -5105,7 +5560,7 @@ static func _build_industrial(root: Node3D, map_name: String) -> void:
 		_add_box(root, Vector3(p.x, y + 2.5, p.y), Vector3(0.4, 5.0, 0.4), rust, 0.0, true)
 	for i in range(2):
 		_add_box(root, Vector3(-210.0, _height(map_name, -210.0, -10.0) + 5.0 + float(i) * 0.9, -10.0),
-				Vector3(74.0, 0.35, 0.35), rust, 0.0, false)
+				Vector3(74.0, 0.35, 0.35), rust, 0.0, true)
 
 	# Rail spur embankment.
 	_ribbon(root, PackedVector2Array([Vector2(-265, -220), Vector2(-130, -210),
@@ -5136,13 +5591,14 @@ static func _build_industrial(root: Node3D, map_name: String) -> void:
 # ===========================================================================
 static func _poi_site(map_name: String, p: Vector2) -> Vector2:
 	var wl := water_level(map_name)
+	var poi_bound := 325.0 if map_name == "promzona_plavni" else 158.0
 	for ring in range(0, 9):
 		var radius := 9.0 * float(ring)
 		var steps := 1 if ring == 0 else 12
 		for i in range(steps):
 			var a := TAU * float(i) / float(steps)
 			var c := p + Vector2(cos(a), sin(a)) * radius
-			if absf(c.x) > 158.0 or absf(c.y) > 158.0:
+			if absf(c.x) > poi_bound or absf(c.y) > poi_bound:
 				continue
 			if _road_factor(map_name, c.x, c.y) >= 0.22:
 				continue
@@ -5153,6 +5609,8 @@ static func _poi_site(map_name: String, p: Vector2) -> Vector2:
 			if _structure_clear_zone(map_name, c.x, c.y, 10.0):
 				continue
 			return c
+	if map_name == "promzona_plavni":
+		return Vector2(clampf(p.x, -325.0, 325.0), clampf(p.y, -325.0, 325.0))
 	return Vector2(clampf(p.x, -152.0, 152.0), clampf(p.y, -152.0, 152.0))
 
 
@@ -5194,6 +5652,8 @@ static func _build_unique_pois(root: Node3D, map_name: String) -> void:
 			_poi_burnt_armour(root, map_name, Vector2(-132.0, 118.0))
 		"wetlands":
 			_poi_watchtower(root, map_name, Vector2(132.0, 68.0))
+		"promzona_plavni":
+			_poi_watchtower(root, map_name, Vector2(128.0, 225.0))
 		_:
 			return
 
@@ -5254,11 +5714,11 @@ static func _poi_transformer_yard(root: Node3D, map_name: String, p: Vector2) ->
 	for x in [-8.0, -4.0, 0.0, 4.0, 8.0]:
 		for z in [-6.0, 6.0]:
 			_add_box(node, Vector3(x, post_h * 0.5, z),
-					Vector3(0.10, post_h, 0.10), steel, 0.0, false)
+					Vector3(0.10, post_h, 0.10), steel, 0.0, true)
 	for z in [-4.0, 0.0, 4.0]:
 		for x in [-8.0, 8.0]:
 			_add_box(node, Vector3(x, post_h * 0.5, z),
-					Vector3(0.10, post_h, 0.10), steel, 0.0, false)
+					Vector3(0.10, post_h, 0.10), steel, 0.0, true)
 	for y in [0.85, 1.95]:
 		_add_box(node, Vector3(0.0, y, -6.0), Vector3(16.4, 0.07, 0.07),
 				steel, 0.0, false)
@@ -5285,7 +5745,7 @@ static func _poi_transformer_yard(root: Node3D, map_name: String, p: Vector2) ->
 				Vector3(bw, bh, bd), steel)
 		_keep_poi_detail(body)
 		var lid := _add_box(node, cp + Vector3(0.0, bh + 0.12, 0.0),
-				Vector3(bw + 0.3, 0.22, bd + 0.3), rust, 0.0, false)
+				Vector3(bw + 0.3, 0.22, bd + 0.3), rust, 0.0, true)
 		_keep_poi_detail(lid)
 		for side in [-1.0, 1.0]:
 			for k in range(4):
@@ -5293,22 +5753,22 @@ static func _poi_transformer_yard(root: Node3D, map_name: String, p: Vector2) ->
 						side * (bw * 0.5 + 0.16), bh * 0.55,
 						-bd * 0.30 + float(k) * bd * 0.20),
 						Vector3(0.28, bh * 0.58, 0.10),
-						rust, 0.0, false)
+						rust, 0.0, true)
 		for k in range(3):
 			var bx := -bw * 0.28 + float(k) * bw * 0.28
 			var bush := _add_cylinder(node,
 					cp + Vector3(bx, bh + 0.68, 0.0),
-					0.11, 0.92, ceramic, 0.0, false)
+					0.11, 0.92, ceramic, 0.0, true)
 			_keep_poi_detail(bush, 900.0)
 
 	# Pole line feeding the yard.
 	var pole := _add_cylinder(node, Vector3(7.2, 5.4, -4.0), 0.16, 10.8, wood)
 	_keep_poi_detail(pole, 1200.0)
 	_add_box(node, Vector3(7.2, 9.6, -4.0), Vector3(3.2, 0.16, 0.16), wood,
-			0.0, false)
+			0.0, true)
 	for xo in [-1.4, 0.0, 1.4]:
 		_add_cylinder(node, Vector3(7.2 + xo, 10.0, -4.0), 0.10, 0.8, ceramic,
-				0.0, false)
+				0.0, true)
 	# Hazard placard on the fence.
 	_add_box(node, Vector3(-3.0, 1.5, -6.12), Vector3(1.15, 0.72, 0.05),
 			_pbr("hall_rust", Color(0.88, 0.72, 0.10), 0.28), 0.0, false)
@@ -5798,6 +6258,20 @@ static func _build_hall_sites(root: Node3D, map_name: String) -> void:
 	deck.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(deck)
 
+	# Solid floor slab collider matching HallFloor_'s dimensions/transform so a
+	# fast drone can neither clip under the hall nor fall through the deck.
+	var floor_body := StaticBody3D.new()
+	floor_body.name = "HallFloorCollision_" + map_name
+	floor_body.collision_layer = 1
+	floor_body.collision_mask = 1
+	floor_body.position = Vector3(center.x, floor_top + 0.08 - 0.20, center.y)
+	var floor_shape := BoxShape3D.new()
+	floor_shape.size = Vector3(hall_len, 0.40, hall_hw * 2.0)
+	var floor_cs := CollisionShape3D.new()
+	floor_cs.shape = floor_shape
+	floor_body.add_child(floor_cs)
+	root.add_child(floor_body)
+
 	# Render both sides of the hall shell.  The authored roof/walls are single
 	# sided; from an inverted FPV view the backfaces vanished and the player saw
 	# the sky through the roof.
@@ -5854,7 +6328,7 @@ static func _add_hall_lighting(root: Node3D, hall: Node3D, site: Dictionary,
 		spot.light_energy = 4.2
 		spot.light_color = warm
 		spot.light_volumetric_fog_energy = 4.0
-		spot.shadow_enabled = made < 3 and not qa_no_spot_shadow
+		spot.shadow_enabled = false
 		spot.shadow_bias = 0.035
 		lights.add_child(spot)
 		_apply_look_at(spot, target, Vector3.UP)
@@ -5872,7 +6346,7 @@ static func _add_hall_lighting(root: Node3D, hall: Node3D, site: Dictionary,
 			spot.light_energy = 4.0
 			spot.light_color = warm
 			spot.light_volumetric_fog_energy = 4.0
-			spot.shadow_enabled = made < 3
+			spot.shadow_enabled = false
 			lights.add_child(spot)
 			_apply_look_at(spot, target, Vector3.UP)
 			made += 1
@@ -5892,7 +6366,7 @@ static func _add_hall_lighting(root: Node3D, hall: Node3D, site: Dictionary,
 			shaft.light_energy = 6.0
 			shaft.light_color = warm
 			shaft.light_volumetric_fog_energy = 4.0
-			shaft.shadow_enabled = made < 5 and not qa_no_spot_shadow
+			shaft.shadow_enabled = false
 			shaft.shadow_bias = 0.03
 			lights.add_child(shaft)
 			_apply_look_at(shaft, dst, Vector3.UP)
@@ -5956,7 +6430,7 @@ static func _add_hall_lighting(root: Node3D, hall: Node3D, site: Dictionary,
 	var dust := GPUParticles3D.new()
 	dust.name = "HallDust"
 	dust.position = Vector3(center.x, floor_y + 7.0, center.y)
-	dust.amount = 700
+	dust.amount = 260
 	dust.lifetime = 14.0
 	dust.preprocess = 8.0
 	dust.visibility_aabb = AABB(Vector3(-half.x, -8.0, -half.y),
@@ -5969,12 +6443,12 @@ static func _add_hall_lighting(root: Node3D, hall: Node3D, site: Dictionary,
 	pm.initial_velocity_min = 0.02
 	pm.initial_velocity_max = 0.18
 	pm.gravity = Vector3(0.0, -0.012, 0.0)
-	pm.scale_min = 0.4
-	pm.scale_max = 1.4
+	pm.scale_min = 0.62
+	pm.scale_max = 2.2
 	pm.color = Color(1.0, 0.9, 0.72, 0.55)
 	dust.process_material = pm
 	var quad := QuadMesh.new()
-	quad.size = Vector2(0.055, 0.055)
+	quad.size = Vector2(0.075, 0.075)
 	var dm := StandardMaterial3D.new()
 	dm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	dm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -6188,6 +6662,19 @@ static func _add_hall_foliage(root: Node3D, hall: Node3D, site: Dictionary,
 				rng.randf_range(0, TAU), rng.randf_range(-0.5, 0.5))
 		chunk.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 		root.add_child(chunk)
+		# Solid debris block collider: the drone must not clip inside the rubble.
+		var chunk_body := StaticBody3D.new()
+		chunk_body.name = "HallDebrisCollision"
+		chunk_body.collision_layer = 1
+		chunk_body.collision_mask = 1
+		chunk_body.position = chunk.position
+		chunk_body.rotation = chunk.rotation
+		var chunk_shape := BoxShape3D.new()
+		chunk_shape.size = bm.size
+		var chunk_cs := CollisionShape3D.new()
+		chunk_cs.shape = chunk_shape
+		chunk_body.add_child(chunk_cs)
+		root.add_child(chunk_body)
 	for i in range(2):
 		var beam := MeshInstance3D.new()
 		var bm2 := BoxMesh.new()
@@ -6199,6 +6686,19 @@ static func _add_hall_foliage(root: Node3D, hall: Node3D, site: Dictionary,
 		beam.rotation = Vector3(rng.randf_range(-0.4, 0.4),
 				rng.randf_range(-0.8, 0.8), rng.randf_range(-0.5, 0.5))
 		root.add_child(beam)
+		# Collapsed roof beam: same box footprint as the visible steel.
+		var beam_body := StaticBody3D.new()
+		beam_body.name = "HallBeamCollision"
+		beam_body.collision_layer = 1
+		beam_body.collision_mask = 1
+		beam_body.position = beam.position
+		beam_body.rotation = beam.rotation
+		var beam_shape := BoxShape3D.new()
+		beam_shape.size = bm2.size
+		var beam_cs := CollisionShape3D.new()
+		beam_cs.shape = beam_shape
+		beam_body.add_child(beam_cs)
+		root.add_child(beam_body)
 
 	# Moss decals on the wet concrete.  The 2K Poly Haven moss albedo is reused
 	# as a projected stain, so it follows broken slabs and walls without more
@@ -6207,7 +6707,7 @@ static func _add_hall_foliage(root: Node3D, hall: Node3D, site: Dictionary,
 	if ResourceLoader.exists(moss_path):
 		var moss_tex := load(moss_path) as Texture2D
 		if moss_tex != null:
-			for i in range(42):
+			for i in range(11):
 				var lx := rng.randf_range(-x_span, x_span)
 				var lz := rng.randf_range(-z_span, z_span)
 				if absf(lx - local_spawn.x) < 8.0 and absf(lz - local_spawn.y) < 4.0:
@@ -6227,7 +6727,7 @@ static func _add_hall_foliage(root: Node3D, hall: Node3D, site: Dictionary,
 				root.add_child(decal)
 			# A few guaranteed patches framing the spawn doorway.
 			for side in [-1, 1]:
-				for i in range(4):
+				for i in range(2):
 					var lx := local_spawn.x - rng.randf_range(9.0, 18.0)
 					var lz: float = float(side) * rng.randf_range(6.0, 11.0)
 					var r := rng.randf_range(2.0, 4.2)
@@ -6286,7 +6786,7 @@ static func _add_hall_foliage(root: Node3D, hall: Node3D, site: Dictionary,
 			tree.add_child(leaves)
 			var s := rng.randf_range(0.26, 0.42)
 			tree.scale = Vector3.ONE * s
-			tree.position = hall_xf_fg * Vector3(local.x, floor_local, local.y)
+			tree.position = hall_xf_fg * Vector3(local.x, floor_local - 0.35, local.y)
 			tree.rotation.y = rng.randf() * TAU
 			root.add_child(tree)
 
@@ -6506,6 +7006,9 @@ static func _apply_hall_materials(node: Node, theme: String = "industrial") -> v
 
 
 static func _build_wetlands(root: Node3D, map_name: String) -> void:
+	if map_name == "promzona_plavni":
+		_build_plavni_south(root, map_name)
+		return
 	var concrete := _pbr("concrete", Color(0.82, 0.80, 0.74), 0.18)
 	var rust := _pbr("steel", Color(0.48, 0.27, 0.16), 0.22)
 	var wood := _pbr("wood", Color(0.52, 0.50, 0.46), 0.46)
@@ -6608,6 +7111,130 @@ static func _build_wetlands(root: Node3D, map_name: String) -> void:
 				Vector3(op_site.x + 6.0, _height(map_name, op_site.x + 6.0, op_site.y - 5.0), op_site.y - 5.0), 0.3)
 
 
+## Southern Plavni marsh: patrol channel, Plavni hall, timber causeway,
+## half-sunk barge, reed banks and the observation outpost.
+static func _build_plavni_south(root: Node3D, map_name: String) -> void:
+	var wl := water_level(map_name)
+	var boat_wps: Array[Vector3] = []
+	for i in range(7):
+		var bx := -280.0 + float(i) * 93.0
+		var bz := 95.0 + 16.0 * sin(bx * 0.011)
+		boat_wps.append(Vector3(bx, wl, bz))
+	root.add_child(MOVING_PATROL_BOAT.create_patrol_boat(boat_wps, wl, 0.0))
+
+	# Plavni Hall / pump-station outpost at the southern dry pad.
+	var hall_path := "res://Assets/frontline/wetlands_hall.glb"
+	if ResourceLoader.exists(hall_path):
+		var packed := load(hall_path) as PackedScene
+		if packed != null:
+			var hall := packed.instantiate() as Node3D
+			if hall != null:
+				var hall_c := Vector2(42.0, 165.0)
+				var hall_gy := _height(map_name, hall_c.x, hall_c.y)
+				hall.name = "PlavniHall"
+				hall.position = Vector3(hall_c.x, hall_gy + 0.02 - 0.70, hall_c.y)
+				root.add_child(hall)
+				_apply_hall_materials(hall, "wetlands")
+				var hall_body := StaticBody3D.new()
+				hall_body.name = "PlavniHallCollision"
+				hall_body.collision_layer = 1
+				hall_body.collision_mask = 1
+				hall.add_child(hall_body)
+				for mesh_node in hall.find_children("*", "MeshInstance3D", true, false):
+					var hall_mi := mesh_node as MeshInstance3D
+					if hall_mi == null or hall_mi.mesh == null or not hall_mi.visible:
+						continue
+					var src := hall_mi.mesh.surface_get_material(0)
+					var key := src.resource_name.to_lower() if src != null else ""
+					if key in ["hall_glass", "hall_water"]:
+						continue
+					_add_mesh_collision(hall_body, hall_mi)
+				try_reserve_structure(root, map_name, hall_c, 34.0, 26.0, true)
+				reserve_area(hall_c, 42.0)
+				register_structure_exclusion(hall_c, Vector2(59.0, 38.0), hall_gy + 19.5)
+				add_contact_shadow(root, map_name, hall_c, 42.0, "PlavniHall")
+
+	# Timber causeway into the pump-station / Plavni hall approach.
+	var causeway_p := Vector2(18.0, 125.0)
+	var cy := maxf(_height(map_name, causeway_p.x, causeway_p.y), wl)
+	var causeway := _instantiate_sculpted_glb(root,
+			"res://Assets/handcrafted/forge/swamp_04_wooden_trestle_causeway.glb",
+			"wood", Color(1.12, 1.08, 1.02),
+			Vector3(causeway_p.x, cy, causeway_p.y), 0.0, Vector3.ONE * 0.92)
+	if causeway != null:
+		causeway.name = "PlavniTimberCauseway"
+	register_structure_exclusion(causeway_p, Vector2(15.0, 5.0), wl + 4.8)
+	reserve_area(causeway_p, 18.0)
+
+	# Half-sunk barge in the western marsh pool.
+	var barge_p := Vector2(-155.0, 110.0)
+	var by := _height(map_name, barge_p.x, barge_p.y)
+	var barge := _instantiate_sculpted_glb(root,
+			"res://Assets/handcrafted/forge/swamp_03_half_sunk_river_barge.glb",
+			"hall_rust", Color(1.14, 1.08, 1.04),
+			Vector3(barge_p.x, maxf(by, wl) - 0.15, barge_p.y), 0.2)
+	if barge != null:
+		barge.name = "PlavniBarge"
+	reserve_area(barge_p, 16.0)
+	add_contact_shadow(root, map_name, barge_p, 14.0, "PlavniBarge")
+
+	# Reeds on every marsh edge and along both central-canal banks.
+	var reed_mesh := FOLIAGE.create_grass_mesh(6, 2.8)
+	var reed_mat := ShaderMaterial.new()
+	reed_mat.shader = GRASS_SHADER
+	reed_mat.set_shader_parameter("grass_base_color", Vector3(0.042, 0.062, 0.024))
+	reed_mat.set_shader_parameter("grass_tip_color", Vector3(0.110, 0.140, 0.058))
+	reed_mat.set_shader_parameter("backlight_strength", 0.10)
+	reed_mat.set_shader_parameter("wind_strength", 0.055)
+	reed_mat.set_shader_parameter("wind_speed", 1.15)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 91771
+	var transforms: Array = []
+	var colors: Array = []
+	for i in range(5200):
+		var p := Vector2(rng.randf_range(-330.0, 330.0), rng.randf_range(-330.0, 330.0))
+		var canal_z := 10.0 + 12.0 * sin(p.x * 0.012)
+		if p.y < 35.0 and absf(p.y - canal_z) > 30.0:
+			continue
+		var h := _height(map_name, p.x, p.y)
+		if h > wl + 0.40 or h < wl - 0.55:
+			continue
+		if absf(p.x + 225.0) < 42.0 and p.y >= -168.0 and p.y <= 232.0:
+			continue
+		if _road_factor(map_name, p.x, p.y) > 0.20:
+			continue
+		if _structure_clear_zone(map_name, p.x, p.y, 3.0):
+			continue
+		var clumps := rng.randi_range(2, 3)
+		for k in range(clumps):
+			var q := p + Vector2(rng.randf_range(-1.5, 1.5), rng.randf_range(-1.5, 1.5))
+			var basis := Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(
+					Vector3(rng.randf_range(0.85, 1.35), rng.randf_range(6.0, 9.5),
+							rng.randf_range(0.85, 1.35)))
+			transforms.append(Transform3D(basis, Vector3(q.x, h, q.y)))
+			var warm := rng.randf_range(0.86, 1.02)
+			colors.append(Color(warm * 0.94, warm, warm * rng.randf_range(0.80, 0.94)))
+	_multimesh(root, "Reeds", reed_mesh, reed_mat, transforms, false, colors)
+
+	# Observation outpost on the dry southern launch plateau.
+	var op_site := _reserve_near_site(root, map_name, Vector2(128.0, 225.0),
+			10.0, 28.0, false)
+	if op_site != Vector2.INF:
+		_asset_on(root, map_name, "observation_post", op_site, 0.2)
+		add_contact_shadow(root, map_name, op_site, 10.0, "PlavniOutpost")
+		_asset_on(root, map_name, "sandbag_wall", op_site + Vector2(14.0, 4.0), -0.1)
+		for off in [Vector2(-14.0, 8.0), Vector2(20.0, -6.0)]:
+			var tp: Vector2 = op_site + (off as Vector2)
+			_asset_on(root, map_name, "vegetation/oak_hero", tp, tp.x * 0.02)
+		for off in [Vector2(8.0, 10.0), Vector2(-8.0, -8.0)]:
+			var hp: Vector2 = op_site + (off as Vector2)
+			_asset_on(root, map_name, "hedgehog", hp, hp.y * 0.01)
+		ASSETS.spawn_prop(root, "prop_crate",
+				Vector3(op_site.x + 6.0,
+						_height(map_name, op_site.x + 6.0, op_site.y - 5.0),
+						op_site.y - 5.0), 0.3)
+
+
 static func _add_hall(root: Node3D, map_name: String, p: Vector2, w: float, h: float,
 		d: float, yaw: float, wall: Material, roof: Material) -> void:
 	var y := _height(map_name, p.x, p.y)
@@ -6619,7 +7246,7 @@ static func _add_hall(root: Node3D, map_name: String, p: Vector2, w: float, h: f
 	var roof_light := _mat(Color(0.14, 0.17, 0.18), 0.3, 0.2)
 	var concrete_skirt := _pbr("concrete", Color(0.70, 0.68, 0.65), 0.35)
 	# 6.4m thick concrete foundation skirt below base so hall never floats on uneven ground
-	_add_box(root, base + Vector3(0.0, -3.2, 0.0), Vector3(w + 0.8, 6.4, d + 0.8), concrete_skirt, yaw, false)
+	_add_box(root, base + Vector3(0.0, -3.2, 0.0), Vector3(w + 0.8, 6.4, d + 0.8), concrete_skirt, yaw, true)
 	# Real openings.  The old hall was a solid box with painted-on windows,
 	# which is exactly what made a convincing facade feel like an invisible
 	# wall up close.
@@ -6655,25 +7282,25 @@ static func _add_hall(root: Node3D, map_name: String, p: Vector2, w: float, h: f
 	for i in range(5):
 		var off: Vector3 = basis * Vector3(-w * 0.36 + float(i) * w * 0.18, h + 0.9, 0.0)
 		_add_box(root, base + off, Vector3(w * 0.12, 0.7, d * 0.7),
-				roof_light, yaw, false)
+				roof_light, yaw, true)
 	# Downpipes.
 	for side in [-1.0, 1.0]:
 		for k in range(3):
 			var dp := base + basis * Vector3(-w * 0.44 + float(k) * w * 0.44, 0.0,
 					side * (d * 0.5 + 0.16))
 			_add_cylinder(root, Vector3(dp.x, y + h * 0.45, dp.z), 0.09,
-					h * 0.9, rust, 0.0, false)
+					h * 0.9, rust, 0.0, true)
 	# Grime band at the base and roof-edge trim.
 	for side in [-1.0, 1.0]:
 		var fz: float = side * (d * 0.5 + 0.13)
 		_add_box(root, base + basis * Vector3(0.0, 0.35, fz),
 				Vector3(w * 0.98, 0.7, 0.08), grime, yaw, false)
 		_add_box(root, base + basis * Vector3(0.0, h + 0.62, fz),
-				Vector3(w + 1.0, 0.20, 0.22), trim, yaw, false)
+				Vector3(w + 1.0, 0.20, 0.22), trim, yaw, true)
 	# Roof vents.
 	for i in range(3):
 		var vo: Vector3 = basis * Vector3(-w * 0.28 + float(i) * w * 0.28, h + 1.05, 0.0)
-		_add_cylinder(root, base + vo, 0.55, 1.1, trim, 0.0, false)
+		_add_cylinder(root, base + vo, 0.55, 1.1, trim, 0.0, true)
 
 
 static func _add_burnt_tank(root: Node3D, map_name: String, p: Vector2, yaw: float) -> void:
@@ -6764,19 +7391,24 @@ static func _hedgerows(map_name: String) -> Array:
 			zlines = [-144.0, 152.0]
 		"wetlands":
 			zlines = [-142.0, 142.0]
+		"promzona_plavni":
+			zlines = [-300.0, -210.0, 205.0, 300.0]
+	var line_half := 318.0 if map_name == "promzona_plavni" else 166.0
+	var step := 20.0 if map_name != "promzona_plavni" else 28.0
 	for z in zlines:
 		var pts := PackedVector2Array()
-		var x := -166.0
-		while x <= 166.0:
+		var x := -line_half
+		while x <= line_half:
 			pts.append(Vector2(x, z + 5.0 * sin(x * 0.025)))
-			x += 20.0
+			x += step
 		lines.append(pts)
-	for xline in [-156.0, 156.0]:
+	for xline in ([-300.0, 300.0] if map_name == "promzona_plavni" \
+			else [-156.0, 156.0]):
 		var pts := PackedVector2Array()
-		var z := -166.0
-		while z <= 166.0:
+		var z := -line_half
+		while z <= line_half:
 			pts.append(Vector2(xline + 5.0 * sin(z * 0.025), z))
-			z += 20.0
+			z += step
 		lines.append(pts)
 	return lines
 
@@ -6808,6 +7440,21 @@ static func _treelines(map_name: String) -> Array:
 				PackedVector2Array([Vector2(-168, -152), Vector2(-84, -142), Vector2(0, -158),
 						Vector2(84, -144), Vector2(168, -154)]),
 			]
+		"promzona_plavni":
+			return [
+				PackedVector2Array([Vector2(-330, -330), Vector2(-220, -310),
+						Vector2(-100, -326), Vector2(20, -306), Vector2(150, -324),
+						Vector2(270, -308), Vector2(330, -326)]),
+				PackedVector2Array([Vector2(-330, -60), Vector2(-210, -46),
+						Vector2(-80, -62), Vector2(60, -44), Vector2(190, -60),
+						Vector2(330, -48)]),
+				PackedVector2Array([Vector2(-330, 170), Vector2(-220, 190),
+						Vector2(-90, 174), Vector2(60, 196), Vector2(190, 178),
+						Vector2(330, 194)]),
+				PackedVector2Array([Vector2(-330, 292), Vector2(-220, 306),
+						Vector2(-90, 294), Vector2(60, 310), Vector2(190, 296),
+						Vector2(330, 306)]),
+			]
 		_:
 			return [
 				PackedVector2Array([Vector2(-170, 116), Vector2(-104, 134), Vector2(-38, 120),
@@ -6822,7 +7469,7 @@ static func _is_tutorial_mode() -> bool:
 	var st := Engine.get_main_loop() as SceneTree
 	if st != null and st.root != null:
 		var g := st.root.get_node_or_null("Global")
-		if g != null and int(g.get("play_mode")) == 3:
+		if g != null and (int(g.get("play_mode")) == 3 or bool(g.get("combat_training"))):
 			return true
 	return false
 
@@ -6836,6 +7483,8 @@ static func _is_tutorial_corridor(x: float, z: float) -> bool:
 static func _tutorial_clear_zone(x: float, z: float) -> bool:
 	if not _is_tutorial_mode():
 		return false
+	if _current_map == "promzona_plavni":
+		return absf(x + 225.0) < 40.0 and z >= -165.0 and z <= 230.0
 	if absf(x + 48.0) < 42.0 and z > 20.0 and z < 176.0:
 		return true
 	return absf(x + 48.0) < 22.0 and z >= -70.0 and z <= 20.0
@@ -7052,6 +7701,9 @@ static func _build_treelines(root: Node3D, map_name: String) -> void:
 	rng.seed = hash(map_name) + 137
 	var positions: Array = []
 	var wl := water_level(map_name)
+	var tree_bound := 325.0 if map_name == "promzona_plavni" else 168.0
+	var tree_grid_steps := 11 if map_name == "promzona_plavni" else 5
+	var scatter_bound := 318.0 if map_name == "promzona_plavni" else 160.0
 
 	# Windbreak belts first so they survive the instance cap.
 	positions.append_array(_windbreak_positions.get(map_name, []))
@@ -7114,24 +7766,27 @@ static func _build_treelines(root: Node3D, map_name: String) -> void:
 
 	# Scattered orchard / copse clumps inside compact grass perimeter.
 	var clumps := 12 if map_name in ["village", "wetlands"] else 10
+	if map_name == "promzona_plavni":
+		clumps = 18
 	for i in range(clumps):
-		var c := Vector2(rng.randf_range(-160.0, 160.0), rng.randf_range(-160.0, 160.0))
+		var c := Vector2(rng.randf_range(-scatter_bound, scatter_bound),
+				rng.randf_range(-scatter_bound, scatter_bound))
 		if Vector2(c.x, c.y).distance_to(Vector2(0, 152)) < 32.0:
 			continue
 		for j in range(rng.randi_range(4, 6)):
 			var p := c + Vector2(rng.randf_range(-24.0, 24.0), rng.randf_range(-24.0, 24.0))
-			if absf(p.x) > 166.0 or absf(p.y) > 166.0:
+			if absf(p.x) > tree_bound - 2.0 or absf(p.y) > tree_bound - 2.0:
 				continue
 			var h := _height(map_name, p.x, p.y)
 			if h < wl + 0.45:
 				continue
 			positions.append(Vector3(p.x, h, p.y))
 	# Evenly distributed single trees across the green arena so no quadrant looks bare.
-	for gx in range(-5, 6):
-		for gz in range(-5, 6):
+	for gx in range(-tree_grid_steps, tree_grid_steps + 1):
+		for gz in range(-tree_grid_steps, tree_grid_steps + 1):
 			var px := float(gx) * 28.0 + rng.randf_range(-10.0, 10.0)
 			var pz := float(gz) * 28.0 + rng.randf_range(-10.0, 10.0)
-			if absf(px) > 164.0 or absf(pz) > 164.0:
+			if absf(px) > tree_bound - 4.0 or absf(pz) > tree_bound - 4.0:
 				continue
 			var gh := _height(map_name, px, pz)
 			if gh < wl + 0.45:
@@ -7150,7 +7805,7 @@ static func _build_treelines(root: Node3D, map_name: String) -> void:
 			return not _tutorial_clear_zone(p.x, p.z))
 	# Clear halls, farmsteads, silos, chimneys, cooling towers, roads, and out-of-bounds edges
 	positions = positions.filter(func(p):
-		return absf(p.x) <= 168.0 and absf(p.z) <= 168.0 \
+		return absf(p.x) <= tree_bound and absf(p.z) <= tree_bound \
 			and p.y >= wl + 0.45 \
 			and _road_factor(map_name, p.x, p.z) < 0.16 \
 			and not _hall_clear_zone(map_name, p.x, p.z) \
@@ -7175,6 +7830,9 @@ static func _build_treelines(root: Node3D, map_name: String) -> void:
 		tree_cap = 160
 	elif q_lvl == QualityManager.Level.MEDIUM:
 		tree_cap = 200
+	if map_name == "promzona_plavni":
+		tree_cap = 420 if q_lvl == QualityManager.Level.HIGH else \
+				(340 if q_lvl == QualityManager.Level.MEDIUM else 260)
 	if positions.size() > tree_cap:
 		positions.resize(tree_cap)
 	var tree_shadows := q_lvl == QualityManager.Level.HIGH
@@ -7226,7 +7884,7 @@ static func _build_treelines(root: Node3D, map_name: String) -> void:
 				node.visibility_range_end = veg_range
 				node.visibility_range_end_margin = 60.0
 				node.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
-	_add_tree_colliders(root, buckets)
+	_add_tree_colliders(root, buckets, map_name)
 
 
 ## Trunk collision for the instanced forest.  The crowns stay pass-through (the
@@ -7234,18 +7892,21 @@ static func _build_treelines(root: Node3D, map_name: String) -> void:
 ## cannot ghost through a tree.  The boxes are grouped into ~96 m tiles so the
 ## physics broadphase (and the drone's CCD cast) only tests the nearby forest,
 ## not one map-sized concave shape.
-static func _add_tree_colliders(root: Node3D, buckets: Dictionary) -> void:
+static func _add_tree_colliders(root: Node3D, buckets: Dictionary,
+		map_name: String = "") -> void:
 	if root.get_node_or_null("TreeCollision") != null:
 		return
 	if OS.has_environment("QA_NO_TREE_COLLISION"):
 		return
+	var collision_bound := 335.0 if map_name == "promzona_plavni" \
+			else PLAYABLE_HALF_BOUND
 	var cells: Dictionary = {}
 	for key in buckets.keys():
 		var xfs: Array = buckets[key]
 		for xf in xfs:
 			var t: Transform3D = xf
 			var s: float = t.basis.get_scale().x
-			if absf(t.origin.x) > PLAYABLE_HALF_BOUND or absf(t.origin.z) > PLAYABLE_HALF_BOUND:
+			if absf(t.origin.x) > collision_bound or absf(t.origin.z) > collision_bound:
 				continue
 			var cell := Vector2i(int(floor(t.origin.x / 96.0)),
 					int(floor(t.origin.z / 96.0)))
@@ -7457,6 +8118,9 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 	var detail_lvl := int(QualityManager.get_value("ground_detail_level", 1 if q_lvl != QualityManager.Level.LOW else 0))
 	var rock_target := 220 if high_detail else (150 if detail_lvl > 0 else 100)
 	var flower_target := 420 if high_detail else (260 if detail_lvl > 0 else 160)
+	if map_name == "promzona_plavni":
+		rock_target = int(round(float(rock_target) * 1.9))
+		flower_target = int(round(float(flower_target) * 1.9))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(map_name) + 4242
 	var wl := water_level(map_name)
@@ -7468,12 +8132,15 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 	var rock_col: Array = []
 	var tries := rock_target * 6
 	var rock_radius := 162.0 if high_detail else (148.0 if detail_lvl > 0 else 120.0)
+	if map_name == "promzona_plavni":
+		rock_radius = 325.0 if high_detail else (310.0 if detail_lvl > 0 else 288.0)
 	while rock_xf.size() < rock_target and tries > 0:
 		tries -= 1
 		var x := rng.randf_range(-rock_radius, rock_radius)
 		var z := rng.randf_range(-rock_radius, rock_radius)
 		if _road_factor(map_name, x, z) > 0.32 or _hall_clear_zone(map_name, x, z) \
-				or _structure_clear_zone(map_name, x, z):
+				or _structure_clear_zone(map_name, x, z) \
+				or (map_name == "promzona_plavni" and _tutorial_clear_zone(x, z)):
 			continue
 		var y := mesh_surface_height(map_name, x, z)
 		if y < wl + 0.9:
@@ -7495,13 +8162,16 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 	var flower_xf: Array = []
 	var flower_col: Array = []
 	var flower_radius := 160.0 if high_detail else (144.0 if detail_lvl > 0 else 115.0)
+	if map_name == "promzona_plavni":
+		flower_radius = 325.0 if high_detail else (308.0 if detail_lvl > 0 else 286.0)
 	tries = flower_target * 5
 	while flower_xf.size() < flower_target and tries > 0:
 		tries -= 1
 		var x := rng.randf_range(-flower_radius, flower_radius)
 		var z := rng.randf_range(-flower_radius, flower_radius)
 		if _road_factor(map_name, x, z) > 0.28 or _hall_clear_zone(map_name, x, z) \
-				or _structure_clear_zone(map_name, x, z):
+				or _structure_clear_zone(map_name, x, z) \
+				or (map_name == "promzona_plavni" and _tutorial_clear_zone(x, z)):
 			continue
 		var y := mesh_surface_height(map_name, x, z)
 		if y < wl + 0.30:
@@ -7521,6 +8191,9 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 			else (240 if high_detail else (130 if detail_lvl > 0 else 55))
 	var bush_radius := (174.0 if high_detail else (164.0 if detail_lvl > 0 else 148.0)) if mobile \
 			else (162.0 if high_detail else (146.0 if detail_lvl > 0 else 108.0))
+	if map_name == "promzona_plavni":
+		bush_target = int(round(float(bush_target) * 1.8))
+		bush_radius = 326.0 if high_detail else (312.0 if detail_lvl > 0 else 290.0)
 	var bush_mesh := FOLIAGE.make_canopy_mesh(5, 2, 0.42, 0.55, 0.65)
 	var bush_mat := FOLIAGE.make_wind_material(
 			Color(0.11, 0.16, 0.055) if map_name == "wetlands" \
@@ -7532,7 +8205,8 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 		var bx := rng.randf_range(-bush_radius, bush_radius)
 		var bz := rng.randf_range(-bush_radius, bush_radius)
 		if _road_factor(map_name, bx, bz) > 0.28 or _hall_clear_zone(map_name, bx, bz) \
-				or _structure_clear_zone(map_name, bx, bz):
+				or _structure_clear_zone(map_name, bx, bz) \
+				or (map_name == "promzona_plavni" and _tutorial_clear_zone(bx, bz)):
 			continue
 		var by := mesh_surface_height(map_name, bx, bz)
 		if by < wl + 0.35:
@@ -7570,6 +8244,9 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 			else maxi(700, int(round(4200.0 * tuft_mult)))
 	var tuft_radius := (176.0 if high_detail else (172.0 if detail_lvl > 0 else 168.0)) if mobile \
 			else (166.0 if high_detail else (152.0 if detail_lvl > 0 else 132.0))
+	if map_name == "promzona_plavni":
+		tuft_target = int(round(float(tuft_target) * 1.9))
+		tuft_radius = 328.0 if high_detail else (316.0 if detail_lvl > 0 else 298.0)
 	var tuft_base := Color(0.15, 0.20, 0.08)
 	var tuft_tip := Color(0.36, 0.42, 0.18)
 	match map_name:
@@ -7600,6 +8277,8 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 		if absf(tx) > tuft_radius or absf(tz) > tuft_radius:
 			return
 		if _road_factor(map_name, tx, tz) > max_rf:
+			return
+		if map_name == "promzona_plavni" and _tutorial_clear_zone(tx, tz):
 			return
 		var ty := mesh_surface_height(map_name, tx, tz)
 		if ty < wl_tuft:
@@ -7645,7 +8324,8 @@ static func _build_ground_detail(root: Node3D, map_name: String) -> void:
 			tries -= 1
 			var x := rng.randf_range(-tuft_radius, tuft_radius)
 			var z := rng.randf_range(-tuft_radius, tuft_radius)
-			if _road_factor(map_name, x, z) > 0.25:
+			if _road_factor(map_name, x, z) > 0.25 \
+					or (map_name == "promzona_plavni" and _tutorial_clear_zone(x, z)):
 				continue
 			var y := mesh_surface_height(map_name, x, z)
 			if y < wl + 0.15:
@@ -7806,6 +8486,7 @@ static func _build_props(root: Node3D, map_name: String) -> void:
 	var prop_names: Array = meshes.keys()
 	if q == QualityManager.Level.LOW and prop_names.size() > 10:
 		prop_names = prop_names.slice(0, 10)
+	var prop_half := 325.0 if map_name == "promzona_plavni" else 155.0
 	for prop_name in prop_names:
 		var mesh: Mesh = meshes[prop_name]
 		var xfs: Array = []
@@ -7813,8 +8494,8 @@ static func _build_props(root: Node3D, map_name: String) -> void:
 		var tries := 0
 		while xfs.size() < per_type and tries < 120:
 			tries += 1
-			var x := rng.randf_range(-155.0, 155.0)
-			var z := rng.randf_range(-155.0, 155.0)
+			var x := rng.randf_range(-prop_half, prop_half)
+			var z := rng.randf_range(-prop_half, prop_half)
 			if _road_factor(map_name, x, z) >= 0.25:
 				continue
 			if _tutorial_clear_zone(x, z):
@@ -7824,7 +8505,9 @@ static func _build_props(root: Node3D, map_name: String) -> void:
 			var h := _height(map_name, x, z)
 			if h < water + 0.9:
 				continue
-			if Vector2(x, z).distance_to(Vector2(0.0, 220.0)) < 22.0:
+			var spawn_pad := Vector2(0.0, 275.0) if map_name == "promzona_plavni" \
+					else Vector2(0.0, 220.0)
+			if Vector2(x, z).distance_to(spawn_pad) < 22.0:
 				continue
 			var hx := _height(map_name, x + 2.0, z) - _height(map_name, x - 2.0, z)
 			var hz := _height(map_name, x, z + 2.0) - _height(map_name, x, z - 2.0)
@@ -7989,6 +8672,7 @@ static func _multimesh(root: Node3D, node_name: String, mesh: Mesh, mat: Materia
 	var mmi := MultiMeshInstance3D.new()
 	mmi.name = node_name
 	mmi.multimesh = mm
+	mmi.set_meta("qa_instance_transforms", transforms)
 	if mat != null:
 		mmi.material_override = mat
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows \
@@ -8224,15 +8908,15 @@ static func _add_opening_frame(root: Node3D, origin: Vector3, basis: Basis,
 	var cx := r.position.x + r.size.x * 0.5
 	var top := r.position.y + r.size.y
 	_add_box(root, origin + basis * Vector3(cx, top + edge * 0.5, 0.0),
-			Vector3(r.size.x + edge * 2.0, edge, depth), mat, yaw, false)
+			Vector3(r.size.x + edge * 2.0, edge, depth), mat, yaw, true)
 	if r.position.y > 0.15:
 		_add_box(root, origin + basis * Vector3(cx, r.position.y - edge * 0.5, 0.0),
-				Vector3(r.size.x + edge * 2.0, edge, depth), mat, yaw, false)
+				Vector3(r.size.x + edge * 2.0, edge, depth), mat, yaw, true)
 	for sx in [-1.0, 1.0]:
 		_add_box(root, origin + basis * Vector3(
 				cx + sx * (r.size.x * 0.5 + edge * 0.5),
 				r.position.y + r.size.y * 0.5, 0.0),
-				Vector3(edge, r.size.y, depth), mat, yaw, false)
+				Vector3(edge, r.size.y, depth), mat, yaw, true)
 
 
 ## Merge the hundreds of individual prop boxes, cylinders and roof prisms into
@@ -8391,6 +9075,10 @@ static func _batch_static_props(root: Node3D) -> void:
 		var mmi := MultiMeshInstance3D.new()
 		mmi.name = "BatchedProps%d" % index
 		mmi.multimesh = mm
+		var attached_indices: Array = g.get("attached_indices", [])
+		mmi.set_meta("qa_instance_transforms", xforms)
+		if not attached_indices.is_empty():
+			mmi.set_meta("qa_attached_subpart_indices", attached_indices)
 		mmi.material_override = out_mat
 		mmi.cast_shadow = int(g.get("shadow", GeometryInstance3D.SHADOW_CASTING_SETTING_ON))
 		root.add_child(mmi)
@@ -8959,6 +9647,34 @@ static func _batch_multisurface_meshes(root: Node3D) -> void:
 			" multi-surface landmarks into ", batches, " draw calls")
 
 
+## Composite landmark assemblies stay grouped for the floating scanner even
+## when their parts are merged into a shared MultiMesh batch.
+static func _is_attached_subpart(node: Node, root: Node) -> bool:
+	if node == null:
+		return false
+	if node.has_meta("qa_attached_subpart") \
+			or (node.get_parent() != null and node.get_parent().has_meta("qa_attached_subpart")):
+		return true
+	var tokens: PackedStringArray = [
+		"herohall_", "herohalltrim", "plavnihall", "canalbridge", "pipebridge",
+		"factorytower", "opentower", "tankcluster", "watertower",
+		"movinggantrycrane", "rotatingtowercrane", "radarrelaystation",
+		"observationwatchtower", "constructionskeletonrubik",
+		"scaffoldingfreestylecube", "pipelineoverpass",
+		"pipelinepowerlooparch", "shippingcontainercomplex",
+	]
+	var cur := node.get_parent()
+	while cur != null:
+		var lower := String(cur.name).to_lower()
+		for token in tokens:
+			if lower.contains(token):
+				return true
+		if cur == root:
+			break
+		cur = cur.get_parent()
+	return false
+
+
 static func _collect_batchable(node: Node, root: Node3D, groups: Dictionary,
 		victims: Array[Node]) -> void:
 	for child in node.get_children():
@@ -8978,6 +9694,7 @@ static func _collect_batchable(node: Node, root: Node3D, groups: Dictionary,
 				kind = "prism"
 				size = mi.get_meta("batch_prism")
 			if kind != "":
+				var attached := _is_attached_subpart(mi, root)
 				var mat := mi.material_override
 				# Keep shadowed and non-shadowed instances in separate batches:
 				# the detail pass marks its thousands of small trims/rails as
@@ -8993,10 +9710,13 @@ static func _collect_batchable(node: Node, root: Node3D, groups: Dictionary,
 				if not groups.has(key):
 					groups[key] = {"kind": kind, "mat": mat, "xforms": [],
 							"colors": [], "shadow": shadow,
-							"use_color": use_color}
+							"use_color": use_color, "attached_indices": []}
 				var xf := _local_transform_to_root(mi, root)
 				xf.basis = xf.basis * Basis.from_scale(size)
 				(groups[key]["xforms"] as Array).append(xf)
+				var idx := (groups[key]["xforms"] as Array).size() - 1
+				if attached:
+					(groups[key]["attached_indices"] as Array).append(idx)
 				if use_color:
 					(groups[key]["colors"] as Array).append(tint)
 				victims.append(mi)
@@ -9162,7 +9882,7 @@ static func _get_prop_detail_material(map_name: String, base_y: float,
 	m.set_shader_parameter("grime_tint", _prop_grime_tint(map_name))
 	m.set_shader_parameter("use_heightmap", true)
 	m.set_shader_parameter("terrain_height_tex", height_map_tex(map_name))
-	m.set_shader_parameter("terrain_half_extent", OUTER_HALF)
+	m.set_shader_parameter("terrain_half_extent", _outer_half(map_name))
 	m.set_shader_parameter("flat_ground_y", base_y)
 	_prop_detail_cache[key] = m
 	return m

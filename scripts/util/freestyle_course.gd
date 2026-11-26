@@ -2,6 +2,7 @@ class_name FreestyleCourse
 extends RefCounted
 
 const RING_COUNT := 24
+const PROMPZONA_RING_COUNT := 28
 const SHAPE_SQUARE := 0
 const SHAPE_ARCH := 1
 const SHAPE_DIAMOND := 2
@@ -42,6 +43,12 @@ const UMAN_WAYPOINTS: Array[Vector3] = [
 static func is_mobile() -> bool:
 	return OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios") \
 			or OS.has_environment("MOBILE_UI")
+
+
+## Dynamic course length per map: the merged Promzona/Plavni arena runs a
+## 28-gate loop, the legacy maps keep their authored 24-gate courses.
+static func expected_ring_count(map_id: String) -> int:
+	return PROMPZONA_RING_COUNT if map_id == "promzona_plavni" else RING_COUNT
 
 
 static func _neon_material(col: Color) -> StandardMaterial3D:
@@ -377,6 +384,43 @@ static func hall_waypoints(map_id: String, ground_fn: Callable) -> Array[Diction
 			[14.0, 134.0, 9.0, 2, 5.2],
 			[32.0, 128.0, 7.6, 4, 5.2],
 			[46.0, 118.0, 6.4, 1, 5.4],
+		]
+	elif map_id == "promzona_plavni":
+		# 28-gate Promzona/Plavni loop: marsh launch -> West Concrete Bridge ->
+		# cranes/chimney/silos -> Hero Hall flyover -> East Timber Bridge ->
+		# marsh slalom -> Pump Hall -> finish on the western dike.
+		primary = Color(0.12, 0.94, 0.88)
+		accent = Color(1.0, 0.72, 0.12)
+		water_floor = -1.2
+		raw_coords = [
+			[-110.0, 205.0, 4.4, 1, 4.6],
+			[-112.0, 170.0, 3.8, 2, 4.2],
+			[-110.0, 135.0, 4.2, 0, 4.0],
+			[-110.0, 100.0, 3.6, 3, 4.2],
+			[-112.0, 65.0, 3.4, 4, 4.4],
+			[-110.0, 35.0, 3.2, 2, 3.8],
+			[-110.0, 15.0, 3.2, 3, 4.0],
+			[-110.0, -10.0, 3.4, 3, 3.6],
+			[-118.0, -45.0, 4.8, 0, 4.2],
+			[-145.0, -85.0, 20.0, 4, 3.8],
+			[-175.0, -130.0, 26.0, 2, 4.0],
+			[-150.0, -175.0, 24.0, 0, 3.6],
+			[-125.0, -205.0, 18.0, 3, 4.0],
+			[-40.0, -285.0, 13.0, 4, 4.2],
+			[-5.0, -235.0, 12.0, 0, 4.0],
+			[52.0, -240.0, 9.0, 1, 4.2],
+			[52.0, -180.0, 28.0, 2, 3.8],
+			[52.0, -125.0, 9.0, 0, 4.2],
+			[130.0, -160.0, 12.0, 3, 4.0],
+			[160.0, -120.0, 15.0, 4, 4.4],
+			[150.0, -70.0, 9.0, 0, 4.0],
+			[125.0, -25.0, 5.0, 2, 3.9],
+			[110.0, 18.0, 3.4, 3, 3.8],
+			[110.0, 50.0, 3.8, 1, 4.0],
+			[125.0, 85.0, 5.0, 0, 4.0],
+			[75.0, 125.0, 4.6, 3, 3.8],
+			[-35.0, 175.0, 4.2, 4, 4.0],
+			[-110.0, 220.0, 4.6, 1, 4.6],
 		]
 	elif map_id == "wetlands":
 		# Starts straight ahead (+Z) of wetlands spawn (72, 110, yaw PI) above dry south ridge and marsh loop.

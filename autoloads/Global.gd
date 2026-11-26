@@ -93,7 +93,7 @@ const COMBAT_TIME_LIMIT := 1200.0
 ## Small set of menu-only preferences (haptics, defaults, ...).
 var menu_settings := {"haptics_enabled": true, "drone_preset": 0,
 		"selected_mode": PlayMode.TUTORIAL, "selected_mission": 1, "selected_special": 0,
-		"selected_map": "oilrig", "difficulty": 1,
+		"selected_map": "promzona_plavni", "difficulty": 1,
 		"radio_chatter_mode": 2,
 		"touch_floating_sticks": false, "touch_left_spring": false,
 		"touch_input_mode": "auto",
@@ -175,7 +175,7 @@ func get_difficulty_default_weather(_mission_id: int = 1, special_id: int = 0,
 	if difficulty == Difficulty.ACE:
 		if special_id in [6, 9, 10]:
 			return 2 # Storm
-		if map_name in ["village", "wetlands"]:
+		if map_name in ["village", "wetlands", "promzona_plavni"]:
 			return 1 # Rain
 		return 4 # Dust
 	return 0 # Clear
@@ -297,6 +297,13 @@ func load_menu_settings() -> void:
 				menu_settings[key] = config.get_value("menu", key)
 	menu_settings["selected_mode"] = sanitize_play_mode(int(menu_settings.get("selected_mode", PlayMode.TUTORIAL)))
 	play_mode = int(menu_settings["selected_mode"])
+	# The industrial and wetlands maps were merged into one unified frontline map.
+	var saved_map := str(menu_settings.get("selected_map", "promzona_plavni")).strip_edges().to_lower()
+	if saved_map in ["industrial", "wetlands"]:
+		saved_map = "promzona_plavni"
+	if saved_map.is_empty():
+		saved_map = "promzona_plavni"
+	menu_settings["selected_map"] = saved_map
 	# Keep the live selection in sync with the saved one.
 	if menu_settings.has("drone_preset"):
 		drone_preset = clampi(int(menu_settings["drone_preset"]), 0,
@@ -533,7 +540,7 @@ func record_training_result(map_id: String, time_s: float, passed: int,
 		total: int) -> Dictionary:
 	var clean_id := map_id.strip_edges().to_lower()
 	if clean_id.is_empty():
-		clean_id = str(menu_settings.get("selected_map", "uman")).to_lower()
+		clean_id = str(menu_settings.get("selected_map", "promzona_plavni")).to_lower()
 	var sec := "training_%s" % clean_id
 	var prev: Dictionary = campaign_records.get(sec, {})
 	var time_bonus := maxi(0, int(round(360.0 - time_s))) if time_s > 0.0 else 0
@@ -609,26 +616,15 @@ func get_daily_challenge() -> Dictionary:
 			"desc_en": "Complete the Oil Rig freestyle run with Rank A or S",
 		},
 		{
-			"id": "daily_industrial_gates",
-			"map": "industrial",
+			"id": "daily_promzona_plavni_gates",
+			"map": "promzona_plavni",
 			"mode": PlayMode.TRAINING,
 			"mission": 2,
-			"bonus_score": 450,
-			"title_ua": "ІНДУСТРІАЛЬНІ ВОРОТА",
-			"title_en": "INDUSTRIAL GATES",
-			"desc_ua": "Пройдіть технічний маршрут між цехами без пошкоджень",
-			"desc_en": "Navigate the industrial technical gate run cleanly",
-		},
-		{
-			"id": "daily_wetlands_intercept",
-			"map": "wetlands",
-			"mode": PlayMode.COMBAT,
-			"mission": 4,
 			"bonus_score": 500,
-			"title_ua": "ПЕРЕХОПЛЕННЯ НАД БОЛОТАМИ",
-			"title_en": "WETLANDS INTERCEPT",
-			"desc_ua": "Тактичне перехоплення повітряної цілі над заплавою",
-			"desc_en": "Aerial target interception drill over the wetlands",
+			"title_ua": "ПРОМЗОНА + ПЛАВНІ · МАРШРУТ",
+			"title_en": "INDUSTRIAL & WETLANDS RUN",
+			"desc_ua": "Пройдіть маршрут від заводських руїн до канальних мостів без пошкоджень",
+			"desc_en": "Run from the industrial ruins to the canal bridges without damage",
 		},
 		{
 			"id": "daily_airport_runway",
@@ -748,7 +744,7 @@ func get_leaderboard_summary(is_en: bool = false) -> String:
 	var stars := campaign_stars_total()
 	for m_id in range(1, 5):
 		best_score = maxi(best_score, int(get_mission_record(m_id).get("best_score", 0)))
-	for map_id in ["uman", "industrial", "wetlands", "airport"]:
+	for map_id in ["uman", "promzona_plavni", "industrial", "wetlands", "airport"]:
 		best_score = maxi(best_score, int(get_training_record(map_id).get("best_score", 0)))
 	var daily_streak := int(campaign_records.get("daily_challenge", {}).get("streak", 0))
 	if is_en:
@@ -805,7 +801,7 @@ func get_records_report(is_en: bool = false) -> String:
 		lines.append("  • —")
 	lines.append("")
 	lines.append("TRAINING & TIME TRIAL:" if is_en else "ТРЕНУВАННЯ ТА ПОЛІТ НА ЧАС:")
-	for map_id in ["course", "uman", "industrial", "wetlands", "airport"]:
+	for map_id in ["course", "uman", "promzona_plavni", "industrial", "wetlands", "airport"]:
 		var trec := get_training_record(map_id)
 		if bool(trec.get("completed", false)):
 			lines.append("  • %s: %.1fs · %s [%s] · %d" % [

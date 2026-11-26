@@ -62,8 +62,11 @@ func _build_menu_button() -> void:
 
 
 func _on_menu_pressed() -> void:
-	get_tree().paused = false
-	get_tree().change_scene_to_file("res://GUI/MainMenu.tscn")
+	var tree := get_tree()
+	if tree == null:
+		return
+	tree.paused = false
+	tree.change_scene_to_file("res://GUI/MainMenu.tscn")
 
 
 func _make_vignette() -> GradientTexture2D:
@@ -142,19 +145,22 @@ func show_results(time_text: String, score: int, killed: int, total: int,
 		var touch := get_node_or_null("/root/TouchControls")
 		if touch != null and touch.has_method("set_enabled"):
 			touch.call("set_enabled", false)
-	var level := get_tree().current_scene
+	var tree := get_tree()
+	var level := tree.current_scene if tree != null else null
 	if level != null:
 		var level_hud = level.get("_hud")
 		if level_hud is CanvasLayer:
 			(level_hud as CanvasLayer).visible = false
-	var help := get_parent().get_node_or_null("Help")
-	if help is CanvasLayer:
-		(help as CanvasLayer).visible = false
-	var drone := get_parent().get_node_or_null("Drone")
-	if drone != null:
-		var drone_hud = drone.get("hud")
-		if drone_hud is CanvasItem:
-			(drone_hud as CanvasItem).visible = false
+	var parent := get_parent()
+	if parent != null:
+		var help := parent.get_node_or_null("Help")
+		if help is CanvasLayer:
+			(help as CanvasLayer).visible = false
+		var drone := parent.get_node_or_null("Drone")
+		if drone != null:
+			var drone_hud = drone.get("hud")
+			if drone_hud is CanvasItem:
+				(drone_hud as CanvasItem).visible = false
 	var rank_line := ""
 	if Global.has_method("get_pilot_rank_info"):
 		var rinfo = Global.call("get_pilot_rank_info")
@@ -190,7 +196,12 @@ func show_results(time_text: String, score: int, killed: int, total: int,
 
 
 func _qa_restart() -> void:
-	await get_tree().create_timer(0.6).timeout
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
+	await tree.create_timer(0.6).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 	_restart()
 
 

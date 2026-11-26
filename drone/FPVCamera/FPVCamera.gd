@@ -17,7 +17,8 @@ var mat: ShaderMaterial = load("res://drone/FPVCamera/FPVCamera.tres")
 
 
 func _ready() -> void:
-	near = clip_near
+	# Never let the lens clip into walls/ground at the authored 0.005 m default.
+	near = maxf(clip_near, 0.03)
 	far = clip_far
 	# We use the lightweight screen-space FPVOverlay shader instead of rendering
 	# 5 separate 3D SubViewports every frame (which multiplied draw calls by 6x!).

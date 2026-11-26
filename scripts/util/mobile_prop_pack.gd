@@ -103,6 +103,22 @@ const SITES := {
 		["antenna_mast", Vector2(132, -98), 0.0, 1.0],
 		["tank_traps", Vector2(84, 136), 0.0, 1.0],
 	],
+	"promzona_plavni": [
+		["container_stack", Vector2(140, -120), 0.0, 1.0],
+		["truck_wreck", Vector2(-150, -120), 30.0, 1.0],
+		["apc_wreck", Vector2(130, -240), 15.0, 1.0],
+		["fuel_barrels", Vector2(-60, -180), 0.0, 1.0],
+		["checkpoint_booth", Vector2(-180, -90), 0.0, 1.0],
+		["fence_section", Vector2(-110, -280), 0.0, 1.0],
+		["power_pole", Vector2(210, -180), 0.0, 1.0],
+		["antenna_mast", Vector2(-260, -260), 0.0, 1.0],
+		["watchtower", Vector2(160, 220), 0.0, 1.0],
+		["bus_stop", Vector2(-140, 200), 10.0, 1.0],
+		["barn_small", Vector2(-200, 240), 0.0, 1.0],
+		["ruined_wall", Vector2(90, 260), 0.0, 1.0],
+		["haystack", Vector2(-80, 180), 30.0, 1.0],
+		["well_house", Vector2(220, 180), 0.0, 1.0],
+	],
 }
 
 ## Two perimeter landmarks per map in open outer corners: [landmark, Vector2(x, z), yaw degrees]
@@ -122,6 +138,11 @@ const LARGE_SITES := {
 	"wetlands": [
 		["cargo_ship", Vector2(98, -88), 15.0],
 		["warehouse", Vector2(132, 134), 210.0],
+	],
+	"promzona_plavni": [
+		["warehouse", Vector2(250, -280), 200.0],
+		["fuel_depot", Vector2(-260, 260), 30.0],
+		["warehouse", Vector2(-260, -300), 120.0],
 	],
 }
 
@@ -152,6 +173,12 @@ const FORGE_SITES := {
 		["swamp_04_wooden_trestle_causeway", Vector2(28, -118), 0.0],
 		["swamp_09_rotting_watchtower_marsh", Vector2(108, -46), 0.0],
 	],
+	"promzona_plavni": [
+		["industrial_04_gantry_crane_portal", Vector2(180, -200), 45.0],
+		["industrial_19_loading_ramp_canopy", Vector2(-180, -160), 180.0],
+		["swamp_07_flooded_bunker_stilts", Vector2(-100, 250), 20.0],
+		["swamp_09_rotting_watchtower_marsh", Vector2(200, 190), 0.0],
+	],
 }
 
 ## Long, open assets where the drone must be able to punch through a portal
@@ -168,6 +195,10 @@ const FORGE_OPEN_HINTS := [
 static var _scenes := {}
 static var _materials := {}
 static var _radii := {}
+
+
+static func _site_bound(map_name: String) -> float:
+	return 320.0 if map_name == "promzona_plavni" else 155.0
 
 
 static func build(root: Node3D, map_name: String) -> Node3D:
@@ -263,11 +294,20 @@ static func _place(root: Node3D, pack: Node3D, terrain, map_name: String,
 		mi.visibility_range_end = lod
 		mi.visibility_range_end_margin = 40.0
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
-	if not large:
-		if OPEN_PROPS.has(prop_name) or not SOLID_BLOCK_PROPS.has(prop_name):
-			_add_trimesh_collider(inst)
-		else:
-			_add_box_collider(inst, _local_aabb(inst))
+	# All landmarks, large or small, get solid layer-1 collision.  Imported
+	# -col bodies are reused; otherwise open GLBs keep their exact trimesh and
+	# compact solid blocks use a tight box.
+	var imported_solids := inst.find_children("*", "StaticBody3D", true, false)
+	if not imported_solids.is_empty():
+		for existing in imported_solids:
+			var existing_body := existing as StaticBody3D
+			if existing_body != null:
+				existing_body.collision_layer = 1
+				existing_body.collision_mask = 1
+	elif OPEN_PROPS.has(prop_name) or not SOLID_BLOCK_PROPS.has(prop_name):
+		_add_trimesh_collider(inst)
+	else:
+		_add_box_collider(inst, _local_aabb(inst))
 	inst.set_meta("pack_radius", radius)
 	inst.set_meta("pack_ground", ground)
 	inst.set_meta("pack_large", large)
@@ -438,7 +478,8 @@ static func _forge_has_opening(prop_name: String) -> bool:
 static func _is_ground_site_valid(terrain, map_name: String, root: Node3D,
 		c: Vector2, radius: float, placed: Array[Dictionary],
 		min_ground_y: float, res_gap: float) -> bool:
-	if absf(c.x) > 155.0 or absf(c.y) > 155.0:
+	var site_bound := _site_bound(map_name)
+	if absf(c.x) > site_bound or absf(c.y) > site_bound:
 		return false
 	if float(terrain.call("_road_factor", map_name, c.x, c.y)) >= 0.22:
 		return false
@@ -446,6 +487,9 @@ static func _is_ground_site_valid(terrain, map_name: String, root: Node3D,
 	if ground <= min_ground_y:
 		return false
 	if bool(terrain.call("_hall_clear_zone", map_name, c.x, c.y)):
+		return false
+	if map_name == "promzona_plavni" \
+			and bool(terrain.call("_tutorial_clear_zone", c.x, c.y)):
 		return false
 	var sites_dict = terrain.get("HALL_SITES")
 	if sites_dict is Dictionary:
@@ -508,12 +552,13 @@ static func _find_water_site(terrain, map_name: String, base: Vector2,
 		for i in range(steps):
 			var a := TAU * float(i) / float(steps) + float(ring) * 0.5
 			var c := base + Vector2(cos(a), sin(a)) * ring_r
-			if absf(c.x) > 155.0 or absf(c.y) > 155.0:
+			var water_bound := _site_bound(map_name) + 3.0
+			if absf(c.x) > water_bound or absf(c.y) > water_bound:
 				continue
 			var wet := true
 			for f in probes:
 				var probe := c + axis * (radius * f)
-				if absf(probe.x) > 158.0 or absf(probe.y) > 158.0:
+				if absf(probe.x) > water_bound or absf(probe.y) > water_bound:
 					wet = false
 					break
 				if float(terrain.call("mesh_surface_height", map_name,
@@ -688,9 +733,31 @@ static func _add_trimesh_collider(node: Node3D) -> void:
 		var mesh_name := String(mi.name).to_lower()
 		if mesh_name.contains("-col") or mesh_name.contains("-convcol"):
 			continue
-		var shape := mi.mesh.create_trimesh_shape()
-		if shape == null:
+		# Concatenate every surface into one ConcavePolygonShape3D.  Godot's
+		# create_trimesh_shape() can only cover one surface, which let drones
+		# pass through the other material shells of multi-surface GLBs.
+		var faces := PackedVector3Array()
+		for surf in range(mi.mesh.get_surface_count()):
+			var arrays := mi.mesh.surface_get_arrays(surf)
+			if arrays == null or arrays.size() == 0 \
+					or arrays[Mesh.ARRAY_VERTEX] == null:
+				continue
+			var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var indices := PackedInt32Array()
+			if arrays[Mesh.ARRAY_INDEX] != null:
+				indices = arrays[Mesh.ARRAY_INDEX]
+			if indices.is_empty():
+				for i in range(0, verts.size() - 2, 3):
+					faces.append(verts[i])
+					faces.append(verts[i + 1])
+					faces.append(verts[i + 2])
+			else:
+				for i in range(indices.size()):
+					faces.append(verts[indices[i]])
+		if faces.is_empty():
 			continue
+		var shape := ConcavePolygonShape3D.new()
+		shape.set_faces(faces)
 		shape.backface_collision = true
 		var body := StaticBody3D.new()
 		body.name = "PropTrimeshCollider"

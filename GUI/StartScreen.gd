@@ -638,9 +638,10 @@ func _on_quick_tutorial_pressed() -> void:
 	_selected_home_mode = Global.PlayMode.TUTORIAL
 	Global.set_play_mode(Global.PlayMode.TUTORIAL)
 	Global.menu_settings["selected_mode"] = Global.PlayMode.TUTORIAL
+	Global.menu_settings["selected_map"] = "promzona_plavni"
 	Global.save_menu_settings()
 	Audio.stop_menu_music(0.35)
-	get_tree().change_scene_to_file("res://sceneries/IndustrialLevel.tscn")
+	get_tree().change_scene_to_file("res://sceneries/PromzonaPlavniLevel.tscn")
 
 
 func _on_quick_combat_training_pressed() -> void:
@@ -649,13 +650,13 @@ func _on_quick_combat_training_pressed() -> void:
 	Global.set_play_mode(Global.PlayMode.TRAINING)
 	Global.special_mission = 0
 	Global.menu_settings["selected_mode"] = Global.PlayMode.TRAINING
-	Global.menu_settings["selected_map"] = "industrial"
+	Global.menu_settings["selected_map"] = "promzona_plavni"
 	# GRIM-7M: combat airframe with a physical payload release, ideal for the
 	# first "find, hover, drop" lesson.
 	DroneCatalog.apply(1)
 	Global.save_menu_settings()
 	Audio.stop_menu_music(0.35)
-	get_tree().change_scene_to_file("res://sceneries/IndustrialLevel.tscn")
+	get_tree().change_scene_to_file("res://sceneries/PromzonaPlavniLevel.tscn")
 
 
 func _place(control: Control, rect: Rect2) -> void:

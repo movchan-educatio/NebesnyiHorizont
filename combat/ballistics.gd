@@ -22,16 +22,16 @@ const RELEASE_DOWN_IMPULSE := 1.0
 
 
 ## Return the exact origin/velocity used when a store leaves `drone`.
-## `origin_override` lets an airframe with a modelled rack release from the bay;
+## `bay_override` lets an airframe with a modelled rack release from the bay;
 ## pass `Vector3.INF` (the default) to use the shared hardpoint.
-static func release_state(drone: Node3D, origin_override: Variant = null) -> Dictionary:
+static func release_state(drone: Node3D, bay_override = Vector3.INF) -> Dictionary:
 	if drone == null or not is_instance_valid(drone):
 		return {"origin": Vector3.ZERO, "velocity": Vector3.ZERO, "forward": Vector3.FORWARD}
 	var forward := -drone.global_transform.basis.z
 	var origin := drone.global_position + Vector3.DOWN * RELEASE_DOWN_OFFSET \
 			+ forward * RELEASE_FORWARD_OFFSET
-	if origin_override is Vector3 and (origin_override as Vector3).is_finite():
-		origin = origin_override
+	if bay_override is Vector3 and (bay_override as Vector3).is_finite():
+		origin = bay_override
 	return {
 		"origin": origin,
 		"velocity": drone.linear_velocity + forward * RELEASE_FORWARD_IMPULSE \
@@ -82,6 +82,32 @@ static func blast_for(kind: String) -> float:
 			return 11.0
 		_:
 			return 8.0
+
+
+## Small integer code for munition kinds, used by the raycast solver's compact
+## signature.  0 is the generic 82 mm profile.
+static func kind_code(kind: String) -> int:
+	match kind:
+		"120mm":
+			return 1
+		"tm62":
+			return 2
+		"vog":
+			return 3
+		_:
+			return 0
+
+
+static func kind_from_code(code: int) -> String:
+	match code:
+		1:
+			return "120mm"
+		2:
+			return "tm62"
+		3:
+			return "vog"
+		_:
+			return "82mm"
 
 
 ## Pick the closest munition profile for a per-unit payload mass.  Keeps every
@@ -177,6 +203,115 @@ static func simulate(level: Node, map_name: String, origin: Vector3,
 		"drift": Vector2(pos.x - origin.x, pos.z - origin.z),
 		"wind": wind,
 		"kind": kind,
+	}
+
+
+## Raycast-aware variant of simulate().  The integration is identical, but each
+## segment is tested against the physics world so the CCIP can lock onto roofs,
+## bridges, buildings and vehicle hitboxes before reaching the height field.
+## When nothing solid is hit, the result falls back to the FrontlineTerrain
+## height sample exactly like simulate().
+static func simulate_with_raycast(level, map_name: String, origin: Vector3,
+		vel: Vector3, wind: Vector3, kind: int, dt: float = 0.04,
+		exclude_rids: Array[RID] = []) -> Dictionary:
+	var kind_name := kind_from_code(kind)
+	var pos := origin
+	var velocity := vel
+	var k := drag_k(kind_name)
+	var age := 0.0
+	var prev_ground := ground_at(level, map_name, origin.x, origin.z)
+	var safe_pos := pos
+	var safe_vel := velocity
+	var safe_age := age
+	var safe_ground := prev_ground
+	var steps_since_sample := 0
+	var coarse_allowed := true
+	var space: PhysicsDirectSpaceState3D = null
+	if level != null and is_instance_valid(level) and level.is_inside_tree() \
+			and level.has_method("get_world_3d"):
+		var world: World3D = level.call("get_world_3d")
+		if world != null:
+			space = world.direct_space_state
+	var query: PhysicsRayQueryParameters3D = null
+	if space != null:
+		query = PhysicsRayQueryParameters3D.create(origin, origin, 1, exclude_rids)
+		query.hit_from_inside = false
+	for i in range(700):
+		var prev_pos := pos
+		var rel := velocity - wind
+		var speed := rel.length()
+		var accel := Vector3.DOWN * G - rel * (speed * k)
+		velocity += accel * dt
+		pos += velocity * dt
+		age += dt
+		if query != null:
+			query.from = prev_pos
+			query.to = pos
+			var hit: Dictionary = space.intersect_ray(query)
+			if not hit.is_empty():
+				var hit_pos: Vector3 = hit.get("position", pos)
+				var seg_len := prev_pos.distance_to(pos)
+				var hit_frac := 0.0
+				if seg_len > 0.0001:
+					hit_frac = clampf(prev_pos.distance_to(hit_pos) / seg_len, 0.0, 1.0)
+				var normal: Vector3 = hit.get("normal", Vector3.UP)
+				if normal.length_squared() < 0.0001:
+					normal = Vector3.UP
+				return {
+					"impact": hit_pos,
+					"tof": age - dt * (1.0 - hit_frac),
+					"hit_normal": normal.normalized(),
+					"hit_collider": hit.get("collider", null),
+					"drift": Vector2(hit_pos.x - origin.x, hit_pos.z - origin.z),
+					"wind": wind,
+					"kind": kind_name,
+				}
+		steps_since_sample += 1
+		if coarse_allowed and pos.y > prev_ground + 8.0 and steps_since_sample < 12:
+			if age > 40.0 or pos.y < -60.0:
+				break
+			continue
+		var ground := ground_at(level, map_name, pos.x, pos.z)
+		if pos.y <= ground and age > 0.05:
+			if steps_since_sample > 1:
+				pos = safe_pos
+				velocity = safe_vel
+				age = safe_age
+				prev_ground = safe_ground
+				steps_since_sample = 0
+				coarse_allowed = false
+				continue
+			var prev_clear := prev_pos.y - prev_ground
+			var cur_pen := pos.y - ground
+			var frac := clampf(prev_clear / maxf(prev_clear - cur_pen, 0.0001), 0.0, 1.0)
+			var hit_x := lerpf(prev_pos.x, pos.x, frac)
+			var hit_z := lerpf(prev_pos.z, pos.z, frac)
+			var hit_y := ground_at(level, map_name, hit_x, hit_z)
+			return {
+				"impact": Vector3(hit_x, hit_y, hit_z),
+				"tof": age - dt * (1.0 - frac),
+				"hit_normal": Vector3.UP,
+				"hit_collider": null,
+				"drift": Vector2(hit_x - origin.x, hit_z - origin.z),
+				"wind": wind,
+				"kind": kind_name,
+			}
+		prev_ground = ground
+		safe_pos = pos
+		safe_vel = velocity
+		safe_age = age
+		safe_ground = ground
+		steps_since_sample = 0
+		if age > 40.0 or pos.y < -60.0:
+			break
+	return {
+		"impact": Vector3(pos.x, maxf(pos.y, -60.0), pos.z),
+		"tof": age,
+		"hit_normal": Vector3.UP,
+		"hit_collider": null,
+		"drift": Vector2(pos.x - origin.x, pos.z - origin.z),
+		"wind": wind,
+		"kind": kind_name,
 	}
 
 

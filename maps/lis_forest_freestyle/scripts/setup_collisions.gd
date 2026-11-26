@@ -38,7 +38,9 @@ func _build() -> void:
 	_optimize_freestyle_lods()
 	var existing := _count_bodies(self)
 	_walk(self)
+	_add_scatter_trunk_colliders()
 	_enable_trimesh_backfaces(self)
+	_harden_solid_bodies(self)
 	print("[LIS] collisions: %d prebuilt (-colonly) + %d runtime, foliage alpha-scissor" % [existing, bodies_created])
 
 
@@ -79,10 +81,26 @@ func _batch_bank_rocks() -> void:
 	mm.mesh = sample_mesh
 	mm.instance_count = rocks.size()
 	var inv_t := terrain.global_transform.affine_inverse()
+	# Bank rocks are batched into one MultiMesh, so their visuals lose their
+	# per-node bodies.  Build one shared convex shape and keep a solid flight
+	# collider for every rock before the source nodes are freed.
+	var rock_shape := sample_mesh.create_convex_shape(true, false)
+	var rock_body: StaticBody3D = null
+	if rock_shape != null:
+		rock_body = StaticBody3D.new()
+		rock_body.name = "BankRockColliders"
+		rock_body.collision_layer = 1
+		rock_body.collision_mask = 1
+		terrain.add_child(rock_body)
 	for i in range(rocks.size()):
 		var r := rocks[i]
 		var xf := inv_t * r.global_transform if r.is_inside_tree() else r.transform
 		mm.set_instance_transform(i, xf)
+		if rock_body != null:
+			var rock_cs := CollisionShape3D.new()
+			rock_cs.shape = rock_shape
+			rock_cs.transform = xf
+			rock_body.add_child(rock_cs)
 		r.visible = false
 		r.queue_free()
 	mmi.multimesh = mm
@@ -310,10 +328,20 @@ func _walk(node: Node) -> void:
 	for child in node.get_children():
 		if child is MeshInstance3D:
 			var n: String = child.name
+			var nl := n.to_lower()
 			var is_freestyle: bool = n.begins_with("FS_") and n.ends_with("_geo")
 			var is_colonly: bool = "-colonly" in n or "-convcolonly" in n
 			var in_structures: bool = _is_under_structures(child)
-			if in_structures and is_colonly:
+			var is_foliage_decor: bool = nl.contains("leaf") or nl.contains("foliage") \
+					or nl.contains("needle") or nl.contains("fern") \
+					or nl.contains("shrub") or nl.contains("grass") \
+					or nl.contains("canopy")
+			if is_colonly and is_foliage_decor:
+				# Thin leaf cards / canopy shells stay non-solid: hide the proxy
+				# so the alpha-scissor visuals remain and the drone can fly through.
+				(child as MeshInstance3D).visible = false
+				child.queue_free()
+			elif in_structures and is_colonly:
 				# Structure -colonly children in structures.glb were authored at local origin
 				# while visible meshes were translated -27..-46m; discard offset proxies and
 				# build trimeshes directly from the visible structure meshes instead.
@@ -324,7 +352,9 @@ func _walk(node: Node) -> void:
 			elif (is_freestyle or is_colonly) and child.mesh != null:
 				var concave_struct: bool = ("bridge" in n or "trestle" in n or "sawmill" in n \
 						or "watchtower" in n or "ruins" in n or "treehouse" in n \
-						or "terrain" in n.to_lower())
+						or "cliff" in nl or "rock" in nl or "boulder" in nl \
+						or "pier" in nl or "dock" in nl or "bank" in nl \
+						or "trunk" in nl or "terrain" in nl)
 				_make_body(child as MeshInstance3D, is_freestyle or concave_struct, false)
 		_walk(child)
 
@@ -335,7 +365,7 @@ func _make_body(src: MeshInstance3D, use_trimesh: bool, keep_visible: bool = fal
 	var body := StaticBody3D.new()
 	body.name = src.name.replace("-", "_") + "_body"
 	body.collision_layer = 1
-	body.collision_mask = 0
+	body.collision_mask = 1
 	var cs := CollisionShape3D.new()
 	var shape: Shape3D
 	if use_trimesh:
@@ -354,3 +384,78 @@ func _make_body(src: MeshInstance3D, use_trimesh: bool, keep_visible: bool = fal
 	if not use_trimesh and not keep_visible:
 		src.visible = false
 	bodies_created += 1
+
+
+## Scatter conifers are MultiMesh crowns + trunks with no collision.  Give the
+## thick trunk instances a solid cylinder collider so the drone cannot fly
+## through them; leaf/needle crowns and low foliage stay non-solid.
+func _add_scatter_trunk_colliders() -> void:
+	var scatter := get_node_or_null("ScatterMultiMesh")
+	if scatter == null:
+		return
+	var trunk_protos: Array[String] = ["pine_tall", "pine_mid", "pine_slim", "fir_dense",
+			"dead_tree_trunk", "dead_tree_trunk_02"]
+	var added := 0
+	for ch in scatter.get_children():
+		if not (ch is MultiMeshInstance3D):
+			continue
+		var mmi := ch as MultiMeshInstance3D
+		var nm := String(mmi.name)
+		if not nm.begins_with("mm_"):
+			continue
+		var proto := ""
+		for p in trunk_protos:
+			if nm.contains("_" + p + "_"):
+				proto = p
+				break
+		if proto.is_empty():
+			continue
+		# Conifer prototypes export crown (p0) and trunk (p1) meshes separately.
+		if proto != "dead_tree_trunk" and proto != "dead_tree_trunk_02" \
+				and not nm.ends_with("_p1"):
+			continue
+		var mm := mmi.multimesh
+		if mm == null or mm.mesh == null:
+			continue
+		var aabb := mm.mesh.get_aabb()
+		var body := StaticBody3D.new()
+		body.name = nm + "_trunk_col"
+		body.collision_layer = 1
+		body.collision_mask = 1
+		body.transform = mmi.transform
+		for i in range(mm.instance_count):
+			var xf := mm.get_instance_transform(i)
+			var s := xf.basis.get_scale().y
+			var h := clampf(aabb.size.y * s, 1.2, 18.0)
+			var radius := clampf(maxf(aabb.size.x, aabb.size.z) * 0.5 * s * 0.72, 0.12, 1.1)
+			var cyl := CylinderShape3D.new()
+			cyl.radius = radius
+			cyl.height = h
+			var cs := CollisionShape3D.new()
+			cs.shape = cyl
+			cs.position = Vector3(xf.origin.x, xf.origin.y + h * 0.5, xf.origin.z)
+			body.add_child(cs)
+			added += 1
+		if body.get_child_count() == 0:
+			body.free()
+		else:
+			scatter.add_child(body)
+	print("[LIS] solid trunk colliders: %d" % added)
+
+
+## Belt-and-braces pass: every concave trimesh is double-sided and every
+## static solid body answers on the flight layer (bank rocks, cliffs, piers,
+## docks, tree trunks and authored structure shells).
+func _harden_solid_bodies(node: Node) -> void:
+	if node == null:
+		return
+	if node is StaticBody3D:
+		var body := node as StaticBody3D
+		body.collision_layer = 1
+		body.collision_mask = 1
+		for cs_node in body.find_children("*", "CollisionShape3D", true, false):
+			var shape: Shape3D = (cs_node as CollisionShape3D).shape
+			if shape is ConcavePolygonShape3D:
+				(shape as ConcavePolygonShape3D).backface_collision = true
+	for c in node.get_children():
+		_harden_solid_bodies(c)

@@ -14,7 +14,8 @@ const DestructibleBuildingScript = preload("res://combat/destructible_building.g
 const ExplosionScript = preload("res://combat/explosion.gd")
 const FT = preload("res://scripts/util/frontline_terrain.gd")
 
-const BATTLE_CENTER := Vector2(30.0, -28.0)
+var BATTLE_CENTER := Vector2(30.0, -28.0)
+var _battle_map := "promzona_plavni"
 const TEAM_BLUE := 0
 const TEAM_RED := 1
 
@@ -39,12 +40,35 @@ var _target_load: Dictionary = {}
 
 func setup(_level: Node3D, _base_y: float) -> void:
 	_rng.randomize()
+	_battle_map = _detect_frontline_map(_level)
+	BATTLE_CENTER = Vector2(65.0, -170.0) \
+			if _battle_map == "promzona_plavni" else Vector2(30.0, -28.0)
 	_build_battlefield()
 	_build_hud()
 	_setup_chaos_fpv()
 	print("[CHAOS] battle started: ", _team_a.size(), " blue vs ", _team_b.size(),
 			" red, ", _vehicles.size(), " vehicles, ", _buildings.size(),
 			" destructible buildings")
+
+
+func _detect_frontline_map(level: Node3D) -> String:
+	var active: Node = level
+	if active == null:
+		active = get_tree().current_scene
+	if active != null:
+		var value: Variant = active.get("frontline_map")
+		if (value is String or value is StringName) and not String(value).is_empty():
+			return String(value)
+		if active.has_meta("frontline_map"):
+			var meta_value: Variant = active.get_meta("frontline_map")
+			if (meta_value is String or meta_value is StringName) \
+					and not String(meta_value).is_empty():
+				return String(meta_value)
+	# The terrain builder's active map is the final reliable signal.
+	var terrain_map := String(FT._current_map)
+	if terrain_map == "promzona_plavni":
+		return terrain_map
+	return "industrial"
 
 
 func _build_battlefield() -> void:
@@ -150,7 +174,7 @@ func _formation_offset(i: int) -> Vector2:
 
 
 func _ground_pos(v: Vector3) -> Vector3:
-	var y := FT.height_at("industrial", v.x, v.z)
+	var y := FT.height_at(_battle_map, v.x, v.z)
 	return Vector3(v.x, y + 0.03, v.z)
 
 

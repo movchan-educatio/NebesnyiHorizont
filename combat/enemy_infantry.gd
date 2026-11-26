@@ -55,6 +55,10 @@ var _ai_low := false
 var _ai_tick := 0
 var _ai_accum := 0.0
 var _los_timer := 0.0
+## Distance-aware LOS update cadence + cached group scans.
+var _player_dist := 1e9
+var _group_cache: Dictionary = {}
+var _group_cache_timer := 0.0
 var _burst_left := 0
 var _shot_cd := 0.0
 var _recover := 1.2
@@ -481,7 +485,23 @@ func _mobile_visual_lod_enabled() -> bool:
 			or OS.has_environment("MOBILE_UI")
 
 
+## Cached group snapshot.  Refreshing every frame was pure waste: soldier
+## separation and ground exclusions only need a short stable snapshot.
+func _cached_group(group_name: String) -> Array:
+	var tree := get_tree()
+	if tree == null:
+		return []
+	if _group_cache.is_empty() or (_group_cache_timer <= 0.0 and _player_dist <= 320.0):
+		_group_cache_timer = 0.25 if _player_dist < 160.0 else 0.8
+		_group_cache.clear()
+		for g in ["enemy_infantry", "combat_target", "vehicle", "escort_convoy"]:
+			_group_cache[g] = tree.get_nodes_in_group(g)
+	var cached: Array = _group_cache.get(group_name, [])
+	return cached
+
+
 func _physics_process(delta: float) -> void:
+	_group_cache_timer = maxf(0.0, _group_cache_timer - delta)
 	if is_destroyed or _disabled:
 		return
 	_clamp_to_map_bounds()
@@ -498,7 +518,8 @@ func _physics_process(delta: float) -> void:
 		_tactical_knee = false
 		_patrol_step(delta)
 		return
-	var dist_sq := global_position.distance_squared_to(_drone.global_position)
+	_player_dist = global_position.distance_to(_drone.global_position)
+	var dist_sq := _player_dist * _player_dist
 	if (_ai_low and dist_sq > 22500.0) or dist_sq > 28900.0:
 		var step := 5 if dist_sq > 90000.0 else 3
 		_ai_tick += 1
@@ -519,8 +540,16 @@ func _physics_process(delta: float) -> void:
 		_alert_forwarded = false
 	_los_timer -= delta
 	if _los_timer <= 0.0:
-		_los_timer = 0.12
-		_update_target()
+		if _player_dist <= 320.0:
+			_los_timer = 0.25 if _player_dist < 160.0 else 0.8
+			_update_target()
+		else:
+			# Far beyond any useful rifle range: skip the raycast entirely and
+			# keep the unit passive until the player comes back.
+			_los_timer = 0.8
+			_los_clear = false
+			_convoy_target = null
+			_distance = _player_dist
 
 	_crouching = (_panic_state == 2) or (_panic_state == 0 and ((_reload_timer > 0.0) or (_suppress_timer > 0.0) or _tactical_knee))
 	_update_pose(delta)
@@ -631,7 +660,12 @@ func set_patrol(origin: Vector3, axis: Vector3, distance: float, speed: float) -
 
 
 func _can_step(move_dir: Vector3, step_len: float) -> bool:
-	var space := get_world_3d().direct_space_state
+	var world := get_world_3d()
+	if world == null:
+		return false
+	var space := world.direct_space_state
+	if space == null:
+		return false
 	var from := global_position + Vector3.UP * 0.95
 	var to := from + move_dir * (step_len + 0.55)
 	var bound := _map_bound()
@@ -660,6 +694,14 @@ func _can_step(move_dir: Vector3, step_len: float) -> bool:
 				var rx140 := -140.0 + 18.0 * sin(140.0 * 0.011)
 				on_bridge = (absf(to.z - 40.0) < 8.5 and absf(to.x - rx40) < 28.0) \
 						or (absf(to.z - 140.0) < 7.0 and absf(to.x - rx140) < 24.0)
+			elif map == "promzona_plavni":
+				var canal_z := 10.0 + 12.0 * sin(to.x * 0.012)
+				on_bridge = (absf(to.x + 110.0) < 10.5 or absf(to.x - 110.0) < 10.5) \
+						and absf(to.z - canal_z) < 25.0
+				var canal_wl := FrontlineTerrainScript.water_level(map)
+				if not on_bridge and canal_wl > -100.0 \
+						and next_h < canal_wl + 0.35 and next_h <= cur_h:
+					return false
 			var wl := FrontlineTerrainScript.water_level(map)
 			if not on_bridge and wl > -100.0:
 				if next_h < wl + 0.34 and next_h <= cur_h:
@@ -732,8 +774,9 @@ func _apply_squad_separation(delta: float) -> void:
 	if get_tree() == null:
 		return
 	var push := Vector3.ZERO
-	for other in get_tree().get_nodes_in_group("enemy_infantry"):
-		if other == self or not is_instance_valid(other) or bool(other.get("is_destroyed")):
+	for other in _cached_group("enemy_infantry"):
+		if other == self or not is_instance_valid(other) or not (other is Node3D) \
+				or bool(other.get("is_destroyed")):
 			continue
 		var diff := global_position - (other as Node3D).global_position
 		diff.y = 0.0
@@ -927,20 +970,34 @@ func _snap_to_ground() -> void:
 			global_position.y = gy
 			return
 		if not map.is_empty():
+			if map == "promzona_plavni":
+				var canal_z := 10.0 + 12.0 * sin(global_position.x * 0.012)
+				var on_bridge := (absf(global_position.x + 110.0) < 10.5 \
+						or absf(global_position.x - 110.0) < 10.5) \
+						and absf(global_position.z - canal_z) < 25.0
+				if on_bridge:
+					global_position.y = maxf(1.15, FrontlineTerrainScript.height_at(
+							map, global_position.x, global_position.z))
+					return
 			global_position.y = FrontlineTerrainScript.height_at(map,
 					global_position.x, global_position.z)
 			return
 	if (Engine.get_physics_frames() + abs(get_instance_id())) % 3 != 0:
 		return
-	var space := get_world_3d().direct_space_state
+	var world := get_world_3d()
+	if world == null:
+		return
+	var space := world.direct_space_state
+	if space == null:
+		return
 	var excl: Array[RID] = [get_rid()]
 	if _drone is CollisionObject3D:
 		excl.append((_drone as CollisionObject3D).get_rid())
-	for node in get_tree().get_nodes_in_group("combat_target"):
-		if node is CollisionObject3D:
+	for node in _cached_group("combat_target"):
+		if is_instance_valid(node) and node is CollisionObject3D:
 			excl.append((node as CollisionObject3D).get_rid())
-	for node in get_tree().get_nodes_in_group("vehicle"):
-		if node is CollisionObject3D:
+	for node in _cached_group("vehicle"):
+		if is_instance_valid(node) and node is CollisionObject3D:
 			excl.append((node as CollisionObject3D).get_rid())
 	var query := PhysicsRayQueryParameters3D.create(
 			Vector3(global_position.x, global_position.y + 1.8, global_position.z),
@@ -1057,11 +1114,17 @@ func _can_engage() -> bool:
 
 
 func _has_clear_los(from: Vector3, target: Vector3, target_node: Node) -> bool:
+	var world := get_world_3d()
+	if world == null:
+		return false
+	var space := world.direct_space_state
+	if space == null:
+		return false
 	var query := PhysicsRayQueryParameters3D.create(from, target)
 	query.collision_mask = 1
 	query.collide_with_areas = false
 	query.exclude = [get_rid()]
-	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	var hit := space.intersect_ray(query)
 	if hit.is_empty():
 		return true
 	if hit.get("collider") == target_node:
@@ -1086,7 +1149,7 @@ func _update_target() -> void:
 	else:
 		_distance = 1e9
 	if get_tree() != null:
-		for node in get_tree().get_nodes_in_group("escort_convoy"):
+		for node in _cached_group("escort_convoy"):
 			var convoy := node as Node3D
 			if convoy == null or not is_instance_valid(convoy) \
 					or bool(convoy.get("is_destroyed")):
@@ -1156,16 +1219,22 @@ func _fire() -> void:
 	tracer.tracer_color = color
 	tracer.tracer_width = width
 	tracer.add_to_group("aa_tracer")
-	get_parent().add_child(tracer)
-	tracer.setup(muzzle_pos, dir, speed, 0.0 if shooting_convoy else tracer_damage, self)
+	var tracer_parent := get_parent()
+	if tracer_parent != null:
+		tracer_parent.add_child(tracer)
+		tracer.setup(muzzle_pos, dir, speed, 0.0 if shooting_convoy else tracer_damage, self)
 	if shooting_convoy:
-		var q := PhysicsRayQueryParameters3D.create(muzzle_pos, target)
-		q.collision_mask = 1
-		q.exclude = [get_rid()]
-		var hit := get_world_3d().direct_space_state.intersect_ray(q)
-		if not hit.is_empty() and hit.get("collider") == _convoy_target \
-				and _convoy_target.has_method("take_damage"):
-			_convoy_target.call("take_damage", tracer_damage * 0.40, hit.get("position"))
+		var world := get_world_3d()
+		if world != null:
+			var space := world.direct_space_state
+			if space != null:
+				var q := PhysicsRayQueryParameters3D.create(muzzle_pos, target)
+				q.collision_mask = 1
+				q.exclude = [get_rid()]
+				var hit := space.intersect_ray(q)
+				if not hit.is_empty() and hit.get("collider") == _convoy_target \
+						and _convoy_target.has_method("take_damage"):
+					_convoy_target.call("take_damage", tracer_damage * 0.40, hit.get("position"))
 	CombatSfxScript.play_rifle(get_parent(), muzzle_pos, -9.0)
 	_muzzle_flash(muzzle_pos)
 	_recoil = 0.065
@@ -1251,8 +1320,9 @@ func take_damage(amount: float, hit_position: Vector3 = Vector3.ZERO) -> void:
 func _alert_group(source_pos: Vector3) -> void:
 	if is_destroyed:
 		return
-	for node in get_tree().get_nodes_in_group("enemy_infantry"):
-		if node == self or not node is EnemyRifleman or not is_instance_valid(node):
+	for node in _cached_group("enemy_infantry"):
+		if node == self or node == null or not is_instance_valid(node) \
+				or not node is EnemyRifleman:
 			continue
 		if (node as EnemyRifleman).global_position.distance_to(source_pos) < 42.0:
 			(node as EnemyRifleman).call("_react_to_alert", source_pos)
@@ -1301,8 +1371,11 @@ func _flash() -> void:
 	for mesh in _meshes:
 		if is_instance_valid(mesh):
 			mesh.material_overlay = _flash_material
-	await get_tree().create_timer(0.07).timeout
-	if not is_instance_valid(self) or is_destroyed or token != _flash_token:
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
+	await tree.create_timer(0.07).timeout
+	if not is_inside_tree() or not is_instance_valid(self) or is_destroyed or token != _flash_token:
 		return
 	for mesh in _meshes:
 		if is_instance_valid(mesh):

@@ -3,15 +3,32 @@ extends Node3D
 ## Obstacle-aware Volt Yellow 3D route ribbon + directional chevrons linking
 ## sequential race/freestyle gates without clipping through buildings, cranes,
 ## piers, bridges, or terrain. Zero colliders, zero shadows.
+##
+## Every aerial segment also projects a continuous high-visibility Volt Yellow
+## surface line underneath it, with a dark charcoal border and thin vertical
+## tether ticks under each gate, so the course stays readable from low FPV
+## altitude over bright concrete, grass, marsh and water.
+
+const FrontlineTerrainScript = preload("res://scripts/util/frontline_terrain.gd")
 
 const ACTIVE_COLOR := Color(1.0, 0.90, 0.06, 0.96)
 const ACTIVE_PEAK_COLOR := Color(1.0, 0.99, 0.56, 1.0)
 const PREVIEW_COLOR := Color(1.0, 0.72, 0.10, 0.66)
+const GROUND_COLOR := Color(0.98, 1.0, 0.08, 0.94)
+const GROUND_BORDER_COLOR := Color(0.045, 0.055, 0.065, 0.58)
+const GROUND_WIDTH := 0.85
+const GROUND_BORDER_WIDTH := 1.35
+const GROUND_STEP := 3.0
 
 var _active_mesh_inst: MeshInstance3D = null
 var _preview_mesh_inst: MeshInstance3D = null
+var _ground_mesh_inst: MeshInstance3D = null
+var _ground_border_mesh_inst: MeshInstance3D = null
+var _tether_mesh_inst: MeshInstance3D = null
 var _active_mat: StandardMaterial3D = null
 var _preview_mat: StandardMaterial3D = null
+var _ground_mat: StandardMaterial3D = null
+var _ground_border_mat: StandardMaterial3D = null
 var _segment_cache: Dictionary = {}
 var _last_paths: Array = []
 var _last_signature: String = ""
@@ -44,6 +61,41 @@ func _init() -> void:
 	_preview_mesh_inst.material_override = _preview_mat
 	add_child(_preview_mesh_inst)
 
+	# Dark border sits a few centimetres lower and wider so the yellow line
+	# reads sharply against concrete, grass, reeds and the canal surface.
+	_ground_border_mesh_inst = MeshInstance3D.new()
+	_ground_border_mesh_inst.name = "GroundRouteBorder"
+	_ground_border_mesh_inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_ground_border_mat = StandardMaterial3D.new()
+	_ground_border_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_ground_border_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_ground_border_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_ground_border_mat.albedo_color = GROUND_BORDER_COLOR
+	_ground_border_mat.no_depth_test = false
+	_ground_border_mesh_inst.material_override = _ground_border_mat
+	add_child(_ground_border_mesh_inst)
+
+	_ground_mesh_inst = MeshInstance3D.new()
+	_ground_mesh_inst.name = "GroundRouteRibbon"
+	_ground_mesh_inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_ground_mat = StandardMaterial3D.new()
+	_ground_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_ground_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_ground_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_ground_mat.albedo_color = GROUND_COLOR
+	_ground_mat.emission_enabled = true
+	_ground_mat.emission = Color(0.98, 1.0, 0.08)
+	_ground_mat.emission_energy_multiplier = 2.6
+	_ground_mat.no_depth_test = false
+	_ground_mesh_inst.material_override = _ground_mat
+	add_child(_ground_mesh_inst)
+
+	_tether_mesh_inst = MeshInstance3D.new()
+	_tether_mesh_inst.name = "GroundTetherTicks"
+	_tether_mesh_inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_tether_mesh_inst.material_override = _ground_mat
+	add_child(_tether_mesh_inst)
+
 
 func clear_cache() -> void:
 	_segment_cache.clear()
@@ -53,6 +105,12 @@ func clear_cache() -> void:
 		_active_mesh_inst.mesh = null
 	if _preview_mesh_inst != null:
 		_preview_mesh_inst.mesh = null
+	if _ground_mesh_inst != null:
+		_ground_mesh_inst.mesh = null
+	if _ground_border_mesh_inst != null:
+		_ground_border_mesh_inst.mesh = null
+	if _tether_mesh_inst != null:
+		_tether_mesh_inst.mesh = null
 
 
 func set_pulse(pulse01: float) -> void:
@@ -62,6 +120,12 @@ func set_pulse(pulse01: float) -> void:
 	if _preview_mat != null:
 		_preview_mat.albedo_color = Color(
 				PREVIEW_COLOR.r, PREVIEW_COLOR.g, PREVIEW_COLOR.b, lerpf(0.52, 0.78, p))
+	if _ground_mat != null:
+		_ground_mat.albedo_color = GROUND_COLOR.lerp(ACTIVE_PEAK_COLOR, p * 0.45)
+	if _ground_border_mat != null:
+		_ground_border_mat.albedo_color = Color(
+				GROUND_BORDER_COLOR.r, GROUND_BORDER_COLOR.g,
+				GROUND_BORDER_COLOR.b, lerpf(0.50, 0.68, p))
 
 
 func count_blocked_segments(space: PhysicsDirectSpaceState3D,
@@ -84,21 +148,29 @@ func count_blocked_segments(space: PhysicsDirectSpaceState3D,
 func update_route(gates: Array[Dictionary], active_idx: int,
 		world_space: PhysicsDirectSpaceState3D,
 		exclude_rids: Array[RID] = [],
-		origin_anchor: Vector3 = Vector3.INF) -> void:
+		origin_anchor: Vector3 = Vector3.INF,
+		map_name: String = "", water_level: float = -999.0) -> void:
 	if gates.is_empty() or active_idx < 0 or active_idx >= gates.size():
 		_last_paths.clear()
 		if _active_mesh_inst != null:
 			_active_mesh_inst.mesh = null
 		if _preview_mesh_inst != null:
 			_preview_mesh_inst.mesh = null
+		if _ground_mesh_inst != null:
+			_ground_mesh_inst.mesh = null
+		if _ground_border_mesh_inst != null:
+			_ground_border_mesh_inst.mesh = null
+		if _tether_mesh_inst != null:
+			_tether_mesh_inst.mesh = null
 		return
 
 	var has_space_tag := "1" if world_space != null else "0"
-	var sig := "%d|%d|%s|%s" % [
+	var sig := "%d|%d|%s|%s|%s" % [
 		gates.size(),
 		active_idx,
 		has_space_tag,
 		str(origin_anchor.snapped(Vector3(2.0, 2.0, 2.0))) if origin_anchor.is_finite() else "inf",
+		map_name,
 	]
 	if sig == _last_signature:
 		return
@@ -154,6 +226,7 @@ func update_route(gates: Array[Dictionary], active_idx: int,
 
 	_active_mesh_inst.mesh = _build_ribbon_mesh(active_paths, 0.34, 12.0, 0.95)
 	_preview_mesh_inst.mesh = _build_ribbon_mesh(preview_paths, 0.22, 15.0, 0.72)
+	_rebuild_ground_guides(gates, world_space, exclude_rids, map_name, water_level)
 
 
 func _get_or_build_segment(key: String, a: Dictionary, b: Dictionary,
@@ -560,6 +633,156 @@ func _build_ribbon_mesh(paths: Array, half_w: float, arrow_spacing: float,
 				next_arrow += arrow_spacing
 			accum_dist = seg_end_dist
 
+	if not has_verts:
+		return null
+	return st.commit()
+
+
+func _rebuild_ground_guides(gates: Array[Dictionary],
+		space: PhysicsDirectSpaceState3D, exclude_rids: Array[RID],
+		map_name: String, water_level: float) -> void:
+	if _ground_mesh_inst == null or _ground_border_mesh_inst == null:
+		return
+	var count := gates.size()
+	if count < 2:
+		_ground_mesh_inst.mesh = null
+		_ground_border_mesh_inst.mesh = null
+		if _tether_mesh_inst != null:
+			_tether_mesh_inst.mesh = null
+		return
+
+	var surface_pts: Array[Vector3] = []
+	var surface_normals: Array[Vector3] = []
+	for i in range(count):
+		var a: Vector3 = gates[i].get("pos", Vector3.ZERO)
+		var b: Vector3 = gates[(i + 1) % count].get("pos", Vector3.ZERO)
+		var span := Vector2(b.x - a.x, b.z - a.z).length()
+		var steps := maxi(1, int(ceil(span / GROUND_STEP)))
+		for s in range(steps):
+			var t := float(s) / float(steps)
+			var x := lerpf(a.x, b.x, t)
+			var z := lerpf(a.z, b.z, t)
+			var ref_y := lerpf(a.y, b.y, t)
+			var sample := _sample_ground_surface(x, z, ref_y, space,
+					exclude_rids, map_name, water_level)
+			var p: Vector3 = sample["pos"]
+			var n: Vector3 = sample["normal"]
+			if not surface_pts.is_empty() \
+					and p.distance_to(surface_pts[surface_pts.size() - 1]) < 0.35:
+				continue
+			if not surface_normals.is_empty():
+				var prev_n: Vector3 = surface_normals[surface_normals.size() - 1]
+				n = (n * 0.55 + prev_n * 0.45).normalized()
+			surface_pts.append(p)
+			surface_normals.append(n)
+	if surface_pts.size() >= 2:
+		var first := surface_pts[0]
+		if first.distance_to(surface_pts[surface_pts.size() - 1]) > 0.5:
+			surface_pts.append(first)
+			surface_normals.append(surface_normals[0])
+
+	_ground_border_mesh_inst.mesh = _build_ground_ribbon(surface_pts,
+			surface_normals, GROUND_BORDER_WIDTH * 0.5, 0.16)
+	_ground_mesh_inst.mesh = _build_ground_ribbon(surface_pts,
+			surface_normals, GROUND_WIDTH * 0.5, 0.22)
+	if _tether_mesh_inst != null:
+		_tether_mesh_inst.mesh = _build_ground_tethers(gates, space,
+				exclude_rids, map_name, water_level)
+
+
+## Downward surface probe for the ground guide.  Prefers real layer-1 geometry
+## (bridge decks included); falls back to the terrain mesh / water plane.
+func _sample_ground_surface(x: float, z: float, ref_y: float,
+		space: PhysicsDirectSpaceState3D, exclude_rids: Array[RID],
+		map_name: String, water_level: float) -> Dictionary:
+	var surface := NAN
+	var normal := Vector3.UP
+	if space != null:
+		var query := PhysicsRayQueryParameters3D.create(
+				Vector3(x, ref_y + 40.0, z), Vector3(x, ref_y - 60.0, z))
+		query.collision_mask = 1
+		query.exclude = exclude_rids
+		var hit := space.intersect_ray(query)
+		if not hit.is_empty():
+			surface = (hit["position"] as Vector3).y
+			var hit_n: Variant = hit.get("normal", Vector3.UP)
+			if hit_n is Vector3 and (hit_n as Vector3).length_squared() > 0.01:
+				normal = (hit_n as Vector3).normalized()
+	if is_nan(surface):
+		if not map_name.is_empty():
+			surface = maxf(FrontlineTerrainScript.mesh_surface_height(
+					map_name, x, z), water_level)
+		else:
+			surface = maxf(water_level, 0.0)
+	elif water_level > -100.0 and surface < water_level:
+		# The canal floor is below the water mesh: keep the line on the surface.
+		surface = water_level
+		normal = Vector3.UP
+	return {"pos": Vector3(x, surface, z), "normal": normal}
+
+
+func _build_ground_ribbon(points: Array[Vector3], normals: Array[Vector3],
+		half_w: float, lift: float) -> ArrayMesh:
+	if points.size() < 2:
+		return null
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var has_verts := false
+	for i in range(points.size() - 1):
+		var a_surface := points[i]
+		var b_surface := points[i + 1]
+		var tangent := b_surface - a_surface
+		if tangent.length_squared() < 0.0025:
+			continue
+		var n := (normals[i] + normals[i + 1]).normalized()
+		if n.length_squared() < 0.1:
+			n = Vector3.UP
+		var side := tangent.normalized().cross(n)
+		if side.length_squared() < 0.001:
+			side = tangent.normalized().cross(Vector3.UP)
+		if side.length_squared() < 0.001:
+			continue
+		side = side.normalized() * half_w
+		var a := a_surface + Vector3.UP * lift
+		var b := b_surface + Vector3.UP * lift
+		_emit_quad(st, a - side, a + side, b + side, b - side)
+		has_verts = true
+	if not has_verts:
+		return null
+	return st.commit()
+
+
+## Thin crossed-quad posts under each gate centre.  They visually connect the
+## aerial ring to the yellow surface line directly below it.
+func _build_ground_tethers(gates: Array[Dictionary],
+		space: PhysicsDirectSpaceState3D, exclude_rids: Array[RID],
+		map_name: String, water_level: float) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var has_verts := false
+	var half := 0.09
+	for gate in gates:
+		var pos: Vector3 = gate.get("pos", Vector3.ZERO)
+		var sample := _sample_ground_surface(pos.x, pos.z, pos.y, space,
+				exclude_rids, map_name, water_level)
+		var base: Vector3 = sample["pos"]
+		var bottom_y := base.y + 0.24
+		var top_y := pos.y - 0.10
+		if top_y - bottom_y < 0.6:
+			continue
+		var bottom := Vector3(pos.x, bottom_y, pos.z)
+		var top := Vector3(pos.x, top_y, pos.z)
+		_emit_quad(st,
+				bottom + Vector3(-half, 0.0, 0.0),
+				bottom + Vector3(half, 0.0, 0.0),
+				top + Vector3(half, 0.0, 0.0),
+				top + Vector3(-half, 0.0, 0.0))
+		_emit_quad(st,
+				bottom + Vector3(0.0, 0.0, -half),
+				bottom + Vector3(0.0, 0.0, half),
+				top + Vector3(0.0, 0.0, half),
+				top + Vector3(0.0, 0.0, -half))
+		has_verts = true
 	if not has_verts:
 		return null
 	return st.commit()

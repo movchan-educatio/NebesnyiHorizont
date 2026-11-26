@@ -81,6 +81,10 @@ func _ensure_airport_props_built() -> void:
 	_spawn_detailed_props()
 	_build_airport_historical_landmarks()
 	_build_airport_freestyle_zones()
+	# Props/landmarks/freestyle builders create trimeshes and box bodies after
+	# _build_airport_collision(); harden them too so glass, walls, towers,
+	# hangars, helipads and apron slabs are all solid on the flight layer.
+	_harden_solid_colliders(self)
 
 
 func _ready() -> void:
@@ -412,6 +416,7 @@ func _add_airport_tree_colliders(xforms: Array[Transform3D]) -> void:
 		if faces.is_empty():
 			continue
 		var shape := ConcavePolygonShape3D.new()
+		shape.backface_collision = true
 		shape.set_faces(PackedVector3Array(faces))
 		var body := StaticBody3D.new()
 		body.name = "AirportTreeCol_%d_%d" % [cell.x, cell.y]
@@ -602,7 +607,9 @@ func _build_airport_collision() -> void:
 	var flat_cells: Dictionary = {}
 	var has_floor := false
 	for mi in meshes:
-		if mi.name in HIDDEN_DEC or mi.name == "COL__M_Glass":
+		# COL__M_Glass is no longer skipped: terminal glass panes and exterior
+		# walls must be solid, otherwise the drone clips through the terminal.
+		if mi.name in HIDDEN_DEC:
 			continue
 		if mi.name in ["DEC__M_Hill", "DEC__M_FarHill", "DEC__M_FarConc",
 			"DEC__M_Green", "DEC__M_Ground"]:
@@ -654,6 +661,7 @@ func _build_airport_collision() -> void:
 		built += 1
 	built += _emit_collision_cells(solid_cells, "Collision_AirportCell")
 	built += _emit_collision_cells(flat_cells, "Collision_COL__M_Paint_Cell")
+	_harden_solid_colliders(self)
 	print("[Airport] collision bodies: ", built, " (",
 			"%.1f ms)" % [(Time.get_ticks_usec() - t0) / 1000.0])
 
@@ -665,6 +673,7 @@ func _emit_collision_cells(cells: Dictionary, prefix: String) -> int:
 		if faces.is_empty():
 			continue
 		var shape := ConcavePolygonShape3D.new()
+		shape.backface_collision = true
 		shape.set_faces(faces)
 		var body := StaticBody3D.new()
 		body.name = "%s_%d_%d" % [prefix, cell.x, cell.y]
@@ -676,6 +685,25 @@ func _emit_collision_cells(cells: Dictionary, prefix: String) -> int:
 		add_child(body)
 		count += 1
 	return count
+
+
+## Every solid body created by the airport (GLB walls, landmark trimeshes,
+## spawned props, freestyle structures) must be on the flight collision layer
+## and every concave trimesh must collide from both sides so thin glass and
+## hangar shells cannot be clipped through.
+func _harden_solid_colliders(node: Node) -> void:
+	if node == null:
+		return
+	if node is StaticBody3D:
+		var body := node as StaticBody3D
+		body.collision_layer = 1
+		body.collision_mask = 1
+		for cs_node in body.find_children("*", "CollisionShape3D", true, false):
+			var shape: Shape3D = (cs_node as CollisionShape3D).shape
+			if shape is ConcavePolygonShape3D:
+				(shape as ConcavePolygonShape3D).backface_collision = true
+	for child in node.get_children():
+		_harden_solid_colliders(child)
 
 
 func _collect_meshes(node: Node, out: Array[MeshInstance3D]) -> void:
@@ -999,6 +1027,8 @@ func _build_airport_historical_landmarks() -> void:
 	st_yd_pad.begin(Mesh.PRIMITIVE_TRIANGLES)
 	_append_box_to_st(st_yd_pad, Vector3(0.0, 0.16, 0.0), Vector3(26.0, 0.32, 22.0))
 	_commit_st_mesh(yard, "ContainerYardPad", st_yd_pad, mat_concrete, false)
+	# Solid apron slab: prevents the drone from clipping under the yard pad.
+	_add_airport_landmark_collider(yard, Vector3(0.0, 0.16, 0.0), Vector3(26.0, 0.32, 22.0))
 
 	var cont_mesh := _get_airport_landmark_mesh("CargoContainer")
 	if cont_mesh == null:

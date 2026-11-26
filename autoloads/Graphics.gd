@@ -27,7 +27,7 @@ var graphics_settings_path := "%s/Graphics.cfg" % Global.config_dir
 
 var graphics_settings := {"quality": QualityPreset.LOW,
 		"window_mode": WindowMode.FULLSCREEN,
-		"defaults_version": 8,
+		"defaults_version": 9,
 		"resolution": "100",
 		"msaa": GameMSAA.OFF,
 		"af": GameAF.X2,
@@ -36,7 +36,7 @@ var graphics_settings := {"quality": QualityPreset.LOW,
 		"fisheye_resolution": FisheyeResolution.FISHEYE_720P,
 		"fisheye_msaa": FisheyeMSAA.OFF,
 		"vsync": false,
-		"fps_limit": 120,
+		"fps_limit": 60,
 		"fpv_video_mode": FpvVideoMode.ANALOG_58}
 var fisheye_resolution := 720
 ## Active FPV downlink look. Kept in Graphics so every level and the pause
@@ -113,11 +113,12 @@ func load_graphics_settings() -> String:
 			graphics_settings["vsync"] = false
 			if _is_mobile_platform():
 				graphics_settings["fps_limit"] = _mobile_refresh_cap(
-						int(graphics_settings.get("fps_limit", 120)))
-			elif int(graphics_settings.get("fps_limit", 0)) == 30 or int(graphics_settings.get("fps_limit", 0)) == 60:
-				graphics_settings["fps_limit"] = 120
+						int(graphics_settings.get("fps_limit", 60)))
+			elif int(graphics_settings.get("fps_limit", 0)) == 30 \
+					or int(graphics_settings.get("fps_limit", 0)) == 120:
+				graphics_settings["fps_limit"] = 60
 			save_graphics_settings()
-		# Version 3 defaults: fullscreen, native resolution, 120 FPS cap.
+		# Version 3 defaults: fullscreen, native resolution, 60 FPS cap.
 		var defaults_version: int = int(config.get_value("graphics", "defaults_version", 0))
 		if defaults_version < 3:
 			graphics_settings["window_mode"] = WindowMode.FULLSCREEN
@@ -129,7 +130,7 @@ func load_graphics_settings() -> String:
 			graphics_settings["fisheye_msaa"] = FisheyeMSAA.OFF
 			graphics_settings["fpv_video_mode"] = FpvVideoMode.ANALOG_58
 			graphics_settings["vsync"] = false
-			graphics_settings["fps_limit"] = 120
+			graphics_settings["fps_limit"] = 60
 		# Version 6: the seven-preset list collapsed to LOW / MEDIUM / HIGH.
 		# Old UFDS (3) maps to HIGH; the 120/SMOOTH/LOWSPEC profiles map to LOW.
 		if defaults_version < 6:
@@ -146,7 +147,7 @@ func load_graphics_settings() -> String:
 		# v7: cap mobile rendering to the physical display refresh.
 		if _is_mobile_platform() and defaults_version < 7:
 			graphics_settings["fps_limit"] = _mobile_refresh_cap(
-					int(graphics_settings.get("fps_limit", 120)))
+					int(graphics_settings.get("fps_limit", 60)))
 			graphics_settings["defaults_version"] = 7
 			save_graphics_settings()
 		# v8: Low quality is the new global default preset across desktop & mobile
@@ -157,6 +158,13 @@ func load_graphics_settings() -> String:
 			graphics_settings["af"] = GameAF.X2
 			graphics_settings["shadows"] = Shadows.LOW
 			graphics_settings["defaults_version"] = 8
+			save_graphics_settings()
+		# v9: 60 Hz is the global pacing target on desktop and mobile.  This
+		# changes only the frame cap - texture resolution, PBR materials,
+		# lighting and scenery detail stay at the selected quality preset.
+		if defaults_version < 9:
+			graphics_settings["fps_limit"] = 60
+			graphics_settings["defaults_version"] = 9
 			save_graphics_settings()
 		update_window_mode()
 		update_resolution()
@@ -181,15 +189,14 @@ func load_graphics_settings() -> String:
 	else:
 		# Fresh install defaults to Low quality for responsive frame times across
 		# desktop and mobile GPUs; players can raise it anytime in Settings.
-		graphics_settings["defaults_version"] = 8
+		graphics_settings["defaults_version"] = 9
 		graphics_settings["quality"] = QualityPreset.LOW
 		graphics_settings["msaa"] = GameMSAA.OFF
 		graphics_settings["af"] = GameAF.X2
 		graphics_settings["shadows"] = Shadows.LOW
-		if _is_weak_gpu():
-			graphics_settings["fps_limit"] = 60
-		elif _is_mobile_platform():
-			graphics_settings["fps_limit"] = _mobile_refresh_cap(120)
+		graphics_settings["fps_limit"] = 60
+		if _is_mobile_platform():
+			graphics_settings["fps_limit"] = _mobile_refresh_cap(60)
 		update_msaa()
 		update_af()
 		update_shadows()
@@ -357,7 +364,12 @@ func update_vsync() -> void:
 
 
 func update_fps_limit() -> void:
-	Engine.max_fps = _mobile_refresh_cap(int(graphics_settings["fps_limit"]))
+	# Default pacing is a smooth 60 Hz; 0 (uncapped) is normalised to 60 when
+	# VSync is off so frame time stays consistent on 120/144 Hz panels.
+	var limit := int(graphics_settings.get("fps_limit", 60))
+	if limit <= 0:
+		limit = 60
+	Engine.max_fps = _mobile_refresh_cap(limit)
 
 
 func update_quality() -> void:
@@ -446,19 +458,19 @@ func apply_quality_preset(level: int) -> void:
 			graphics_settings["af"] = GameAF.X2
 			graphics_settings["shadows"] = Shadows.LOW
 			graphics_settings["vsync"] = false
-			graphics_settings["fps_limit"] = 120
+			graphics_settings["fps_limit"] = 60
 		QualityPreset.MEDIUM:
 			graphics_settings["msaa"] = GameMSAA.OFF
 			graphics_settings["af"] = GameAF.X4
 			graphics_settings["shadows"] = Shadows.MEDIUM
 			graphics_settings["vsync"] = false
-			graphics_settings["fps_limit"] = 120
+			graphics_settings["fps_limit"] = 60
 		QualityPreset.HIGH:
 			graphics_settings["msaa"] = GameMSAA.OFF if _is_mobile_platform() else GameMSAA.X2
 			graphics_settings["af"] = GameAF.X4 if _is_mobile_platform() else GameAF.X8
 			graphics_settings["shadows"] = Shadows.MEDIUM if _is_mobile_platform() else Shadows.HIGH
 			graphics_settings["vsync"] = false
-			graphics_settings["fps_limit"] = 60 if _is_mobile_platform() else 120
+			graphics_settings["fps_limit"] = 60
 	update_msaa()
 	update_af()
 	update_shadows()

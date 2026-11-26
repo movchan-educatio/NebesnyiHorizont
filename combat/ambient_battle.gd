@@ -75,6 +75,9 @@ func _distant_artillery() -> void:
 ## A short burst of small-arms fire somewhere on the horizon: the valley feels
 ## alive even when the player is far from the objectives.
 func _distant_gunfire() -> void:
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
 	var base := drone.global_position if is_instance_valid(drone) else Vector3.ZERO
 	var angle := randf() * TAU
 	var radius := randf_range(180.0, 480.0)
@@ -84,7 +87,9 @@ func _distant_gunfire() -> void:
 	for _i in range(randi_range(3, 6)):
 		CombatSfxScript.play_rifle(self, p + Vector3(
 				randf_range(-2.0, 2.0), 0.0, randf_range(-2.0, 2.0)), -19.0)
-		await get_tree().create_timer(randf_range(0.07, 0.14)).timeout
+		await tree.create_timer(randf_range(0.07, 0.14)).timeout
+		if not is_inside_tree() or not is_instance_valid(self):
+			return
 
 
 func _spawn_distant_blast() -> void:
@@ -108,7 +113,10 @@ func _spawn_distant_blast() -> void:
 ## collapse even if the player only watches.  Only "destructible" nodes are
 ## targeted, never mission-critical vehicles/infantry.
 func _shell_building() -> void:
-	var candidates := get_tree().get_nodes_in_group("destructible")
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
+	var candidates := tree.get_nodes_in_group("destructible")
 	if candidates.is_empty():
 		return
 	var target: Node3D = null

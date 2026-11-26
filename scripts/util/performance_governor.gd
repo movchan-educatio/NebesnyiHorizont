@@ -3,7 +3,7 @@ extends Node
 
 ## Adaptive internal-resolution governor.
 ##
-## The sim targets 120 FPS on Intel-class integrated GPUs.  Instead of shipping
+## The sim targets a smooth 60 FPS on integrated GPUs.  Instead of shipping
 ## one fixed 3D scale that either stutters or looks soft on every machine, this
 ## node watches the real frame time and nudges the viewport's FSR scale between
 ## a per-preset floor and ceiling.  HUD/OSD are canvas items, so they stay at
@@ -18,9 +18,9 @@ const UP_STEP := 0.04
 const WARMUP_TIME := 4.0
 const BAD_SAMPLES_BEFORE_DOWN := 3
 
-var target_fps := 118.0
+var target_fps := 60.0
 var min_scale := 0.55
-var max_scale := 0.9
+var max_scale := 0.85
 var adaptive := true
 var fsr_sharpness := 0.3
 var _sample_time := SAMPLE_TIME
@@ -29,7 +29,7 @@ var _up_step := UP_STEP
 var _bad_samples_before_down := BAD_SAMPLES_BEFORE_DOWN
 var _down_cooldown := 0.9
 
-var _scale := 0.8
+var _scale := 0.80
 var _acc_time := 0.0
 var _acc_frames := 0
 var _cooldown := 0.0
@@ -39,7 +39,7 @@ var _warmup := WARMUP_TIME
 
 
 func configure(preset: Dictionary) -> void:
-	target_fps = float(preset.get("target_fps", 118.0))
+	target_fps = float(preset.get("target_fps", 60.0))
 	min_scale = float(preset.get("min_scale", preset.get("scale_3d", 1.0)))
 	max_scale = float(preset.get("max_scale", preset.get("scale_3d", 1.0)))
 	adaptive = bool(preset.get("adaptive", false))

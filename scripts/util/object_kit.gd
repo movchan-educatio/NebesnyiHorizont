@@ -32,6 +32,7 @@ static var _theme := {}
 static var _shadows := false
 static var _scale := 1.0
 static var _colliders: Array = []
+static var _current_parts: Array = []
 
 
 static func build(root: Node3D, map_name: String, factor: float,
@@ -70,13 +71,19 @@ static func build(root: Node3D, map_name: String, factor: float,
 		_scale = _rng.randf_range(1.05, 1.32)
 		var min_y: float = FT.footprint_min_height(map_name, spot, 2.5 * _scale, 2.5 * _scale, _yaw)
 		_base = Vector3(spot.x, min_y - 0.06, spot.y)
+		_current_parts.clear()
 		_build_category(cat, variant)
+		_finalize_current_parts()
 		_used_collider(cat, variant)
 	_add_colliders()
 	root.set_meta("gfx_object_kit", mini(total, spots.size()))
 	root.set_meta("gfx_object_kit_colliders", _colliders.size())
 	print("[ObjectKit] placed ", mini(total, spots.size()), " unique props on ",
 			map_name, " (", _colliders.size(), " colliders)")
+
+
+static func _map_bound() -> float:
+	return 322.0 if _map == "promzona_plavni" else 160.0
 
 
 static func _build_category(cat: int, v: int) -> void:
@@ -146,12 +153,18 @@ static func _make_spots(root: Node3D, map_name: String, count: int,
 					_rng.randf_range(-13.0, 13.0))
 			if _center_ok(p, centers, reserved):
 				centers.append(p)
-	# Rest random inside compact ±155 m grass bounds.
+	# Rest random inside the map's grass bounds.
+	var spot_bound := _map_bound() - 5.0
+	if _map == "promzona_plavni":
+		for p in [Vector2(42.0, 165.0), Vector2(-155.0, 110.0),
+				Vector2(-105.0, -245.0)]:
+			if _center_ok(p, centers, reserved):
+				centers.append(p)
 	var tries := 0
 	while centers.size() < 16 and tries < 240:
 		tries += 1
-		var p := Vector2(_rng.randf_range(-155.0, 155.0),
-				_rng.randf_range(-155.0, 155.0))
+		var p := Vector2(_rng.randf_range(-spot_bound, spot_bound),
+				_rng.randf_range(-spot_bound, spot_bound))
 		if _center_ok(p, centers, reserved):
 			centers.append(p)
 	var spots: Array = []
@@ -170,8 +183,8 @@ static func _make_spots(root: Node3D, map_name: String, count: int,
 	tries = 0
 	while spots.size() < count and tries < count * 30:
 		tries += 1
-		var p := Vector2(_rng.randf_range(-156.0, 156.0),
-				_rng.randf_range(-156.0, 156.0))
+		var p := Vector2(_rng.randf_range(-spot_bound, spot_bound),
+				_rng.randf_range(-spot_bound, spot_bound))
 		if _ok(p, spots, reserved, 10.5):
 			spots.append(p)
 	return spots
@@ -194,7 +207,8 @@ static func _depot_center(site: Dictionary, centers: Array,
 
 
 static func _center_ok(p: Vector2, centers: Array, reserved: Array) -> bool:
-	if absf(p.x) > 160.0 or absf(p.y) > 160.0:
+	var bound := _map_bound()
+	if absf(p.x) > bound or absf(p.y) > bound:
 		return false
 	if FT._road_factor(_map, p.x, p.y) >= 0.25:
 		return false
@@ -205,7 +219,7 @@ static func _center_ok(p: Vector2, centers: Array, reserved: Array) -> bool:
 		return false
 	if FT._structure_clear_zone(_map, p.x, p.y, 8.0):
 		return false
-	if (_map == "steppe" or _map == "village") \
+	if (_map == "steppe" or _map == "village" or _map == "promzona_plavni") \
 			and FT._tutorial_clear_zone(p.x, p.y):
 		return false
 	for c in centers:
@@ -219,7 +233,8 @@ static func _center_ok(p: Vector2, centers: Array, reserved: Array) -> bool:
 
 static func _ok(p: Vector2, spots: Array, reserved: Array,
 		min_sep: float = 7.0) -> bool:
-	if absf(p.x) > 160.0 or absf(p.y) > 160.0:
+	var bound := _map_bound()
+	if absf(p.x) > bound or absf(p.y) > bound:
 		return false
 	if FT._road_factor(_map, p.x, p.y) >= 0.25:
 		return false
@@ -230,7 +245,7 @@ static func _ok(p: Vector2, spots: Array, reserved: Array,
 		return false
 	if FT._structure_clear_zone(_map, p.x, p.y, 8.0):
 		return false
-	if (_map == "steppe" or _map == "village") \
+	if (_map == "steppe" or _map == "village" or _map == "promzona_plavni") \
 			and FT._tutorial_clear_zone(p.x, p.y):
 		return false
 	for s in spots:
@@ -253,16 +268,20 @@ static func _box(off: Vector3, size: Vector3, mat: String,
 		local_yaw: float = 0.0, collide: bool = false) -> void:
 	var node := FT._add_box(_root, _world(off), size * _scale, _theme[mat],
 			_yaw + local_yaw, collide)
-	if node != null and not collide:
-		_set_shadow(node)
+	if node != null:
+		_current_parts.append({"node": node, "min_y": off.y - size.y * 0.5})
+		if not collide:
+			_set_shadow(node)
 
 
 static func _cyl(off: Vector3, radius: float, height: float, mat: String,
 		collide: bool = false) -> void:
 	var node := FT._add_cylinder(_root, _world(off), radius * _scale,
 			height * _scale, _theme[mat], _yaw, collide)
-	if node != null and not collide:
-		_set_shadow(node)
+	if node != null:
+		_current_parts.append({"node": node, "min_y": off.y - height * 0.5})
+		if not collide:
+			_set_shadow(node)
 
 
 static func _prism(off: Vector3, size: Vector3, mat: String) -> void:
@@ -280,20 +299,64 @@ static func _set_shadow(node: Node) -> void:
 		_set_shadow(child)
 
 
+static func _finalize_current_parts() -> void:
+	var prop_min_y := INF
+	for entry in _current_parts:
+		var node = entry.get("node")
+		if node is Node3D and is_instance_valid(node):
+			prop_min_y = minf(prop_min_y, float(entry["min_y"]))
+	if prop_min_y == INF:
+		_current_parts.clear()
+		return
+	if prop_min_y > 0.02:
+		for entry in _current_parts:
+			var node = entry.get("node")
+			if node is Node3D and is_instance_valid(node):
+				(node as Node3D).position.y -= prop_min_y * _scale
+				entry["min_y"] = float(entry["min_y"]) - prop_min_y
+	var baseline := minf(prop_min_y, 0.02)
+	for entry in _current_parts:
+		var node = entry.get("node")
+		if node is Node3D and is_instance_valid(node) \
+				and (float(entry["min_y"]) - baseline) * _scale > 0.10:
+			(node as Node3D).set_meta("qa_attached_subpart", true)
+	_current_parts.clear()
+
+
 static func _collide(off: Vector3, size: Vector3) -> void:
 	_colliders.append({"pos": _world(off), "size": size * _scale, "yaw": _yaw})
 
 
 static func _used_collider(cat: int, v: int) -> void:
-	# Never add collision inside the combat target block: the mission needs
-	# clear ground for target placement and drone attacks.
-	if Vector2(_base.x, _base.z).distance_to(Vector2(0.0, 90.0)) < 145.0:
-		return
-	# Only big categories get a simple box collider; small clutter is visual.
-	if cat == 3 or cat == 4 or cat == 5 or cat == 7:
-		_collide(Vector3(0.0, 0.9, 0.0), Vector3(2.4, 1.8, 1.8))
-	elif cat == 8 and v % 3 == 0:
-		_collide(Vector3(0.0, 0.5, 0.0), Vector3(2.0, 1.0, 1.5))
+	# Every solid category gets a real layer-1 collider.  Reeds and flat lily
+	# pads are the only ground-flat visual litter that stays non-colliding.
+	var size := Vector3.ZERO
+	var center := Vector3(0.0, 0.9, 0.0)
+	match cat:
+		0:
+			size = Vector3(1.0, 1.1, 1.0)
+			center = Vector3(0.0, 0.55, 0.0)
+		1:
+			size = Vector3(1.25, 1.1, 1.25)
+			center = Vector3(0.0, 0.55, 0.0)
+		2:
+			size = Vector3(2.0, 1.2, 1.1)
+		3, 4, 5, 7:
+			size = Vector3(2.4, 1.8, 1.8)
+		6:
+			size = Vector3(1.8, 1.3, 1.5)
+			center = Vector3(0.0, 0.65, 0.0)
+		8:
+			size = Vector3(1.8, 1.0, 1.5)
+			center = Vector3(0.0, 0.5, 0.0)
+		9:
+			if v == 3 or v == 9:
+				return
+			size = Vector3(2.2, 1.2, 1.0)
+			center = Vector3(0.0, 0.6, 0.0)
+		_:
+			return
+	_collide(center, size)
 
 
 static func _add_colliders() -> void:
@@ -344,6 +407,13 @@ static func _make_theme(map_name: String) -> Dictionary:
 			rust = Color(0.44, 0.29, 0.19)
 			concrete = Color(0.57, 0.59, 0.55)
 			sandbag = Color(0.45, 0.44, 0.31)
+		"promzona_plavni":
+			wood = Color(0.40, 0.34, 0.24)
+			wood_dark = Color(0.23, 0.20, 0.14)
+			metal = Color(0.42, 0.45, 0.44)
+			rust = Color(0.48, 0.30, 0.18)
+			concrete = Color(0.62, 0.62, 0.58)
+			sandbag = Color(0.50, 0.47, 0.33)
 	var t := {}
 	t["wood"] = FT._pbr("wood", wood, 0.34)
 	t["wood_dark"] = FT._pbr("wood", wood_dark, 0.40)
@@ -595,12 +665,19 @@ static func _camp(v: int) -> void:
 					_box(Vector3(sx * 0.55, 0.36, sz * 0.3),
 							Vector3(0.08, 0.72, 0.08), "wood_dark")
 			_box(Vector3(0.0, 0.42, 0.8), Vector3(1.2, 0.08, 0.35), "wood")
+			for sx in [-1.0, 1.0]:
+				_box(Vector3(sx * 0.48, 0.21, 0.8),
+						Vector3(0.08, 0.42, 0.28), "wood_dark")
 			_box(Vector3(0.45, 0.95, 0.0), Vector3(0.12, 0.3, 0.12), "paint_yellow")
 		6:
 			# Cot and footlocker.
 			_box(Vector3(0.0, 0.35, 0.0), Vector3(2.0, 0.22, 0.8), "fabric")
 			_box(Vector3(0.0, 0.5, 0.0), Vector3(1.7, 0.12, 0.7), "dark")
 			_box(Vector3(1.3, 0.32, 0.0), Vector3(0.4, 0.55, 0.5), "wood_dark")
+			for sx in [-1.0, 1.0]:
+				for sz in [-1.0, 1.0]:
+					_box(Vector3(sx * 0.85, 0.17, sz * 0.30),
+							Vector3(0.07, 0.35, 0.07), "wood_dark")
 		7:
 			# Campfire ring.
 			for i in range(7):
@@ -614,6 +691,10 @@ static func _camp(v: int) -> void:
 			_box(Vector3(0.0, 0.55, 0.0), Vector3(0.9, 0.5, 0.7), "steel")
 			_box(Vector3(0.0, 0.82, 0.0), Vector3(1.0, 0.08, 0.8), "steel")
 			_cyl(Vector3(-0.6, 0.55, 0.0), 0.1, 1.0, "rust")
+			for sx in [-1.0, 1.0]:
+				for sz in [-1.0, 1.0]:
+					_box(Vector3(sx * 0.38, 0.28, sz * 0.28),
+							Vector3(0.07, 0.55, 0.07), "rust")
 		9:
 			# Field desk with maps.
 			_box(Vector3(0.0, 0.52, 0.0), Vector3(1.5, 0.08, 0.9), "wood")
@@ -672,11 +753,11 @@ static func _farm_tool(v: int) -> void:
 			_box(Vector3(0.4, 0.98, 0.0), Vector3(0.25, 0.14, 0.25), "rust")
 		6:
 			# Cable reel.
-			for sx in [-1.0, 1.0]:
-				_cyl(Vector3(sx * 0.55, 0.55, 0.0), 0.75, 0.10, "wood_dark")
-			_cyl(Vector3(0.0, 0.55, 0.0), 0.45, 0.9, "dark")
+			_cyl(Vector3(0.0, 0.05, 0.0), 0.75, 0.10, "wood_dark")
+			_cyl(Vector3(0.0, 0.45, 0.0), 0.45, 0.90, "dark")
+			_cyl(Vector3(0.0, 0.90, 0.0), 0.75, 0.10, "wood_dark")
 			for i in range(3):
-				_cyl(Vector3(0.0, 0.35 + float(i) * 0.25, 0.0), 0.52, 0.18, "rust")
+				_cyl(Vector3(0.0, 0.22 + float(i) * 0.24, 0.0), 0.52, 0.18, "rust")
 		7:
 			# Pallet jack.
 			_box(Vector3(0.0, 0.35, 0.0), Vector3(1.1, 0.16, 0.6), "paint_yellow")

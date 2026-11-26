@@ -58,6 +58,20 @@ const STUNTS := {
 		{"builder": "build_pipeline_powerloop_arch", "base": Vector2(-128.0, -120.0),
 			"yaw": 0.90, "reserve": 13.0, "clear": 20.0},
 	],
+	"promzona_plavni": [
+		{"builder": "build_shipping_container_complex", "base": Vector2(-150.0, -200.0),
+			"yaw": 0.25, "reserve": 13.0, "clear": 20.0},
+		{"builder": "build_pipeline_overpass", "base": Vector2(90.0, -250.0),
+			"yaw": 1.10, "reserve": 12.0, "clear": 18.0},
+		{"builder": "build_scaffolding_freestyle_cube", "base": Vector2(160.0, -140.0),
+			"yaw": 0.55, "reserve": 13.0, "clear": 20.0},
+		{"builder": "build_concrete_pipe_culvert_course", "base": Vector2(120.0, 180.0),
+			"yaw": 0.35, "reserve": 13.0, "clear": 20.0},
+		{"builder": "build_radar_relay_station", "base": Vector2(-100.0, 240.0),
+			"yaw": 0.70, "reserve": 12.0, "clear": 20.0},
+		{"builder": "build_pipeline_powerloop_arch", "base": Vector2(200.0, 260.0),
+			"yaw": 0.90, "reserve": 13.0, "clear": 20.0},
+	],
 }
 
 const DRESS_ANCHORS := {
@@ -69,6 +83,9 @@ const DRESS_ANCHORS := {
 			Vector2(-138, 18), Vector2(88, -54), Vector2(136, 132)],
 	"wetlands": [Vector2(18, 68), Vector2(122, 84), Vector2(-128, 42),
 			Vector2(132, -26), Vector2(-82, -116), Vector2(-136, 128)],
+	"promzona_plavni": [Vector2(-150, -120), Vector2(120, -100), Vector2(-40, -270),
+			Vector2(140, 210), Vector2(-90, 180), Vector2(170, 260),
+			Vector2(-160, -230), Vector2(80, 190)],
 }
 
 const DRESS_PROPS := {
@@ -84,6 +101,9 @@ const DRESS_PROPS := {
 	"wetlands": ["prop_barrel", "prop_crate", "prop_pallet", "prop_tires",
 			"prop_pipe", "prop_camo_net", "prop_tent", "prop_sandbags",
 			"prop_ammo", "prop_generator"],
+	"promzona_plavni": ["prop_crate", "prop_barrel", "prop_pipe", "prop_tires",
+			"prop_pallet", "prop_generator", "prop_fuel_tank", "prop_ammo",
+			"prop_camo_net", "prop_barrier", "prop_sandbags", "prop_logs"],
 }
 
 const HANDCRAFTED_AVOID := {
@@ -91,6 +111,8 @@ const HANDCRAFTED_AVOID := {
 	"village": [Vector2(54, -96), Vector2(36, 58), Vector2(126, 96)],
 	"steppe": [Vector2(36, 128), Vector2(76, -78), Vector2(142, -52)],
 	"wetlands": [Vector2(-56, -118), Vector2(8, 146), Vector2(18, 22)],
+	"promzona_plavni": [Vector2(-105, -245), Vector2(52, -180), Vector2(42, 165),
+			Vector2(-56, 145), Vector2(-155, 110)],
 }
 
 ## Mobile-only extra dressing anchors inside the compact 384 m playable arena.
@@ -99,6 +121,7 @@ const MOBILE_EXTRA_ANCHORS := {
 	"village": [Vector2(135, -132), Vector2(-142, 132)],
 	"steppe": [Vector2(138, 136), Vector2(-140, -128)],
 	"wetlands": [Vector2(-140, 128), Vector2(138, -132)],
+	"promzona_plavni": [Vector2(-300, -240), Vector2(290, 250)],
 }
 
 
@@ -151,10 +174,11 @@ static func build(root: Node3D, map_name: String, quality: int = -1) -> void:
 	# Keep the clutter spread over the map even when authored anchors happen to
 	# sit inside a larger hall/farm/military clear radius.
 	var anchor_tries := 0
+	var fallback_half := 300.0 if map_name == "promzona_plavni" else 152.0
 	while anchors.size() < 6 and anchor_tries < 220:
 		anchor_tries += 1
-		var p := Vector2(rng.randf_range(-152.0, 152.0),
-				rng.randf_range(-152.0, 152.0))
+		var p := Vector2(rng.randf_range(-fallback_half, fallback_half),
+				rng.randf_range(-fallback_half, fallback_half))
 		if _is_clear_prop(terrain, military, map_name, p.x, p.y, 6.0):
 			anchors.append(p)
 	if anchors.is_empty():
@@ -246,13 +270,15 @@ static func _dress_material(terrain, prop_name: String) -> Material:
 
 static func _find_reserved_site(terrain, military, root: Node3D, map_name: String,
 		base: Vector2, clearance: float, reserve_radius: float) -> Vector2:
-	for ring in range(0, 10):
+	var site_bound := 325.0 if map_name == "promzona_plavni" else 158.0
+	var max_rings := 14 if map_name == "promzona_plavni" else 10
+	for ring in range(0, max_rings):
 		var radius := 0.0 if ring == 0 else 16.0 * float(ring)
 		var steps := 1 if ring == 0 else 16
 		for i in range(steps):
 			var a := TAU * float(i) / float(steps) + float(ring) * 0.35
 			var p := base + Vector2(cos(a), sin(a)) * radius
-			if absf(p.x) > 158.0 or absf(p.y) > 158.0:
+			if absf(p.x) > site_bound or absf(p.y) > site_bound:
 				continue
 			if not _is_clear_prop(terrain, military, map_name, p.x, p.y, clearance):
 				continue
@@ -279,11 +305,12 @@ static func _add_road_markers(terrain, root: Node3D, map_name: String, q: int) -
 			var perp := Vector2(-dir.y, dir.x)
 			var dist := 16.0
 			var side := 1.0
+			var marker_bound := 325.0 if map_name == "promzona_plavni" else 158.0
 			while dist < len_seg - 8.0:
 				var mp := a + dir * dist + perp * (side * 8.2)
 				side = -side
 				dist += 34.0
-				if absf(mp.x) > 158.0 or absf(mp.y) > 158.0:
+				if absf(mp.x) > marker_bound or absf(mp.y) > marker_bound:
 					continue
 				if terrain._hall_clear_zone(map_name, mp.x, mp.y) \
 						or terrain._structure_clear_zone(map_name, mp.x, mp.y):
@@ -328,11 +355,14 @@ static func _find_site(terrain, military, map_name: String, base: Vector2,
 
 static func _is_clear_prop(terrain, military, map_name: String, x: float,
 		z: float, clearance: float) -> bool:
-	if absf(x) > 158.0 or absf(z) > 158.0:
+	var site_bound := 325.0 if map_name == "promzona_plavni" else 158.0
+	if absf(x) > site_bound or absf(z) > site_bound:
 		return false
 	if float(terrain._road_factor(map_name, x, z)) >= 0.22:
 		return false
 	if terrain._hall_clear_zone(map_name, x, z):
+		return false
+	if map_name == "promzona_plavni" and terrain._tutorial_clear_zone(x, z):
 		return false
 	if terrain._structure_clear_zone(map_name, x, z, clearance):
 		return false

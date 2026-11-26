@@ -172,8 +172,11 @@ func _flash() -> void:
 	for part in _parts:
 		if is_instance_valid(part):
 			part.material_overlay = _flash_material
-	await get_tree().create_timer(0.08).timeout
-	if not is_instance_valid(self) or is_destroyed or token != _flash_token:
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
+	await tree.create_timer(0.08).timeout
+	if not is_inside_tree() or not is_instance_valid(self) or is_destroyed or token != _flash_token:
 		return
 	for part in _parts:
 		if is_instance_valid(part):
@@ -201,6 +204,9 @@ func _destroy() -> void:
 
 func _spawn_chunks(parent: Node) -> void:
 	if parent == null:
+		return
+	var tree := get_tree()
+	if tree == null:
 		return
 	var chunk_material := _body_material
 	var per_floor := 4
@@ -232,7 +238,7 @@ func _spawn_chunks(parent: Node) -> void:
 			chunk.apply_central_impulse(dir * randf_range(40.0, 130.0))
 			chunk.angular_velocity = Vector3(randf_range(-4, 4), randf_range(-4, 4),
 					randf_range(-4, 4))
-			var timer := get_tree().create_timer(8.0)
+			var timer := tree.create_timer(8.0)
 			timer.timeout.connect(func() -> void:
 				if is_instance_valid(chunk):
 					chunk.queue_free())

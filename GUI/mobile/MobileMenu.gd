@@ -38,8 +38,7 @@ var _knob_tex: Texture2D
 const MAP_META := [
 	{"id": "oilrig", "name": "НАФТОВА ПЛАТФОРМА", "name_en": "OIL RIG", "tag": "ФРІСТАЙЛ", "tag_en": "FREESTYLE", "diff": "ЛЕГКА", "diff_en": "EASY", "col": "79a58a"},
 	{"id": "lis_forest_freestyle", "name": "ЛІС", "name_en": "FOREST", "tag": "ВСІ МІСІЇ", "tag_en": "ALL MISSIONS", "diff": "СЕРЕДНЯ", "diff_en": "MEDIUM", "col": "79a58a"},
-	{"id": "industrial", "name": "ПРОМЗОНА", "name_en": "INDUSTRIAL ZONE", "tag": "ЗАВОДИ Й ТРУБИ", "tag_en": "FACTORY COMPLEX", "diff": "СКЛАДНА", "diff_en": "HARD", "col": "c96f67"},
-	{"id": "wetlands", "name": "БОЛОТА", "name_en": "WETLANDS", "tag": "ВОДА Й ОЧЕРЕТ", "tag_en": "WATER & REEDS", "diff": "СКЛАДНА", "diff_en": "HARD", "col": "79a58a"},
+	{"id": "promzona_plavni", "name": "ПРОМЗОНА + ПЛАВНІ", "name_en": "INDUSTRIAL & WETLANDS", "tag": "РУЇНИ + ПЛАВНІ", "tag_en": "RUINS + MARSHES", "diff": "СКЛАДНА", "diff_en": "HARD", "col": "c96f67"},
 	{"id": "airport", "name": "АЕРОПОРТ", "name_en": "AIRPORT", "tag": "ФРІСТАЙЛ", "tag_en": "FREESTYLE", "diff": "СЕРЕДНЯ", "diff_en": "MEDIUM", "col": "e2c276"},
 ]
 const FREESTYLE_ONLY_MAPS := ["oilrig"]
@@ -460,6 +459,9 @@ func _ready() -> void:
 	_build_drone()
 	_build_settings()
 	_show("main")
+	if not visibility_changed.is_connected(_sync_3d_viewports):
+		visibility_changed.connect(_sync_3d_viewports)
+	_sync_3d_viewports()
 	if not get_viewport().size_changed.is_connected(_on_mobile_viewport_resized):
 		get_viewport().size_changed.connect(_on_mobile_viewport_resized)
 	_apply_masthead_layout()
@@ -503,6 +505,8 @@ func _on_prefetch_timer_timeout() -> void:
 
 
 func _process(delta: float) -> void:
+	if not is_visible_in_tree():
+		return
 	_update_status()
 	# One background model load per frame, never on the main thread.
 	DroneCatalog.poll_model_prefetch()
@@ -1276,6 +1280,32 @@ func _make_screen(name: String) -> Control:
 	return s
 
 
+func _set_viewport_3d_active(vp: SubViewport, active: bool) -> void:
+	if vp == null or not is_instance_valid(vp):
+		return
+	vp.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE if active else SubViewport.UPDATE_DISABLED
+	for child in vp.get_children():
+		if child is Node3D:
+			(child as Node3D).visible = active
+
+
+func _sync_3d_viewports() -> void:
+	var vis := is_visible_in_tree()
+	var hero_on := vis and _current == "main"
+	var hangar_on := vis and _current == "drone"
+	var radio_on := vis and _current == "controls"
+	_set_viewport_3d_active(_hero_viewport, hero_on)
+	_set_viewport_3d_active(_hangar_viewport, hangar_on)
+	_set_viewport_3d_active(_radio_viewport, radio_on)
+	if hero_on and _hero_loaded_preset != Global.drone_preset:
+		_load_hero_model(Global.drone_preset)
+	if hangar_on and (_hangar_preview_idx != Global.drone_preset \
+			or (_hangar_holder != null and is_instance_valid(_hangar_holder) \
+			and _hangar_holder.get_child_count() == 0)):
+		_hangar_preview_idx = Global.drone_preset
+		_load_hangar_model(_hangar_preview_idx)
+
+
 func _show(name: String) -> void:
 	if not _screens.has(name):
 		return
@@ -1290,7 +1320,7 @@ func _show(name: String) -> void:
 	_update_nav_capsule()
 	if name == "main":
 		_update_hero_drone_info(Global.drone_preset)
-		if _hero_loaded_preset != Global.drone_preset:
+		if is_visible_in_tree() and _hero_loaded_preset != Global.drone_preset:
 			_load_hero_model(Global.drone_preset)
 	if name == "play":
 		if _play_modes_row != null:
@@ -1299,13 +1329,14 @@ func _show(name: String) -> void:
 			_update_map_cards(_maps_row)
 		_refresh_mobile_mission_strip()
 	if name == "drone":
-		if _hangar_preview_idx != Global.drone_preset:
+		if is_visible_in_tree() and _hangar_preview_idx != Global.drone_preset:
 			_hangar_preview_idx = Global.drone_preset
 			_load_hangar_model(_hangar_preview_idx)
 		_update_hangar_list_styles()
 	_screen_scrim.color = Color(0.031, 0.031, 0.034, 0.68 if name == "main" else 0.80)
 	_update_status()
 	VoltThemeScript.animate_pop_in(_screens[name] as Control, 0.18)
+	_sync_3d_viewports()
 
 
 func _on_mobile_viewport_resized() -> void:
@@ -1582,7 +1613,7 @@ func _build_3d_hero() -> Control:
 	tut_btn.add_theme_font_size_override("font_size", _fs_small(14))
 	tut_btn.pressed.connect(func():
 		_selected_mode = Global.PlayMode.TUTORIAL
-		_selected_map = "industrial"
+		_selected_map = "promzona_plavni"
 		if DroneCatalog.is_uman(Global.drone_preset):
 			DroneCatalog.apply(0)
 		_launch()
@@ -1601,7 +1632,7 @@ func _build_3d_hero() -> Control:
 	ct_btn.tooltip_text = "Combat training: 3 steps" if is_en else "Бойове тренування: 3 кроки"
 	ct_btn.pressed.connect(func():
 		_selected_mode = Global.PlayMode.TRAINING
-		_selected_map = "industrial"
+		_selected_map = "promzona_plavni"
 		_launch(true)
 	)
 	quick_row.add_child(ct_btn)
@@ -1871,7 +1902,8 @@ func _setup_hero_3d_world() -> void:
 	_hero_holder = Node3D.new()
 	_hero_viewport.add_child(_hero_holder)
 	_fit_hero_camera()
-	_load_hero_model(Global.drone_preset)
+	if not is_pause_mode:
+		_load_hero_model(Global.drone_preset)
 
 
 func _enable_preview_shadows(model: Node3D) -> void:
@@ -1916,8 +1948,15 @@ func _load_hero_model(preset_idx: int) -> void:
 	# Let the imported prop/motor children enter the tree and update their
 	# global transforms before measuring the bounds.  Measuring on the same
 	# frame occasionally produced an origin-space AABB and a tiny drone.
-	await get_tree().process_frame
-	await get_tree().process_frame
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
+	await tree.process_frame
+	if tree == null or not is_inside_tree():
+		return
+	await tree.process_frame
+	if tree == null or not is_inside_tree():
+		return
 	if token != _hero_load_token or not is_instance_valid(_hero_holder) \
 			or not is_instance_valid(model) or model.get_parent() != _hero_holder:
 		return
@@ -2911,7 +2950,10 @@ func _build_play() -> void:
 		sec_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card_v.add_child(sec_lbl)
 
-		var map_img_path: String = "res://Assets/Branding/mobile_map_%s.png" % str(mp["id"])
+		var img_id := str(mp["id"])
+		var map_img_path: String = "res://Assets/Branding/mobile_map_%s.png" % img_id
+		if not ResourceLoader.exists(map_img_path) and img_id == "promzona_plavni":
+			map_img_path = "res://Assets/Branding/mobile_map_industrial.png"
 		var map_tex: Texture2D = _safe_texture(map_img_path)
 		if map_tex != null:
 			var img_frame := PanelContainer.new()
@@ -3561,10 +3603,10 @@ func _update_map_cards(row: HBoxContainer) -> void:
 func _launch(combat_training: bool = false) -> void:
 	Global.combat_training = combat_training
 	if combat_training:
-		# Industrial proving ground + GRIM-7M (a combat airframe with a real
+		# Unified proving ground + GRIM-7M (a combat airframe with a real
 		# payload release).  The guide replaces the freestyle ring course.
 		_selected_mode = Global.PlayMode.TRAINING
-		_selected_map = "industrial"
+		_selected_map = "promzona_plavni"
 		_selected_special = 0
 		Global.special_mission = 0
 		DroneCatalog.apply(1)
@@ -3586,6 +3628,10 @@ func _launch(combat_training: bool = false) -> void:
 			Global.combat_mission = _selected_mission
 	else:
 		Global.special_mission = 0
+	# The non-airport tutorial strip lives on the unified industrial/wetlands map.
+	if _selected_mode == Global.PlayMode.TUTORIAL and not _is_freestyle_map(_selected_map) \
+			and _selected_map != "airport":
+		_selected_map = "promzona_plavni"
 	Global.menu_settings["selected_map"] = _selected_map
 	Global.menu_settings["selected_mode"] = _selected_mode
 	Global.menu_settings["selected_mission"] = _selected_mission
@@ -3593,14 +3639,13 @@ func _launch(combat_training: bool = false) -> void:
 	Global.menu_settings["drone_preset"] = Global.drone_preset
 	Global.save_menu_settings()
 	var scenes := {
-		"industrial": "res://sceneries/IndustrialLevel.tscn",
-		"wetlands": "res://sceneries/WetlandsLevel.tscn",
+		"promzona_plavni": "res://sceneries/PromzonaPlavniLevel.tscn",
 		"airport": "res://sceneries/AirportLevel.tscn",
 		"uman": "res://sceneries/UmanLevel.tscn",
 		"oilrig": "res://sceneries/OilRigLevel.tscn",
 		"lis_forest_freestyle": "res://sceneries/LisLevel.tscn",
 	}
-	var launch_map := "industrial" if (_selected_mode == Global.PlayMode.TUTORIAL and not _is_freestyle_map(_selected_map) and _selected_map != "airport") else _selected_map
+	var launch_map := "promzona_plavni" if (_selected_mode == Global.PlayMode.TUTORIAL and not _is_freestyle_map(_selected_map) and _selected_map != "airport") else _selected_map
 	var path: String = scenes.get(launch_map, "res://sceneries/LisLevel.tscn")
 
 	# Ensure QuadSettings has the active mobile rate profile applied for flight
@@ -3934,7 +3979,8 @@ func _build_drone() -> void:
 	)
 	sel_bar.add_child(hangar_shell_btn)
 
-	_load_hangar_model(_hangar_preview_idx)
+	if not is_pause_mode:
+		_load_hangar_model(_hangar_preview_idx)
 	_update_hangar_info(_hangar_preview_idx)
 
 
@@ -4095,8 +4141,15 @@ func _load_hangar_model(preset_idx: int) -> void:
 	model.visible = false
 	# Same two-frame settle as the hero podium.  Without it the first drone
 	# opened in the hangar could be a speck until Next/Previous reloaded it.
-	await get_tree().process_frame
-	await get_tree().process_frame
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
+	await tree.process_frame
+	if tree == null or not is_inside_tree():
+		return
+	await tree.process_frame
+	if tree == null or not is_inside_tree():
+		return
 	if token != _hangar_load_token or not is_instance_valid(_hangar_holder) \
 			or not is_instance_valid(model) or model.get_parent() != _hangar_holder:
 		return

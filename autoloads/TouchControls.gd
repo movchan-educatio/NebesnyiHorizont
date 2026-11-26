@@ -35,8 +35,12 @@ var _flight_button: Button = null
 var _setup_button: Button = null
 var _drop_button: Button = null
 var _drop_button_right: Button = null
-var _hover_detent_active := false
-var _hover_detent_last_ms := 0
+## Tactical bomber aids shown beside the DROP button while a drop-capable
+## airframe is selected: bomb-camera toggle and 1x/2x camera zoom.
+var _drop_cam_button: Button = null
+var _drop_zoom_button: Button = null
+var _drop_cam_active_state := false
+var _drop_zoom_2x_state := false
 var _toast: Label = null
 var _toast_time := 0.0
 var _mode_refresh := 0.0
@@ -112,6 +116,9 @@ func _tx(ua: String, en: String) -> String:
 
 
 func _ready() -> void:
+	# Sample and publish touch state before gameplay nodes run, so the physics
+	# step that follows an InputEventScreenDrag already has the new sticks.
+	process_priority = -100
 	layer = 30
 	_root = Control.new()
 	_root.name = "TouchRoot"
@@ -176,6 +183,32 @@ func _ready() -> void:
 	_drop_button_right.button_down.connect(_on_payload_button_pressed.bind(true))
 	_drop_button_right.visible = false
 	_root.add_child(_drop_button_right)
+
+	_drop_cam_button = Button.new()
+	_drop_cam_button.name = "TouchDropCamButton"
+	_drop_cam_button.text = _tx("ПРИЦІЛ", "CAM")
+	_drop_cam_button.focus_mode = Control.FOCUS_NONE
+	_drop_cam_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	_drop_cam_button.add_theme_font_override("font", VoltThemeScript.font_ui_bold())
+	_drop_cam_button.add_theme_font_size_override("font_size", 15)
+	_drop_cam_button.add_theme_color_override("font_color", VoltThemeScript.STONE)
+	_drop_cam_button.add_theme_constant_override("outline_size", 0)
+	_drop_cam_button.pressed.connect(_on_drop_cam_pressed)
+	_drop_cam_button.visible = false
+	_root.add_child(_drop_cam_button)
+
+	_drop_zoom_button = Button.new()
+	_drop_zoom_button.name = "TouchDropZoomButton"
+	_drop_zoom_button.text = "2×"
+	_drop_zoom_button.focus_mode = Control.FOCUS_NONE
+	_drop_zoom_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	_drop_zoom_button.add_theme_font_override("font", VoltThemeScript.font_ui_bold())
+	_drop_zoom_button.add_theme_font_size_override("font_size", 16)
+	_drop_zoom_button.add_theme_color_override("font_color", VoltThemeScript.STONE)
+	_drop_zoom_button.add_theme_constant_override("outline_size", 0)
+	_drop_zoom_button.pressed.connect(_on_drop_zoom_pressed)
+	_drop_zoom_button.visible = false
+	_root.add_child(_drop_zoom_button)
 
 	_toast = Label.new()
 	_toast.name = "TouchToast"
@@ -274,6 +307,7 @@ func set_menu_preview(on: bool) -> void:
 		_layout()
 		_reset_sticks()
 		for b in [_pause_button, _drone_button, _flight_button, _setup_button, _drop_button, _drop_button_right,
+				_drop_cam_button, _drop_zoom_button,
 				_reset_button, _video_button, _mode_button, _arm_button, _more_button]:
 			if b != null:
 				b.visible = false
@@ -296,6 +330,10 @@ func set_menu_preview(on: bool) -> void:
 		_drop_button.visible = false
 	if _drop_button_right != null:
 		_drop_button_right.visible = false
+	if _drop_cam_button != null:
+		_drop_cam_button.visible = false
+	if _drop_zoom_button != null:
+		_drop_zoom_button.visible = false
 
 
 ## Open the full layout editor from the Controls screen's touch preview or
@@ -314,6 +352,7 @@ func open_layout_editor(close_preview_after: bool = false) -> void:
 		_layout()
 		_reset_sticks()
 		for button in [_pause_button, _drone_button, _flight_button, _setup_button, _drop_button, _drop_button_right,
+				_drop_cam_button, _drop_zoom_button,
 				_reset_button, _video_button, _mode_button, _more_button]:
 			if button != null:
 				button.visible = false
@@ -456,6 +495,10 @@ func set_enabled(value: bool) -> void:
 			_drop_button.visible = false
 		if _drop_button_right != null:
 			_drop_button_right.visible = false
+		if _drop_cam_button != null:
+			_drop_cam_button.visible = false
+		if _drop_zoom_button != null:
+			_drop_zoom_button.visible = false
 	mode_changed.emit(touch_mode)
 
 
@@ -1039,6 +1082,7 @@ func _layout() -> void:
 		_drop_button_right.add_theme_stylebox_override("pressed", drop_right_pressed)
 		_drop_button_right.add_theme_color_override("font_color",
 				VoltThemeScript.DANGER if _is_dual_payload() else VoltThemeScript.STONE)
+	_layout_drop_camera_buttons(drop_size, scale, vs, notch)
 	_sync_payload_buttons()
 	if _toast != null:
 		_toast.position = Vector2(vs.x * 0.5 - 330.0, 238.0 + notch.y)
@@ -1060,6 +1104,87 @@ func _layout() -> void:
 		_layout_toolbar.position = Vector2((vs.x - toolbar_w) * 0.5, notch.y + 14.0)
 	_apply_button_style()
 	_drawer.queue_redraw()
+
+
+func _layout_drop_camera_buttons(drop_size: float, scale: float, vs: Vector2,
+		notch: Vector4) -> void:
+	if _drop_button == null or _drop_cam_button == null or _drop_zoom_button == null:
+		return
+	var btn_w := clampf(drop_size * 1.05, 62.0, 124.0)
+	var btn_h := clampf(drop_size * 0.44, 28.0, 52.0)
+	var btn_size := Vector2(btn_w, btn_h)
+	var gap := 6.0 * scale
+	var drop_pos := _drop_button.position
+	var drop_extent := _drop_button.size
+	var stack_x := drop_pos.x + drop_extent.x * 0.5
+	var zoom_center := Vector2(stack_x, drop_pos.y - gap - btn_h * 0.5)
+	var cam_center := Vector2(stack_x, zoom_center.y - gap - btn_h)
+	# Fall back below DROP only if top clearance is cramped.
+	if cam_center.y - btn_h * 0.5 < notch.y + 8.0:
+		cam_center = Vector2(stack_x, drop_pos.y + drop_extent.y + gap + btn_h * 0.5)
+		zoom_center = Vector2(stack_x, cam_center.y + gap + btn_h)
+	cam_center = _clamp_layout_button_center(cam_center, btn_size, vs, notch)
+	zoom_center = _clamp_layout_button_center(zoom_center, btn_size, vs, notch)
+	_drop_cam_button.size = btn_size
+	_drop_cam_button.position = cam_center - btn_size * 0.5
+	_drop_zoom_button.size = btn_size
+	_drop_zoom_button.position = zoom_center - btn_size * 0.5
+	_drop_cam_button.add_theme_font_size_override("font_size",
+			int(clampf(btn_h * 0.42, 12.0, 22.0)))
+	_drop_zoom_button.add_theme_font_size_override("font_size",
+			int(clampf(btn_h * 0.48, 13.0, 24.0)))
+	_style_drop_camera_button(_drop_cam_button, _drop_cam_active_state)
+	_style_drop_camera_button(_drop_zoom_button, _drop_zoom_2x_state)
+
+
+func _style_drop_camera_button(button: Button, active: bool) -> void:
+	if button == null:
+		return
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(0.14, 0.13, 0.04, 0.94) if active \
+			else Color(0.055, 0.055, 0.065, 0.90)
+	normal.border_color = VoltThemeScript.YELLOW if active else VoltThemeScript.YELLOW_BORDER
+	normal.set_border_width_all(2)
+	normal.set_corner_radius_all(int(clampf(button.size.y * 0.5, 8.0, 26.0)))
+	var pressed := normal.duplicate() as StyleBoxFlat
+	pressed.bg_color = Color(0.20, 0.17, 0.04, 0.96)
+	pressed.border_color = VoltThemeScript.YELLOW
+	button.add_theme_stylebox_override("normal", normal)
+	button.add_theme_stylebox_override("hover", normal)
+	button.add_theme_stylebox_override("pressed", pressed)
+
+
+func _sync_drop_camera_button_state() -> void:
+	if _drop_cam_button == null or _drop_zoom_button == null:
+		return
+	_drop_cam_button.text = _tx("ПРИЦІЛ", "CAM")
+	var cam_active := _bomb_drop_camera_active()
+	if cam_active != _drop_cam_active_state:
+		_drop_cam_active_state = cam_active
+		_style_drop_camera_button(_drop_cam_button, cam_active)
+	_drop_cam_button.add_theme_color_override("font_color",
+			VoltThemeScript.YELLOW if cam_active else VoltThemeScript.STONE)
+	var zoomed := _bomb_cam_zoom_level() >= 2
+	if zoomed != _drop_zoom_2x_state:
+		_drop_zoom_2x_state = zoomed
+		_style_drop_camera_button(_drop_zoom_button, zoomed)
+	_drop_zoom_button.text = "2×"
+	_drop_zoom_button.add_theme_color_override("font_color",
+			VoltThemeScript.YELLOW if zoomed else VoltThemeScript.STONE)
+
+
+func _bomb_drop_camera_active() -> bool:
+	var scene := get_tree().current_scene if get_tree() != null else null
+	if scene != null and scene.has_method("is_bomb_drop_camera_active"):
+		return bool(scene.call("is_bomb_drop_camera_active"))
+	return false
+
+
+func _bomb_cam_zoom_level() -> int:
+	var scene := get_tree().current_scene if get_tree() != null else null
+	if scene != null and scene.has_method("get_bomb_cam_zoom_level"):
+		return int(scene.call("get_bomb_cam_zoom_level"))
+	return 1
 
 
 func _saved_layout_center(element: String, default_center: Vector2, viewport_size: Vector2) -> Vector2:
@@ -1227,6 +1352,22 @@ func _on_payload_button_pressed(is_right: bool) -> void:
 	_dispatch_action(actual_action)
 
 
+func _on_drop_cam_pressed() -> void:
+	Haptics.trigger_ui_tap()
+	var scene := get_tree().current_scene if get_tree() != null else null
+	if scene != null and scene.has_method("toggle_bomb_drop_camera"):
+		scene.call("toggle_bomb_drop_camera")
+	_sync_payload_buttons()
+
+
+func _on_drop_zoom_pressed() -> void:
+	Haptics.trigger_ui_tap()
+	var scene := get_tree().current_scene if get_tree() != null else null
+	if scene != null and scene.has_method("toggle_bomb_cam_zoom"):
+		scene.call("toggle_bomb_cam_zoom")
+	_sync_payload_buttons()
+
+
 func _on_action_pressed(action: String) -> void:
 	Haptics.trigger_ui_tap()
 	if action == "deploy_payload":
@@ -1258,6 +1399,14 @@ func _sync_payload_buttons() -> void:
 		return
 	var base_show := enabled and (touch_mode or _layout_editing) \
 			and (not _preview or _layout_editing)
+	var has_drop := bool(DroneCatalog.preset(Global.drone_preset).get("has_drop", false))
+	var bomb_show := enabled and touch_mode and has_drop \
+			and (not _preview or _layout_editing)
+	if _drop_cam_button != null:
+		_drop_cam_button.visible = bomb_show
+	if _drop_zoom_button != null:
+		_drop_zoom_button.visible = bomb_show
+	_sync_drop_camera_button_state()
 	if _is_dual_payload():
 		_drop_button.visible = base_show and _payload_available("deploy_payload")
 		_drop_button.text = _tx("СКИД", "DROP")
@@ -1839,7 +1988,8 @@ func _save_touch_layout() -> void:
 func _point_hits_ui(pos: Vector2) -> bool:
 	if _setup_root != null and _setup_root.visible:
 		return true
-	for c in [_pause_button, _drone_button, _more_button, _arm_button, _drop_button, _drop_button_right, _more_panel]:
+	for c in [_pause_button, _drone_button, _more_button, _arm_button, _drop_button, _drop_button_right,
+			_drop_cam_button, _drop_zoom_button, _more_panel]:
 		if c != null and c.visible and c.get_global_rect().has_point(pos):
 			return true
 	var scene := get_tree().current_scene if get_tree() != null else null
@@ -1940,35 +2090,31 @@ func _update_stick(left: bool, pos: Vector2) -> void:
 			clampf(raw_offset.x, -_radius, _radius),
 			clampf(raw_offset.y, -_radius, _radius))
 	if left:
-		var active_drag_dy := absf(pos.y - _throttle_grab_y) if (not _touch_left_spring and _left_index != NO_TOUCH) else absf(offset.y)
-		var yaw_deadband := maxf(deadzone, 0.09) if active_drag_dy > _radius * 0.22 else deadzone
+		# Keep the normal deadband while the throttle is dragged.  The old
+		# enlarged 9 % yaw deadband acted like a sticky detent and swallowed
+		# small yaw corrections whenever the thumb was also moving vertically.
+		var yaw_deadband := deadzone
 		if _touch_left_spring:
 			var y_norm := clampf((_left_center.y - pos.y) / _radius, -1.0, 1.0)
-			var y_curved := _apply_axis_curve(y_norm, maxf(deadzone, 0.06), false)
+			# Only the normal deadband: a larger centre band made tiny hover
+			# throttle corrections disappear around mid-stick.
+			var y_curved := _apply_axis_curve(y_norm, deadzone, false)
 			# Spring centre aligns with real hover thrust (0.45) instead of 0.50 climb.
 			if y_curved >= 0.0:
 				throttle = clampf(0.45 + y_curved * 0.55, 0.0, 1.0)
 			else:
 				throttle = clampf(0.45 + y_curved * 0.45, 0.0, 1.0)
 		else:
-			# Directional relative throttle with a gentle idle/hover band feel.
+			# Directional relative throttle: no synthetic snap zone.
 			var dy := _throttle_grab_y - pos.y
 			var up_span := maxf(_radius * 0.70, _throttle_grab_y - (_left_center.y - _radius))
 			var down_span := maxf(_radius * 0.70, (_left_center.y + _radius) - _throttle_grab_y)
 			var span := up_span if dy >= 0.0 else down_span
 			var next_thr := clampf(_throttle_grab_value + dy / span, 0.0, 1.0)
-			# Soft detent right at 0.45 hover when near mid-stick to make mobile altitude holding steady.
-			var in_hover_band := absf(next_thr - 0.45) < 0.032
-			if in_hover_band:
-				next_thr = lerpf(next_thr, 0.45, 0.65)
-				if not _hover_detent_active:
-					_hover_detent_active = true
-					var now_ms := Time.get_ticks_msec()
-					if now_ms - _hover_detent_last_ms > 280:
-						_hover_detent_last_ms = now_ms
-						Haptics.trigger_ui_tap()
-			else:
-				_hover_detent_active = false
+			# Direct relative throttle: every micro-correction reaches the
+			# flight controller unchanged.  The old 0.45 hover snap pulled
+			# small movements toward the detent and made altitude trimming
+			# feel sticky.
 			throttle = next_thr
 		_left_knob = Vector2(offset.x, (0.5 - throttle) * 2.0 * _radius)
 		var x := offset.x / _radius
@@ -1985,6 +2131,15 @@ func _update_stick(left: bool, pos: Vector2) -> void:
 		if invert_pitch:
 			pitch = -pitch
 	_drawer.queue_redraw()
+	_push_sticks_to_mobile()
+
+
+## Publish the freshly computed axes to the mobile bridge on the same tick as
+## the touch event.  Physics consumers therefore never read last frame's stick.
+func _push_sticks_to_mobile() -> void:
+	var mobile := get_node_or_null("/root/MobileInput")
+	if mobile != null and mobile.has_method("set_sticks"):
+		mobile.call("set_sticks", roll, pitch, throttle, yaw)
 
 
 func _release_stick(left: bool) -> void:
@@ -2007,6 +2162,7 @@ func _release_stick(left: bool) -> void:
 		if not _touch_floating_sticks and _right_anchor != Vector2.ZERO:
 			_right_center = _right_anchor
 	_drawer.queue_redraw()
+	_push_sticks_to_mobile()
 
 
 func _reset_sticks() -> void:
@@ -2028,6 +2184,7 @@ func _reset_sticks() -> void:
 	yaw = 0.0
 	roll = 0.0
 	pitch = 0.0
+	_push_sticks_to_mobile()
 	if _drawer != null:
 		_drawer.queue_redraw()
 
@@ -2055,7 +2212,8 @@ func _on_drawer_draw() -> void:
 				HORIZONTAL_ALIGNMENT_CENTER, -1.0, 14, 4, label_shadow)
 		_drawer.draw_string(font, right_pos, right_text,
 				HORIZONTAL_ALIGNMENT_CENTER, -1.0, 14, label_color)
-		for control in [_pause_button, _drone_button, _more_button, _arm_button, _drop_button, _drop_button_right]:
+		for control in [_pause_button, _drone_button, _more_button, _arm_button, _drop_button, _drop_button_right,
+				_drop_cam_button, _drop_zoom_button]:
 			if control != null and control.visible:
 				_drawer.draw_rect(control.get_global_rect(),
 						Color(0.76, 0.96, 0.65, 0.88), false, 2.0, true)

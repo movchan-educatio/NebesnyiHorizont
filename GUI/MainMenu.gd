@@ -8,8 +8,7 @@ extends Control
 const LEVEL := "res://sceneries/BigLevel.tscn"
 const FRONTLINE_LEVELS := {
 	"valley": "res://sceneries/BigLevel.tscn",
-	"industrial": "res://sceneries/IndustrialLevel.tscn",
-	"wetlands": "res://sceneries/WetlandsLevel.tscn",
+	"promzona_plavni": "res://sceneries/PromzonaPlavniLevel.tscn",
 	"airport": "res://sceneries/AirportLevel.tscn",
 	"uman": "res://sceneries/UmanLevel.tscn",
 	"oilrig": "res://sceneries/OilRigLevel.tscn",
@@ -18,7 +17,7 @@ const FRONTLINE_LEVELS := {
 ## Steppe і Village видалені з гри. Нафтова платформа замінила Умань як
 ## фрістайл-карту; Ліс — повноцінна карта з усіма місіями.
 const FREESTYLE_ONLY_MAPS := ["oilrig"]
-const SELECTABLE_MAPS := ["oilrig", "lis_forest_freestyle", "industrial", "wetlands", "airport"]
+const SELECTABLE_MAPS := ["oilrig", "lis_forest_freestyle", "promzona_plavni", "airport"]
 
 static func _is_freestyle_map(id: String) -> bool:
 	return FREESTYLE_ONLY_MAPS.has(id)
@@ -514,14 +513,16 @@ func _ready() -> void:
 			int(Global.menu_settings.get("selected_mode", Global.play_mode)))
 	Global.play_mode = _selected_mode
 	_selected_mission = clampi(int(Global.menu_settings.get("selected_mission", 1)), 1, 5)
-	_selected_map = str(Global.menu_settings.get("selected_map", "oilrig"))
+	_selected_map = str(Global.menu_settings.get("selected_map", "promzona_plavni"))
+	if _selected_map in ["industrial", "wetlands"]:
+		_selected_map = "promzona_plavni"  # legacy збереження
 	if _is_freestyle_map(_selected_map):
 		_selected_map = "oilrig"  # legacy збереження
 	if not SELECTABLE_MAPS.has(_selected_map):
-		_selected_map = "oilrig"
+		_selected_map = "promzona_plavni"
 	if not Progress.is_unlocked(Progress.map_unlock_id(_selected_map)):
-		_selected_map = "oilrig"
-		Global.menu_settings["selected_map"] = "oilrig"
+		_selected_map = "promzona_plavni"
+		Global.menu_settings["selected_map"] = "promzona_plavni"
 	_selected_special = int(Global.menu_settings.get("selected_special", 0))
 	if _selected_special < 1 or _selected_special > SPECIAL_MISSIONS.size():
 		_selected_special = 0
@@ -565,7 +566,7 @@ func _ready() -> void:
 
 func _qa_loading_test() -> void:
 	await get_tree().create_timer(1.0).timeout
-	_begin_loading("res://sceneries/IndustrialLevel.tscn")
+	_begin_loading("res://sceneries/PromzonaPlavniLevel.tscn")
 
 
 func _qa_cycle_to_preset() -> void:
@@ -664,8 +665,7 @@ func _build() -> void:
 	var map_defs := [
 		{"id": "oilrig", "uk": "Нафтова платформа", "en": "Oil Rig"},
 		{"id": "lis_forest_freestyle", "uk": "Ліс", "en": "Forest"},
-		{"id": "industrial", "uk": "Промзона", "en": "Industry"},
-		{"id": "wetlands", "uk": "Плавні", "en": "Wetlands"},
+		{"id": "promzona_plavni", "uk": "ПРОМЗОНА + ПЛАВНІ", "en": "INDUSTRIAL & WETLANDS"},
 		{"id": "airport", "uk": "Аеропорт", "en": "Airport"},
 	]
 	_map_buttons.clear()
@@ -1781,11 +1781,11 @@ func _update_diff_buttons() -> void:
 func _launch_current_selection(combat_training: bool = false) -> void:
 	Global.combat_training = combat_training
 	if combat_training:
-		# Three-step first-strike training: industrial proving ground, combat-ready
+		# Three-step first-strike training: unified proving ground, combat-ready
 		# dropper, no campaign records and no freestyle ring course.
 		Global.play_mode = Global.PlayMode.TRAINING
 		_selected_mode = Global.PlayMode.TRAINING
-		_selected_map = "industrial"
+		_selected_map = "promzona_plavni"
 		Global.special_mission = 0
 		DroneCatalog.apply(1)
 	# Умань або фрістайл-дрони — тільки фрістайл на обраній карті.
@@ -1815,7 +1815,7 @@ func _launch_current_selection(combat_training: bool = false) -> void:
 	# village map; the selected combat map must not move the course into water
 	# or a forest.  The combat map choice itself is left untouched.
 	if _selected_mode == Global.PlayMode.TUTORIAL and map_id != "airport":
-		scene_path = FRONTLINE_LEVELS["industrial"]
+		scene_path = FRONTLINE_LEVELS["promzona_plavni"]
 	Global.menu_settings["selected_map"] = map_id
 	Global.menu_settings["selected_mode"] = _selected_mode
 	Global.menu_settings["selected_mission"] = _selected_mission

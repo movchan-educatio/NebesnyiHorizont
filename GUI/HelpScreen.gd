@@ -120,7 +120,7 @@ const MODES_TEXT := """[b]БОЙОВІ МІСІЇ (КАМПАНІЯ 1–4)[/b]
 Пульт: B — повторити модуль, Start — довідка.
 
 [b]ФРІСТАЙЛ / ВІЛЬНИЙ ПОЛІТ[/b]
-4 карти без супротивника: Умань (Софіївка), Промзона, Плавні, Аеропорт. Практика стіків, 24 неонових воріт, Привид і запис DVR.
+4 карти без супротивника: Умань (Софіївка), Промзона + Плавні, Аеропорт. Практика стіків, 24 неонових воріт, Привид і запис DVR.
 
 [b]ЗЛІТ[/b]
 Бойові БПЛА стартують з тактичної пускової бочки.
@@ -205,7 +205,7 @@ The coach warns about throttle spikes, lost horizon, VRS and side slip.
 Gamepad: B — retry module, Start — help.
 
 [b]FREE FLIGHT[/b]
-Four maps without opponents: Uman (Sofiyivka), Industrial Zone, Wetlands and Airport. Practise sticks, 24 neon gates, Ghost lap and DVR replay.
+Four maps without opponents: Uman (Sofiyivka), Industrial Zone + Wetlands and Airport. Practise sticks, 24 neon gates, Ghost lap and DVR replay.
 
 [b]TAKEOFF[/b]
 Combat drones launch from a field tube.
@@ -346,10 +346,10 @@ func _launch_tutorial() -> void:
 	# Same persistent loading card as the main menu, including the authored
 	# battlefield photograph, so the tutorial does not flash a black screen.
 	var overlay: Dictionary = LoadingScreen.build(Global.PlayMode.TUTORIAL, 0,
-			"industrial", Global.get_difficulty_name(), false)
+			"promzona_plavni", Global.get_difficulty_name(), false)
 	get_tree().root.add_child.call_deferred(overlay["layer"])
 	await get_tree().process_frame
-	get_tree().change_scene_to_file("res://sceneries/IndustrialLevel.tscn")
+	get_tree().change_scene_to_file("res://sceneries/PromzonaPlavniLevel.tscn")
 
 
 func _go_back() -> void:

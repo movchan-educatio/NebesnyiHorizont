@@ -31,7 +31,7 @@ const DESCRIPTIONS := [
 const PRESETS := {
 	Level.LOW: {
 		"scale_3d": 0.67, "min_scale": 0.40, "max_scale": 0.72,
-		"adaptive": false, "target_fps": 118.0,
+		"adaptive": false, "target_fps": 60.0,
 		"physics_hz": 60,
 		"static_sky": true,
 		"fsr_sharpness": 0.85, "msaa": 0, "fxaa": false,
@@ -47,7 +47,7 @@ const PRESETS := {
 	},
 	Level.MEDIUM: {
 		"scale_3d": 0.8, "min_scale": 0.55, "max_scale": 0.85,
-		"adaptive": false, "target_fps": 118.0,
+		"adaptive": true, "target_fps": 60.0,
 		"physics_hz": 60,
 		"static_sky": true,
 		# 0.38 was soft enough to read as a low-resolution image on a 1080p
@@ -134,8 +134,9 @@ static func params() -> Dictionary:
 			or OS.has_environment("MOBILE_UI")
 	if mobile:
 		p["mobile_profile"] = true
-		var refresh := DisplayServer.screen_get_refresh_rate()
-		var mobile_target := 58.0 if refresh < 90.0 else 118.0
+		# Smooth 60 Hz pacing on phones as well; only the internal 3D scale
+		# adapts, so texture resolution and PBR/lighting quality are unchanged.
+		var mobile_target := 60.0
 		match level():
 			Level.LOW:
 				p.merge({"scale_3d": 0.67, "min_scale": 0.42, "max_scale": 0.80,
@@ -147,8 +148,8 @@ static func params() -> Dictionary:
 					"ssao": false, "ssil": false, "volumetric_fog": false,
 					"glow": false, "fxaa": false}, true)
 			Level.MEDIUM:
-				p.merge({"scale_3d": 0.72, "min_scale": 0.50, "max_scale": 0.84,
-					"adaptive": true, "target_fps": minf(mobile_target, 60.0),
+				p.merge({"scale_3d": 0.80, "min_scale": 0.55, "max_scale": 0.85,
+					"adaptive": true, "target_fps": mobile_target,
 					"grass_count": 1900, "grass_range": 24.0,
 					"veg_range": 740.0, "veg_density": 0.68, "mesh_lod": 1.35,
 					"shadow_distance": 100.0, "shadow_atlas": 1024,
@@ -157,7 +158,7 @@ static func params() -> Dictionary:
 					"glow": false, "fxaa": false}, true)
 			Level.HIGH:
 				p.merge({"scale_3d": 0.78, "min_scale": 0.56, "max_scale": 0.84,
-					"adaptive": true, "target_fps": 58.0,
+					"adaptive": true, "target_fps": mobile_target,
 					"grass_count": 2600, "grass_range": 26.0,
 					"veg_range": 900.0, "veg_density": 0.76, "mesh_lod": 1.15,
 					"shadow_distance": 115.0, "shadow_atlas": 1024,

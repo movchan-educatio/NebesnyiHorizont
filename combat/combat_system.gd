@@ -123,48 +123,79 @@ func _ready() -> void:
 
 
 func _capture_screenshot() -> void:
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
 	var delay := 5.0
 	if OS.has_environment("DRONE_COMBAT_DEMO"):
 		await _demo_bomb_run()
+		if not is_inside_tree() or not is_instance_valid(self):
+			return
 		delay = 0.05
 	elif OS.has_environment("DRONE_AA_DEMO"):
 		await _aa_demo()
+		if not is_inside_tree() or not is_instance_valid(self):
+			return
 		delay = 0.08
 	elif OS.has_environment("DRONE_INFANTRY_DEMO"):
 		await _infantry_demo()
+		if not is_inside_tree() or not is_instance_valid(self):
+			return
 		delay = 0.05
 	elif OS.has_environment("DRONE_WALK_DEMO"):
 		await _walk_demo()
+		if not is_inside_tree() or not is_instance_valid(self):
+			return
 		delay = 0.2
 	elif OS.has_environment("DRONE_RESULTS_DEMO"):
 		await _results_demo()
+		if not is_inside_tree() or not is_instance_valid(self):
+			return
 		delay = 0.55
 	elif OS.has_environment("DRONE_SHOWCASE"):
 		await _showcase_setup()
+		if not is_inside_tree() or not is_instance_valid(self):
+			return
 		if OS.has_environment("DRONE_SHOWCASE_BOOM"):
-			await get_tree().create_timer(0.6).timeout
+			await tree.create_timer(0.6).timeout
+			if not is_inside_tree() or not is_instance_valid(self):
+				return
 			var targets := _ground_targets()
 			if not targets.is_empty():
 				ExplosionScript.spawn(get_parent(), (targets[2] if targets.size() > 2 else targets[0]).global_position + Vector3.UP * 2.0, 7.0, 0.0)
 			delay = 0.3
 		else:
 			delay = 0.35
-	await get_tree().create_timer(delay).timeout
+	await tree.create_timer(delay).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 	await RenderingServer.frame_post_draw
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 	var image := get_viewport().get_texture().get_image()
 	var path := OS.get_environment("DRONE_SCREENSHOT")
 	var err := image.save_png(path)
 	print("[SCREENSHOT] ", path, " size=", image.get_size(), " err=", err)
-	get_tree().quit()
+	tree.quit()
 
 
 func _demo_bomb_run() -> void:
-	await get_tree().create_timer(3.0).timeout
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
+	await tree.create_timer(3.0).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 	var targets := _ground_targets()
-	if targets.is_empty() or _drone == null:
+	if targets.is_empty() or _drone == null or not is_instance_valid(_drone):
 		return
 	var target: Node3D = targets[0]
-	var spawn_node := get_parent().get_node_or_null("Respawn") as Node3D
+	if target == null or not is_instance_valid(target):
+		return
+	var parent := get_parent()
+	var spawn_node: Node3D = null
+	if parent != null:
+		spawn_node = parent.get_node_or_null("Respawn") as Node3D
 	var origin := spawn_node.global_position if spawn_node != null else target.global_position + Vector3(0, 0, 15)
 	var approach := origin - target.global_position
 	approach.y = 0.0
@@ -181,30 +212,47 @@ func _demo_bomb_run() -> void:
 		controller.set_armed(true)
 	_drone.freeze = true
 	_drone.linear_velocity = Vector3.ZERO
-	await get_tree().create_timer(0.25).timeout
+	await tree.create_timer(0.25).timeout
+	if not is_inside_tree() or not is_instance_valid(self) or _drone == null \
+			or not is_instance_valid(_drone):
+		return
 	var before := explosions
 	drop_payload()
 	for i in range(160):
-		await get_tree().create_timer(0.05).timeout
+		await tree.create_timer(0.05).timeout
+		if not is_inside_tree() or not is_instance_valid(self):
+			return
 		if explosions > before:
 			break
-	await get_tree().create_timer(0.18).timeout
+	await tree.create_timer(0.18).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 
 
 func _showcase_setup() -> void:
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
 	# Wait for the range to place its targets (same race as the infantry demo).
 	var targets: Array[Node3D] = []
 	for i in range(60):
-		await get_tree().create_timer(0.25).timeout
+		await tree.create_timer(0.25).timeout
+		if not is_inside_tree() or not is_instance_valid(self):
+			return
 		targets = _ground_targets()
-		if not targets.is_empty() and _drone != null:
+		if not targets.is_empty() and _drone != null and is_instance_valid(_drone):
 			break
-	if targets.is_empty() or _drone == null:
+	if targets.is_empty() or _drone == null or not is_instance_valid(_drone):
 		print("[DEMO] showcase aborted targets=", targets.size(),
 				" drone=", _drone)
 		return
 	var target: Node3D = targets[2] if targets.size() > 2 else targets[0]
-	var spawn := get_parent().get_node_or_null("Respawn") as Node3D
+	if target == null or not is_instance_valid(target):
+		return
+	var parent := get_parent()
+	var spawn: Node3D = null
+	if parent != null:
+		spawn = parent.get_node_or_null("Respawn") as Node3D
 	var origin := spawn.global_position if spawn != null else target.global_position + Vector3(0, 0, 15)
 	var dir := origin - target.global_position
 	dir.y = 0.0
@@ -224,11 +272,18 @@ func _showcase_setup() -> void:
 
 
 func _aa_demo() -> void:
-	await get_tree().create_timer(3.0).timeout
-	var guns := get_tree().get_nodes_in_group("aa_gun")
-	if guns.is_empty() or _drone == null:
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
+	await tree.create_timer(3.0).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
+	var guns := tree.get_nodes_in_group("aa_gun")
+	if guns.is_empty() or _drone == null or not is_instance_valid(_drone):
 		return
 	var gun: Node3D = guns[0]
+	if gun == null or not is_instance_valid(gun):
+		return
 	var approach := -gun.global_transform.basis.z
 	approach.y = 0.0
 	if approach.length_squared() < 0.01:
@@ -244,14 +299,23 @@ func _aa_demo() -> void:
 		controller.set_armed(true)
 	_drone.freeze = true
 	_drone.linear_velocity = Vector3.ZERO
-	await get_tree().create_timer(0.4).timeout
+	await tree.create_timer(0.4).timeout
+	if not is_inside_tree() or not is_instance_valid(self) or not is_instance_valid(gun):
+		return
 	if gun.has_method("demo_warm_up"):
 		gun.call("demo_warm_up")
-	await get_tree().create_timer(0.42).timeout
+	await tree.create_timer(0.42).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 
 
 func _results_demo() -> void:
-	await get_tree().create_timer(3.0).timeout
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
+	await tree.create_timer(3.0).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 	if _hud == null or not is_instance_valid(_hud):
 		return
 	var time_str := _format_time(_elapsed) if _elapsed > 0.0 else "01:42.00"
@@ -263,25 +327,34 @@ func _results_demo() -> void:
 	var i_dst := inf_destroyed if inf_destroyed > 0 else i_tot
 	var sc := score if score > 0 else 3850
 	_hud.call("show_results", time_str, sc, t_dst, t_tot, a_dst, a_tot, i_dst, i_tot)
-	await get_tree().create_timer(0.4).timeout
+	await tree.create_timer(0.4).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 
 
 func _infantry_demo() -> void:
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
 	# The range builds its units only after the city reports spawn_ready, which
 	# can take several seconds. Poll instead of assuming a fixed delay.
 	var units: Array = []
 	for i in range(60):
-		await get_tree().create_timer(0.25).timeout
-		units = get_tree().get_nodes_in_group("enemy_infantry")
-		if not units.is_empty() and _drone != null:
+		await tree.create_timer(0.25).timeout
+		if not is_inside_tree() or not is_instance_valid(self):
+			return
+		units = tree.get_nodes_in_group("enemy_infantry")
+		if not units.is_empty() and _drone != null and is_instance_valid(_drone):
 			break
-	if units.is_empty() or _drone == null:
+	if units.is_empty() or _drone == null or not is_instance_valid(_drone):
 		print("[DEMO] infantry demo aborted units=", units.size(),
 				" drone=", _drone)
 		return
 	print("[DEMO] infantry demo units=", units.size(),
 			" drone_at=", _drone.global_position)
 	var soldier: Node3D = units[2] if units.size() > 2 else units[0]
+	if soldier == null or not is_instance_valid(soldier):
+		return
 	var forward := -soldier.global_transform.basis.z
 	forward.y = 0.0
 	if forward.length_squared() < 0.01:
@@ -307,27 +380,39 @@ func _infantry_demo() -> void:
 		controller.set_armed(true)
 	_drone.freeze = true
 	_drone.linear_velocity = Vector3.ZERO
-	await get_tree().create_timer(0.8).timeout
+	await tree.create_timer(0.8).timeout
+	if not is_inside_tree() or not is_instance_valid(self) or not is_instance_valid(soldier):
+		return
 	for unit in units:
-		if unit is Node3D and unit.global_position.distance_to(soldier.global_position) < 35.0:
+		if unit != null and is_instance_valid(unit) and unit is Node3D \
+				and unit.global_position.distance_to(soldier.global_position) < 35.0:
 			if unit.has_method("demo_warm_up"):
 				unit.call("demo_warm_up")
-	await get_tree().physics_frame
+	await tree.physics_frame
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 
 
 func _walk_demo() -> void:
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
 	var units: Array = []
 	for i in range(60):
-		await get_tree().create_timer(0.25).timeout
-		units = get_tree().get_nodes_in_group("enemy_infantry")
-		if units.size() > 1 and _drone != null:
+		await tree.create_timer(0.25).timeout
+		if not is_inside_tree() or not is_instance_valid(self):
+			return
+		units = tree.get_nodes_in_group("enemy_infantry")
+		if units.size() > 1 and _drone != null and is_instance_valid(_drone):
 			break
-	if units.size() < 2 or _drone == null:
+	if units.size() < 2 or _drone == null or not is_instance_valid(_drone):
 		print("[DEMO] walk demo aborted units=", units.size(),
 				" drone=", _drone)
 		return
 	print("[DEMO] walk demo units=", units.size())
 	var soldier: Node3D = units[1] if units.size() > 1 else units[0]
+	if soldier == null or not is_instance_valid(soldier):
+		return
 	var forward := -soldier.global_transform.basis.z
 	forward.y = 0.0
 	if forward.length_squared() < 0.01:
@@ -338,7 +423,9 @@ func _walk_demo() -> void:
 	_drone.angular_velocity = Vector3.ZERO
 	_drone.global_position = soldier.global_position + forward * 4.6 + Vector3.UP * 2.5
 	_drone.look_at(soldier.global_position + Vector3.UP * 1.0, Vector3.UP)
-	await get_tree().create_timer(0.6).timeout
+	await tree.create_timer(0.6).timeout
+	if not is_inside_tree() or not is_instance_valid(self) or not is_instance_valid(soldier):
+		return
 	if OS.has_environment("DRONE_INFANTRY_DEBUG"):
 		for i in range(8):
 			var hip_l = soldier.get("_hip_l")
@@ -348,13 +435,18 @@ func _walk_demo() -> void:
 			print("[WALKDBG] t=", i * 0.15, " patrol=", patrol, " stride=", stride,
 					" hipL=", hip_l.rotation.x if hip_l != null else -99.0,
 					" hipR=", hip_r.rotation.x if hip_r != null else -99.0)
-			await get_tree().create_timer(0.15).timeout
+			await tree.create_timer(0.15).timeout
+			if not is_inside_tree() or not is_instance_valid(self) or not is_instance_valid(soldier):
+				return
 
 
 func _ground_targets() -> Array[Node3D]:
+	var tree := get_tree()
+	if tree == null:
+		return []
 	var out: Array[Node3D] = []
-	for node in get_tree().get_nodes_in_group("combat_target"):
-		if is_instance_valid(node) and not node.is_in_group("aa_gun") \
+	for node in tree.get_nodes_in_group("combat_target"):
+		if node != null and is_instance_valid(node) and not node.is_in_group("aa_gun") \
 				and not node.is_in_group("enemy_infantry"):
 			out.append(node)
 	return out
@@ -452,7 +544,10 @@ func _build_impact_marker() -> void:
 
 
 func _update_impact_marker() -> void:
-	if _impact_marker == null:
+	if _impact_marker == null or not is_instance_valid(_impact_marker):
+		return
+	if _drone == null or not is_instance_valid(_drone):
+		_impact_marker.visible = false
 		return
 	if _has_bomb_sight():
 		_impact_marker.visible = false
@@ -491,7 +586,9 @@ func _unhandled_input(event: InputEvent) -> void:
 ## Returns true only when a physical store was actually released.  The level
 ## uses this to avoid hiding the pylon model when the guard rejects the drop.
 func drop_payload() -> bool:
-	if _drone == null or _lost:
+	if not is_inside_tree():
+		return false
+	if _drone == null or not is_instance_valid(_drone) or _lost:
 		return false
 	var p := DroneCatalog.preset(Global.drone_preset)
 	var is_combat: bool = bool(p.get("combat", false))
@@ -529,7 +626,10 @@ func drop_payload() -> bool:
 	payload.damage = payload_damage
 	payload.blast_radius = payload_radius
 	payload.exploded.connect(_on_payload_exploded)
-	get_parent().add_child(payload)
+	var parent := get_parent()
+	if parent == null:
+		return false
+	parent.add_child(payload)
 	payload.global_position = state.get("origin", _drone.global_position \
 			+ Vector3.DOWN * 0.35 + forward * 0.2)
 	payload.linear_velocity = state.get("velocity", _drone.linear_velocity \
@@ -672,7 +772,10 @@ func _check_aerial_and_moving_kamikaze() -> void:
 	if speed < kamikaze_min_speed:
 		return
 	var d_pos := _drone.global_position
-	for node in get_tree().get_nodes_in_group("combat_target"):
+	var tree := get_tree()
+	if tree == null:
+		return
+	for node in tree.get_nodes_in_group("combat_target"):
 		if not (node is Node3D) or not is_instance_valid(node) or not node.has_method("take_damage"):
 			continue
 		var n3 := node as Node3D
@@ -705,7 +808,12 @@ func _on_target_destroyed(points: int) -> void:
 	if targets_total > 0 and targets_destroyed >= targets_total and not _range_cleared:
 		_range_cleared = true
 		_timer_running = false
-		await get_tree().create_timer(1.0).timeout
+		var tree := get_tree()
+		if tree == null or not is_inside_tree():
+			return
+		await tree.create_timer(1.0).timeout
+		if not is_inside_tree() or not is_instance_valid(self):
+			return
 		_show_results()
 
 
@@ -759,16 +867,22 @@ func _show_results() -> void:
 		_format_time(_elapsed), score, targets_destroyed, targets_total,
 		aa_destroyed, aa_total, inf_destroyed, inf_total, str(hud_ok),
 	])
-	get_tree().paused = true
-	print("[Combat] RESULTS paused=", get_tree().paused)
+	var tree := get_tree()
+	if tree == null:
+		return
+	tree.paused = true
+	print("[Combat] RESULTS paused=", tree.paused)
 
 
 func _on_restart_requested() -> void:
 	if not _results_shown:
 		return
-	print("[Combat] RESTART requested; paused=", get_tree().paused)
-	get_tree().paused = false
-	get_tree().reload_current_scene()
+	var tree := get_tree()
+	if tree == null:
+		return
+	print("[Combat] RESTART requested; paused=", tree.paused)
+	tree.paused = false
+	tree.reload_current_scene()
 
 
 func _format_time(seconds: float) -> String:
@@ -780,9 +894,9 @@ func _format_time(seconds: float) -> String:
 
 
 func _on_drone_body_entered(body: Node) -> void:
-	if _lost or _drone == null:
+	if _lost or _drone == null or not is_instance_valid(_drone):
 		return
-	if body == null:
+	if body == null or not is_instance_valid(body):
 		return
 	var speed := maxf(_last_speed, _drone.linear_velocity.length())
 	# Strike airframes own their warhead.  Let the level perform the single
@@ -808,6 +922,8 @@ func _on_drone_body_entered(body: Node) -> void:
 func _destroy_drone(text: String) -> void:
 	if _lost:
 		return
+	if _drone == null or not is_instance_valid(_drone):
+		return
 	_lost = true
 	var position := _drone.global_position
 	ExplosionScript.spawn(get_parent(), position, 5.0, 0.0)
@@ -820,7 +936,14 @@ func _destroy_drone(text: String) -> void:
 	if lvl != null and lvl.has_method("consume_sortie_airframe"):
 		if not bool(lvl.call("consume_sortie_airframe", text)):
 			return
-	await get_tree().create_timer(1.3).timeout
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
+	await tree.create_timer(1.3).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
+	if lvl != null and not is_instance_valid(lvl):
+		lvl = null
 	if lvl != null and lvl.has_method("request_kamikaze_respawn_after_replay"):
 		lvl.call("request_kamikaze_respawn_after_replay")
 	elif lvl != null and lvl.has_method("_execute_kamikaze_respawn"):
@@ -858,26 +981,42 @@ func _message(text: String, color: Color = Color(0.85, 1.0, 0.65), duration: flo
 # ---------------------------------------------------------------- self-test
 
 func _clear_range_test() -> void:
-	await get_tree().create_timer(4.0).timeout
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
+	await tree.create_timer(4.0).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 	var targets := _ground_targets()
 	print("[CLEAR-TEST] destroying ", targets.size(), " ground targets")
 	for target in targets:
 		if is_instance_valid(target) and target.has_method("take_damage"):
 			target.call("take_damage", 99999.0, target.global_position + Vector3.UP)
-	await get_tree().create_timer(0.35).timeout
+	await tree.create_timer(0.35).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 	print("[CLEAR-TEST] destroyed=", targets_destroyed, "/", targets_total,
 			" cleared=", _range_cleared, " results=", _results_shown)
 
 
 func _infantry_autotest() -> void:
-	await get_tree().create_timer(4.0).timeout
-	var inf := get_tree().get_nodes_in_group("enemy_infantry")
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
+	await tree.create_timer(4.0).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
+	var inf := tree.get_nodes_in_group("enemy_infantry")
 	print("[INF-AUTOTEST] infantry: ", inf.size(), " hud: ", _hud != null)
-	if inf.is_empty() or _drone == null:
+	if inf.is_empty() or _drone == null or not is_instance_valid(_drone):
 		print("[INF-AUTOTEST] FAIL: no infantry or drone")
-		get_tree().quit()
+		tree.quit()
 		return
 	var soldier: Node3D = inf[2] if inf.size() > 2 else inf[0]
+	if soldier == null or not is_instance_valid(soldier):
+		print("[INF-AUTOTEST] FAIL: invalid soldier")
+		tree.quit()
+		return
 	var forward := -soldier.global_transform.basis.z
 	forward.y = 0.0
 	if forward.length_squared() < 0.01:
@@ -896,18 +1035,20 @@ func _infantry_autotest() -> void:
 	var before := drone_health
 	var hit := false
 	for i in range(240):
-		await get_tree().create_timer(0.05).timeout
+		await tree.create_timer(0.05).timeout
+		if not is_inside_tree() or not is_instance_valid(self):
+			return
 		if drone_health < before - 0.5:
 			hit = true
 			break
 	print("[INF-AUTOTEST] infantry fire damage: ", hit, " health ", before, " -> ", drone_health)
-	if controller != null:
+	if controller != null and is_instance_valid(controller):
 		controller.set_armed(false)
 	if hit:
 		print("[INF-AUTOTEST] PASS infantry fire")
 	else:
 		print("[INF-AUTOTEST] FAIL infantry fire")
-	get_tree().quit()
+	tree.quit()
 
 
 ## Kill counter of BigLevel's structured mission system (0 when absent).
@@ -920,26 +1061,39 @@ func _mission_destroyed_count() -> int:
 
 
 func _combat_autotest() -> void:
-	await get_tree().create_timer(4.0).timeout
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
+	await tree.create_timer(4.0).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
+	if _drone == null or not is_instance_valid(_drone):
+		tree.quit()
+		return
 	if not bool(DroneCatalog.preset(Global.drone_preset).get("has_drop", false)):
 		DroneCatalog.apply_to_drone(_drone, 6)
 		ammo = 4
-	var all_targets := get_tree().get_nodes_in_group("combat_target")
+	var all_targets := tree.get_nodes_in_group("combat_target")
 	var targets := _ground_targets()
-	var aa := get_tree().get_nodes_in_group("aa_gun")
-	var inf := get_tree().get_nodes_in_group("enemy_infantry")
+	var aa := tree.get_nodes_in_group("aa_gun")
+	var inf := tree.get_nodes_in_group("enemy_infantry")
 	print("[COMBAT-AUTOTEST] ground targets: ", targets.size(), " aa: ", aa.size(),
 			" inf: ", inf.size(), " all combat bodies: ", all_targets.size(), " hud: ", _hud != null)
 	if targets.is_empty():
 		print("[COMBAT-AUTOTEST] FAIL: no targets")
-		get_tree().quit()
+		tree.quit()
 		return
 	var first: Node3D = targets[0]
+	if first == null or not is_instance_valid(first):
+		tree.quit()
+		return
 	var score_before := score
 	var mission_before := _mission_destroyed_count()
 	print("[COMBAT-AUTOTEST] detonating at ", first.name, " ", first.global_position)
 	ExplosionScript.spawn(get_parent(), first.global_position + Vector3.UP * 1.2, 8.0, 2000.0)
-	await get_tree().create_timer(0.6).timeout
+	await tree.create_timer(0.6).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 	# BigLevel's structured missions track their own kill counter; the legacy
 	# CombatRange map uses targets_destroyed.  Accept either.
 	var mission_after := _mission_destroyed_count()
@@ -951,27 +1105,43 @@ func _combat_autotest() -> void:
 	payload.damage = payload_damage
 	payload.blast_radius = payload_radius
 	payload.exploded.connect(_on_payload_exploded)
-	get_parent().add_child(payload)
+	var parent := get_parent()
+	if parent == null:
+		tree.quit()
+		return
+	parent.add_child(payload)
+	if _drone == null or not is_instance_valid(_drone):
+		tree.quit()
+		return
 	var origin := _drone.global_position + Vector3(4.0, 20.0, 0.0)
 	payload.global_position = origin
 	payload.linear_velocity = Vector3.ZERO
 	var explosions_before := explosions
-	await get_tree().create_timer(4.0).timeout
+	await tree.create_timer(4.0).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 	var payload_ok := explosions > explosions_before
 	print("[COMBAT-AUTOTEST] payload exploded: ", payload_ok, " (", explosions_before, " -> ", explosions, ")")
 
+	if _drone == null or not is_instance_valid(_drone):
+		tree.quit()
+		return
 	var controller := _drone.get_node_or_null("FlightController") as FlightController
 	var ammo_before := ammo
 	if controller != null:
 		controller.set_armed(true)
 	drop_payload()
-	await get_tree().create_timer(0.15).timeout
+	await tree.create_timer(0.15).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 	var drop_ok := ammo == ammo_before - 1
 	print("[COMBAT-AUTOTEST] drop_payload: ", drop_ok, " ammo ", ammo_before, " -> ", ammo)
 
 	var health_before := drone_health
 	damage_drone(10.0)
-	await get_tree().create_timer(0.1).timeout
+	await tree.create_timer(0.1).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
+		return
 	var hull_ok := drone_health < health_before
 	print("[COMBAT-AUTOTEST] hull damage: ", hull_ok, " health ", health_before, " -> ", drone_health)
 
@@ -979,13 +1149,18 @@ func _combat_autotest() -> void:
 	if not aa.is_empty():
 		var aa_before := score
 		var gun: Node3D = aa[0]
+		if gun == null or not is_instance_valid(gun):
+			tree.quit()
+			return
 		print("[COMBAT-AUTOTEST] destroying AA at ", gun.global_position)
 		gun.call("take_damage", 99999.0, gun.global_position + Vector3.UP)
-		await get_tree().create_timer(0.25).timeout
+		await tree.create_timer(0.25).timeout
+		if not is_inside_tree() or not is_instance_valid(self):
+			return
 		aa_ok = aa_destroyed > 0 and score >= aa_before + 500
 		print("[COMBAT-AUTOTEST] AA destroyed: ", aa_ok, " count ", aa_destroyed,
 				" score ", aa_before, " -> ", score)
-	if controller != null:
+	if controller != null and is_instance_valid(controller):
 		controller.set_armed(false)
 
 	# Structured missions spawn a handful of objectives, not the eight-target
@@ -998,4 +1173,4 @@ func _combat_autotest() -> void:
 		print("[COMBAT-AUTOTEST] PASS combat range")
 	else:
 		print("[COMBAT-AUTOTEST] FAIL combat range")
-	get_tree().quit()
+	tree.quit()

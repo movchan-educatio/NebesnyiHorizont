@@ -87,6 +87,8 @@ static func build(root: Node3D, map_name: String, _base_y: float) -> void:
 			_dress_industrial(root, map_name, factor)
 		"wetlands":
 			_dress_wetlands(root, map_name, factor)
+		"promzona_plavni":
+			_dress_promzona_plavni(root, map_name, factor)
 		_:
 			_dress_steppe(root, map_name, factor)
 	_dress_fields(root, map_name, factor)
@@ -121,13 +123,14 @@ static func _b2(b: Basis, v: Vector3) -> Vector2:
 
 
 static func _free(x: float, z: float, pad: float = 2.0) -> bool:
-	if absf(x) > 160.0 or absf(z) > 160.0:
+	var detail_bound := 318.0 if _map == "promzona_plavni" else 160.0
+	if absf(x) > detail_bound or absf(z) > detail_bound:
 		return false
 	if FT._road_factor(_map, x, z) >= 0.25:
 		return false
 	if _h(x, z) < FT.water_level(_map) + 0.35:
 		return false
-	if _map == "steppe" or _map == "village":
+	if _map == "steppe" or _map == "village" or _map == "promzona_plavni":
 		if FT._tutorial_clear_zone(x, z):
 			return false
 	if FT._hall_clear_zone(_map, x, z):
@@ -150,10 +153,16 @@ static func _no_shadow(node: Node) -> void:
 
 
 static func _box(root: Node3D, pos: Vector3, size: Vector3, mat: Material,
-		yaw: float = 0.0, collide: bool = false) -> void:
+		yaw: float = 0.0, collide: bool = false) -> Node:
 	var node := FT._add_box(root, pos, size, mat, yaw, collide)
 	if node != null:
 		_no_shadow(node)
+	return node
+
+
+static func _tag_attached(node: Node) -> void:
+	if node != null:
+		node.set_meta("qa_attached_subpart", true)
 
 
 static func _cyl(root: Node3D, pos: Vector3, radius: float, height: float,
@@ -457,10 +466,20 @@ static func _dress_hall_sites(root: Node3D, map_name: String, factor: float) -> 
 			half = Vector2(56.0, 25.0)
 		"wetlands":
 			half = Vector2(52.0, 24.0)
+		"promzona_plavni":
+			half = Vector2(58.0, 25.0)
 	_used_sites.append(c)
 	_used_sites.append(Vector2(c.x + pad_half.x + 32.0, c.y))
 	var roof_h := float(site.get("roof_height", 18.0))
 	var gy := _h(c.x, c.y)
+
+	# All facade trim and wall-mounted dressing lives under one named container
+	# so composite ground validation can tie every elevated trim back to the
+	# grounded hall base.  The container is identity, so world positions do not
+	# change.
+	var trim_root := Node3D.new()
+	trim_root.name = "HeroHallTrim_" + map_name
+	root.add_child(trim_root)
 
 	# ---- roof / facade rhythm ------------------------------------------------
 	var metal := FT._pbr("hall_rust", Color(0.72, 0.52, 0.36), 0.34)
@@ -476,36 +495,36 @@ static func _dress_hall_sites(root: Node3D, map_name: String, factor: float) -> 
 			var fx := c.x + bx
 			var wall_z := half.y
 			var fz: float = c.y + side * (wall_z + 0.18)
-			_box(root, Vector3(fx, gy + 2.5, fz), Vector3(0.18, 5.0, 0.22), metal)
+			_box(trim_root, Vector3(fx, gy + 2.5, fz), Vector3(0.18, 5.0, 0.22), metal)
 			for row in range(2):
 				var wy := gy + 4.0 + float(row) * 4.4
-				_box(root, Vector3(fx + 3.1, wy - 1.16, fz + side * 0.15),
+				_box(trim_root, Vector3(fx + 3.1, wy - 1.16, fz + side * 0.15),
 						Vector3(4.5, 0.12, 0.24), concrete)
-				_box(root, Vector3(fx + 3.1, wy + 1.16, fz + side * 0.15),
+				_box(trim_root, Vector3(fx + 3.1, wy + 1.16, fz + side * 0.15),
 						Vector3(4.5, 0.12, 0.24), concrete)
 				for mx in [-1.45, 0.0, 1.45]:
-					_box(root, Vector3(fx + 3.1 + mx, wy, fz + side * 0.13),
+					_box(trim_root, Vector3(fx + 3.1 + mx, wy, fz + side * 0.13),
 							Vector3(0.10, 2.2, 0.16), metal)
 	# Long-facade weathering: base grime, rust runs and moss patches.
 	var side_wall_z := half.y
 	for side in [-1.0, 1.0]:
 		var fz2: float = c.y + side * (side_wall_z + 0.12)
-		_box(root, Vector3(c.x, gy + 0.45, fz2),
+		_box(trim_root, Vector3(c.x, gy + 0.45, fz2),
 				Vector3(half.x * 1.72, 0.9, 0.08),
 				FT._mat(Color(0.24, 0.21, 0.17), 0.95), 0, false)
 		for k in range(7):
 			var rx := c.x - half.x * 0.72 + float(k) * half.x * 0.24
 			var rh := 1.8 + float(k % 3) * 0.8
-			_box(root, Vector3(rx, gy + 4.3, fz2 + side * 0.06),
+			_box(trim_root, Vector3(rx, gy + 4.3, fz2 + side * 0.06),
 					Vector3(0.16, rh, 0.06), FT._mat(Color(0.24, 0.15, 0.09), 0.95),
 					0, false)
 		for k in range(4):
 			var mx := c.x - half.x * 0.55 + float(k) * half.x * 0.35
-			_box(root, Vector3(mx, gy + 0.55, fz2 + side * 0.08),
+			_box(trim_root, Vector3(mx, gy + 0.55, fz2 + side * 0.08),
 					Vector3(1.2, 1.1, 0.08), FT._pbr("hall_moss",
 					Color(0.34, 0.39, 0.23), 0.4), 0, false)
 		# Gutter along the eave.
-		_box(root, Vector3(c.x, gy + roof_h * 0.68, fz2 + side * 0.1),
+		_box(trim_root, Vector3(c.x, gy + roof_h * 0.68, fz2 + side * 0.1),
 				Vector3(half.x * 1.76, 0.22, 0.24),
 				FT._pbr("steel", Color(0.38, 0.26, 0.18), 0.36), 0, false)
 	# Service catwalk and pipe runs along both long facades.  The old version
@@ -519,29 +538,29 @@ static func _dress_hall_sites(root: Node3D, map_name: String, factor: float) -> 
 		var wall_z: float = c.y + side * (side_wall_z + 0.10)
 		var mid_z: float = (wz + wall_z) * 0.5
 		var reach_z: float = absf(wz - wall_z) + 0.34
-		_box(root, Vector3(c.x, gy + 9.6, wz),
+		_box(trim_root, Vector3(c.x, gy + 9.6, wz),
 				Vector3(half.x * 1.55, 0.18, 1.9), catwalk_mat, 0, true)
 		var rail_z: float = wz + side * 0.88
-		_box(root, Vector3(c.x, gy + 10.55, rail_z),
+		_box(trim_root, Vector3(c.x, gy + 10.55, rail_z),
 				Vector3(half.x * 1.55, 0.08, 0.08), steel, 0, false)
 		var posts := 10
 		for k in range(posts):
 			var px := c.x - half.x * 0.72 + float(k) * half.x * 1.44 / float(posts - 1)
 			# Outer railing post, resting on the deck.
-			_box(root, Vector3(px, gy + 10.08, rail_z),
+			_box(trim_root, Vector3(px, gy + 10.08, rail_z),
 					Vector3(0.08, 1.0, 0.08), steel, 0, false)
 			# Horizontal bracket from the wall to the deck underside.
-			_box(root, Vector3(px, gy + 9.40, mid_z),
+			_box(trim_root, Vector3(px, gy + 9.40, mid_z),
 					Vector3(0.12, 0.16, reach_z), steel, 0, false)
 			# Diagonal brace tying the bracket back to the wall.
-			var brace := FT._add_box(root, Vector3(px, gy + 8.67, mid_z),
+			var brace := FT._add_box(trim_root, Vector3(px, gy + 8.67, mid_z),
 					Vector3(0.09, 1.95, 0.09), steel)
 			if brace != null:
 				brace.rotation.x = -side * 0.62
 				_no_shadow(brace)
 			# Pipe brackets at both service pipes.
 			for py in [5.0, 6.2]:
-				_box(root, Vector3(px, gy + float(py), mid_z),
+				_box(trim_root, Vector3(px, gy + float(py), mid_z),
 						Vector3(0.10, 0.10, reach_z), steel, 0, false)
 		# Two heavy service pipes below the catwalk.
 		for py in [5.0, 6.2]:
@@ -556,20 +575,20 @@ static func _dress_hall_sites(root: Node3D, map_name: String, factor: float) -> 
 			pipe.position = Vector3(c.x, gy + float(py), wz + side * 0.45)
 			pipe.rotation = Vector3(0, 0, PI * 0.5)
 			pipe.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			root.add_child(pipe)
+			trim_root.add_child(pipe)
 	# Exterior lamps along the long facade (no shadows: cheap fill).
 	for side in [-1.0, 1.0]:
 		for i in range(3):
 			var lx := c.x + (-half.x * 0.62 + float(i) * half.x * 0.62)
 			var lz: float = c.y + side * (half.y + 0.28)
-			_box(root, Vector3(lx, gy + 6.9, lz), Vector3(0.22, 0.7, 0.22), dark)
+			_box(trim_root, Vector3(lx, gy + 6.9, lz), Vector3(0.22, 0.7, 0.22), dark)
 			var lamp := OmniLight3D.new()
 			lamp.position = Vector3(lx, gy + 6.65, lz + side * 0.2)
 			lamp.omni_range = 14.0
 			lamp.light_energy = 0.55
 			lamp.light_color = Color(1.0, 0.78, 0.48)
 			lamp.shadow_enabled = false
-			root.add_child(lamp)
+			trim_root.add_child(lamp)
 			var bulb := SphereMesh.new()
 			bulb.radius = 0.13
 			bulb.height = 0.26
@@ -582,11 +601,11 @@ static func _dress_hall_sites(root: Node3D, map_name: String, factor: float) -> 
 			bm.material_override = bmat
 			bm.position = lamp.position
 			bm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			root.add_child(bm)
+			trim_root.add_child(bm)
 
 	# ---- end walls: portals, windows, pilasters and service pipes ----------
 	for dir in [-1.0, 1.0]:
-		_hall_end_details(root, map_name, c, half, dir, gy, roof_h)
+		_hall_end_details(trim_root, map_name, c, half, dir, gy, roof_h)
 
 	# ---- loading apron at both doors ---------------------------------------
 	for dir in [-1.0, 1.0]:
@@ -740,17 +759,17 @@ static func _hall_yard(root: Node3D, map_name: String, c: Vector2, half: Vector2
 			var cmat := FT._pbr("steel", [Color(0.66, 0.29, 0.19),
 					Color(0.24, 0.42, 0.52), Color(0.28, 0.46, 0.27)][
 					(s + int(cp.x)) % 3], 0.34)
-			_box(root, Vector3(cp.x, _h(cp.x, cp.y) + 1.28 + float(s) * 2.55, cp.y),
+			_box(root, Vector3(cp.x, _h(cp.x, cp.y) + 1.28 + float(s) * 2.50, cp.y),
 					Vector3(6.0, 2.5, 2.42), cmat, cyaw, true)
 			var cb := Basis(Vector3.UP, cyaw)
 			for rib in range(7):
 				for side in [-1.0, 1.0]:
 					var off: Vector3 = cb * Vector3(-2.5 + float(rib) * 0.83, 0.0,
 							side * 1.24)
-					_box(root, Vector3(cp.x, _h(cp.x, cp.y) + 1.28 + float(s) * 2.55,
+					_box(root, Vector3(cp.x, _h(cp.x, cp.y) + 1.28 + float(s) * 2.50,
 							cp.y) + off, Vector3(0.06, 2.35, 0.05), metal, cyaw, false)
 			# Top and bottom rails in a lighter steel break the flat colour.
-			_box(root, Vector3(cp.x, _h(cp.x, cp.y) + 2.50 + float(s) * 2.55,
+			_box(root, Vector3(cp.x, _h(cp.x, cp.y) + 2.50 + float(s) * 2.50,
 					cp.y), Vector3(6.15, 0.12, 2.55), metal, cyaw, false)
 
 	# Pipe stacks: three long galvanised cylinders on timber baulks, with
@@ -1200,36 +1219,41 @@ static func _tank_cluster(root: Node3D, p: Vector2) -> void:
 	var steel := FT._pbr("hall_metal", Color(0.50, 0.50, 0.46), 0.34)
 	var rust := FT._pbr("hall_rust", Color(0.62, 0.42, 0.27), 0.38)
 	var concrete := FT._pbr("concrete", Color(0.64, 0.63, 0.58), 0.30)
+	# Composite assembly: tanks, ladders, rings, pipe bridge and bund share one
+	# named container so the elevated runs validate against the grounded base.
+	var tank_root := Node3D.new()
+	tank_root.name = "TankCluster"
+	root.add_child(tank_root)
 	for k in range(2):
 		var tx := p.x + float(k) * 9.0
 		var tz := p.y + float(k % 2) * 4.0
 		var ty := _h(tx, tz)
-		_cyl(root, Vector3(tx, ty + 4.5, tz), 3.2, 9.0, steel, true)
-		_cyl(root, Vector3(tx, ty + 9.1, tz), 3.3, 0.4, rust, false)
-		_cyl(root, Vector3(tx, ty + 9.5, tz), 1.1, 0.8, steel, false)
+		_cyl(tank_root, Vector3(tx, ty + 4.5, tz), 3.2, 9.0, steel, true)
+		_cyl(tank_root, Vector3(tx, ty + 9.1, tz), 3.3, 0.4, rust, false)
+		_cyl(tank_root, Vector3(tx, ty + 9.5, tz), 1.1, 0.8, steel, false)
 		for band in range(3):
-			_cyl(root, Vector3(tx, ty + 1.8 + float(band) * 2.8, tz), 3.3, 0.18,
+			_cyl(tank_root, Vector3(tx, ty + 1.8 + float(band) * 2.8, tz), 3.3, 0.18,
 					rust, false)
 		for sz in [-0.35, 0.35]:
-			_box(root, Vector3(tx + 3.4, ty + 4.3, tz + sz),
+			_box(tank_root, Vector3(tx + 3.4, ty + 4.3, tz + sz),
 					Vector3(0.07, 8.0, 0.07), steel, 0, false)
 		for step in range(9):
-			_box(root, Vector3(tx + 3.4, ty + 0.4 + float(step) * 0.9, tz),
+			_box(tank_root, Vector3(tx + 3.4, ty + 0.4 + float(step) * 0.9, tz),
 					Vector3(0.08, 0.08, 0.7), steel, 0, false)
 	# Low bund wall around the tank farm.
-	_box(root, Vector3(p.x + 4.5, y + 0.5, p.y - 4.0), Vector3(22.0, 1.0, 0.5),
+	_box(tank_root, Vector3(p.x + 4.5, y + 0.5, p.y - 4.0), Vector3(22.0, 1.0, 0.5),
 			concrete, 0, true)
-	_box(root, Vector3(p.x + 4.5, y + 0.5, p.y + 7.0), Vector3(22.0, 1.0, 0.5),
+	_box(tank_root, Vector3(p.x + 4.5, y + 0.5, p.y + 7.0), Vector3(22.0, 1.0, 0.5),
 			concrete, 0, true)
 	for sx in [-1.0, 1.0]:
-		_box(root, Vector3(p.x + 4.5 + sx * 10.8, y + 0.5, p.y + 1.5),
+		_box(tank_root, Vector3(p.x + 4.5 + sx * 10.8, y + 0.5, p.y + 1.5),
 				Vector3(0.5, 1.0, 11.5), concrete, 0, true)
 	# Pipe bridge between the tanks: give it real supports and collision so it
 	# no longer reads as a beam floating in mid-air that the drone can cross.
-	_box(root, Vector3(p.x + 4.5, y + 6.5, p.y + 1.5), Vector3(10.0, 0.28, 0.28),
+	_box(tank_root, Vector3(p.x + 4.5, y + 6.5, p.y + 1.5), Vector3(10.0, 0.28, 0.28),
 			rust, 0, true)
 	for sx in [-4.5, 4.5]:
-		_box(root, Vector3(p.x + 4.5 + sx, y + 3.25, p.y + 1.5),
+		_box(tank_root, Vector3(p.x + 4.5 + sx, y + 3.25, p.y + 1.5),
 				Vector3(0.18, 6.5, 0.18), steel, 0, true)
 
 
@@ -1558,29 +1582,36 @@ static func _dress_apron(root: Node3D, map_name: String, p: Vector2,
 	for i in range(containers):
 		var cx := p.x + dir * _rng.randf_range(2.0, 7.0)
 		var cz := p.y + _rng.randf_range(-12.0, 12.0)
-		var cy := _h(cx, cz) + 1.28
+		var base_y := FT.footprint_min_height(_map, Vector2(cx, cz),
+				6.05, 2.42, 0.0) - 0.06
+		var cy := base_y + 1.25
 		var col: Color = [Color(0.46, 0.20, 0.14), Color(0.20, 0.30, 0.38),
 				Color(0.22, 0.34, 0.22)][i % 3]
 		var cmat := FT._pbr("steel", col, 0.34)
 		var stack := 1 + i % 2
 		for s in range(stack):
-			_box(root, Vector3(cx, cy + float(s) * 2.55, cz),
+			var box := _box(root, Vector3(cx, cy + float(s) * 2.50, cz),
 					Vector3(6.05, 2.5, 2.42), cmat, 0.0, true)
+			if s > 0:
+				_tag_attached(box)
 			for rib in range(7):
-				_box(root, Vector3(cx - 2.5 + float(rib) * 0.82,
-						cy + float(s) * 2.55, cz - 1.24),
-						Vector3(0.06, 2.35, 0.05), rust)
+				_tag_attached(_box(root, Vector3(cx - 2.5 + float(rib) * 0.82,
+						cy + float(s) * 2.50, cz - 1.24),
+						Vector3(0.06, 2.35, 0.05), rust))
 	# Concrete blocks / jersey barriers around the working area.
 	for i in range(int(maxf(2.0, round(5.0 * factor)))):
 		var bx := p.x + dir * _rng.randf_range(-2.0, 9.0)
 		var bz := p.y + _rng.randf_range(-13.0, 13.0)
-		var by := _h(bx, bz) + 0.55
+		var by := FT.footprint_min_height(_map, Vector2(bx, bz),
+				2.4, 0.7, 0.0) + 0.46
 		_box(root, Vector3(bx, by, bz), Vector3(2.4, 1.05, 0.7), concrete, 0.0, true)
-		_box(root, Vector3(bx, by + 0.55, bz), Vector3(1.1, 0.16, 0.55), rust)
+		_tag_attached(_box(root, Vector3(bx, by + 0.55, bz),
+				Vector3(1.1, 0.16, 0.55), rust))
 		for hz in [-0.22, 0.0, 0.22]:
-			_box(root, Vector3(bx, by + 0.08, bz + hz), Vector3(2.42, 0.12, 0.13),
+			_tag_attached(_box(root, Vector3(bx, by + 0.08, bz + hz),
+					Vector3(2.42, 0.12, 0.13),
 					FT._mat(Color(0.78, 0.62, 0.10) if int((hz + 0.22) * 100.0) % 2 == 0
-					else Color(0.10, 0.09, 0.08), 0.65), 0, false)
+					else Color(0.10, 0.09, 0.08), 0.65), 0, false))
 	# Pallet stacks, crates and drums.
 	_scatter_props(root, p, 10.0,
 			["prop_crate", "prop_pallet", "prop_barrel", "prop_tire",
@@ -1609,9 +1640,14 @@ static func _dress_apron(root: Node3D, map_name: String, p: Vector2,
 	# Loading dock bumpers / door frame on the hall face.
 	var door_x := p.x + dir * 1.2
 	var door_z := p.y
-	_box(root, Vector3(door_x, gy + 2.4, door_z - 3.0), Vector3(0.5, 4.8, 0.4), dark)
-	_box(root, Vector3(door_x, gy + 2.4, door_z + 3.0), Vector3(0.5, 4.8, 0.4), dark)
-	_box(root, Vector3(door_x, gy + 4.9, door_z), Vector3(0.5, 0.4, 6.4), rust)
+	var door_gy := FT.footprint_min_height(_map, Vector2(door_x, door_z),
+			0.6, 6.4, 0.0) - 0.08
+	_box(root, Vector3(door_x, door_gy + 2.4, door_z - 3.0),
+			Vector3(0.5, 4.8, 0.4), dark)
+	_box(root, Vector3(door_x, door_gy + 2.4, door_z + 3.0),
+			Vector3(0.5, 4.8, 0.4), dark)
+	_tag_attached(_box(root, Vector3(door_x, door_gy + 4.9, door_z),
+			Vector3(0.5, 0.4, 6.4), rust))
 
 	# Workshop apron kept clear of buildings, huts and structures
 	pass
@@ -1765,7 +1801,8 @@ static func _ruin_site(root: Node3D, p: Vector2, yaw: float, w: float, d: float,
 #  Fields, orchards and crop rows
 # ===========================================================================
 static func _dress_fields(root: Node3D, map_name: String, factor: float) -> void:
-	if map_name == "industrial" or map_name == "wetlands":
+	if map_name == "industrial" or map_name == "wetlands" \
+			or map_name == "promzona_plavni":
 		return
 	var fields: Array = []
 	if map_name == "steppe":
@@ -2129,7 +2166,7 @@ static func _dress_industrial(root: Node3D, _map_name: String, factor: float) ->
 		var cmat := FT._pbr("steel", [Color(0.52, 0.22, 0.16),
 				Color(0.18, 0.32, 0.42), Color(0.24, 0.38, 0.24)][i % 3], 0.32)
 		for s in range(1 + i % 2):
-			_box(root, Vector3(p.x, y + 1.3 + float(s) * 2.55, p.y),
+			_box(root, Vector3(p.x, y + 1.3 + float(s) * 2.50, p.y),
 					Vector3(6.0, 2.5, 2.4), cmat, _rng.randf_range(0.0, TAU), true)
 
 
@@ -2194,6 +2231,61 @@ static func _dress_wetlands(root: Node3D, _map_name: String, factor: float) -> v
 		root.add_child(mi)
 
 
+## Merged map: industrial yard dressing in the north, marsh dressing in the
+## south, and nothing on the authored training strip or bridge approaches.
+static func _dress_promzona_plavni(root: Node3D, _map_name: String, factor: float) -> void:
+	var rich := factor >= 0.85
+	var north_sites := [Vector2(-170.0, -150.0), Vector2(-20.0, -120.0),
+			Vector2(130.0, -130.0), Vector2(-70.0, -220.0)]
+	for i in range(north_sites.size()):
+		var p: Vector2 = north_sites[i]
+		if absf(p.x + 225.0) < 42.0 or not _free(p.x, p.y, 10.0):
+			continue
+		if i == 0:
+			_scrap_yard(root, p, 18.0, factor)
+			if rich:
+				_gantry_crane(root, p, 18.0, 13.0)
+		elif i == 1:
+			for k in range(4):
+				var q := p + Vector2(float(k) * 7.0, 0.0)
+				if not _free(q.x, q.y, 4.0):
+					continue
+				var y := _h(q.x, q.y)
+				var cmat := FT._pbr("steel", [Color(0.52, 0.22, 0.16),
+						Color(0.18, 0.32, 0.42), Color(0.24, 0.38, 0.24)][k % 3], 0.32)
+				var cyaw := _rng.randf_range(0.0, TAU)
+				var cy := FT.footprint_min_height(_map, q, 6.0, 2.4, cyaw)
+				_box(root, Vector3(q.x, cy + 1.15, q.y), Vector3(6.0, 2.5, 2.4),
+						cmat, cyaw, true)
+		elif i == 2:
+			_tank_cluster(root, p)
+		else:
+			_pipe_bridge(root, p + Vector2(-28.0, 0.0), p + Vector2(28.0, 0.0))
+		FT.reserve_area(p, 14.0)
+		_used_sites.append(p)
+	var south_sites := [Vector2(-70.0, 195.0), Vector2(112.0, 188.0),
+			Vector2(150.0, 258.0), Vector2(-120.0, 235.0)]
+	for i in range(south_sites.size()):
+		var p: Vector2 = south_sites[i]
+		if absf(p.x + 225.0) < 42.0 or not _free(p.x, p.y, 10.0):
+			continue
+		match i:
+			0:
+				_boat_wreck(root, p, _rng.randf_range(0.0, TAU))
+			1:
+				_wind_pump(root, p)
+			2:
+				_drowned_ruin(root, p, 0.4)
+			3:
+				_boardwalk(root, p, 30.0, PI * 0.5, factor)
+		FT.reserve_area(p, 12.0)
+		_used_sites.append(p)
+	_reeds(root, Vector2(110.0, 205.0), 26.0,
+			int(maxf(220.0, 520.0 * factor)))
+	_reeds(root, Vector2(-80.0, 260.0), 22.0,
+			int(maxf(160.0, 380.0 * factor)))
+
+
 # ===========================================================================
 #  Reusable set pieces
 # ===========================================================================
@@ -2241,6 +2333,11 @@ static func _water_tower(root: Node3D, p: Vector2) -> void:
 	var concrete := FT._pbr("concrete", Color(0.66, 0.65, 0.60), 0.30)
 	var steel := FT._pbr("steel", Color(0.36, 0.40, 0.41), 0.32)
 	var rust := FT._pbr("steel", Color(0.46, 0.28, 0.18), 0.36)
+	# Composite assembly: legs, colliders, rings, tank and ladder share one
+	# named container so the elevated parts validate against the grounded legs.
+	var tower_root := Node3D.new()
+	tower_root.name = "WaterTower"
+	root.add_child(tower_root)
 	# Four tapered legs.
 	for sx in [-1.0, 1.0]:
 		for sz in [-1.0, 1.0]:
@@ -2252,21 +2349,33 @@ static func _water_tower(root: Node3D, p: Vector2) -> void:
 			leg.mesh = box
 			leg.material_override = steel
 			leg.transform = Transform3D(b, Vector3(p.x + sx * 2.1, y + 4.5, p.y + sz * 2.1))
-			root.add_child(leg)
+			tower_root.add_child(leg)
+			# Solid layer-1 collider for each tapered steel leg.
+			var leg_body := StaticBody3D.new()
+			leg_body.name = "WaterTowerLegCollision"
+			leg_body.collision_layer = 1
+			leg_body.collision_mask = 1
+			leg_body.transform = Transform3D(b.orthonormalized(), leg.transform.origin)
+			var leg_shape := BoxShape3D.new()
+			leg_shape.size = Vector3(0.28, 9.0, 0.28)
+			var leg_cs := CollisionShape3D.new()
+			leg_cs.shape = leg_shape
+			leg_body.add_child(leg_cs)
+			tower_root.add_child(leg_body)
 	for h in [3.0, 6.0]:
-		_box(root, Vector3(p.x, y + h, p.y), Vector3(4.6 - (h - 3.0) * 0.3, 0.12, 4.6 - (h - 3.0) * 0.3), steel)
+		_box(tower_root, Vector3(p.x, y + h, p.y), Vector3(4.6 - (h - 3.0) * 0.3, 0.12, 4.6 - (h - 3.0) * 0.3), steel)
 	# Open-top, open-bottom tank: a vertical fly-through landmark.
-	FT._open_tower(root, Vector3(p.x, y + 9.5, p.y), 3.0, 0.30, 3.4,
+	FT._open_tower(tower_root, Vector3(p.x, y + 9.5, p.y), 3.0, 0.30, 3.4,
 			concrete, FT._mat(Color(0.07, 0.06, 0.05), 0.95), {},
 			"WaterTowerTank")
-	FT._add_ring(root, Vector3(p.x, y + 9.5, p.y), 3.0, 0.12, rust)
-	FT._add_ring(root, Vector3(p.x, y + 12.9, p.y), 3.0, 0.12, rust)
+	FT._add_ring(tower_root, Vector3(p.x, y + 9.5, p.y), 3.0, 0.12, rust)
+	FT._add_ring(tower_root, Vector3(p.x, y + 12.9, p.y), 3.0, 0.12, rust)
 	# Ladder up the side.
 	for sz in [-0.40, 0.40]:
-		_box(root, Vector3(p.x + 3.1, y + 6.2, p.y + sz),
+		_box(tower_root, Vector3(p.x + 3.1, y + 6.2, p.y + sz),
 				Vector3(0.07, 11.4, 0.07), steel, 0, false)
 	for i in range(14):
-		_box(root, Vector3(p.x + 3.1, y + 0.5 + float(i) * 0.8, p.y),
+		_box(tower_root, Vector3(p.x + 3.1, y + 0.5 + float(i) * 0.8, p.y),
 				Vector3(0.08, 0.1, 0.8), steel, 0, false)
 
 
@@ -2281,10 +2390,10 @@ static func _bus_stop(root: Node3D, p: Vector2, yaw: float) -> void:
 	_box(root, Vector3(p.x, y + 0.12, p.y), Vector3(4.6, 0.24, 2.6), concrete, yaw, true)
 	for sx in [-1.1, 1.1]:
 		_box(root, Vector3(p.x + sx, y + 1.45, p.y - 0.6), Vector3(0.16, 2.5, 0.16), wood, yaw, true)
-	_box(root, Vector3(p.x, y + 2.75, p.y - 0.6), Vector3(3.0, 0.15, 2.5), concrete, yaw)
+	_box(root, Vector3(p.x, y + 2.75, p.y - 0.6), Vector3(3.0, 0.15, 2.5), concrete, yaw, true)
 	_box(root, Vector3(p.x, y + 0.85, p.y - 1.05), Vector3(3.8, 0.1, 0.45), wood, yaw, false)
 	# A faded poster board and bench.
-	_box(root, Vector3(p.x + 2.2, y + 1.4, p.y - 0.2), Vector3(0.12, 1.8, 1.1), dark, yaw, false)
+	_box(root, Vector3(p.x + 2.2, y + 1.4, p.y - 0.2), Vector3(0.12, 1.8, 1.1), dark, yaw, true)
 	_box(root, Vector3(p.x - 0.6, y + 0.7, p.y - 0.3), Vector3(1.6, 0.12, 0.5), wood, yaw, false)
 
 
@@ -2407,7 +2516,7 @@ static func _rail_yard(root: Node3D, center: Vector2, length: float, yaw: float,
 				else Color(0.40, 0.22, 0.16), 0.36)
 		_box(root, wp + Vector3(0, 1.9, 0), Vector3(8.6, 2.8, 2.8), body_mat, yaw, true)
 		_box(root, wp + Vector3(0, 3.4, 0), Vector3(8.9, 0.14, 3.0),
-				FT._pbr("steel", Color(0.34, 0.24, 0.18), 0.4), yaw)
+				FT._pbr("steel", Color(0.34, 0.24, 0.18), 0.4), yaw, true)
 		for side in [-1.0, 1.0]:
 			for i in range(4):
 				var wheel := MeshInstance3D.new()
@@ -2445,22 +2554,27 @@ static func _gantry_crane(root: Node3D, center: Vector2, width: float,
 		height: float) -> void:
 	var steel := FT._pbr("steel", Color(0.42, 0.34, 0.22), 0.34)
 	var y := _h(center.x, center.y)
+	# Composite assembly: legs, bridge beam, trolley and hook share one named
+	# container so the elevated runs validate against the grounded legs.
+	var gantry := Node3D.new()
+	gantry.name = "MovingGantryCrane"
+	root.add_child(gantry)
 	for side in [-1.0, 1.0]:
 		for end in [-1.0, 1.0]:
-			_box(root, Vector3(center.x + side * width * 0.5, y + height * 0.5,
+			_box(gantry, Vector3(center.x + side * width * 0.5, y + height * 0.5,
 					center.y + end * 3.0), Vector3(0.35, height, 0.35), steel, 0, true)
-		_box(root, Vector3(center.x + side * width * 0.5, y + height,
+		_box(gantry, Vector3(center.x + side * width * 0.5, y + height,
 				center.y), Vector3(0.35, 0.3, 6.5), steel, 0, true)
-	_box(root, Vector3(center.x, y + height + 0.9, center.y),
+	_box(gantry, Vector3(center.x, y + height + 0.9, center.y),
 			Vector3(width + 3.0, 0.5, 0.5), steel, 0, true)
 	# Trolley + hook.
-	_box(root, Vector3(center.x + 2.0, y + height + 0.35, center.y),
-			Vector3(1.4, 0.6, 1.2), steel, 0, false)
+	_box(gantry, Vector3(center.x + 2.0, y + height + 0.35, center.y),
+			Vector3(1.4, 0.6, 1.2), steel, 0, true)
 	for i in range(5):
-		_cyl(root, Vector3(center.x + 2.0, y + height - 0.2 - float(i) * 0.85,
+		_cyl(gantry, Vector3(center.x + 2.0, y + height - 0.2 - float(i) * 0.85,
 				center.y), 0.035, 0.85, steel, false)
-	_box(root, Vector3(center.x + 2.0, y + height - 4.6, center.y),
-			Vector3(0.5, 0.5, 0.5), steel, 0, false)
+	_box(gantry, Vector3(center.x + 2.0, y + height - 4.6, center.y),
+			Vector3(0.5, 0.5, 0.5), steel, 0, true)
 
 
 static func _pipe_bridge(root: Node3D, a: Vector2, b: Vector2) -> void:
@@ -2470,7 +2584,14 @@ static func _pipe_bridge(root: Node3D, a: Vector2, b: Vector2) -> void:
 	var yaw := atan2(dir.x, dir.y)
 	var length := dir.length()
 	var steel := FT._pbr("steel", Color(0.38, 0.38, 0.34), 0.36)
-	# Three parallel pipes on a light support frame.
+	var pipe_center := Vector3(mid.x, y + 7.0, mid.y)
+	# Composite assembly: pipes, colliders, columns and saddles share one named
+	# container so the elevated span validates against the grounded supports.
+	var pb := Node3D.new()
+	pb.name = "PipeBridge"
+	root.add_child(pb)
+	# Three parallel pipes on a light support frame.  Each pipe gets an exact
+	# cylinder collider so the drone cannot fly through the horizontal steel.
 	for side in [-0.7, 0.0, 0.7]:
 		var b2 := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, PI * 0.5) * \
 				Basis().scaled(Vector3(0.26, length, 0.26))
@@ -2483,8 +2604,37 @@ static func _pipe_bridge(root: Node3D, a: Vector2, b: Vector2) -> void:
 		mi.mesh = cyl
 		mi.material_override = steel
 		var offset: Vector3 = Vector3(cos(yaw), 0.0, -sin(yaw)) * side
-		mi.transform = Transform3D(b2, Vector3(mid.x, y + 7.0, mid.y) + offset)
-		root.add_child(mi)
+		var pipe_xf := Transform3D(b2, pipe_center + offset)
+		mi.transform = pipe_xf
+		pb.add_child(mi)
+		var pipe_body := StaticBody3D.new()
+		pipe_body.name = "PipeBridgePipeCollision"
+		pipe_body.collision_layer = 1
+		pipe_body.collision_mask = 1
+		pipe_body.transform = Transform3D(b2.orthonormalized(), pipe_center + offset)
+		var pipe_shape := CylinderShape3D.new()
+		pipe_shape.radius = 0.26
+		pipe_shape.height = length
+		var pipe_cs := CollisionShape3D.new()
+		pipe_cs.shape = pipe_shape
+		pipe_body.add_child(pipe_cs)
+		pb.add_child(pipe_body)
+	# Vertical support columns every ~14 m, anchored 0.5 m below the lowest
+	# terrain point so no horizontal pipe span can float in mid-air.
+	var support_count := maxi(1, int(ceil(length / 14.0)))
+	for i in range(support_count + 1):
+		var t := float(i) / float(support_count)
+		var sp := a.lerp(b, t)
+		var gy := _h(sp.x, sp.y)
+		var bottom := minf(gy, y) - 0.5
+		var top := y + 7.0
+		if top <= bottom + 0.5:
+			continue
+		var col_center := Vector3(sp.x, (bottom + top) * 0.5, sp.y)
+		_cyl(pb, col_center, 0.28, top - bottom, steel, true)
+		# Saddle under the pipe trio keeps the frame reading as a bridge.
+		_box(pb, Vector3(sp.x, top - 0.32, sp.y),
+				Vector3(2.4, 0.24, 0.32), steel, yaw, true)
 
 
 static func _cooling_tower(root: Node3D, p: Vector2) -> void:
@@ -2552,18 +2702,18 @@ static func _boardwalk(root: Node3D, start: Vector2, length: float, yaw: float,
 	for i in range(n):
 		var wp := Vector3(start.x, 0, start.y) + basis * Vector3(0, 0, float(i) * 1.6)
 		var y := maxf(_h(wp.x, wp.z), FT.water_level(_map)) + 0.35
-		_box(root, Vector3(wp.x, y, wp.z), Vector3(2.6, 0.14, 1.6), wood, yaw, false)
+		_box(root, Vector3(wp.x, y, wp.z), Vector3(2.6, 0.14, 1.6), wood, yaw, true)
 		if i % 3 == 0:
 			for sx in [-1.1, 1.1]:
-				_cyl(root, Vector3(wp.x + sx, y - 0.5, wp.z), 0.1, 1.5, wood, false)
+				_cyl(root, Vector3(wp.x + sx, y - 0.5, wp.z), 0.1, 1.5, wood, true)
 	# Rail on one side.
 	for i in range(n):
 		var wp := Vector3(start.x, 0, start.y) + basis * Vector3(1.25, 0, float(i) * 1.6)
 		var y := maxf(_h(wp.x, wp.z), FT.water_level(_map)) + 1.0
-		_box(root, Vector3(wp.x, y, wp.z), Vector3(0.1, 1.2, 0.1), wood, yaw, false)
+		_box(root, Vector3(wp.x, y, wp.z), Vector3(0.1, 1.2, 0.1), wood, yaw, true)
 		if i > 0:
 			_box(root, Vector3(wp.x - basis.z.x * 0.8, y + 0.55, wp.z - basis.z.z * 0.8),
-					Vector3(0.08, 0.08, 1.7), wood, yaw, false)
+					Vector3(0.08, 0.08, 1.7), wood, yaw, true)
 
 
 static func _boat_wreck(root: Node3D, p: Vector2, yaw: float) -> void:
@@ -2573,10 +2723,10 @@ static func _boat_wreck(root: Node3D, p: Vector2, yaw: float) -> void:
 	var basis := Basis(Vector3.UP, yaw)
 	# Hull: a wide flat box, a raised bow wedge and a cabin.
 	_box(root, Vector3(p.x, y, p.y), Vector3(8.0, 0.8, 2.6), rust, yaw, true)
-	_box(root, Vector3(p.x, y + 0.5, p.y), Vector3(4.8, 0.6, 2.0), dark, yaw, false)
+	_box(root, Vector3(p.x, y + 0.5, p.y), Vector3(4.8, 0.6, 2.0), dark, yaw, true)
 	_box(root, Vector3(p.x + 3.4, y + 0.25, p.y), Vector3(1.6, 0.5, 2.0), rust,
-			yaw + 0.2, false)
-	_cyl(root, Vector3(p.x - 1.4, y + 1.4, p.y), 0.12, 1.8, dark, false)
+			yaw + 0.2, true)
+	_cyl(root, Vector3(p.x - 1.4, y + 1.4, p.y), 0.12, 1.8, dark, true)
 
 
 static func _drowned_ruin(root: Node3D, p: Vector2, yaw: float) -> void:
@@ -2616,15 +2766,18 @@ static func _scatter_procedural(root: Node3D, map_name: String, factor: float) -
 	match map_name:
 		"wetlands":
 			kinds = ["camp", "wreck", "pond"]
+		"promzona_plavni":
+			kinds = ["camp", "wreck", "pond"]
 		_:
 			kinds = ["camp", "wreck", "tank"]
 	var count := mini(2, maxi(1, int(round(4.0 * factor))))
+	var scatter_half := 300.0 if map_name == "promzona_plavni" else 148.0
 	var max_attempts := count * 50
 	var placed := 0
 	while placed < count and max_attempts > 0:
 		max_attempts -= 1
-		var p := Vector2(_rng.randf_range(-148.0, 148.0),
-				_rng.randf_range(-148.0, 148.0))
+		var p := Vector2(_rng.randf_range(-scatter_half, scatter_half),
+				_rng.randf_range(-scatter_half, scatter_half))
 		if not _free(p.x, p.y, 12.0):
 			continue
 		var kind: String = kinds[_rng.randi_range(0, kinds.size() - 1)]
@@ -2754,9 +2907,14 @@ static func _dress_ground_litter(root: Node3D, map_name: String, factor: float) 
 		"wetlands":
 			centers.append_array([Vector2(30, 60), Vector2(52, 106), Vector2(-82, 30),
 					Vector2(138, 126), Vector2(-142, 20)])
+		"promzona_plavni":
+			centers.append_array([Vector2(-150, -180), Vector2(120, -110),
+					Vector2(-40, -260), Vector2(100, 210), Vector2(-90, 180),
+					Vector2(160, 260)])
+	var litter_half := 300.0 if map_name == "promzona_plavni" else 148.0
 	for i in range(int(maxf(2.0, 6.0 * factor))):
-		centers.append(Vector2(_rng.randf_range(-148.0, 148.0),
-				_rng.randf_range(-148.0, 148.0)))
+		centers.append(Vector2(_rng.randf_range(-litter_half, litter_half),
+				_rng.randf_range(-litter_half, litter_half)))
 	var litter := int(clampf(round(14.0 * factor), 3.0, 6.0))
 	for c in centers:
 		var cp: Vector2 = c

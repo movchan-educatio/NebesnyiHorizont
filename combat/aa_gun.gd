@@ -145,10 +145,16 @@ func _can_engage() -> bool:
 
 func _update_target() -> void:
 	_los_clear = false
-	if _turret == null or _drone == null:
+	if _turret == null or _drone == null or not is_instance_valid(_drone):
 		return
 	_distance = _turret.global_position.distance_to(_drone.global_position)
 	if _distance > detect_range:
+		return
+	var world := get_world_3d()
+	if world == null:
+		return
+	var space := world.direct_space_state
+	if space == null:
 		return
 	var from := _turret.global_position + Vector3.UP * 0.35
 	var target := _drone.global_position
@@ -156,7 +162,7 @@ func _update_target() -> void:
 	query.collision_mask = 1
 	query.collide_with_areas = false
 	query.exclude = [get_rid()]
-	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	var hit := space.intersect_ray(query)
 	if hit.is_empty():
 		_los_clear = true
 		return
@@ -169,7 +175,7 @@ func _update_target() -> void:
 
 
 func _aim_at_drone(delta: float) -> bool:
-	if _turret == null or _barrels == null or _drone == null:
+	if _turret == null or _barrels == null or _drone == null or not is_instance_valid(_drone):
 		return false
 	var to := _drone.global_position - _turret.global_position
 	var flat := Vector3(to.x, 0.0, to.z)
@@ -188,9 +194,11 @@ func _aim_at_drone(delta: float) -> bool:
 
 
 func _fire() -> void:
-	if _muzzles.is_empty() or _drone == null:
+	if _muzzles.is_empty() or _drone == null or not is_instance_valid(_drone):
 		return
 	var muzzle := _muzzles[_muzzle_index % _muzzles.size()]
+	if muzzle == null or not is_instance_valid(muzzle):
+		return
 	_muzzle_index += 1
 	var muzzle_pos := muzzle.global_position
 	var lead := (_distance / tracer_speed) * 0.8
@@ -206,14 +214,19 @@ func _fire() -> void:
 	tracer.tracer_color = Color(1.0, 0.58, 0.16)
 	tracer.tracer_width = 1.85
 	tracer.add_to_group("aa_tracer")
-	get_parent().add_child(tracer)
-	tracer.setup(muzzle_pos, dir, tracer_speed, tracer_damage, self)
+	var tracer_parent := get_parent()
+	if tracer_parent != null:
+		tracer_parent.add_child(tracer)
+		tracer.setup(muzzle_pos, dir, tracer_speed, tracer_damage, self)
 	CombatSfxScript.play_autocannon(get_parent(), muzzle_pos, -5.0)
 	_muzzle_flash(muzzle_pos)
 
 
 func _muzzle_flash(position: Vector3) -> void:
 	if DisplayServer.get_name() == "headless":
+		return
+	var parent := get_parent()
+	if parent == null:
 		return
 	var sphere := SphereMesh.new()
 	sphere.radius = 0.34
@@ -232,7 +245,7 @@ func _muzzle_flash(position: Vector3) -> void:
 	material.emission_energy_multiplier = 7.5
 	flash.material_override = material
 	flash.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	get_parent().add_child(flash)
+	parent.add_child(flash)
 	flash.global_position = position
 	var core_mesh := SphereMesh.new()
 	core_mesh.radius = 0.16
@@ -290,8 +303,11 @@ func _flash() -> void:
 	for mesh in _meshes:
 		if is_instance_valid(mesh):
 			mesh.material_overlay = _flash_material
-	await get_tree().create_timer(0.07).timeout
-	if not is_instance_valid(self) or is_destroyed or token != _flash_token:
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
+	await tree.create_timer(0.07).timeout
+	if not is_inside_tree() or not is_instance_valid(self) or is_destroyed or token != _flash_token:
 		return
 	for mesh in _meshes:
 		if is_instance_valid(mesh):

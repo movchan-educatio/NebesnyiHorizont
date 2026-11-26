@@ -803,6 +803,23 @@ func apply_to_drone(drone: Node, index: int) -> void:
 		return
 	if drone.has_method("apply_preset_physics"):
 		drone.call("apply_preset_physics", p)
+	# Keep the collision body in sync with the selected airframe.  Shapes are
+	# usually shared resources in the scene, so duplicate before resizing to
+	# avoid reshaping every drone instance at once.
+	var body_col := drone.get_node_or_null("BodyCol") as CollisionShape3D
+	if body_col != null and body_col.shape is BoxShape3D:
+		var box := body_col.shape as BoxShape3D
+		if body_col.shape.get_reference_count() > 1:
+			box = box.duplicate() as BoxShape3D
+			body_col.shape = box
+		var dim: Vector3 = p.get("dimensions", Vector3(0.42, 0.20, 0.42))
+		box.size = Vector3(clampf(dim.x, 0.42, 1.60),
+				clampf(dim.y, 0.20, 0.65), clampf(dim.z, 0.42, 1.60))
+	# If a live FPV rig is already attached, remember its authored offset before
+	# the anti-clip code starts nudging the camera away from nearby geometry.
+	var fpv_cam := drone.get_node_or_null("FPVCamera") as Camera3D
+	if fpv_cam != null and p.has("fpv_cam_pos"):
+		fpv_cam.set_meta("desired_local_pos", fpv_cam.position)
 	var motors: Array = drone.get("motors")
 	if motors == null:
 		return

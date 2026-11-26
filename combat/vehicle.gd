@@ -170,6 +170,12 @@ var _visual_lod := 0
 var _ai_low := false
 var _ai_tick := 0
 var _ai_accum := 0.0
+## Distance-aware LOS cadence + cached group scans (Wave B3 performance pass).
+var _player_dist := 1e9
+var _los_to_drone := false
+var _los_cache_timer := 0.0
+var _group_cache: Dictionary = {}
+var _group_cache_timer := 0.0
 var _ground := 0.0
 var _ground_normal := Vector3.UP
 var _prev_speed := 0.0
@@ -1396,8 +1402,27 @@ func set_waypoints(points: Array) -> void:
 			_wp_index = 1
 
 
+## Short-lived group snapshot so movement separation, corridor exclusions and
+## ground probes do not re-query the scene tree every physics tick.
+func _cached_group(group_name: String) -> Array:
+	var tree := get_tree()
+	if tree == null:
+		return []
+	if _group_cache.is_empty() or (_group_cache_timer <= 0.0 and _player_dist <= 320.0):
+		_group_cache_timer = 0.25 if _player_dist < 160.0 else 0.8
+		_group_cache.clear()
+		for g in ["vehicle", "combat_target", "escort_convoy", "enemy_infantry"]:
+			_group_cache[g] = tree.get_nodes_in_group(g)
+	var cached: Array = _group_cache.get(group_name, [])
+	return cached
+
+
 func _physics_process(delta: float) -> void:
 	_update_mobile_lod(delta)
+	_group_cache_timer = maxf(0.0, _group_cache_timer - delta)
+	_los_cache_timer = maxf(0.0, _los_cache_timer - delta)
+	if _drone != null and is_instance_valid(_drone):
+		_player_dist = global_position.distance_to(_drone.global_position)
 	if _ai_low and _drone != null and is_instance_valid(_drone):
 		var d2 := global_position.distance_squared_to(_drone.global_position)
 		if d2 > 62500.0:
@@ -1484,34 +1509,32 @@ func _move_along_route(delta: float) -> void:
 		desired_yaw += sin(_weave_phase) * meander_amplitude
 	var sep_speed_mult := 1.0
 	if kind != Kind.HELI and kind != Kind.SHAHED:
-		var tree := get_tree()
-		if tree != null:
-			var cur_fwd := -global_transform.basis.z
-			cur_fwd.y = 0.0
-			if cur_fwd.length_squared() > 0.001:
-				cur_fwd = cur_fwd.normalized()
-				var right := Vector3(cur_fwd.z, 0.0, -cur_fwd.x)
-				for node in tree.get_nodes_in_group("vehicle"):
-					if node == self or node == null or not is_instance_valid(node) or not (node is Node3D):
-						continue
-					if bool(node.get("is_destroyed")):
-						continue
-					var other_kind: int = int(node.get("kind"))
-					if other_kind == Kind.HELI or other_kind == Kind.SHAHED:
-						continue
-					var to_other: Vector3 = (node as Node3D).global_position - global_position
-					to_other.y = 0.0
-					var d := to_other.length()
-					var other_half: float = float(node.get("_half_len"))
-					var safe_d: float = _half_len + other_half + 1.8
-					if d > 0.05 and d < safe_d:
-						var dir_other := to_other / d
-						var ahead := cur_fwd.dot(dir_other)
-						if ahead > 0.25:
-							var lat_sign := -1.0 if right.dot(dir_other) >= 0.0 else 1.0
-							desired_yaw += lat_sign * clampf((1.0 - d / safe_d) * 0.9, 0.15, 0.75)
-							if d < safe_d * 0.75 and ahead > 0.55:
-								sep_speed_mult = minf(sep_speed_mult, 0.25)
+		var cur_fwd := -global_transform.basis.z
+		cur_fwd.y = 0.0
+		if cur_fwd.length_squared() > 0.001:
+			cur_fwd = cur_fwd.normalized()
+			var right := Vector3(cur_fwd.z, 0.0, -cur_fwd.x)
+			for node in _cached_group("vehicle"):
+				if node == self or node == null or not is_instance_valid(node) or not (node is Node3D):
+					continue
+				if bool(node.get("is_destroyed")):
+					continue
+				var other_kind: int = int(node.get("kind"))
+				if other_kind == Kind.HELI or other_kind == Kind.SHAHED:
+					continue
+				var to_other: Vector3 = (node as Node3D).global_position - global_position
+				to_other.y = 0.0
+				var d := to_other.length()
+				var other_half: float = float(node.get("_half_len"))
+				var safe_d: float = _half_len + other_half + 1.8
+				if d > 0.05 and d < safe_d:
+					var dir_other := to_other / d
+					var ahead := cur_fwd.dot(dir_other)
+					if ahead > 0.25:
+						var lat_sign := -1.0 if right.dot(dir_other) >= 0.0 else 1.0
+						desired_yaw += lat_sign * clampf((1.0 - d / safe_d) * 0.9, 0.15, 0.75)
+						if d < safe_d * 0.75 and ahead > 0.55:
+							sep_speed_mult = minf(sep_speed_mult, 0.25)
 	if _is_air():
 		var lim := _arena_limit()
 		var margin := 14.0
@@ -2059,11 +2082,9 @@ func _corridor_exclusions() -> Array[RID]:
 	var out: Array[RID] = [get_rid()]
 	if _drone is CollisionObject3D:
 		out.append((_drone as CollisionObject3D).get_rid())
-	var tree := get_tree()
-	if tree != null:
-		for node in tree.get_nodes_in_group("vehicle"):
-			if node is CollisionObject3D and node != self:
-				out.append((node as CollisionObject3D).get_rid())
+	for node in _cached_group("vehicle"):
+		if is_instance_valid(node) and node is CollisionObject3D and node != self:
+			out.append((node as CollisionObject3D).get_rid())
 	return out
 
 
@@ -2165,14 +2186,17 @@ func _is_path_blocked(forward: Vector3, dist: float) -> bool:
 			_last_obstacle_normal = Vector3(away.x, 0.0, away.y).normalized()
 			return true
 
-	var space := get_world_3d().direct_space_state
+	var world := get_world_3d()
+	if world == null:
+		return false
+	var space := world.direct_space_state
 	if space == null:
 		return false
 	var excl: Array[RID] = [get_rid()]
 	if _drone is CollisionObject3D:
 		excl.append((_drone as CollisionObject3D).get_rid())
-	for node in get_tree().get_nodes_in_group("vehicle"):
-		if node is CollisionObject3D and node != self:
+	for node in _cached_group("vehicle"):
+		if is_instance_valid(node) and node is CollisionObject3D and node != self:
 			excl.append((node as CollisionObject3D).get_rid())
 
 	var center_y := global_position.y + 0.9
@@ -2386,7 +2410,13 @@ func _combat_engage(delta: float) -> void:
 	var fc = _drone.get("flight_controller") if (_drone != null and is_instance_valid(_drone)) else null
 	var drone_armed := fc != null and bool(fc.state_armed)
 	var drone_dist := muzzle.distance_to(_drone.global_position) if (_drone != null and is_instance_valid(_drone)) else 1e9
-	var convoy := _find_escort_convoy_target()
+	if _drone != null and is_instance_valid(_drone):
+		_player_dist = global_position.distance_to(_drone.global_position)
+	else:
+		_player_dist = 1e9
+	var convoy: Node3D = null
+	if _player_dist <= 320.0:
+		convoy = _find_escort_convoy_target()
 	var convoy_dist := muzzle.distance_to(convoy.global_position) if convoy != null else 1e9
 	if convoy != null and convoy_dist <= fire_range and convoy_dist >= 3.0 \
 			and (not drone_armed or drone_dist > fire_range or convoy_dist < drone_dist * 0.65):
@@ -2452,12 +2482,24 @@ func _combat_engage(delta: float) -> void:
 			# The orbit target can land inside a hall/workshop; push the step
 			# out of large structures so the helicopter never clips the mesh.
 			global_position = _avoid_structures(global_position + to_hold)
-	var space := get_world_3d().direct_space_state
-	var q := PhysicsRayQueryParameters3D.create(muzzle, _drone.global_position)
-	q.collision_mask = 1
-	q.exclude = [get_rid()]
-	var hit := space.intersect_ray(q)
-	if not hit.is_empty() and hit.get("collider") != _drone:
+	if _player_dist > 320.0:
+		# Beyond the engagement bubble: no LOS ray, no group scans, no firing.
+		_los_to_drone = false
+		return
+	if _los_cache_timer <= 0.0:
+		_los_cache_timer = 0.25 if _player_dist < 160.0 else 0.8
+		var world := get_world_3d()
+		if world == null:
+			return
+		var space := world.direct_space_state
+		if space == null:
+			return
+		var q := PhysicsRayQueryParameters3D.create(muzzle, _drone.global_position)
+		q.collision_mask = 1
+		q.exclude = [get_rid()]
+		var hit := space.intersect_ray(q)
+		_los_to_drone = hit.is_empty() or hit.get("collider") == _drone
+	if not _los_to_drone:
 		return
 	_engaging = true
 	if kind == Kind.HELI:
@@ -2500,7 +2542,12 @@ func _chaos_engage(delta: float) -> void:
 	if dist > fire_range or dist < 3.0:
 		return
 	# Direct line of sight only; the chaos battlefield is open ground.
-	var space := get_world_3d().direct_space_state
+	var world := get_world_3d()
+	if world == null:
+		return
+	var space := world.direct_space_state
+	if space == null:
+		return
 	var q := PhysicsRayQueryParameters3D.create(muzzle,
 			ai_target.global_position + Vector3.UP * 0.7)
 	q.collision_mask = 1
@@ -2517,7 +2564,7 @@ func _chaos_engage(delta: float) -> void:
 func _find_escort_convoy_target() -> Node3D:
 	if get_tree() == null or is_in_group("escort_convoy"):
 		return null
-	for node in get_tree().get_nodes_in_group("escort_convoy"):
+	for node in _cached_group("escort_convoy"):
 		var n := node as Node3D
 		if n != null and is_instance_valid(n) and not bool(n.get("is_destroyed")):
 			return n
@@ -2526,7 +2573,12 @@ func _find_escort_convoy_target() -> Node3D:
 
 func _engage_convoy_target(convoy: Node3D, muzzle: Vector3) -> bool:
 	var aim := convoy.global_position + Vector3.UP * 1.1
-	var space := get_world_3d().direct_space_state
+	var world := get_world_3d()
+	if world == null:
+		return false
+	var space := world.direct_space_state
+	if space == null:
+		return false
 	var q := PhysicsRayQueryParameters3D.create(muzzle, aim)
 	q.collision_mask = 1
 	q.exclude = [get_rid()]
@@ -2543,6 +2595,14 @@ func _engage_convoy_target(convoy: Node3D, muzzle: Vector3) -> bool:
 
 
 func _fire_at_unit(target: Node3D, dmg_scale: float = 1.0) -> void:
+	if target == null or not is_instance_valid(target):
+		return
+	var world := get_world_3d()
+	if world == null:
+		return
+	var space := world.direct_space_state
+	if space == null:
+		return
 	var muzzle := _muzzle_world()
 	var aim := target.global_position + Vector3.UP * 0.9
 	var dir := (aim - muzzle).normalized()
@@ -2553,10 +2613,11 @@ func _fire_at_unit(target: Node3D, dmg_scale: float = 1.0) -> void:
 	tracer.tracer_color = Color(1.0, 0.55, 0.25) if kind == Kind.TANK \
 			else Color(1.0, 0.86, 0.4)
 	tracer.tracer_width = 1.15 if kind == Kind.TANK else 0.8
-	get_parent().add_child(tracer)
-	tracer.setup(muzzle, dir, tracer_speed, 0.0, self)
+	var parent := get_parent()
+	if parent != null:
+		parent.add_child(tracer)
+		tracer.setup(muzzle, dir, tracer_speed, 0.0, self)
 	# Damage with the same falloff/aim model, applied directly.
-	var space := get_world_3d().direct_space_state
 	var q := PhysicsRayQueryParameters3D.create(muzzle, aim)
 	q.collision_mask = 1
 	q.exclude = [get_rid()]
@@ -2635,8 +2696,10 @@ func _fire_at(target: Vector3) -> void:
 	tracer.tracer_color = Color(1.0, 0.55, 0.18) if kind == Kind.TANK else Color(1.0, 0.72, 0.24)
 	tracer.tracer_width = 1.65 if kind == Kind.TANK else 1.35
 	tracer.add_to_group("aa_tracer")
-	get_parent().add_child(tracer)
-	tracer.setup(muzzle, dir, tracer_speed, tracer_damage, self)
+	var tracer_parent := get_parent()
+	if tracer_parent != null:
+		tracer_parent.add_child(tracer)
+		tracer.setup(muzzle, dir, tracer_speed, tracer_damage, self)
 	_barrel_recoil = 1.0
 	_susp_pitch = clampf(_susp_pitch + (0.045 if kind == Kind.TANK else 0.018), -0.08, 0.08)
 	_spawn_muzzle_flash(muzzle)
@@ -2697,6 +2760,14 @@ func _is_water_hazard(x: float, z: float) -> bool:
 	if fmap == "lis_forest_freestyle":
 		return FrontlineTerrainScript.forest_is_water(x, z, _ground_y(x, z))
 	var h := FrontlineTerrainScript.height_at(fmap, x, z)
+	if fmap == "promzona_plavni":
+		var canal_z := 10.0 + 12.0 * sin(x * 0.012)
+		var on_canal_bridge := (absf(x + 110.0) < 10.5 or absf(x - 110.0) < 10.5) \
+				and absf(z - canal_z) < 25.0
+		if on_canal_bridge:
+			return false
+		var canal_wl := FrontlineTerrainScript.water_level(fmap)
+		return canal_wl > -100.0 and h < canal_wl + 0.35
 	if fmap == "industrial":
 		var on_bridge := absf(x) < 18.0
 		var riv_z := -170.0 + 10.0 * sin(x * 0.015)
@@ -2753,6 +2824,12 @@ func _terrain_ground(x: float, z: float) -> Dictionary:
 		return {"y": gy, "normal": Vector3.UP}
 	if map.is_empty():
 		return {}
+	if map == "promzona_plavni":
+		var canal_z := 10.0 + 12.0 * sin(x * 0.012)
+		var on_canal_bridge := (absf(x + 110.0) < 10.5 or absf(x - 110.0) < 10.5) \
+				and absf(z - canal_z) < 25.0
+		if on_canal_bridge:
+			return {"y": 1.15, "normal": Vector3.UP}
 	var y := FrontlineTerrainScript.height_at(map, x, z)
 	var dx := FrontlineTerrainScript.height_at(map, x + 1.5, z) \
 			- FrontlineTerrainScript.height_at(map, x - 1.5, z)
@@ -2766,15 +2843,20 @@ func _sample_ground(x: float, z: float) -> Dictionary:
 	var terrain := _terrain_ground(x, z)
 	if not terrain.is_empty():
 		return terrain
-	var space := get_world_3d().direct_space_state
+	var world := get_world_3d()
+	if world == null:
+		return {"y": _ground, "normal": Vector3.UP}
+	var space := world.direct_space_state
+	if space == null:
+		return {"y": _ground, "normal": Vector3.UP}
 	var excl: Array[RID] = [get_rid()]
 	if _drone is CollisionObject3D:
 		excl.append((_drone as CollisionObject3D).get_rid())
-	for node in get_tree().get_nodes_in_group("combat_target"):
-		if node is CollisionObject3D:
+	for node in _cached_group("combat_target"):
+		if is_instance_valid(node) and node is CollisionObject3D:
 			excl.append((node as CollisionObject3D).get_rid())
-	for node in get_tree().get_nodes_in_group("vehicle"):
-		if node is CollisionObject3D:
+	for node in _cached_group("vehicle"):
+		if is_instance_valid(node) and node is CollisionObject3D:
 			excl.append((node as CollisionObject3D).get_rid())
 	var query := PhysicsRayQueryParameters3D.create(
 			Vector3(x, 260.0, z), Vector3(x, -120.0, z))
@@ -2892,8 +2974,11 @@ func _flash() -> void:
 	for mesh in _flash_mesh:
 		if is_instance_valid(mesh):
 			mesh.material_overlay = _flash_material
-	await get_tree().create_timer(0.08).timeout
-	if not is_instance_valid(self):
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
+	await tree.create_timer(0.08).timeout
+	if not is_inside_tree() or not is_instance_valid(self):
 		return
 	if is_destroyed:
 		# The killing hit landed inside the 80 ms flash window.  The old code
@@ -2961,10 +3046,11 @@ func _destroy() -> void:
 			_route_last_sfx_bus(parent, &"Combat")
 			# Secondary ammo crackle shortly after the main blast. Guarded so a
 			# destroyed vehicle freed before the timer fires stays silent.
-			if kind != Kind.TRUCK and get_tree() != null:
+			var cookoff_tree := get_tree()
+			if kind != Kind.TRUCK and cookoff_tree != null:
 				var cookoff_at := global_position
 				var cookoff_parent := parent
-				get_tree().create_timer(0.35).timeout.connect(func():
+				cookoff_tree.create_timer(0.35).timeout.connect(func():
 					if is_inside_tree() and is_instance_valid(cookoff_parent) \
 							and cookoff_parent.is_inside_tree():
 						CombatSfxScript.play_cookoff(

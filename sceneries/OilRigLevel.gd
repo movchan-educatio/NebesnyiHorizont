@@ -441,41 +441,61 @@ func _build_steel_colliders() -> void:
 	var existing := _map_instance.get_node_or_null("SteelMeshColliders") as Node3D
 	if existing != null:
 		existing.queue_free()
-	var modules := _map_instance.get_node_or_null("Modules") as Node3D
-	if modules == null:
-		return
 	var container := Node3D.new()
 	container.name = "SteelMeshColliders"
 	_map_instance.add_child(container)
 	var added := 0
 	var root_inv := _map_instance.global_transform.affine_inverse()
-	for mod in modules.get_children():
-		for child in mod.find_children("*", "MeshInstance3D", true, false):
-			var mi := child as MeshInstance3D
-			if mi == null or mi.mesh == null or not mi.visible:
-				continue
-			var lnm := String(mi.name).to_lower()
-			if lnm.contains("flare") or lnm.contains("glow") or lnm.contains("light"):
-				continue
-			var faces := mi.mesh.get_faces()
-			if faces.is_empty():
-				continue
-			var tri := ConcavePolygonShape3D.new()
-			tri.set_faces(faces)
-			tri.backface_collision = true
-			var sb := StaticBody3D.new()
-			sb.name = "%s_%s_col" % [mod.name, mi.name]
-			sb.collision_layer = 1
-			sb.collision_mask = 0
-			sb.transform = root_inv * mi.global_transform
-			var cs := CollisionShape3D.new()
-			cs.shape = tri
-			sb.add_child(cs)
-			container.add_child(sb)
-			added += 1
+	# Cover the whole authored rig, not just Modules: decks, legs, girders,
+	# pipes, helipads, hangars and tanker sub-meshes all need solid collision.
+	for mi_node in _map_instance.find_children("*", "MeshInstance3D", true, false):
+		var mi := mi_node as MeshInstance3D
+		if mi == null or mi.mesh == null or not mi.is_visible_in_tree():
+			continue
+		if mc != null and mc.is_ancestor_of(mi):
+			continue
+		var lnm := String(mi.name).to_lower()
+		if lnm.contains("flare") or lnm.contains("glow") or lnm.contains("light") \
+				or lnm.contains("ocean") or lnm.contains("water") or lnm.contains("sky") \
+				or lnm.contains("flame") or lnm.contains("smoke"):
+			continue
+		var faces := mi.mesh.get_faces()
+		if faces.is_empty():
+			continue
+		var tri := ConcavePolygonShape3D.new()
+		tri.set_faces(faces)
+		tri.backface_collision = true
+		var sb := StaticBody3D.new()
+		sb.name = "Steel_%s_col" % mi.name
+		sb.collision_layer = 1
+		sb.collision_mask = 1
+		sb.transform = root_inv * mi.global_transform
+		var cs := CollisionShape3D.new()
+		cs.shape = tri
+		sb.add_child(cs)
+		container.add_child(sb)
+		added += 1
+	_harden_rig_colliders(_map_instance)
 	print("[OilRigLevel] SteelMeshColliders ready: %d steel trimeshes (MapColliders=%d)" % [
 		added, mc.get_child_count() if mc != null else -1
 	])
+
+
+## Every rig deck/leg/girder/pipe/helipad collider answers on layer 1, and
+## every concave trimesh is double-sided so thin plates cannot be clipped.
+func _harden_rig_colliders(node: Node) -> void:
+	if node == null:
+		return
+	if node is StaticBody3D:
+		var body := node as StaticBody3D
+		body.collision_layer = 1
+		body.collision_mask = 1
+		for cs_node in body.find_children("*", "CollisionShape3D", true, false):
+			var shape: Shape3D = (cs_node as CollisionShape3D).shape
+			if shape is ConcavePolygonShape3D:
+				(shape as ConcavePolygonShape3D).backface_collision = true
+	for child in node.get_children():
+		_harden_rig_colliders(child)
 
 
 func _build_ordered_rig_course(gates_node: Node) -> void:

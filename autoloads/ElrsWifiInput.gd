@@ -25,6 +25,9 @@ const NO_DATA := 62058
 const ACTIVATE_INTERVAL := 4.0
 const STALE_MS := 20000
 const CENTER := 16384.0
+## Jitter-only deadband.  Anything above this is genuine stick movement, so it
+## must reach the flight controller without being rounded away.
+const AXIS_DEADBAND := 0.004
 const MOBILE_FORMAT_UNKNOWN := 0
 const MOBILE_FORMAT_15BIT := 1
 const MOBILE_FORMAT_CRSF := 2
@@ -129,7 +132,7 @@ func _process(delta: float) -> void:
 	# session is not falsely marked stale before UDP packets are polled again.
 	if valid and delta > 0.35:
 		_last_frame_ms += int(minf(delta - 0.05, 12.0) * 1000.0)
-	_poll_udp()
+	poll_now()
 	var now := Time.get_ticks_msec()
 	if valid:
 		_last_valid_ms = now
@@ -146,6 +149,12 @@ func _process(delta: float) -> void:
 	# to prevent continuous socket timeouts / micro-stutters on standard home Wi-Fi
 	if not valid and not module_ip.is_empty() and now - _last_activate_ms >= int(ACTIVATE_INTERVAL * 1000.0):
 		_try_activate(module_ip)
+
+
+func _physics_process(_delta: float) -> void:
+	# The physics tick is what samples the sticks: drain the socket first so
+	# RadioController sees the newest frame in this same step.
+	poll_now()
 
 
 ## The stale window adapts to the measured frame cadence so a brief Wi-Fi
@@ -170,19 +179,40 @@ func scan_now() -> void:
 		_try_activate("192.168.4.1")
 
 
-func _poll_udp() -> void:
-	while _udp.get_available_packet_count() > 0:
+## Drain the UDP socket right now and feed only the newest channel frame to
+## the parser.  Waiting for _process() let several 4 ms frames pile up in the
+## socket buffer, so the sticks read a packet that was already stale.
+## Draining to the latest packet adds zero queued-frame latency.
+func poll_now() -> void:
+	var latest_ip := ""
+	var latest_packet := PackedByteArray()
+	var beacon_ip := ""
+	var guard := 0
+	while _udp.get_available_packet_count() > 0 and guard < 512:
+		guard += 1
 		var ip := _udp.get_packet_ip()
 		var packet := _udp.get_packet()
 		if packet.size() >= 2 and packet[0] == 1:
-			_parse_channels(packet, ip)
+			latest_ip = ip
+			latest_packet = packet
 			continue
 		var text := packet.get_string_from_utf8()
 		if text.find("ELRS") >= 0 or text.find("VELOCIDRONE") >= 0:
-			module_ip = ip
-			status_text = "ELRS: ЗНАЙДЕНО " + ip
-			emit_signal("status_changed", status_text)
-			_try_activate(ip)
+			beacon_ip = ip
+	# Discovery is only needed while no stream is live; handle it before the
+	# frame so a fresh beacon and its first frame land on the same tick.
+	if not beacon_ip.is_empty() and not valid:
+		module_ip = beacon_ip
+		status_text = "ELRS: ЗНАЙДЕНО " + beacon_ip
+		emit_signal("status_changed", status_text)
+		_try_activate(beacon_ip)
+	if not latest_packet.is_empty():
+		_parse_channels(latest_packet, latest_ip)
+
+
+## Backwards-compatible alias: every caller drains the socket instantly.
+func _poll_udp() -> void:
+	poll_now()
 
 
 func _parse_channels(packet: PackedByteArray, ip: String) -> void:
@@ -328,10 +358,10 @@ func _raw(index: int) -> float:
 	return channels[index]
 
 
-## Returns normalised -1.0..+1.0 with a small deadband around stick centre.
+## Returns normalised -1.0..+1.0 with a jitter-only deadband around centre.
 func _axis(index: int) -> float:
 	var value := (_raw(index) - CENTER) / CENTER
-	if absf(value) < 0.025:
+	if absf(value) < AXIS_DEADBAND:
 		return 0.0
 	return clampf(value, -1.0, 1.0)
 

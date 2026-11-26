@@ -15,6 +15,7 @@ size = Vector3( 0.5, 0.2, 0.5 )
 mass = 0.7
 custom_integrator = true
 continuous_cd = true
+freeze = true
 script = ExtResource( 2 )
 projected_area = Vector3( 0.0128, 0.0135, 0.0058 )
 

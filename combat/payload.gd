@@ -47,7 +47,10 @@ func _physics_process(delta: float) -> void:
 	_age += delta
 	if _exploded:
 		return
-	var scene := get_tree().current_scene
+	var tree := get_tree()
+	if tree == null or not is_inside_tree():
+		return
+	var scene := tree.current_scene
 	if scene != null and scene.get("_current_wind_vector") != null:
 		wind = scene.get("_current_wind_vector")
 	Ballistics.apply_drag(self, wind, kind)
@@ -90,6 +93,8 @@ func _on_body_entered(_body: Node) -> void:
 
 func explode() -> void:
 	if _exploded:
+		return
+	if not is_inside_tree() or not is_instance_valid(self):
 		return
 	_exploded = true
 	var parent := get_parent()
