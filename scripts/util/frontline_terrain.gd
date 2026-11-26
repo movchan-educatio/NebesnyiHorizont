@@ -1280,7 +1280,7 @@ static func _build_chunk(root: Node3D, map_name: String, ox: float, oz: float,
 		faces[i] = verts[indices[i]]
 	var shape := ConcavePolygonShape3D.new()
 	shape.set_faces(faces)
-	shape.backface_collision = true
+	shape.backface_collision = false
 	var cs := CollisionShape3D.new()
 	cs.shape = shape
 	body.add_child(cs)

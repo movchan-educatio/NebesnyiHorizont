@@ -143,14 +143,7 @@ func _spawn_training_rings() -> void:
 	for i in range(total):
 		var marker := markers[i]
 		var radius := float(marker.get_meta("radius", 4.6))
-		var style := String(marker.get_meta("style", "vertical"))
-		var base_col := Color(0.08, 0.72, 0.58)
-		if style == "dive" or style == "under_bridge" or style == "over_trestle":
-			base_col = Color(0.86, 0.48, 0.12)
-		elif i == 0:
-			base_col = Color(0.14, 0.84, 0.44)
-		elif i == total - 1:
-			base_col = Color(0.92, 0.68, 0.16)
+		var base_col := FreestyleCourseScript.GATE_PINK
 
 		var gate := Area3D.new()
 		gate.name = "LisGate%02d" % (i + 1)
@@ -164,23 +157,26 @@ func _spawn_training_rings() -> void:
 		col_shape.shape = sphere
 		gate.add_child(col_shape)
 
-		var frame_mat := StandardMaterial3D.new()
-		frame_mat.albedo_color = base_col
-		frame_mat.metallic = 0.25
-		frame_mat.roughness = 0.38
-		frame_mat.emission_enabled = true
-		frame_mat.emission = base_col
-		frame_mat.emission_energy_multiplier = 1.0
-		frame_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		var frame_mat := FreestyleCourseScript.create_horizon_face_material(base_col)
+		var glow_mat := FreestyleCourseScript._glow_material(FreestyleCourseScript.GATE_PINK_HOT)
 
-		if ring_mesh != null:
-			var mi := MeshInstance3D.new()
-			mi.name = "RingMesh"
-			mi.mesh = ring_mesh
-			mi.scale = Vector3.ONE * radius
-			mi.material_override = frame_mat
-			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			gate.add_child(mi)
+		var mi := MeshInstance3D.new()
+		mi.name = "GatePanel"
+		mi.mesh = FreestyleCourseScript.build_horizon_gate_mesh(1.0, false)
+		mi.scale = Vector3.ONE * radius
+		mi.set_surface_override_material(0, FreestyleCourseScript.create_horizon_bezel_material())
+		mi.set_surface_override_material(1, frame_mat)
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		gate.add_child(mi)
+
+		var glow := MeshInstance3D.new()
+		glow.name = "InnerGlow"
+		glow.mesh = FreestyleCourseScript.build_horizon_halo_mesh(1.0, false)
+		glow.scale = Vector3.ONE * radius
+		glow.material_override = glow_mat
+		glow.visible = false
+		glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		gate.add_child(glow)
 
 		var lbl := Label3D.new()
 		lbl.name = "GateNumber"
@@ -197,12 +193,14 @@ func _spawn_training_rings() -> void:
 		lbl.modulate = Color(1.0, 0.97, 0.84, 0.96)
 		lbl.outline_modulate = Color(0.02, 0.04, 0.06, 0.92)
 		lbl.outline_size = 10
-		lbl.position = Vector3(0.0, radius + 0.9, 0.0)
+		lbl.position = Vector3(0.0, radius * 1.48 + 0.85, 0.0)
 		gate.add_child(lbl)
 
 		gate.set_meta("training_ring_index", i)
 		gate.set_meta("ring_radius", radius)
+		gate.set_meta("ring_material", frame_mat)
 		gate.set_meta("ring_frame_mat", frame_mat)
+		gate.set_meta("ring_glow_mat", glow_mat)
 		gate.set_meta("ring_base_color", base_col)
 		gate.visible = true
 		gate.monitoring = (i == 0)

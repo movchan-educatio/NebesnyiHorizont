@@ -17,6 +17,7 @@ extends Node
 
 const MenuUI := preload("res://GUI/ui/MenuUI.gd")
 const VoltThemeScript := preload("res://GUI/mobile/VoltTheme.gd")
+const FreestyleCourseScript := preload("res://scripts/util/freestyle_course.gd")
 
 signal lesson_advanced(step: int, title: String)
 signal course_completed
@@ -166,6 +167,8 @@ var landing_pos := Vector3.ZERO
 var landing_node: Node3D = null
 var _guide_node: MultiMeshInstance3D = null
 var _overview_cam: Camera3D = null
+var _school_gate_mats: Array[Dictionary] = []
+var _school_gate_pulse: float = 0.0
 
 # Progress / timing
 var hover_timer := 0.0
@@ -230,6 +233,8 @@ func initialize(p_level: Node3D, p_drone: Drone, p_ground_y: float) -> void:
 	_basic_hold = 0.0
 	_gate_stage = 0
 	_accuracy_stage = 0
+	_school_gate_mats.clear()
+	_school_gate_pulse = 0.0
 	_prev_pos = drone.global_position if drone != null else Vector3.ZERO
 	_has_prev = true
 	_build_world_track()
@@ -383,31 +388,51 @@ func _create_hover_beacon(pos: Vector3) -> MeshInstance3D:
 
 
 func _create_arch(at: Vector2, width: float, height: float, center_h: float,
-		label_text: String, color: Color) -> Dictionary:
+		label_text: String, _color: Color) -> Dictionary:
 	var gy := _ground_at(at.x, at.y)
 	var root := Node3D.new()
 	root.name = "TrainingGate"
 	root.position = Vector3(at.x, gy, at.y)
 
 	var top := center_h + height * 0.5
-	var post_mat := _emissive(color, 1.0, 2.2)
-	var post := BoxMesh.new()
-	var size := Vector3(0.16, top + 0.6, 0.16)
-	post.size = size
-	for sx in [-1.0, 1.0]:
-		var m := MeshInstance3D.new()
-		m.mesh = post
-		m.position = Vector3(sx * (width * 0.5 + 0.08), (top - 0.6) * 0.5, 0.0)
-		m.material_override = post_mat
-		root.add_child(m)
+	var sx := width / 1.94
+	var sy := height / 1.68
+	var sz := clampf(minf(sx, sy), 1.4, 3.0)
+	var face_mat := FreestyleCourseScript.create_horizon_face_material(FreestyleCourseScript.GATE_PINK)
+	var glow_mat := FreestyleCourseScript._glow_material(FreestyleCourseScript.GATE_PINK_HOT)
+	_school_gate_mats.append({"frame": face_mat, "glow": glow_mat})
 
-	var lintel := BoxMesh.new()
-	lintel.size = Vector3(width + 0.5, 0.16, 0.16)
-	var lm := MeshInstance3D.new()
-	lm.mesh = lintel
-	lm.position = Vector3(0.0, top, 0.0)
-	lm.material_override = post_mat
-	root.add_child(lm)
+	var panel := MeshInstance3D.new()
+	panel.name = "GatePanel"
+	panel.mesh = FreestyleCourseScript.build_horizon_gate_mesh(1.0, false)
+	panel.position = Vector3(0.0, center_h, 0.0)
+	panel.scale = Vector3(sx, sy, sz)
+	panel.set_surface_override_material(0, FreestyleCourseScript.create_horizon_bezel_material())
+	panel.set_surface_override_material(1, face_mat)
+	panel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(panel)
+
+	var glow := MeshInstance3D.new()
+	glow.name = "InnerGlow"
+	glow.mesh = FreestyleCourseScript.build_horizon_halo_mesh(1.0, false)
+	glow.position = Vector3(0.0, center_h, 0.0)
+	glow.scale = Vector3(sx, sy, sz)
+	glow.material_override = glow_mat
+	glow.visible = false
+	glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(glow)
+
+	var bot_y := center_h - 1.12 * sy
+	if bot_y > 0.08:
+		var dark_mat := FreestyleCourseScript.create_horizon_bezel_material()
+		var leg_mesh := BoxMesh.new()
+		leg_mesh.size = Vector3(0.18, bot_y + 0.4, 0.18)
+		for side_x in [-1.0, 1.0]:
+			var lm := MeshInstance3D.new()
+			lm.mesh = leg_mesh
+			lm.position = Vector3(side_x * (0.96 * sx), bot_y * 0.5, 0.0)
+			lm.material_override = dark_mat
+			root.add_child(lm)
 
 	# Soft vertical light column so the next gate is visible over the field.
 	var beam := MeshInstance3D.new()
@@ -416,10 +441,8 @@ func _create_arch(at: Vector2, width: float, height: float, center_h: float,
 	cyl.bottom_radius = 0.28
 	cyl.height = 24.0
 	beam.mesh = cyl
-	# The plume sits beside the right post, above the lintel: never inside the
-	# opening and never behind the gate label.
-	beam.position = Vector3(width * 0.5 + 1.2, top + 12.0, 0.0)
-	beam.material_override = _emissive(color, 0.09, 1.0)
+	beam.position = Vector3(width * 0.5 + 1.4, top + 12.0, 0.0)
+	beam.material_override = _emissive(FreestyleCourseScript.GATE_PINK, 0.09, 1.0)
 	root.add_child(beam)
 
 	var lbl := Label3D.new()
@@ -428,8 +451,8 @@ func _create_arch(at: Vector2, width: float, height: float, center_h: float,
 	lbl.pixel_size = 0.022
 	lbl.outline_size = 12
 	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	lbl.modulate = color.lightened(0.25)
-	lbl.position = Vector3(0.0, top + 1.4, 0.0)
+	lbl.modulate = FreestyleCourseScript.GATE_PINK_HOT
+	lbl.position = Vector3(0.0, center_h + 1.48 * sy + 0.6, 0.0)
 	root.add_child(lbl)
 
 	return {
@@ -1193,6 +1216,12 @@ func update_flight_school(delta: float) -> void:
 	if not is_active or drone == null or _help_open or get_tree().paused:
 		return
 	course_time += delta
+	_school_gate_pulse += delta * 7.2
+	for gm_idx in range(_school_gate_mats.size()):
+		var gm: Dictionary = _school_gate_mats[gm_idx]
+		FreestyleCourseScript.apply_gate_blink(
+				gm.get("frame") as StandardMaterial3D, gm.get("glow") as StandardMaterial3D,
+				_school_gate_pulse, 0 if gm_idx == 0 else 2, gm_idx)
 	_update_toast(delta)
 	_check_pilot_errors(delta)
 

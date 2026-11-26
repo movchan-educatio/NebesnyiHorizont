@@ -9,14 +9,35 @@ class_name ProceduralGateTorus
 @export var collision_shape_count := 16
 
 
+var _face_mat: StandardMaterial3D = null
+var _glow_mat: StandardMaterial3D = null
+var _blink_t: float = 0.0
+
+
+func _process(delta: float) -> void:
+	_blink_t += delta * 7.2
+	if _face_mat != null:
+		FreestyleCourse.apply_gate_blink(_face_mat, _glow_mat, _blink_t, 2, 0)
+
+
 func _add_geometry() -> void:
-	geometry = CSGTorus3D.new()
-	geometry.inner_radius = inner_radius
-	geometry.outer_radius = outer_radius
-	geometry.sides = sides
-	geometry.ring_sides = ring_sides
-	add_child(geometry)
-	geometry.rotate(Vector3.RIGHT, PI / 2.0)
+	var mi := MeshInstance3D.new()
+	mi.mesh = FreestyleCourse.build_horizon_gate_mesh(1.0, false)
+	mi.scale = Vector3.ONE * inner_radius
+	_face_mat = FreestyleCourse.create_horizon_face_material(FreestyleCourse.GATE_PINK)
+	mi.set_surface_override_material(0, FreestyleCourse.create_horizon_bezel_material())
+	mi.set_surface_override_material(1, _face_mat)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	geometry = mi
+	add_child(mi)
+	var glow := MeshInstance3D.new()
+	glow.mesh = FreestyleCourse.build_horizon_halo_mesh(1.0, false)
+	glow.scale = Vector3.ONE * inner_radius
+	_glow_mat = FreestyleCourse._glow_material(FreestyleCourse.GATE_PINK_HOT)
+	glow.material_override = _glow_mat
+	glow.visible = false
+	glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(glow)
 
 
 func _add_collision() -> void:

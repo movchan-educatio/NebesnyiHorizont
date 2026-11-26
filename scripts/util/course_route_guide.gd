@@ -16,8 +16,8 @@ const ACTIVE_PEAK_COLOR := Color(1.0, 0.99, 0.56, 1.0)
 const PREVIEW_COLOR := Color(1.0, 0.72, 0.10, 0.66)
 const GROUND_COLOR := Color(0.98, 1.0, 0.08, 0.94)
 const GROUND_BORDER_COLOR := Color(0.045, 0.055, 0.065, 0.58)
-const GROUND_WIDTH := 0.85
-const GROUND_BORDER_WIDTH := 1.35
+const GROUND_WIDTH := 0.34
+const GROUND_BORDER_WIDTH := 0.50
 const GROUND_STEP := 3.0
 
 var _active_mesh_inst: MeshInstance3D = null
@@ -224,9 +224,17 @@ func update_route(gates: Array[Dictionary], active_idx: int,
 	for p_prev in preview_paths:
 		_last_paths.append(p_prev)
 
-	_active_mesh_inst.mesh = _build_ribbon_mesh(active_paths, 0.34, 12.0, 0.95)
-	_preview_mesh_inst.mesh = _build_ribbon_mesh(preview_paths, 0.22, 15.0, 0.72)
-	_rebuild_ground_guides(gates, world_space, exclude_rids, map_name, water_level)
+	# All freestyle route lines and ground guide ribbons/tethers are disabled across every map.
+	if _active_mesh_inst != null:
+		_active_mesh_inst.mesh = null
+	if _preview_mesh_inst != null:
+		_preview_mesh_inst.mesh = null
+	if _ground_mesh_inst != null:
+		_ground_mesh_inst.mesh = null
+	if _ground_border_mesh_inst != null:
+		_ground_border_mesh_inst.mesh = null
+	if _tether_mesh_inst != null:
+		_tether_mesh_inst.mesh = null
 
 
 func _get_or_build_segment(key: String, a: Dictionary, b: Dictionary,
@@ -777,7 +785,7 @@ func _build_ground_tethers(gates: Array[Dictionary],
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var has_verts := false
-	var half := 0.09
+	var half := 0.045
 	for gate in gates:
 		var pos: Vector3 = gate.get("pos", Vector3.ZERO)
 		var sample := _sample_ground_surface(pos.x, pos.z, pos.y, space,

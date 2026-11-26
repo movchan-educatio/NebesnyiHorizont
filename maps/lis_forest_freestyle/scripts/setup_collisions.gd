@@ -315,11 +315,17 @@ func _is_under_structures(node: Node) -> bool:
 	return false
 
 
+static func _is_ground_name(nm: String) -> bool:
+	var nl := nm.to_lower()
+	return nl.contains("terrain") or nl.contains("ground")
+
+
 func _enable_trimesh_backfaces(node: Node) -> void:
 	if node is CollisionShape3D:
 		var cs := node as CollisionShape3D
 		if cs.shape is ConcavePolygonShape3D:
-			(cs.shape as ConcavePolygonShape3D).backface_collision = true
+			var p := cs.get_parent()
+			(cs.shape as ConcavePolygonShape3D).backface_collision = (p == null or not _is_ground_name(String(p.name)))
 	for c in node.get_children():
 		_enable_trimesh_backfaces(c)
 
@@ -371,7 +377,7 @@ func _make_body(src: MeshInstance3D, use_trimesh: bool, keep_visible: bool = fal
 	if use_trimesh:
 		var tri := ConcavePolygonShape3D.new()
 		tri.set_faces(faces)
-		tri.backface_collision = true
+		tri.backface_collision = not _is_ground_name(String(src.name))
 		shape = tri
 	else:
 		shape = src.mesh.create_convex_shape(true, false)
@@ -456,6 +462,6 @@ func _harden_solid_bodies(node: Node) -> void:
 		for cs_node in body.find_children("*", "CollisionShape3D", true, false):
 			var shape: Shape3D = (cs_node as CollisionShape3D).shape
 			if shape is ConcavePolygonShape3D:
-				(shape as ConcavePolygonShape3D).backface_collision = true
+				(shape as ConcavePolygonShape3D).backface_collision = not _is_ground_name(String(body.name))
 	for c in node.get_children():
 		_harden_solid_bodies(c)

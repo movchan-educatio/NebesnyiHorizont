@@ -673,7 +673,7 @@ func _emit_collision_cells(cells: Dictionary, prefix: String) -> int:
 		if faces.is_empty():
 			continue
 		var shape := ConcavePolygonShape3D.new()
-		shape.backface_collision = true
+		shape.backface_collision = not prefix.contains("Paint")
 		shape.set_faces(faces)
 		var body := StaticBody3D.new()
 		body.name = "%s_%d_%d" % [prefix, cell.x, cell.y]
@@ -698,10 +698,13 @@ func _harden_solid_colliders(node: Node) -> void:
 		var body := node as StaticBody3D
 		body.collision_layer = 1
 		body.collision_mask = 1
+		var nm := String(body.name).to_lower()
+		var is_flat := nm.contains("paint") or nm.contains("tarmac") \
+				or nm.contains("ground") or nm.contains("terrain")
 		for cs_node in body.find_children("*", "CollisionShape3D", true, false):
 			var shape: Shape3D = (cs_node as CollisionShape3D).shape
 			if shape is ConcavePolygonShape3D:
-				(shape as ConcavePolygonShape3D).backface_collision = true
+				(shape as ConcavePolygonShape3D).backface_collision = not is_flat
 	for child in node.get_children():
 		_harden_solid_colliders(child)
 

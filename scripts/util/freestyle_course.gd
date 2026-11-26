@@ -11,6 +11,18 @@ const SHAPE_UGATE := 4
 const ARCH_MAX_AGL_MULT := 1.40
 const ARCH_MAX_SLOPE_DIFF := 2.6
 
+const GATE_PINK := Color(1.0, 0.09, 0.52, 1.0)
+const GATE_PINK_HOT := Color(1.0, 0.16, 0.60, 1.0)
+const GATE_PINK_DIM := Color(0.28, 0.02, 0.14, 1.0)
+const GATE_TEX_PATH := "res://Assets/textures/gate_horizon_face.png"
+
+static var _cached_gate_tex: Texture2D = null
+static var _cached_gate_mesh_z: ArrayMesh = null
+static var _cached_gate_mesh_y: ArrayMesh = null
+static var _cached_halo_mesh_z: ArrayMesh = null
+static var _cached_halo_mesh_y: ArrayMesh = null
+static var _cached_bezel_mat: StandardMaterial3D = null
+
 ## 24-gate Sofiyivka / Uman freestyle park loop starting straight ahead of GLB PlayerSpawn (-5.05, 1.6, 75.91).
 const UMAN_WAYPOINTS: Array[Vector3] = [
 	Vector3(-5.0, 4.4, 54.0),
@@ -87,6 +99,276 @@ static func _dark_material() -> StandardMaterial3D:
 	return mat
 
 
+static func get_horizon_gate_texture() -> Texture2D:
+	if _cached_gate_tex != null:
+		return _cached_gate_tex
+	if ResourceLoader.exists(GATE_TEX_PATH):
+		var res := load(GATE_TEX_PATH)
+		if res is Texture2D:
+			_cached_gate_tex = res as Texture2D
+			return _cached_gate_tex
+	var abs_p := ProjectSettings.globalize_path(GATE_TEX_PATH)
+	if FileAccess.file_exists(abs_p):
+		var img := Image.load_from_file(abs_p)
+		if img != null and not img.is_empty():
+			img.generate_mipmaps()
+			_cached_gate_tex = ImageTexture.create_from_image(img)
+	return _cached_gate_tex
+
+
+static func create_horizon_bezel_material() -> StandardMaterial3D:
+	if _cached_bezel_mat != null:
+		return _cached_bezel_mat
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.055, 0.058, 0.068, 1.0)
+	mat.metallic = 0.22
+	mat.roughness = 0.46
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_cached_bezel_mat = mat
+	return mat
+
+
+static func create_horizon_face_material(base_col: Color = GATE_PINK) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	var tex := get_horizon_gate_texture()
+	mat.albedo_color = base_col
+	if tex != null:
+		mat.albedo_texture = tex
+	mat.emission_enabled = true
+	mat.emission = base_col
+	if tex != null:
+		mat.emission_texture = tex
+		mat.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
+	mat.emission_energy_multiplier = 0.95
+	mat.metallic = 0.0
+	mat.roughness = 0.82
+	mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return mat
+
+
+static func apply_gate_blink(frame_mat: StandardMaterial3D, glow_mat: StandardMaterial3D,
+		pulse_time: float, state: int, phase_idx: int = 0) -> void:
+	if frame_mat == null:
+		return
+	match state:
+		0:  # Active target gate: rapid high-contrast LED strobe (saturated hot-pink, dark letters)
+			var s := 0.5 + 0.5 * sin(pulse_time * 2.2)
+			var k := smoothstep(0.16, 0.84, s)
+			frame_mat.albedo_color = GATE_PINK_DIM.lerp(GATE_PINK_HOT, k)
+			frame_mat.emission = GATE_PINK.lerp(GATE_PINK_HOT, k)
+			frame_mat.emission_energy_multiplier = lerpf(0.05, 1.35, k)
+			if glow_mat != null:
+				glow_mat.albedo_color = Color(1.0, 0.14, 0.56, lerpf(0.04, 0.35, k))
+				glow_mat.emission = GATE_PINK_HOT
+				glow_mat.emission_energy_multiplier = lerpf(0.10, 1.2, k)
+		1:  # On-deck gate: brisk rhythmic pink blink
+			var s := 0.5 + 0.5 * sin(pulse_time * 1.25 - 0.5)
+			var k := smoothstep(0.15, 0.85, s)
+			frame_mat.albedo_color = GATE_PINK_DIM.lerp(GATE_PINK, k)
+			frame_mat.emission = GATE_PINK
+			frame_mat.emission_energy_multiplier = lerpf(0.05, 0.95, k)
+			if glow_mat != null:
+				glow_mat.albedo_color = Color(1.0, 0.12, 0.54, lerpf(0.03, 0.22, k))
+				glow_mat.emission = GATE_PINK
+				glow_mat.emission_energy_multiplier = lerpf(0.10, 0.85, k)
+		3:  # Already passed gate: calm dim magenta
+			var passed_col := Color(0.26, 0.04, 0.14)
+			frame_mat.albedo_color = passed_col
+			frame_mat.emission = passed_col
+			frame_mat.emission_energy_multiplier = 0.08
+			if glow_mat != null:
+				glow_mat.albedo_color = Color(passed_col.r, passed_col.g, passed_col.b, 0.03)
+				glow_mat.emission_energy_multiplier = 0.06
+		_:  # Upcoming course gates: cascading wave blink
+			var s := 0.5 + 0.5 * sin(pulse_time * 1.05 - float(phase_idx) * 0.48)
+			var k := smoothstep(0.18, 0.82, s)
+			frame_mat.albedo_color = GATE_PINK_DIM.lerp(GATE_PINK, k)
+			frame_mat.emission = GATE_PINK
+			frame_mat.emission_energy_multiplier = lerpf(0.04, 0.78, k)
+			if glow_mat != null:
+				glow_mat.albedo_color = Color(1.0, 0.12, 0.54, lerpf(0.02, 0.16, k))
+				glow_mat.emission = GATE_PINK
+				glow_mat.emission_energy_multiplier = lerpf(0.08, 0.65, k)
+
+
+static func _rounded_trapezoid_ring(w_bot: float, w_top: float, y_bot: float, y_top: float,
+		fillet: float, segs_per_corner: int = 4) -> PackedVector2Array:
+	var corners := [
+		Vector2(-w_bot, y_bot),
+		Vector2(w_bot, y_bot),
+		Vector2(w_top, y_top),
+		Vector2(-w_top, y_top),
+	]
+	var ring := PackedVector2Array()
+	for i in range(4):
+		var p_prev: Vector2 = corners[(i + 3) % 4]
+		var p_cur: Vector2 = corners[i]
+		var p_next: Vector2 = corners[(i + 1) % 4]
+		var len_in := p_cur.distance_to(p_prev)
+		var len_out := p_next.distance_to(p_cur)
+		var d_in := (p_cur - p_prev) / maxf(len_in, 1e-5)
+		var d_out := (p_next - p_cur) / maxf(len_out, 1e-5)
+		var trim := minf(fillet, minf(len_in, len_out) * 0.42)
+		var t1 := p_cur - d_in * trim
+		var t2 := p_cur + d_out * trim
+		for s in range(segs_per_corner + 1):
+			var t := float(s) / float(segs_per_corner)
+			ring.append(t1.lerp(p_cur, t).lerp(p_cur.lerp(t2, t), t))
+	return ring
+
+
+static func _orient_gate_pt(p: Vector3, normal_up_y: bool) -> Vector3:
+	if normal_up_y:
+		return Vector3(p.x, p.z, -p.y)
+	return p
+
+
+static func _add_quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3,
+		ua: Vector2 = Vector2.ZERO, ub: Vector2 = Vector2.ZERO,
+		uc: Vector2 = Vector2.ZERO, ud: Vector2 = Vector2.ZERO,
+		normal_up_y: bool = false) -> void:
+	var va := _orient_gate_pt(a, normal_up_y)
+	var vb := _orient_gate_pt(b, normal_up_y)
+	var vc := _orient_gate_pt(c, normal_up_y)
+	var vd := _orient_gate_pt(d, normal_up_y)
+	st.set_uv(ua)
+	st.add_vertex(va)
+	st.set_uv(ub)
+	st.add_vertex(vb)
+	st.set_uv(uc)
+	st.add_vertex(vc)
+	st.set_uv(ua)
+	st.add_vertex(va)
+	st.set_uv(uc)
+	st.add_vertex(vc)
+	st.set_uv(ud)
+	st.add_vertex(vd)
+
+
+static func build_horizon_gate_mesh(scale_r: float = 1.0, normal_up_y: bool = false) -> ArrayMesh:
+	if absf(scale_r - 1.0) < 1e-4:
+		if not normal_up_y and _cached_gate_mesh_z != null:
+			return _cached_gate_mesh_z
+		if normal_up_y and _cached_gate_mesh_y != null:
+			return _cached_gate_mesh_y
+
+	var s := scale_r
+	var inner := _rounded_trapezoid_ring(0.88 * s, 1.06 * s, -0.84 * s, 0.84 * s, 0.16 * s, 4)
+	var pink := _rounded_trapezoid_ring(1.11 * s, 1.29 * s, -1.07 * s, 1.28 * s, 0.18 * s, 4)
+	var outer := _rounded_trapezoid_ring(1.19 * s, 1.37 * s, -1.15 * s, 1.36 * s, 0.20 * s, 4)
+	var z_box := 0.095 * s
+	var z_face := 0.099 * s
+	var n := inner.size()
+
+	var out := ArrayMesh.new()
+	out.resource_name = "SkyHorizonGateMesh"
+
+	# Surface 0: Dark matte anodized outer bezel + extrusion thickness
+	var st_bezel := SurfaceTool.new()
+	st_bezel.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in range(n):
+		var j := (i + 1) % n
+		var p0 := pink[i]
+		var p1 := pink[j]
+		var o0 := outer[i]
+		var o1 := outer[j]
+		var q0 := inner[i]
+		var q1 := inner[j]
+		# Front and back black bezel border strip (pink -> outer)
+		_add_quad(st_bezel, Vector3(p0.x, p0.y, z_box), Vector3(o0.x, o0.y, z_box),
+				Vector3(o1.x, o1.y, z_box), Vector3(p1.x, p1.y, z_box),
+				Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, normal_up_y)
+		_add_quad(st_bezel, Vector3(p1.x, p1.y, -z_box), Vector3(o1.x, o1.y, -z_box),
+				Vector3(o0.x, o0.y, -z_box), Vector3(p0.x, p0.y, -z_box),
+				Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, normal_up_y)
+		# Outer rim depth wall
+		_add_quad(st_bezel, Vector3(o0.x, o0.y, -z_box), Vector3(o1.x, o1.y, -z_box),
+				Vector3(o1.x, o1.y, z_box), Vector3(o0.x, o0.y, z_box),
+				Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, normal_up_y)
+		# Inner opening depth wall
+		_add_quad(st_bezel, Vector3(q0.x, q0.y, z_box), Vector3(q1.x, q1.y, z_box),
+				Vector3(q1.x, q1.y, -z_box), Vector3(q0.x, q0.y, -z_box),
+				Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, normal_up_y)
+	st_bezel.generate_normals()
+	st_bezel.commit(out)
+
+	# Surface 1: Hot-pink panel face with crisp "НЕБЕСНИЙ ГОРИЗОНТ" header UV on BOTH sides
+	var st_face := SurfaceTool.new()
+	st_face.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var u_span := 2.0 * (1.29 * s)
+	var u_min := -1.29 * s
+	var y_top_f := 1.28 * s
+	var v_span := (1.28 - (-1.07)) * s
+	for i in range(n):
+		var j := (i + 1) % n
+		var q0 := inner[i]
+		var q1 := inner[j]
+		var p0 := pink[i]
+		var p1 := pink[j]
+		# Front (+Z): left-to-right when viewed from +Z toward -Z
+		var uq0 := Vector2((q0.x - u_min) / u_span, (y_top_f - q0.y) / v_span)
+		var uq1 := Vector2((q1.x - u_min) / u_span, (y_top_f - q1.y) / v_span)
+		var up0 := Vector2((p0.x - u_min) / u_span, (y_top_f - p0.y) / v_span)
+		var up1 := Vector2((p1.x - u_min) / u_span, (y_top_f - p1.y) / v_span)
+		_add_quad(st_face, Vector3(q0.x, q0.y, z_face), Vector3(p0.x, p0.y, z_face),
+				Vector3(p1.x, p1.y, z_face), Vector3(q1.x, q1.y, z_face),
+				uq0, up0, up1, uq1, normal_up_y)
+		# Back (-Z): mirrored X in UV so text reads un-mirrored from the opposite side
+		var bq0 := Vector2(1.0 - uq0.x, uq0.y)
+		var bq1 := Vector2(1.0 - uq1.x, uq1.y)
+		var bp0 := Vector2(1.0 - up0.x, up0.y)
+		var bp1 := Vector2(1.0 - up1.x, up1.y)
+		_add_quad(st_face, Vector3(q1.x, q1.y, -z_face), Vector3(p1.x, p1.y, -z_face),
+				Vector3(p0.x, p0.y, -z_face), Vector3(q0.x, q0.y, -z_face),
+				bq1, bp1, bp0, bq0, normal_up_y)
+	st_face.generate_normals()
+	st_face.commit(out)
+
+	if absf(scale_r - 1.0) < 1e-4:
+		if normal_up_y:
+			_cached_gate_mesh_y = out
+		else:
+			_cached_gate_mesh_z = out
+	return out
+
+
+static func build_horizon_halo_mesh(scale_r: float = 1.0, normal_up_y: bool = false) -> ArrayMesh:
+	if absf(scale_r - 1.0) < 1e-4:
+		if not normal_up_y and _cached_halo_mesh_z != null:
+			return _cached_halo_mesh_z
+		if normal_up_y and _cached_halo_mesh_y != null:
+			return _cached_halo_mesh_y
+	var s := scale_r
+	var r_in := _rounded_trapezoid_ring(1.22 * s, 1.40 * s, -1.18 * s, 1.39 * s, 0.20 * s, 4)
+	var r_out := _rounded_trapezoid_ring(1.30 * s, 1.48 * s, -1.26 * s, 1.47 * s, 0.22 * s, 4)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := r_in.size()
+	var z_off := 0.04 * s
+	for i in range(n):
+		var j := (i + 1) % n
+		var i0 := r_in[i]
+		var i1 := r_in[j]
+		var o0 := r_out[i]
+		var o1 := r_out[j]
+		_add_quad(st, Vector3(i0.x, i0.y, z_off), Vector3(o0.x, o0.y, z_off),
+				Vector3(o1.x, o1.y, z_off), Vector3(i1.x, i1.y, z_off),
+				Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, normal_up_y)
+		_add_quad(st, Vector3(i1.x, i1.y, -z_off), Vector3(o1.x, o1.y, -z_off),
+				Vector3(o0.x, o0.y, -z_off), Vector3(i0.x, i0.y, -z_off),
+				Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, normal_up_y)
+	st.generate_normals()
+	var mesh := ArrayMesh.new()
+	st.commit(mesh)
+	if absf(scale_r - 1.0) < 1e-4:
+		if normal_up_y:
+			_cached_halo_mesh_y = mesh
+		else:
+			_cached_halo_mesh_z = mesh
+	return mesh
+
+
 static func _beam(a: Vector3, b: Vector3, thickness: float, mat: Material) -> MeshInstance3D:
 	var diff := b - a
 	var length := diff.length()
@@ -152,41 +434,41 @@ static func _shape_points(shape: int, size: float,
 static func _add_gate_visual(root: Node3D, shape: int, size: float,
 		frame_mat: StandardMaterial3D, glow_mat: StandardMaterial3D,
 		left_ground_off: float = NAN, right_ground_off: float = NAN) -> void:
-	var frame := Node3D.new()
-	frame.name = "FrameVisual"
-	root.add_child(frame)
-	var glow := Node3D.new()
+	var panel := MeshInstance3D.new()
+	panel.name = "GatePanel"
+	panel.mesh = build_horizon_gate_mesh(1.0, false)
+	panel.scale = Vector3.ONE * size
+	panel.set_surface_override_material(0, create_horizon_bezel_material())
+	panel.set_surface_override_material(1, frame_mat)
+	panel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(panel)
+
+	var glow := MeshInstance3D.new()
 	glow.name = "InnerGlow"
+	glow.mesh = build_horizon_halo_mesh(1.0, false)
+	glow.scale = Vector3.ONE * size
+	glow.material_override = glow_mat
+	glow.visible = false
+	glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(glow)
-	var tube := clampf(size * 0.068, 0.16, 0.34)
+
 	if shape == SHAPE_ARCH:
 		var is_grounded := (not is_nan(left_ground_off)) and (not is_nan(right_ground_off))
-		var lf := (-size * 0.72 if not is_grounded else (left_ground_off - 0.35))
-		var rf := (-size * 0.72 if not is_grounded else (right_ground_off - 0.35))
-		var pts := _shape_points(shape, size, lf, rf)
-		var crown_y := -size * 0.05
-		var inner_pts: Array[Vector3] = []
-		for k in range(pts.size()):
-			var p: Vector3 = pts[k]
-			if is_grounded and (k == 0 or k == pts.size() - 1):
-				var g_off := left_ground_off if k == 0 else right_ground_off
-				inner_pts.append(Vector3(p.x * 0.91, g_off + 0.10, 0.0))
-			elif not is_grounded:
-				inner_pts.append(p * 0.90)
-			else:
-				inner_pts.append(Vector3(p.x * 0.91, crown_y + (p.y - crown_y) * 0.91, 0.0))
-		var seg_count := pts.size() - 1
-		for i in range(seg_count):
-			frame.add_child(_beam(pts[i], pts[i + 1], tube, frame_mat))
-			glow.add_child(_beam(inner_pts[i], inner_pts[i + 1], tube * 0.42, glow_mat))
 		if is_grounded:
 			var dark_mat := _dark_material()
 			var foot_x := size * 0.92
+			var bot_y := -size * 1.12
+			var tube := clampf(size * 0.068, 0.16, 0.32)
 			var feet := [
 				["FootLeft", -foot_x, left_ground_off],
 				["FootRight", foot_x, right_ground_off],
 			]
 			for f in feet:
+				var fx := float(f[1])
+				var gy_off := float(f[2])
+				if gy_off < bot_y - 0.05:
+					var leg := _beam(Vector3(fx, bot_y, 0.0), Vector3(fx, gy_off + 0.12, 0.0), tube * 0.85, dark_mat)
+					root.add_child(leg)
 				var foot := MeshInstance3D.new()
 				foot.name = str(f[0])
 				var cyl := CylinderMesh.new()
@@ -197,17 +479,8 @@ static func _add_gate_visual(root: Node3D, shape: int, size: float,
 				foot.mesh = cyl
 				foot.material_override = dark_mat
 				foot.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-				foot.position = Vector3(float(f[1]), float(f[2]) + 0.12, 0.0)
+				foot.position = Vector3(fx, gy_off + 0.12, 0.0)
 				root.add_child(foot)
-		return
-	var pts := _shape_points(shape, size)
-	var open_chain := (shape == SHAPE_UGATE)
-	var seg_count := (pts.size() - 1) if open_chain else pts.size()
-	for i in range(seg_count):
-		var a: Vector3 = pts[i]
-		var b: Vector3 = pts[(i + 1) % pts.size()]
-		frame.add_child(_beam(a, b, tube, frame_mat))
-		glow.add_child(_beam(a * 0.90, b * 0.90, tube * 0.42, glow_mat))
 
 
 static func make_checkpoint(parent: Node3D, spec: Dictionary, idx: int,
@@ -255,8 +528,9 @@ static func make_checkpoint(parent: Node3D, spec: Dictionary, idx: int,
 	col_shape.shape = sphere
 	gate.add_child(col_shape)
 
-	var frame_mat := _neon_material(col)
-	var glow_mat := _glow_material(col.lightened(0.18))
+	col = GATE_PINK
+	var frame_mat := create_horizon_face_material(col)
+	var glow_mat := _glow_material(GATE_PINK_HOT)
 	if shape == SHAPE_ARCH:
 		_add_gate_visual(gate, shape, size, frame_mat, glow_mat,
 				lgy - pos.y, rgy - pos.y)
@@ -278,7 +552,7 @@ static func make_checkpoint(parent: Node3D, spec: Dictionary, idx: int,
 	lbl.modulate = Color(1.0, 0.97, 0.82, 0.96)
 	lbl.outline_modulate = Color(0.02, 0.04, 0.06, 0.92)
 	lbl.outline_size = 10
-	lbl.position = Vector3(0.0, size * 0.96 + 0.95, 0.0)
+	lbl.position = Vector3(0.0, size * 1.48 + 0.85, 0.0)
 	gate.add_child(lbl)
 
 	if (idx == 0 or idx == total - 1) and not over_water and (pos.y - gy) <= size * 1.65:

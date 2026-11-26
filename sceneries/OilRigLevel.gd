@@ -422,7 +422,7 @@ func _setup_oilrig_gate_triggers() -> void:
 		lbl.outline_modulate = Color(0.02, 0.04, 0.06, 0.94)
 		lbl.outline_size = 10
 		_rig_markers_root.add_child(lbl)
-		lbl.global_position = marker.global_position + Vector3(0.0, maxf(4.6, s * 4.6) + 1.0, 0.0)
+		lbl.global_position = marker.global_position + Vector3(0.0, maxf(4.6, s * 4.6) * 1.54 + 0.95, 0.0)
 		_rig_gate_labels[idx] = lbl
 	_build_rig_active_highlights()
 	_sync_oilrig_active_gate()
@@ -513,16 +513,11 @@ func _build_rig_active_highlights() -> void:
 		return
 	_rig_active_torus = MeshInstance3D.new()
 	_rig_active_torus.name = "ActiveRigGateHighlight"
-	var t_act := TorusMesh.new()
-	t_act.inner_radius = 3.55
-	t_act.outer_radius = 4.20
-	t_act.rings = 28
-	t_act.ring_segments = 8
-	_rig_active_torus.mesh = t_act
+	_rig_active_torus.mesh = FreestyleCourseScript.build_horizon_halo_mesh(4.6, true)
 	_rig_active_mat = StandardMaterial3D.new()
 	_rig_active_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_rig_active_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_rig_active_mat.albedo_color = Color(1.0, 0.96, 0.40, 1.0)
+	_rig_active_mat.albedo_color = Color(1.0, 0.22, 0.66, 0.96)
 	_rig_active_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_rig_active_torus.material_override = _rig_active_mat
 	_rig_active_torus.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -530,16 +525,11 @@ func _build_rig_active_highlights() -> void:
 
 	_rig_active_halo = MeshInstance3D.new()
 	_rig_active_halo.name = "ActiveRigGateHalo"
-	var t_halo := TorusMesh.new()
-	t_halo.inner_radius = 4.95
-	t_halo.outer_radius = 5.55
-	t_halo.rings = 28
-	t_halo.ring_segments = 8
-	_rig_active_halo.mesh = t_halo
+	_rig_active_halo.mesh = FreestyleCourseScript.build_horizon_halo_mesh(5.1, true)
 	_rig_active_halo_mat = StandardMaterial3D.new()
 	_rig_active_halo_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_rig_active_halo_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_rig_active_halo_mat.albedo_color = Color(1.0, 0.94, 0.25, 0.92)
+	_rig_active_halo_mat.albedo_color = Color(1.0, 0.45, 0.80, 0.90)
 	_rig_active_halo_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_rig_active_halo.material_override = _rig_active_halo_mat
 	_rig_active_halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -547,16 +537,11 @@ func _build_rig_active_highlights() -> void:
 
 	_rig_next_torus = MeshInstance3D.new()
 	_rig_next_torus.name = "NextRigGateHighlight"
-	var t_nxt := TorusMesh.new()
-	t_nxt.inner_radius = 4.10
-	t_nxt.outer_radius = 4.55
-	t_nxt.rings = 22
-	t_nxt.ring_segments = 6
-	_rig_next_torus.mesh = t_nxt
+	_rig_next_torus.mesh = FreestyleCourseScript.build_horizon_halo_mesh(4.6, true)
 	var next_mat := StandardMaterial3D.new()
 	next_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	next_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	next_mat.albedo_color = Color(1.0, 0.64, 0.14, 0.85)
+	next_mat.albedo_color = Color(1.0, 0.14, 0.56, 0.82)
 	next_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_rig_next_torus.material_override = next_mat
 	_rig_next_torus.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -616,31 +601,9 @@ func _sync_oilrig_active_gate() -> void:
 			else:
 				lbl.modulate = Color(1.0, 0.96, 0.82, 0.88)
 	if _rig_active_torus != null:
-		if active_ord >= 0:
-			var m_act := gates_node.get_node_or_null("Gate_%02d" % _rig_ordered_indices[active_ord]) as Marker3D
-			if m_act != null:
-				var s_act := m_act.global_transform.basis.x.length()
-				_rig_active_torus.visible = true
-				_rig_active_torus.global_transform = Transform3D(
-						m_act.global_transform.basis.orthonormalized(), m_act.global_position)
-				_rig_active_torus.scale = Vector3.ONE * maxf(0.5, s_act)
-			else:
-				_rig_active_torus.visible = false
-		else:
-			_rig_active_torus.visible = false
+		_rig_active_torus.visible = false
 	if _rig_next_torus != null:
-		if next_ord >= 0:
-			var m_nxt := gates_node.get_node_or_null("Gate_%02d" % _rig_ordered_indices[next_ord]) as Marker3D
-			if m_nxt != null:
-				var s_nxt := m_nxt.global_transform.basis.x.length()
-				_rig_next_torus.visible = true
-				_rig_next_torus.global_transform = Transform3D(
-						m_nxt.global_transform.basis.orthonormalized(), m_nxt.global_position)
-				_rig_next_torus.scale = Vector3.ONE * maxf(0.5, s_nxt)
-			else:
-				_rig_next_torus.visible = false
-		else:
-			_rig_next_torus.visible = false
+		_rig_next_torus.visible = false
 
 
 	var d := get_node_or_null("Drone") as Node3D
@@ -678,7 +641,7 @@ func _sync_oilrig_active_gate() -> void:
 	var rig_origin: Vector3 = d.global_position if d != null else _find_oilrig_spawn_transform().origin
 	if rig_space != null and not rig_gates.is_empty():
 		_route_guide.call("update_route",
-				rig_gates, mini(active_chain_idx, rig_gates.size() - 1), rig_space, rig_exclude, rig_origin)
+				rig_gates, mini(active_chain_idx, rig_gates.size() - 1), rig_space, rig_exclude, rig_origin, "oilrig", 0.0)
 
 
 func _refresh_oilrig_route_after_sync() -> void:
@@ -699,20 +662,25 @@ func _process(delta: float) -> void:
 	super._process(delta)
 	_rig_pulse += delta * 7.2
 	var blink := 0.5 + 0.5 * sin(_rig_pulse)
+	if _map_instance != null:
+		var vr := _map_instance.find_child("VisibleGateRings", true, false)
+		if vr != null and vr.has_meta("gate_face_mat"):
+			var fmat := vr.get_meta("gate_face_mat") as StandardMaterial3D
+			FreestyleCourseScript.apply_gate_blink(fmat, null, _rig_pulse, 0, 0)
 	if _rig_active_mat != null:
-		_rig_active_mat.albedo_color = Color(0.50, 0.24, 0.02, 0.95).lerp(
-				Color(1.0, 0.98, 0.46, 1.0), blink)
+		_rig_active_mat.albedo_color = Color(0.42, 0.04, 0.22, 0.28).lerp(
+				Color(1.0, 0.45, 0.80, 1.0), blink)
 	if _rig_active_halo_mat != null:
-		_rig_active_halo_mat.albedo_color = Color(1.0, 0.52, 0.04, 0.12).lerp(
-				Color(1.0, 0.96, 0.34, 0.96), blink)
+		_rig_active_halo_mat.albedo_color = Color(1.0, 0.12, 0.55, 0.12).lerp(
+				Color(1.0, 0.55, 0.86, 0.96), blink)
 	if _rig_active_halo != null and is_instance_valid(_rig_active_halo):
-		_rig_active_halo.scale = Vector3.ONE * lerpf(0.96, 1.08, blink)
+		_rig_active_halo.scale = Vector3.ONE * lerpf(0.97, 1.06, blink)
 	if _rig_active_gate_idx >= 0 and _rig_gate_labels.has(_rig_active_gate_idx):
 		var act_lbl := _rig_gate_labels[_rig_active_gate_idx] as Label3D
 		if act_lbl != null and is_instance_valid(act_lbl):
 			act_lbl.scale = Vector3.ONE * lerpf(0.94, 1.18, blink)
-			act_lbl.modulate = Color(1.0, 0.58, 0.08, 0.92).lerp(
-					Color(1.0, 0.99, 0.62, 1.0), blink)
+			act_lbl.modulate = Color(1.0, 0.42, 0.78, 0.92).lerp(
+					Color(1.0, 0.98, 0.99, 1.0), blink)
 	if _route_guide != null and is_instance_valid(_route_guide):
 		_route_guide.call("set_pulse", blink)
 

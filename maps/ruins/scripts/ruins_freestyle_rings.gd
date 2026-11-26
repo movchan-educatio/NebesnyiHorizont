@@ -80,7 +80,7 @@ const GATES_DATA := [
 	# 27. Factory Hall #2 End-to-End Pass (-130, 0, -62, -15 deg)
 	{"pos": [-130.0, 3.4, -62.0], "dir": [0.966, 0.05, 0.259], "size": 2.5, "shape": FreestyleCourseScript.SHAPE_SQUARE, "roll": 0.0, "col": "tech", "tag": "Hall2_Interior"},
 	# 28. Gantry Crane Frame -> South Avenue Finish
-	{"pos": [-35.0, 11.4, 78.0], "dir": [0.98, -0.14, 0.10], "size": 3.2, "shape": FreestyleCourseScript.SHAPE_DIAMOND, "roll": 0.0, "col": "tech", "tag": "GantryCrane_Span"},
+	{"pos": [-35.0, 11.4, 75.6], "dir": [0.985, -0.14, 0.02], "size": 3.2, "shape": FreestyleCourseScript.SHAPE_DIAMOND, "roll": 0.0, "col": "tech", "tag": "GantryCrane_Span"},
 	# 29. FINISH Gate on Main Avenue South Plaza
 	{"pos": [21.0, 4.8, 76.0], "dir": [0.0, 0.0, -1.0], "size": 4.2, "shape": FreestyleCourseScript.SHAPE_ARCH, "roll": 0.0, "col": "finish", "tag": "Avenue_Finish"},
 ]

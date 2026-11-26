@@ -589,10 +589,10 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 				# disarm, zero the airframe and freeze it so it cannot slide or
 				# tip over on a roof, slope, container or vehicle.  Arming
 				# unfreezes it again.
-				if _was_airborne and throttle_cmd <= 0.10 \
+				if _was_airborne and throttle_cmd <= 0.04 \
 						and lin_vel.length() < 2.4:
 					_landing_timer += state.step
-					if _landing_timer > 0.35:
+					if _landing_timer > 1.1:
 						flight_controller.request_disarm()
 						for motor in motors:
 							if motor != null:
@@ -810,18 +810,18 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 			hv = hv.normalized() * speed_limit_ms
 			lin_vel.x = hv.x
 			lin_vel.z = hv.z
-	state.linear_velocity = lin_vel
-	state.angular_velocity = ang_vel
 	# P1-2 Synchronize state.transform with custom integrator
 	var resting_on_ground: bool = on_ground and (throttle_cmd <= 0.08 or not flight_controller.state_armed or basis.y.dot(Vector3.UP) < 0.25)
+	var start_pos := state.transform.origin
+	var body_space := state.get_space_state()
+	var half_y := _body_half_height()
 	if not resting_on_ground:
 		# Sweep a small sphere along the integrated motion so a fast frame
 		# cannot tunnel a skid through a thin wall or straight into the ground.
-		var start_pos := state.transform.origin
 		var motion := pos - start_pos
-		var body_space := state.get_space_state()
 		if motion.length_squared() > 1e-8 and body_space != null:
-			_sweep_sphere.radius = clampf(minf(frame_dimensions.x, frame_dimensions.y) * 0.45, 0.14, 0.28)
+			var max_rad := clampf(half_y - 0.02, 0.05, 0.16)
+			_sweep_sphere.radius = clampf(minf(frame_dimensions.x, frame_dimensions.y) * 0.32, 0.05, max_rad)
 			var sq := PhysicsShapeQueryParameters3D.new()
 			sq.shape = _sweep_sphere
 			sq.collision_mask = 1
@@ -834,9 +834,11 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 				sq.transform = Transform3D(Basis.IDENTITY, start_pos + motion * float(hit_frac[1]))
 				var rest := body_space.get_rest_info(sq)
 				var normal: Vector3 = rest.get("normal", Vector3.UP)
+				var skip_upward_snag := float(hit_frac[0]) <= 0.0 and motion.y > 0.0 \
+						and (normal.y > 0.35 or (on_ground and normal.y < -0.35))
 				# Treat contact as blocking only when swept forward (>0) or moving into the surface;
 				# touching a pad beneath while lifting off upward must never glue the airframe.
-				if float(hit_frac[0]) > 0.0 or motion.dot(normal) < 0.0:
+				if not skip_upward_snag and (float(hit_frac[0]) > 0.0 or motion.dot(normal) < 0.0):
 					pos = start_pos + motion * maxf(float(hit_frac[0]) - 0.015, 0.0)
 					if not rest.is_empty():
 						var vn := lin_vel.dot(normal)
@@ -849,28 +851,34 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 							if flight_controller != null and flight_controller.state_armed \
 									and not landing_assist and absf(vn) > 14.0 and pre_spd > 14.0:
 								call_deferred("_trigger_crash", "HARD_IMPACT")
-						pos += normal * 0.015
-		# A short downward ray also catches shallow surfaces the sphere sweep
-		# may only graze, so the airframe never settles inside the collider.
-		if body_space != null:
-			var half_y := _body_half_height()
-			var ground_q := PhysicsRayQueryParameters3D.create(
-					start_pos + Vector3.UP * 0.25,
-					pos - Vector3.UP * (half_y + 0.06))
-			ground_q.collision_mask = 1
-			ground_q.collide_with_areas = false
-			ground_q.exclude = [get_rid()]
-			var ground_hit := body_space.intersect_ray(ground_q)
-			if not ground_hit.is_empty():
-				var gnorm: Vector3 = ground_hit.get("normal", Vector3.ZERO)
-				var hy: float = (ground_hit.get("position", Vector3.ZERO) as Vector3).y
-				if gnorm.y > 0.45 and hy <= start_pos.y + 0.05:
-					pos.y = maxf(pos.y, hy + half_y + 0.01)
-					lin_vel.y = maxf(lin_vel.y, 0.0)
-		state.transform = Transform3D(basis.orthonormalized(), pos)
+						if not (on_ground and motion.y >= 0.0 and normal.y < 0.0):
+							pos += normal * 0.015
 	else:
 		basis = state.transform.basis.orthonormalized()
 		pos = state.transform.origin
+	# A short downward ray also catches shallow surfaces the sphere sweep
+	# may only graze, so the airframe never settles inside the collider.
+	if body_space != null:
+		var ground_q := PhysicsRayQueryParameters3D.create(
+				start_pos + Vector3.UP * 0.25,
+				pos - Vector3.UP * (half_y + 0.06))
+		ground_q.collision_mask = 1
+		ground_q.collide_with_areas = false
+		ground_q.exclude = [get_rid()]
+		var ground_hit := body_space.intersect_ray(ground_q)
+		if not ground_hit.is_empty():
+			var gnorm: Vector3 = ground_hit.get("normal", Vector3.ZERO)
+			var hy: float = (ground_hit.get("position", Vector3.ZERO) as Vector3).y
+			if gnorm.y > 0.45 and hy <= start_pos.y + 0.05:
+				pos.y = maxf(pos.y, hy + half_y + 0.01)
+				lin_vel.y = maxf(lin_vel.y, 0.0)
+				if resting_on_ground:
+					lin_vel.x = move_toward(lin_vel.x, 0.0, 12.0 * state.step)
+					lin_vel.z = move_toward(lin_vel.z, 0.0, 12.0 * state.step)
+					ang_vel = ang_vel.move_toward(Vector3.ZERO, 12.0 * state.step)
+	state.linear_velocity = lin_vel
+	state.angular_velocity = ang_vel
+	state.transform = Transform3D(basis.orthonormalized(), pos)
 	drone_transform = state.transform
 	drone_pos = state.transform.origin
 	drone_basis = state.transform.basis
@@ -1425,6 +1433,7 @@ func _on_armed_signal(_mode: int = 0) -> void:
 	if _parked:
 		_parked = false
 		freeze = false
+		global_position.y += 0.025
 		linear_velocity = Vector3.ZERO
 		angular_velocity = Vector3.ZERO
 	_landing_timer = 0.0

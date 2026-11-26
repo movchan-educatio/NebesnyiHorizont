@@ -145,12 +145,14 @@ func _setup_ruins_collisions(map_root: Node3D) -> void:
 			if ch is CollisionShape3D:
 				var cs := ch as CollisionShape3D
 				if cs.shape is ConcavePolygonShape3D:
-					(cs.shape as ConcavePolygonShape3D).backface_collision = true
+					(cs.shape as ConcavePolygonShape3D).backface_collision = false
 
 	# 2. Build exact hollow-preserving ConcavePolygonShape3D for hero structures
 	# that had collide=False in Blender (cooling tower, pipe tunnel, billboard, hall roofs)
 	var extra_tris := PackedVector3Array()
 	var skip_mats := {"smoke": true, "fire": true, "water": true, "puddle": true,
+		"dirt": true, "grass": true, "asphalt": true, "road": true,
+		"pavement": true, "gravel": true, "wild_rooibos_bush": true,
 		"fern_02": true, "grass_medium_01": true, "quiver_tree_01_leaf": true,
 		"wild_rooibos_bush_twigs": true, "wild_rooibos_bush_leaves": true,
 		"street_lamp_01_glass": true, "street_lamp_01_bulb": true,
@@ -182,7 +184,7 @@ func _setup_ruins_collisions(map_root: Node3D) -> void:
 				var v1 := xf * verts[indices[i + 1] if not indices.is_empty() else (i + 1)]
 				var v2 := xf * verts[indices[i + 2] if not indices.is_empty() else (i + 2)]
 				var c := (v0 + v1 + v2) * (1.0 / 3.0)
-				if _is_missing_structural_tri(c, mat_name):
+				if absf(c.x) <= 290.0 and absf(c.z) <= 290.0 and c.y >= 0.25:
 					extra_tris.append(v0)
 					extra_tris.append(v1)
 					extra_tris.append(v2)

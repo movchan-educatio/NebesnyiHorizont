@@ -3597,7 +3597,7 @@ func _hide_legacy_freestyle_gates() -> void:
 		print("[FREESTYLE] legacy gates hidden=", count)
 
 
-func _make_ring(position: Vector3, radius: float, color: Color,
+func _make_ring(position: Vector3, radius: float, _color: Color,
 		yaw: float = 0.0) -> Area3D:
 	var area := Area3D.new()
 	area.position = position
@@ -3610,28 +3610,26 @@ func _make_ring(position: Vector3, radius: float, color: Color,
 	col.shape = sphere
 	area.add_child(col)
 	var mesh := MeshInstance3D.new()
-	var torus := TorusMesh.new()
-	torus.inner_radius = radius
-	torus.outer_radius = radius + 0.9
-	torus.rings = 28
-	torus.ring_segments = 8
-	mesh.mesh = torus
-	# TorusMesh is authored flat in XZ (a doughnut lying on the ground).  A
-	# 90-degree X rotation makes it a vertical gate; the area yaw then points
-	# its normal along the course tangent.
-	mesh.rotation.x = PI * 0.5
-	var material := StandardMaterial3D.new()
-	material.albedo_color = color
-	material.emission_enabled = true
-	material.emission = color
-	material.emission_energy_multiplier = 1.0
-	mesh.material_override = material
-	# The next gate pulses while the rest dim; the ring material is kept on the
-	# Area3D so the training HUD can drive it without another lookup path.
-	area.set_meta("ring_material", material)
-	# Holographic course rings must not drop hard shadows across the track.
+	mesh.name = "GatePanel"
+	mesh.mesh = FreestyleCourseScript.build_horizon_gate_mesh(1.0, false)
+	mesh.scale = Vector3.ONE * radius
+	var frame_mat := FreestyleCourseScript.create_horizon_face_material(FreestyleCourseScript.GATE_PINK)
+	mesh.set_surface_override_material(0, FreestyleCourseScript.create_horizon_bezel_material())
+	mesh.set_surface_override_material(1, frame_mat)
 	mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	area.add_child(mesh)
+	var glow := MeshInstance3D.new()
+	glow.name = "InnerGlow"
+	glow.mesh = FreestyleCourseScript.build_horizon_halo_mesh(1.0, false)
+	glow.scale = Vector3.ONE * radius
+	var glow_mat := FreestyleCourseScript._glow_material(FreestyleCourseScript.GATE_PINK_HOT)
+	glow.material_override = glow_mat
+	glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	area.add_child(glow)
+	area.set_meta("ring_material", frame_mat)
+	area.set_meta("ring_frame_mat", frame_mat)
+	area.set_meta("ring_glow_mat", glow_mat)
+	area.set_meta("ring_base_color", FreestyleCourseScript.GATE_PINK)
 	_triggers.add_child(area)
 	return area
 
@@ -4342,17 +4340,11 @@ func _ensure_next_ring_preview() -> void:
 	if _active_ring_beacon == null or not is_instance_valid(_active_ring_beacon):
 		var beacon := MeshInstance3D.new()
 		beacon.name = "ActiveTrainingRingBeacon"
-		var b_torus := TorusMesh.new()
-		b_torus.inner_radius = 6.35
-		b_torus.outer_radius = 7.05
-		b_torus.rings = 28
-		b_torus.ring_segments = 8
-		beacon.mesh = b_torus
-		beacon.rotation.x = PI * 0.5
+		beacon.mesh = FreestyleCourseScript.build_horizon_halo_mesh(6.2, false)
 		var b_mat := StandardMaterial3D.new()
 		b_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		b_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		b_mat.albedo_color = Color(1.0, 0.96, 0.35, 0.96)
+		b_mat.albedo_color = Color(1.0, 0.25, 0.68, 0.92)
 		b_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		beacon.material_override = b_mat
 		beacon.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -4438,22 +4430,7 @@ func _sync_active_training_ring(animate_pop: bool = false) -> void:
 	_ensure_next_ring_preview()
 	_update_course_route_guide()
 	if _active_ring_beacon != null and is_instance_valid(_active_ring_beacon):
-		if _rings_passed >= 0 and _rings_passed < _training_rings.size() and _rings_passed < _rings_total:
-			var cr := _training_rings[_rings_passed]
-			if cr != null and is_instance_valid(cr):
-				_active_ring_beacon.visible = true
-				var cur_radius := float(cr.get_meta("ring_radius", 6.2))
-				var base_s := clampf(cur_radius / 6.2, 0.32, 1.6)
-				_active_ring_beacon.set_meta("base_scale", base_s)
-				_active_ring_beacon.scale = Vector3.ONE * base_s
-				_active_ring_beacon.global_position = cr.global_position
-				_active_ring_beacon.global_transform = Transform3D(
-						cr.global_transform.basis.orthonormalized() * Basis(Vector3.RIGHT, PI * 0.5),
-						cr.global_position)
-			else:
-				_active_ring_beacon.visible = false
-		else:
-			_active_ring_beacon.visible = false
+		_active_ring_beacon.visible = false
 	if _next_ring_preview != null and is_instance_valid(_next_ring_preview):
 		var next_idx := _rings_passed + 1
 		if next_idx < _training_rings.size() and _rings_passed < _rings_total:
@@ -4601,64 +4578,31 @@ func _update_training_ring_highlight(delta: float) -> void:
 			continue
 		var frame_mat: StandardMaterial3D = null
 		var glow_mat: StandardMaterial3D = null
-		var base_col := Color(0.08, 0.92, 0.88)
 		if ring.has_meta("ring_frame_mat"):
 			frame_mat = ring.get_meta("ring_frame_mat") as StandardMaterial3D
+		elif ring.has_meta("ring_material"):
+			frame_mat = ring.get_meta("ring_material") as StandardMaterial3D
 		if ring.has_meta("ring_glow_mat"):
 			glow_mat = ring.get_meta("ring_glow_mat") as StandardMaterial3D
-		if ring.has_meta("ring_base_color"):
-			base_col = ring.get_meta("ring_base_color") as Color
 		if frame_mat != null:
+			var blink_state := 2
 			if course_live and i == next_idx and ring.visible:
-				var dark_col := base_col.darkened(0.66)
-				var peak_col := Color(1.0, 0.98, 0.42)
-				frame_mat.albedo_color = dark_col.lerp(peak_col, blink)
-				frame_mat.emission = dark_col.lerp(Color(1.0, 0.94, 0.22), blink)
-				frame_mat.emission_energy_multiplier = lerpf(0.22, 1.85, blink)
-				if glow_mat != null:
-					glow_mat.albedo_color = Color(1.0, 0.84, 0.12, lerpf(0.06, 0.44, blink))
-					glow_mat.emission_energy_multiplier = lerpf(0.18, 1.4, blink)
+				blink_state = 0
 				var lbl := ring.get_node_or_null("GateNumber") as Label3D
 				if lbl != null:
 					lbl.scale = Vector3.ONE * lerpf(0.95, 1.18, blink)
-					lbl.modulate = Color(1.0, 0.60, 0.10, 0.92).lerp(Color(1.0, 0.99, 0.62, 1.0), blink)
+					lbl.modulate = Color(1.0, 0.45, 0.78, 0.94).lerp(Color(1.0, 0.98, 0.99, 1.0), blink)
 			elif course_live and i == next_idx + 1 and ring.visible:
-				frame_mat.albedo_color = base_col
-				frame_mat.emission = base_col
-				frame_mat.emission_energy_multiplier = 1.6
-				if glow_mat != null:
-					glow_mat.albedo_color = Color(base_col.r, base_col.g, base_col.b, 0.22)
-					glow_mat.emission_energy_multiplier = 0.95
+				blink_state = 1
 			elif i < _rings_passed:
-				var passed_col := base_col.darkened(0.62)
-				frame_mat.albedo_color = passed_col
-				frame_mat.emission = passed_col
-				frame_mat.emission_energy_multiplier = 0.22
-				if glow_mat != null:
-					glow_mat.albedo_color = Color(passed_col.r, passed_col.g, passed_col.b, 0.05)
-					glow_mat.emission_energy_multiplier = 0.15
-			else:
-				frame_mat.albedo_color = base_col
-				frame_mat.emission = base_col
-				frame_mat.emission_energy_multiplier = 0.95
-				if glow_mat != null:
-					glow_mat.albedo_color = Color(base_col.r, base_col.g, base_col.b, 0.12)
-					glow_mat.emission_energy_multiplier = 0.55
-			continue
-		var mat := ring.get_meta("ring_material", null) as StandardMaterial3D
-		if mat == null:
-			continue
-		if course_live and i == next_idx and ring.visible:
-			mat.albedo_color = Color(0.35, 0.28, 0.08).lerp(Color(1.0, 0.98, 0.45), blink)
-			mat.emission_energy_multiplier = lerpf(0.25, 1.6, blink)
-		else:
-			mat.emission_energy_multiplier = 0.45
+				blink_state = 3
+			FreestyleCourseScript.apply_gate_blink(frame_mat, glow_mat, _ring_pulse, blink_state, i)
 	if _active_ring_beacon != null and is_instance_valid(_active_ring_beacon) and _active_ring_beacon.visible:
 		var base_s := float(_active_ring_beacon.get_meta("base_scale", 1.0))
-		_active_ring_beacon.scale = Vector3.ONE * (base_s * lerpf(0.97, 1.07, blink))
+		_active_ring_beacon.scale = Vector3.ONE * (base_s * lerpf(0.98, 1.05, blink))
 		if _active_ring_beacon_mat != null:
-			_active_ring_beacon_mat.albedo_color = Color(1.0, 0.56, 0.06, 0.14).lerp(
-					Color(1.0, 0.98, 0.45, 0.96), blink)
+			_active_ring_beacon_mat.albedo_color = Color(1.0, 0.10, 0.52, 0.14).lerp(
+					Color(1.0, 0.56, 0.86, 0.94), blink)
 	if _route_guide != null and is_instance_valid(_route_guide):
 		_route_guide.call("set_pulse", blink)
 

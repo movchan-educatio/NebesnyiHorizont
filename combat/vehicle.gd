@@ -684,7 +684,12 @@ func _update_mobile_lod(delta: float) -> void:
 	var viewer := cam.global_position if cam != null else \
 			(_drone.global_position if _drone != null and is_instance_valid(_drone) else global_position)
 	var dist := viewer.distance_to(global_position)
-	var next_lod := 0 if dist < 180.0 else (1 if dist < 480.0 else 2)
+	var next_lod := 0
+	if not OS.has_environment("TRAILER_FULL_LOD"):
+		var zoom_mult := clampf(80.0 / maxf(cam.fov, 15.0), 1.0, 4.0) if cam != null else 1.0
+		var d0 := 420.0 * zoom_mult
+		var d1 := 900.0 * zoom_mult
+		next_lod = 0 if dist < d0 else (1 if dist < d1 else 2)
 	if next_lod == _visual_lod:
 		return
 	_visual_lod = next_lod

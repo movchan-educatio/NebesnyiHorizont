@@ -10,6 +10,7 @@ extends Node3D
 ## OilRigLevel.gd applies the same overrides; setting them twice is idempotent.
 
 const MAT_DIR := "res://maps/oil_rig/materials/"
+const FreestyleCourseScript := preload("res://scripts/util/freestyle_course.gd")
 const SELECTED_GATE_INDICES: Array[int] = [
 	0, 11, 22, 33,                 # 4 derrick_dive
 	2, 3, 13, 14, 24, 25, 35, 36,  # 8 moonpool
@@ -135,11 +136,17 @@ func _populate_visible_rings() -> void:
 	existing.visibility_range_end = 1800.0
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.mesh = _build_industrial_ring_mesh()
+	var gate_mesh := FreestyleCourseScript.build_horizon_gate_mesh(4.6, true)
+	var bezel_mat := FreestyleCourseScript.create_horizon_bezel_material()
+	var face_mat := FreestyleCourseScript.create_horizon_face_material(FreestyleCourseScript.GATE_PINK)
+	gate_mesh.surface_set_material(0, bezel_mat)
+	gate_mesh.surface_set_material(1, face_mat)
+	mm.mesh = gate_mesh
 	mm.instance_count = transforms.size()
 	for i in range(transforms.size()):
 		mm.set_instance_transform(i, transforms[i])
 	existing.multimesh = mm
+	existing.set_meta("gate_face_mat", face_mat)
 	print("[OILRIG] VisibleGateRings populated: %d industrial gates (1 MultiMesh, 0 colliders)" % mm.instance_count)
 
 

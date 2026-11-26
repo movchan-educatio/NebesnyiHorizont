@@ -1280,6 +1280,33 @@ func _uman_audit_glb_colliders() -> void:
 			stack.append(c)
 	if patched > 0:
 		print("[UMAN] glb blocker colliders replaced=", patched)
+	var landmark_keys := ["tower", "cathedral", "church", "monument", "obelisk",
+			"gazebo", "rotunda", "pavilion", "lighthouse", "pier", "wall",
+			"bridge", "arch", "pergola", "facade"]
+	var added_landmarks := 0
+	for found in root.find_children("*", "MeshInstance3D", true, false):
+		var mi := found as MeshInstance3D
+		if mi == null or mi.mesh == null or not mi.visible:
+			continue
+		var lnm := String(mi.name).to_lower()
+		if lnm.contains("-col") or lnm.contains("city_building") \
+				or lnm.contains("gate") or lnm.contains("stunt") \
+				or lnm.contains("ground") or lnm.contains("path") or lnm.contains("road"):
+			continue
+		var is_landmark := false
+		for lk in landmark_keys:
+			if lnm.contains(lk):
+				is_landmark = true
+				break
+		if not is_landmark:
+			continue
+		var has_col := (mi.get_parent() is StaticBody3D) \
+				or not mi.find_children("*", "StaticBody3D", true, false).is_empty() \
+				or (mi.get_parent() != null and not mi.get_parent().find_children("*", "StaticBody3D", false, false).is_empty())
+		if not has_col and _uman_add_trimesh_to_mesh(mi):
+			added_landmarks += 1
+	if added_landmarks > 0:
+		print("[UMAN] added trimesh colliders for GLB landmarks=", added_landmarks)
 
 
 func _uman_replace_blocking_shapes(node: Node) -> int:
