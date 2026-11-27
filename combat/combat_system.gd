@@ -509,8 +509,8 @@ func _check_tracer_near_miss() -> void:
 		var id := node.get_instance_id()
 		if _near_miss_tracers.has(id):
 			continue
-		var dist := (node as Node3D).global_position.distance_to(d_pos)
-		if dist <= 5.5 and dist >= 0.4:
+		var dist_sq := (node as Node3D).global_position.distance_squared_to(d_pos)
+		if dist_sq <= 30.25 and dist_sq >= 0.16:
 			_near_miss_tracers[id] = true
 			_near_miss_cooldown = 0.14
 			Haptics.trigger_ui_tap()

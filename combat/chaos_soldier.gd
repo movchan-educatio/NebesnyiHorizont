@@ -23,6 +23,13 @@ var _chaos_strafe := 0.0
 var _flank_time := 0.0
 var _chaos_flank_dir := 1.0
 
+var _chaos_los_query := PhysicsRayQueryParameters3D.create(Vector3.ZERO, Vector3.ZERO)
+var _chaos_fire_query := PhysicsRayQueryParameters3D.create(Vector3.ZERO, Vector3.ZERO)
+var _chaos_los_timer := 0.0
+var _chaos_cached_los := false
+var _last_snap_x := 1.0e9
+var _last_snap_z := 1.0e9
+
 
 func _ready() -> void:
 	super._ready()
@@ -30,6 +37,11 @@ func _ready() -> void:
 	max_health = 100.0
 	health = max_health
 	_patrol_active = false
+	_chaos_los_query.collision_mask = 1
+	_chaos_los_query.exclude = [get_rid()]
+	_chaos_fire_query.collision_mask = 1
+	_chaos_fire_query.exclude = [get_rid()]
+	_chaos_los_timer = randf_range(0.0, 0.14)
 	if _label != null:
 		_label.text = "СИНІ" if team == 0 else "ЧЕРВОНІ"
 		_label.modulate = Color(0.45, 0.78, 1.0) if team == 0 \
@@ -57,17 +69,20 @@ func _physics_process(delta: float) -> void:
 		target = battle.call("assign_target", self)
 		_chaos_burst = 0
 		_chaos_recover = randf_range(0.4, 1.1)
+		_chaos_los_timer = 0.0
 		if target != null:
 			# Footsteps and hit sounds come from EnemyRifleman._set_locomotion /
 			# take_damage; the chaos layer only adds the initial squad alert.
 			_try_callout()
+	if _chaos_los_timer > 0.0:
+		_chaos_los_timer = maxf(0.0, _chaos_los_timer - delta)
 	_apply_recoil(delta)
 	if target == null:
 		_crouching = false
 		if not _using_proxy:
 			_update_pose(delta)
 		_set_locomotion(delta, 0.0)
-		_snap_to_ground()
+		_maybe_snap_to_ground()
 		return
 	var to := target.global_position - global_position
 	var flat := Vector3(to.x, 0.0, to.z)
@@ -102,7 +117,7 @@ func _physics_process(delta: float) -> void:
 							else:
 								_chaos_flank_dir = -_chaos_flank_dir
 		_set_locomotion(delta, walk_speed if moved else 0.0)
-		_snap_to_ground()
+		_maybe_snap_to_ground()
 		if dist > engage_range:
 			return
 	else:
@@ -110,10 +125,13 @@ func _physics_process(delta: float) -> void:
 		if not _using_proxy:
 			_update_pose(delta)
 		_set_locomotion(delta, 0.0)
-		_snap_to_ground()
+		_maybe_snap_to_ground()
 	if dist > engage_range:
 		return
-	var los := _los_to(target)
+	if _chaos_los_timer <= 0.0:
+		_chaos_los_timer = 0.15
+		_chaos_cached_los = _los_to(target)
+	var los := _chaos_cached_los
 	if not los:
 		if _is_crouched_or_settling():
 			return
@@ -135,7 +153,7 @@ func _physics_process(delta: float) -> void:
 		else:
 			_chaos_flank_dir = -_chaos_flank_dir
 		_set_locomotion(delta, walk_speed)
-		_snap_to_ground()
+		_maybe_snap_to_ground()
 		return
 	if _reload_timer > 0.0:
 		return
@@ -178,15 +196,22 @@ func _aim_at_target(t: Node3D, delta: float) -> void:
 				clampf(delta * 6.0, 0.0, 1.0))
 
 
+func _maybe_snap_to_ground() -> void:
+	var dx := global_position.x - _last_snap_x
+	var dz := global_position.z - _last_snap_z
+	if dx * dx + dz * dz < 0.0025:
+		return
+	_last_snap_x = global_position.x
+	_last_snap_z = global_position.z
+	_snap_to_ground()
+
+
 func _los_to(t: Node3D) -> bool:
 	if _muzzle == null:
 		return false
-	var from := _muzzle.global_position
-	var aim := t.global_position + Vector3.UP * 0.9
-	var query := PhysicsRayQueryParameters3D.create(from, aim)
-	query.collision_mask = 1
-	query.exclude = [get_rid()]
-	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	_chaos_los_query.from = _muzzle.global_position
+	_chaos_los_query.to = t.global_position + Vector3.UP * 0.9
+	var hit := get_world_3d().direct_space_state.intersect_ray(_chaos_los_query)
 	if hit.is_empty():
 		return true
 	return hit.get("collider") == t
@@ -212,10 +237,9 @@ func _fire_at_target(t: Node3D) -> void:
 	get_parent().add_child(tracer)
 	tracer.setup(muzzle_pos, dir, tracer_speed, 0.0, self)
 	# Direct damage: the stock AATracer only routes damage to the player drone.
-	var ray := PhysicsRayQueryParameters3D.create(muzzle_pos, muzzle_pos + dir * 90.0)
-	ray.collision_mask = 1
-	ray.exclude = [get_rid()]
-	var hit := get_world_3d().direct_space_state.intersect_ray(ray)
+	_chaos_fire_query.from = muzzle_pos
+	_chaos_fire_query.to = muzzle_pos + dir * 90.0
+	var hit := get_world_3d().direct_space_state.intersect_ray(_chaos_fire_query)
 	if not hit.is_empty() and hit.get("collider") == t and t.has_method("take_damage"):
 		t.call("take_damage", damage, hit.get("position"))
 	CombatSfxScript.play_rifle(get_parent(), muzzle_pos, -9.0)
@@ -231,3 +255,8 @@ func take_damage(amount: float, hit_position: Vector3 = Vector3.ZERO) -> void:
 	if amount >= 15.0:
 		_try_callout()
 	super.take_damage(amount, hit_position)
+	# A fallen chaos soldier has no AI left to run; the rig child still plays
+	# its death pose, so only this body's callbacks are switched off.
+	if is_destroyed:
+		set_physics_process(false)
+		set_process(false)

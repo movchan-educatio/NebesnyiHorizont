@@ -38,7 +38,7 @@ D-pad: ↑ горизонт · → кут · ↓ швидкість · ← по�
 призначається кнопкою «Авто» на будь-який тумблер пульта.
 
 [b]ПІДКЛЮЧЕННЯ ELRS Wi-Fi / USB[/b]
-• Wi-Fi: увімкніть на пульті ExpressLRS → WiFi Connectivity → Enable WiFi, підключіть пристрій до Wi-Fi «ExpressLRS TX» (пароль: expresslrs), порт UDP 14550 (10.0.0.1).
+• Wi-Fi: увімкніть на пульті ExpressLRS → WiFi Connectivity → Enable WiFi, підключіть пристрій до Wi-Fi «ExpressLRS TX» (пароль: expresslrs), порт UDP 11000 (10.0.0.1).
 • Канали AETR: CH1 Крен, CH2 Тангаж, CH3 Газ, CH4 Рискання, CH5 Армування, CH6 Режим, CH7 Скид, CH8 Детонація."""
 
 const TOUCH_TEXT := """[b]СЕНСОРНИЙ ЕКРАН[/b]
@@ -58,7 +58,7 @@ RC-передавачі Mode 2 (ELRS Wi-Fi / USB) та стандартні ге
 1. На RC-пульті відкрийте меню системних скриптів → [b]ExpressLRS → WiFi Connectivity → Enable WiFi[/b].
 2. На iPhone / iPad відкрийте [b]Налаштування → Wi-Fi[/b] та підключіться до мережі [b]ExpressLRS TX[/b] (стандартний пароль: [b]expresslrs[/b]).
 3. Переконайтеся, що для гри дозволено доступ до [b]Локальної мережі[/b] (iOS Налаштування → Небесний горизонт → Локальна мережа).
-4. У грі відкрийте [b]Керування / Пульт та ELRS[/b] — гра автоматично прийматиме телеметрію CRSF по UDP (порт 14550, IP 10.0.0.1).
+4. У грі відкрийте [b]Керування / Пульт та ELRS[/b] — гра автоматично прийматиме телеметрію CRSF по UDP (порт 11000, IP 10.0.0.1).
 5. Стандартна розкладка каналів AETR (Mode 2):
    • CH1: Крен (Roll) · CH2: Тангаж (Pitch) · CH3: Газ (Throttle) · CH4: Рискання (Yaw)
    • CH5: Армування двигунів (ARM) · CH6: Режими польоту · CH7: Скид вантажу · CH8: Детонація БЧ"""
@@ -80,7 +80,7 @@ RC transmitters Mode 2 (ELRS Wi-Fi / USB) and standard gamepads.
 1. On your RC transmitter, open system tools → [b]ExpressLRS → WiFi Connectivity → Enable WiFi[/b].
 2. On your iPhone / iPad, open [b]Settings → Wi-Fi[/b] and join the [b]ExpressLRS TX[/b] network (default password: [b]expresslrs[/b]).
 3. Ensure [b]Local Network[/b] permission is enabled for the app in iOS Settings.
-4. Open [b]Controls / Radio & ELRS[/b] in the game — CRSF channels stream automatically over UDP (port 14550, IP 10.0.0.1).
+4. Open [b]Controls / Radio & ELRS[/b] in the game — CRSF channels stream automatically over UDP (port 11000, IP 10.0.0.1).
 5. Standard AETR (Mode 2) channel mapping:
    • CH1: Roll · CH2: Pitch · CH3: Throttle · CH4: Yaw
    • CH5: Arm Motors · CH6: Flight Modes · CH7: Payload Drop · CH8: Warhead Detonate"""
@@ -167,7 +167,7 @@ In Controls, the row “Activate warhead / instant detonation”
 can be bound to any transmitter switch with the “Auto” button.
 
 [b]ELRS Wi-Fi / USB SETUP[/b]
-• Wi-Fi: enable ExpressLRS → WiFi Connectivity → Enable WiFi on your radio, join Wi-Fi “ExpressLRS TX” (password: expresslrs), UDP port 14550 (10.0.0.1).
+• Wi-Fi: enable ExpressLRS → WiFi Connectivity → Enable WiFi on your radio, join Wi-Fi “ExpressLRS TX” (password: expresslrs), UDP port 11000 (10.0.0.1).
 • Channels (AETR): CH1 Roll, CH2 Pitch, CH3 Throttle, CH4 Yaw, CH5 Arm, CH6 Mode, CH7 Drop, CH8 Detonate."""
 
 const MODES_TEXT_EN := """[b]COMBAT CAMPAIGN 1–4[/b]

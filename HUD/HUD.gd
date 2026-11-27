@@ -28,6 +28,10 @@ var hud_rpm := [0, 0, 0, 0]
 var is_first := false
 var first_angles := Vector3.ZERO
 var _cinematic_rect: ColorRect = null
+var _cinematic_mat: ShaderMaterial = null
+var _no_sharpen := false
+var _last_s3d := -1.0
+var _last_res := Vector2(-1.0, -1.0)
 
 
 func _ready() -> void:
@@ -41,7 +45,13 @@ func _ready() -> void:
 	update_data(hud_delta, hud_position, hud_angles, hud_velocity, hud_left_stick, hud_right_stick, hud_rpm)
 	# Light cinematic grade behind the HUD widgets on MEDIUM/HIGH.  On LOW we keep
 	# 0 full-screen post-processing passes (pure forward).
+	_no_sharpen = (DisplayServer.get_name() == "headless" or OS.has_environment("DRONE_NO_SHARPEN"))
 	_cinematic_rect = CinematicOverlay.attach(self, 0.14, 0.010, 0.002, 0.0, 0.09, 1.04, 1.06, 0.03)
+	if _cinematic_rect != null:
+		_cinematic_rect.add_to_group("cinematic_overlay")
+		_cinematic_mat = _cinematic_rect.material as ShaderMaterial
+		if _cinematic_mat != null:
+			_cinematic_mat.set_shader_parameter("enable_rcas", not _no_sharpen)
 	var gfx := get_node_or_null("/root/Graphics")
 	if gfx != null and gfx.has_signal("quality_changed") and not gfx.is_connected("quality_changed", Callable(self, "_sync_cinematic_for_quality")):
 		gfx.connect("quality_changed", Callable(self, "_sync_cinematic_for_quality"))
@@ -57,9 +67,29 @@ func _exit_tree() -> void:
 func _sync_cinematic_for_quality(lvl: int) -> void:
 	if _cinematic_rect != null and is_instance_valid(_cinematic_rect):
 		_cinematic_rect.visible = (lvl > QualityManager.Level.LOW)
+		if _cinematic_rect.visible:
+			_sync_cinematic_rcas()
+
+
+func _sync_cinematic_rcas() -> void:
+	if _cinematic_mat == null or _no_sharpen:
+		return
+	var vp := get_viewport()
+	if vp == null:
+		return
+	var s3d := clampf(vp.scaling_3d_scale, 0.25, 1.0)
+	var res := vp.get_visible_rect().size
+	if absf(s3d - _last_s3d) > 0.002:
+		_last_s3d = s3d
+		_cinematic_mat.set_shader_parameter("render_scale_3d", s3d)
+	if res != _last_res:
+		_last_res = res
+		_cinematic_mat.set_shader_parameter("resolution", res)
 
 
 func _process(_delta: float) -> void:
+	if _cinematic_rect != null and _cinematic_rect.visible:
+		_sync_cinematic_rcas()
 	if hud_delta >= hud_timer:
 		hud_position /= hud_delta
 		hud_angles /= hud_delta

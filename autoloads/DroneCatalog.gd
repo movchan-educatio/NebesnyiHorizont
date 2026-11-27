@@ -1088,6 +1088,10 @@ func attach_model(parent: Node3D, index: int, prefer_hq: bool = false) -> Node3D
 		var mobile_path := path.trim_suffix(".glb") + "_mobile.glb"
 		if ResourceLoader.exists(mobile_path):
 			path = mobile_path
+	if not ResourceLoader.exists(path):
+		var mobile_fallback := path.trim_suffix(".glb") + "_mobile.glb"
+		if ResourceLoader.exists(mobile_fallback):
+			path = mobile_fallback
 	var model: Node3D = null
 	if ResourceLoader.exists(path):
 		var packed = _scene_cached(path)

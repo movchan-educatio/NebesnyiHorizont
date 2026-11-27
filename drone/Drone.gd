@@ -149,6 +149,41 @@ var ray : RayCast3D
 var _anticlip_sphere := SphereShape3D.new()
 var _sweep_sphere := SphereShape3D.new()
 
+## Environment flags are sampled once at startup: environment variables cannot
+## change during a running game, so probing them every frame was pure overhead.
+var _env_autotest := false
+var _env_kamikaze_test := false
+
+## Cached scene nodes / per-frame scratch storage (allocated once, never per frame).
+var _drone_model: Node3D = null
+var _rpms := [0.0, 0.0, 0.0, 0.0]
+var _drag_force := Vector3.ZERO
+var _drag_torque := Vector3.ZERO
+var _step_force := Vector3.ZERO
+var _step_torque := Vector3.ZERO
+var _corner_offsets := [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]
+var _landing_support_dist := 999.0
+var _landing_assist := false
+
+## Reused physics queries.  The sphere shapes, masks and self-exclusion are
+## configured once in _ready(); only from/to/transform/motion change per query.
+var _sweep_query := PhysicsShapeQueryParameters3D.new()
+var _anticlip_query := PhysicsShapeQueryParameters3D.new()
+var _centre_ray_q := PhysicsRayQueryParameters3D.create(Vector3.ZERO, Vector3.ZERO)
+var _corner_ray_q := PhysicsRayQueryParameters3D.create(Vector3.ZERO, Vector3.ZERO)
+var _ground_ray_q := PhysicsRayQueryParameters3D.create(Vector3.ZERO, Vector3.ZERO)
+var _wall_ray_q := PhysicsRayQueryParameters3D.create(Vector3.ZERO, Vector3.ZERO)
+var _floor_ray_q := PhysicsRayQueryParameters3D.create(Vector3.ZERO, Vector3.ZERO)
+
+## Scratch axes for the FPV lens sweep, plus the last settled camera pose so a
+## stationary view can skip the extra wall/floor rays without losing clearance.
+var _anticlip_axes := [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO,
+		Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]
+var _anticlip_prev_world := Vector3.ZERO
+var _anticlip_prev_desired := Vector3.ZERO
+var _anticlip_prev_basis := Basis.IDENTITY
+var _anticlip_has_prev := false
+
 @onready var debug_geom := get_tree().root.get_node_or_null("Level/DebugGeometry")
 var b_debug := false
 
@@ -159,6 +194,26 @@ func _ready() -> void:
 	var qa_substeps := OS.get_environment("QA_FC_SUBSTEPS")
 	if not qa_substeps.is_empty():
 		_fc_substeps = clampi(int(qa_substeps), 1, 8)
+	_env_autotest = OS.has_environment("DRONE_AUTOTEST")
+	_env_kamikaze_test = OS.has_environment("DRONE_KAMIKAZE_TEST")
+	# Query objects are long-lived; set their immutable state once instead of
+	# rebuilding a PhysicsShape/RayQueryParameters3D for every cast.
+	_sweep_query.shape = _sweep_sphere
+	_sweep_query.collision_mask = 1
+	_sweep_query.collide_with_areas = false
+	_sweep_query.exclude = [get_rid()]
+	_anticlip_query.shape = _anticlip_sphere
+	_anticlip_query.collision_mask = 1
+	_anticlip_query.collide_with_areas = false
+	_anticlip_query.exclude = [get_rid()]
+	for q in [_centre_ray_q, _corner_ray_q, _ground_ray_q, _wall_ray_q, _floor_ray_q]:
+		q.exclude = [get_rid()]
+		q.collide_with_areas = false
+	# Landing-assist rays keep the default "all layers" mask; the ground, wall
+	# and floor rays stay restricted to layer 1 exactly as before.
+	_ground_ray_q.collision_mask = 1
+	_wall_ray_q.collision_mask = 1
+	_floor_ray_q.collision_mask = 1
 	# Never let the body fall asleep: a sleeping rigid body stops receiving
 	# _integrate_forces, so the motors would compute no thrust and the drone
 	# would ignore the sticks.
@@ -182,6 +237,8 @@ func _ready() -> void:
 			frame.remove_child(shape)
 			add_child(shape)
 	motors = [$Motor1, $Motor2, $Motor3, $Motor4]
+	_drone_model = get_node_or_null("DroneModel") as Node3D
+	_rpms.resize(motors.size())
 	# Hide legacy stock prototype visuals (Frame1 and Motor1 meshes)
 	if frame != null:
 		_hide_all_visuals(frame)
@@ -254,12 +311,14 @@ func _process(delta: float) -> void:
 	update_hud_data(delta)
 	
 	# Animate the authentic 3D drone model propellers
-	var model_node := get_node_or_null("DroneModel") as Node3D
-	if model_node != null and is_instance_valid(model_node):
-		var rpms := []
-		for motor in motors:
-			rpms.append(float(motor.rpm))
-		DroneCatalog.animate_propellers(model_node, delta, rpms)
+	# DroneCatalog can swap DroneModel when a preset changes; re-cache only then.
+	if _drone_model == null or not is_instance_valid(_drone_model) \
+			or _drone_model.get_parent() != self:
+		_drone_model = get_node_or_null("DroneModel") as Node3D
+	if _drone_model != null:
+		for i in range(motors.size()):
+			_rpms[i] = float(motors[i].rpm)
+		DroneCatalog.animate_propellers(_drone_model, delta, _rpms)
 	
 	if b_debug and debug_geom != null and is_instance_valid(debug_geom):
 		for motor in motors:
@@ -331,7 +390,8 @@ func _physics_process(delta: float) -> void:
 					collider.call("_on_drone_raycast_hit", self)
 	
 	if b_debug and debug_geom != null and is_instance_valid(debug_geom):
-		var drag: Vector3 = get_drag(linear_velocity, angular_velocity, drone_basis)[0]
+		_compute_drag(linear_velocity, angular_velocity, drone_basis)
+		var drag: Vector3 = _drag_force
 		debug_geom.draw_debug_arrow(0.01, drone_pos, drag.normalized(), drag.length() / 10)
 	_update_motor_audio(delta)
 	var motors_armed: bool = flight_controller != null and flight_controller.state_armed \
@@ -503,40 +563,29 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		if space != null:
 			var span := clampf(maxf(frame_dimensions.x, frame_dimensions.z),
 					0.18, 1.2) + 0.35
-			var hits: Array[Dictionary] = []
-			var centre_q := PhysicsRayQueryParameters3D.create(
-					pos + Vector3.UP * 0.30, pos - Vector3.UP * 5.0)
-			centre_q.exclude = [get_rid()]
-			var centre_hit := space.intersect_ray(centre_q)
+			_landing_support_dist = 999.0
+			_landing_assist = false
+			_centre_ray_q.from = pos + Vector3.UP * 0.30
+			_centre_ray_q.to = pos - Vector3.UP * 5.0
+			var centre_hit := space.intersect_ray(_centre_ray_q)
 			var altitude_agl := 999.0
 			if not centre_hit.is_empty():
-				hits.append({"hit": centre_hit, "off": Vector3.ZERO})
+				_apply_landing_hit(centre_hit, Vector3.ZERO, pos, basis)
 				var centre_pos: Vector3 = centre_hit["position"]
 				altitude_agl = maxf(pos.y + 0.30 - centre_pos.y, 0.0)
 			if on_ground or altitude_agl < 2.2:
-				for corner_off in [Vector3(span, 0.0, 0.0), Vector3(-span, 0.0, 0.0),
-						Vector3(0.0, 0.0, span), Vector3(0.0, 0.0, -span)]:
-					var q := PhysicsRayQueryParameters3D.create(
-							pos + corner_off + Vector3.UP * 0.30,
-							pos + corner_off - Vector3.UP * 5.0)
-					q.exclude = [get_rid()]
-					var corner_hit := space.intersect_ray(q)
+				_corner_offsets[0] = Vector3(span, 0.0, 0.0)
+				_corner_offsets[1] = Vector3(-span, 0.0, 0.0)
+				_corner_offsets[2] = Vector3(0.0, 0.0, span)
+				_corner_offsets[3] = Vector3(0.0, 0.0, -span)
+				for corner_off in _corner_offsets:
+					_corner_ray_q.from = pos + corner_off + Vector3.UP * 0.30
+					_corner_ray_q.to = pos + corner_off - Vector3.UP * 5.0
+					var corner_hit := space.intersect_ray(_corner_ray_q)
 					if not corner_hit.is_empty():
-						hits.append({"hit": corner_hit, "off": corner_off})
-			for entry in hits:
-				var entry_off: Vector3 = entry["off"]
-				var hit_data: Dictionary = entry["hit"]
-				var n: Vector3 = hit_data["position"]
-				var normal: Vector3 = hit_data["normal"]
-				# 0.28 accepts pitched roofs, container tops and steep banks;
-				# anything more vertical is a wall and must not attract the drone.
-				if normal.y < 0.28:
-					continue
-				var dist := n.distance_to(pos + entry_off)
-				if dist < support_dist:
-					support_dist = dist
-				if basis.y.dot(Vector3.UP) > 0.20:
-					landing_assist = true
+						_apply_landing_hit(corner_hit, corner_off, pos, basis)
+			support_dist = _landing_support_dist
+			landing_assist = _landing_assist
 			if landing_assist:
 				lin_vel.y = maxf(lin_vel.y, -1.8)
 				if support_dist < 1.6:
@@ -544,7 +593,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 					lin_vel.z = move_toward(lin_vel.z, 0.0, 7.0 * state.step)
 				ang_vel.x = move_toward(ang_vel.x, 0.0, 2.5 * state.step)
 				ang_vel.z = move_toward(ang_vel.z, 0.0, 2.5 * state.step)
-	if OS.has_environment("DRONE_AUTOTEST") and flight_controller.state_armed \
+	if _env_autotest and flight_controller.state_armed \
 			and _arm_diag_frames < 8:
 		_arm_diag_frames += 1
 		print("[Drone] diag frame=", _arm_diag_frames, " pos=", pos,
@@ -559,7 +608,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 			_was_airborne = true
 		if on_ground:
 			var impact_speed := (lin_vel - _prev_lin_vel).length()
-			if OS.has_environment("DRONE_KAMIKAZE_TEST"):
+			if _env_kamikaze_test:
 				print("[KAMTEST][Drone] contact contacts=", contact_count,
 						" impact=", roundf(impact_speed * 10.0) / 10.0,
 						" lin=", lin_vel, " prev=", _prev_lin_vel,
@@ -571,7 +620,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 			if _was_airborne and impact_speed > 5.0:
 				hard_impact.emit(impact_speed)
 			if not landing_assist and (impact_speed > 14.0 or _prev_lin_vel.y < -12.0):
-				if OS.has_environment("DRONE_AUTOTEST"):
+				if _env_autotest:
 					print("[Drone] impact check: contacts=", contact_count,
 						" lin=", lin_vel, " prev=", _prev_lin_vel,
 						" speed=", impact_speed, " pos=", pos)
@@ -648,8 +697,8 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 				curve_twr * battery_sag_factor * battery_sag_factor)
 		flight_controller.integrate_loop(dt, pos, basis, lin_vel, ang_vel)
 		
-		var vec_force := Vector3.ZERO
-		var vec_torque := Vector3.ZERO
+		_step_force = Vector3.ZERO
+		_step_torque = Vector3.ZERO
 		
 		# Ground anti-windup & rest stability: when touched down with zero/idle throttle,
 		# disarmed, or inverted, suppress all Air Mode motor torques and heavy-damp
@@ -687,19 +736,19 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 					if on_ground and throttle_cmd <= 0.05:
 						m_thrust = 0.0
 					var m_force: Vector3 = basis.y * m_thrust
-					vec_force += m_force
+					_step_force += m_force
 					
 					var r_motor: Vector3 = basis * (motor.transform.origin - center_of_mass)
-					vec_torque += r_motor.cross(m_force) * ground_torque_scale
+					_step_torque += r_motor.cross(m_force) * ground_torque_scale
 					
-					vec_force += basis * prop.forces[1]
-					vec_torque += basis * prop.forces[3] * 0.5
-					vec_torque += basis * prop.forces[4] * 0.5
+					_step_force += basis * prop.forces[1]
+					_step_torque += basis * prop.forces[3] * 0.5
+					_step_torque += basis * prop.forces[4] * 0.5
 				
-				vec_torque += motor.get_torque() * _yaw_torque_scale * basis.y * battery_sag_factor * ground_torque_scale * ground_torque_scale
+				_step_torque += motor.get_torque() * _yaw_torque_scale * basis.y * battery_sag_factor * ground_torque_scale * ground_torque_scale
 		else:
 			# 1. Primary collective lift applied cleanly through center of mass along body normal
-			vec_force += basis.y * demanded_thrust
+			_step_force += basis.y * demanded_thrust
 			
 			# 2. Update motor RPM and collect motor reaction torques + blade drag
 			for motor in motors:
@@ -709,8 +758,8 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 					prop.set_velocity((lin_vel - wind_velocity) * basis)
 					prop.update_forces()
 					var prop_drag: Vector3 = basis * prop.forces[1]
-					vec_force += prop_drag
-				vec_torque += motor.get_torque() * basis.y * battery_sag_factor * ground_torque_scale
+					_step_force += prop_drag
+				_step_torque += motor.get_torque() * basis.y * battery_sag_factor * ground_torque_scale
 			
 			# 3. Control torques from flight controller PID mixer around CoG (Air Mode)
 			var pitch_roll_thrust_cap: float = max_t * 0.40 * battery_sag_factor * ground_torque_scale
@@ -719,25 +768,25 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 			var front_pwr: float = (float(motors[0].rpm_target) + float(motors[1].rpm_target)) * 0.5 / maxf(float(motors[0].MAX_RPM), 1.0)
 			var rear_pwr: float = (float(motors[2].rpm_target) + float(motors[3].rpm_target)) * 0.5 / maxf(float(motors[0].MAX_RPM), 1.0)
 			var diff_pitch: float = front_pwr - rear_pwr
-			vec_torque += basis.x * (diff_pitch * pitch_roll_thrust_cap * arm_len)
+			_step_torque += basis.x * (diff_pitch * pitch_roll_thrust_cap * arm_len)
 			
 			# Roll: differential between left (0, 3) and right (1, 2)
 			var left_pwr: float = (float(motors[0].rpm_target) + float(motors[3].rpm_target)) * 0.5 / maxf(float(motors[0].MAX_RPM), 1.0)
 			var right_pwr: float = (float(motors[1].rpm_target) + float(motors[2].rpm_target)) * 0.5 / maxf(float(motors[0].MAX_RPM), 1.0)
 			var diff_roll: float = left_pwr - right_pwr
-			vec_torque += basis.z * (-diff_roll * pitch_roll_thrust_cap * arm_len)
+			_step_torque += basis.z * (-diff_roll * pitch_roll_thrust_cap * arm_len)
 			
 			# Yaw: differential between CW (0, 2) and CCW (1, 3) motors
 			var cw_pwr: float = (float(motors[0].rpm_target) + float(motors[2].rpm_target)) * 0.5 / maxf(float(motors[0].MAX_RPM), 1.0)
 			var ccw_pwr: float = (float(motors[1].rpm_target) + float(motors[3].rpm_target)) * 0.5 / maxf(float(motors[0].MAX_RPM), 1.0)
 			var diff_yaw: float = cw_pwr - ccw_pwr
-			vec_torque += basis.y * (diff_yaw * max_t * 0.10 * arm_len * battery_sag_factor * ground_torque_scale)
+			_step_torque += basis.y * (diff_yaw * max_t * 0.10 * arm_len * battery_sag_factor * ground_torque_scale)
 		
 		# 4. Aerodynamic quadratic drag and forward tilted body lift
-		var drag := get_drag(lin_vel, ang_vel, basis)
-		vec_force += drag[0]
-		vec_force += external_force
-		vec_torque += drag[1]
+		_compute_drag(lin_vel, ang_vel, basis)
+		_step_force += _drag_force
+		_step_force += external_force
+		_step_torque += _drag_torque
 
 		# 4b. Fixed-wing / VTOL aerodynamic wing lift, weathervane stability and jet cruise
 		if (is_fixed_wing or is_vtol_frame) and not on_ground:
@@ -750,18 +799,18 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 				var max_lift_frac := 0.80 if is_fixed_wing else 0.32
 				# Counter gravity-aligned vertical loss when pitched into forward cruise.
 				var lift_dir := (basis.y * 0.4 + Vector3.UP * 0.6).normalized()
-				vec_force += lift_dir * (weight * max_lift_frac * wing_factor * _battery_cutoff)
+				_step_force += lift_dir * (weight * max_lift_frac * wing_factor * _battery_cutoff)
 				# Weathervane sideslip damping keeps turns coordinated instead of skidding sideways.
-				vec_force += basis * Vector3(-local_v.x * fwd_speed * mass * (0.06 if is_fixed_wing else 0.025), 0.0, 0.0)
+				_step_force += basis * Vector3(-local_v.x * fwd_speed * mass * (0.06 if is_fixed_wing else 0.025), 0.0, 0.0)
 			if is_jet and flight_controller.state_armed and throttle_cmd > 0.20:
 				var jet_push := weight * 1.15 * clampf((throttle_cmd - 0.20) / 0.80, 0.0, 1.0) * battery_sag_factor * _battery_cutoff
-				vec_force += (-basis.z) * jet_push
+				_step_force += (-basis.z) * jet_push
 			elif is_fixed_wing and is_pusher and flight_controller.state_armed and throttle_cmd > 0.25:
 				var nose_dip := clampf((-(-basis.z).y - 0.03) / 0.25, 0.0, 1.0)
 				var cruise_blend := maxf(nose_dip, clampf((fwd_speed - 2.0) / 8.0, 0.0, 1.0))
 				if cruise_blend > 0.01:
 					var pusher_push := weight * 0.52 * clampf((throttle_cmd - 0.25) / 0.75, 0.0, 1.0) * cruise_blend * battery_sag_factor * _battery_cutoff
-					vec_force += (-basis.z) * pusher_push
+					_step_force += (-basis.z) * pusher_push
 		
 		# 5. Propwash: descending into the drone's own wake or chopping the
 		# throttle at speed.  The pilot has to damp the resulting wobble.
@@ -781,16 +830,16 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 				sin(_propwash_phase * 53.0),
 				sin(_propwash_phase * 37.0 + 1.7),
 				sin(_propwash_phase * 61.0 + 0.4))
-			vec_torque += basis * osc * propwash * propwash_gain * mass * 0.12
-			vec_force += basis.y * sin(_propwash_phase * 43.0) * propwash * propwash_gain * weight * 0.04
+			_step_torque += basis * osc * propwash * propwash_gain * mass * 0.12
+			_step_force += basis.y * sin(_propwash_phase * 43.0) * propwash * propwash_gain * weight * 0.04
 		
 		# Integrate forces and velocities
-		var a := vec_force * state.inverse_mass + Vector3(0, -9.81, 0)
+		var a := _step_force * state.inverse_mass + Vector3(0, -9.81, 0)
 		lin_vel += a * dt
 		pos += lin_vel * dt
 		
 		# Angular acceleration through principal axes of inertia
-		var local_torque: Vector3 = basis.inverse() * vec_torque
+		var local_torque: Vector3 = basis.inverse() * _step_torque
 		var local_ang_a: Vector3 = local_torque * state.inverse_inertia
 		var ang_a: Vector3 = basis * local_ang_a
 		ang_vel += ang_a * dt
@@ -822,17 +871,12 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		if motion.length_squared() > 1e-8 and body_space != null:
 			var max_rad := clampf(half_y - 0.02, 0.05, 0.16)
 			_sweep_sphere.radius = clampf(minf(frame_dimensions.x, frame_dimensions.y) * 0.32, 0.05, max_rad)
-			var sq := PhysicsShapeQueryParameters3D.new()
-			sq.shape = _sweep_sphere
-			sq.collision_mask = 1
-			sq.collide_with_areas = false
-			sq.exclude = [get_rid()]
-			sq.transform = Transform3D(Basis.IDENTITY, start_pos)
-			sq.motion = motion
-			var hit_frac := body_space.cast_motion(sq)
+			_sweep_query.transform = Transform3D(Basis.IDENTITY, start_pos)
+			_sweep_query.motion = motion
+			var hit_frac := body_space.cast_motion(_sweep_query)
 			if hit_frac.size() >= 2 and float(hit_frac[0]) < 1.0:
-				sq.transform = Transform3D(Basis.IDENTITY, start_pos + motion * float(hit_frac[1]))
-				var rest := body_space.get_rest_info(sq)
+				_sweep_query.transform = Transform3D(Basis.IDENTITY, start_pos + motion * float(hit_frac[1]))
+				var rest := body_space.get_rest_info(_sweep_query)
 				var normal: Vector3 = rest.get("normal", Vector3.UP)
 				var skip_upward_snag := float(hit_frac[0]) <= 0.0 and motion.y > 0.0 \
 						and (normal.y > 0.35 or (on_ground and normal.y < -0.35))
@@ -859,13 +903,9 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	# A short downward ray also catches shallow surfaces the sphere sweep
 	# may only graze, so the airframe never settles inside the collider.
 	if body_space != null:
-		var ground_q := PhysicsRayQueryParameters3D.create(
-				start_pos + Vector3.UP * 0.25,
-				pos - Vector3.UP * (half_y + 0.06))
-		ground_q.collision_mask = 1
-		ground_q.collide_with_areas = false
-		ground_q.exclude = [get_rid()]
-		var ground_hit := body_space.intersect_ray(ground_q)
+		_ground_ray_q.from = start_pos + Vector3.UP * 0.25
+		_ground_ray_q.to = pos - Vector3.UP * (half_y + 0.06)
+		var ground_hit := body_space.intersect_ray(_ground_ray_q)
 		if not ground_hit.is_empty():
 			var gnorm: Vector3 = ground_hit.get("normal", Vector3.ZERO)
 			var hy: float = (ground_hit.get("position", Vector3.ZERO) as Vector3).y
@@ -895,6 +935,23 @@ func _body_half_height() -> float:
 	return 0.15
 
 
+## Fold one landing-assist ground hit into the reusable accumulators.  The old
+## code built an Array of per-hit Dictionaries on every physics tick just to
+## walk the centre hit plus (at most) four corner hits.
+func _apply_landing_hit(hit_data: Dictionary, entry_off: Vector3, pos: Vector3, basis: Basis) -> void:
+	var n: Vector3 = hit_data["position"]
+	var normal: Vector3 = hit_data["normal"]
+	# 0.28 accepts pitched roofs, container tops and steep banks;
+	# anything more vertical is a wall and must not attract the drone.
+	if normal.y < 0.28:
+		return
+	var dist := n.distance_to(pos + entry_off)
+	if dist < _landing_support_dist:
+		_landing_support_dist = dist
+	if basis.y.dot(Vector3.UP) > 0.20:
+		_landing_assist = true
+
+
 ## Keep the FPV lens outside nearby walls and clear of the ground.  The
 ## authored local offset lives in a meta value so a clamped position never
 ## becomes the new "desired" one (which would make the lens creep over time).
@@ -919,47 +976,62 @@ func _update_fpv_camera_anticlip() -> void:
 	var cam_world := desired_world
 
 	_anticlip_sphere.radius = maxf(cam.near + 0.14, 0.20)
-	var sq := PhysicsShapeQueryParameters3D.new()
-	sq.shape = _anticlip_sphere
-	sq.collision_mask = 1
-	sq.collide_with_areas = false
-	sq.exclude = [get_rid()]
-	sq.transform = Transform3D(Basis.IDENTITY, anchor)
-	sq.motion = offset
-	var hit := space.cast_motion(sq)
-	if hit.size() >= 2 and float(hit[0]) < 1.0:
+	_anticlip_query.transform = Transform3D(Basis.IDENTITY, anchor)
+	_anticlip_query.motion = offset
+	var hit := space.cast_motion(_anticlip_query)
+	var swept_hit := hit.size() >= 2 and float(hit[0]) < 1.0
+	if swept_hit:
 		cam_world = anchor + offset * maxf(float(hit[0]) - 0.05, 0.0)
 
-	# Six short rays in camera space push the lens off nearby walls/ceilings/sides
-	# with enough margin for wide FPV FOV frustum corners.
-	var clearance := maxf(cam.near * 2.5 + 0.14, 0.28)
-	var basis := cam.global_transform.basis
-	var axes: Array[Vector3] = [basis.x, -basis.x, basis.y, -basis.y, basis.z, -basis.z]
-	for axis in axes:
-		var wall_q := PhysicsRayQueryParameters3D.create(cam_world, cam_world + axis * 0.34)
-		wall_q.collision_mask = 1
-		wall_q.collide_with_areas = false
-		wall_q.exclude = [get_rid()]
-		var wall := space.intersect_ray(wall_q)
-		if not wall.is_empty():
-			var n: Vector3 = wall.get("normal", Vector3.ZERO)
-			var hit_pos: Vector3 = wall.get("position", cam_world)
-			var dist := cam_world.distance_to(hit_pos)
-			cam_world += n * maxf(clearance - dist, 0.0)
+	# A settled camera keeps reusing its last fully-clamped position: the six
+	# wall rays are skipped only when pose and velocity are effectively zero.
+	var cam_basis := cam.global_transform.basis
+	var move_delta := cam_world.distance_to(_anticlip_prev_world)
+	var rot_delta := maxf(maxf(cam_basis.x.angle_to(_anticlip_prev_basis.x),
+			cam_basis.y.angle_to(_anticlip_prev_basis.y)),
+			cam_basis.z.angle_to(_anticlip_prev_basis.z))
+	var slow := linear_velocity.length_squared() < 0.0625 \
+			and angular_velocity.length_squared() < 0.0625
+	var desired_delta := desired_local.distance_to(_anticlip_prev_desired)
+	var walls_needed := not (_anticlip_has_prev and not swept_hit \
+			and move_delta < 0.015 and desired_delta < 0.002 \
+			and rot_delta < 0.008 and slow)
+	if walls_needed:
+		# Six short rays in camera space push the lens off nearby walls/ceilings/sides
+		# with enough margin for wide FPV FOV frustum corners.
+		var clearance := maxf(cam.near * 2.5 + 0.14, 0.28)
+		_anticlip_axes[0] = cam_basis.x
+		_anticlip_axes[1] = -cam_basis.x
+		_anticlip_axes[2] = cam_basis.y
+		_anticlip_axes[3] = -cam_basis.y
+		_anticlip_axes[4] = cam_basis.z
+		_anticlip_axes[5] = -cam_basis.z
+		for axis in _anticlip_axes:
+			_wall_ray_q.from = cam_world
+			_wall_ray_q.to = cam_world + axis * 0.34
+			var wall := space.intersect_ray(_wall_ray_q)
+			if not wall.is_empty():
+				var n: Vector3 = wall.get("normal", Vector3.ZERO)
+				var hit_pos: Vector3 = wall.get("position", cam_world)
+				var dist := cam_world.distance_to(hit_pos)
+				cam_world += n * maxf(clearance - dist, 0.0)
+	else:
+		cam_world = _anticlip_prev_world
 
 	# Floor protection: the drone body can be perched on a pad or a barrel
 	# while the lens is well below the authored offset.
-	var floor_q := PhysicsRayQueryParameters3D.create(
-			anchor + Vector3.UP * 0.6, anchor - Vector3.UP * 1.6)
-	floor_q.collision_mask = 1
-	floor_q.collide_with_areas = false
-	floor_q.exclude = [get_rid()]
-	var floor_hit := space.intersect_ray(floor_q)
+	_floor_ray_q.from = anchor + Vector3.UP * 0.6
+	_floor_ray_q.to = anchor - Vector3.UP * 1.6
+	var floor_hit := space.intersect_ray(_floor_ray_q)
 	if not floor_hit.is_empty():
 		var hy: float = (floor_hit.get("position", Vector3.ZERO) as Vector3).y
 		cam_world.y = maxf(cam_world.y, hy + cam.near + 0.10)
 
 	cam.global_position = cam_world
+	_anticlip_prev_world = cam_world
+	_anticlip_prev_desired = desired_local
+	_anticlip_prev_basis = cam_basis
+	_anticlip_has_prev = true
 
 
 func update_hud_data(delta: float) -> void:
@@ -1039,7 +1111,9 @@ func _on_reset() -> void:
 	emit_signal("respawned")
 
 
-func get_drag(lin_vel: Vector3, ang_vel: Vector3, orientation: Basis) -> Array:
+## Compute drag into reusable scratch vectors: the flight loop runs this eight
+## times per physics tick, so the hot path must not allocate an Array.
+func _compute_drag(lin_vel: Vector3, ang_vel: Vector3, orientation: Basis) -> void:
 	var rho := 1.225 # Air density kg/m^3
 	var airspeed: Vector3 = lin_vel - wind_velocity
 	var local_vel: Vector3 = orientation.inverse() * airspeed
@@ -1078,7 +1152,15 @@ func get_drag(lin_vel: Vector3, ang_vel: Vector3, orientation: Basis) -> Array:
 		-0.5 * rho * cd.z * projected_area.z * 0.08 * local_ang.z * absf(local_ang.z) - 0.005 * local_ang.z
 	)
 	
-	return [orientation * drag_force_local, orientation * drag_torque_local]
+	_drag_force = orientation * drag_force_local
+	_drag_torque = orientation * drag_torque_local
+
+
+func get_drag(lin_vel: Vector3, ang_vel: Vector3, orientation: Basis) -> Array:
+	_compute_drag(lin_vel, ang_vel, orientation)
+	# External callers (including tests holding several results at once) still
+	# get their own array; only the internal physics loop uses the scratch pair.
+	return [_drag_force, _drag_torque]
 
 
 func _on_flight_mode_changed(flight_mode: int) -> void:

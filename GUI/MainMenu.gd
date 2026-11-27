@@ -766,8 +766,8 @@ func _build() -> void:
 
 	_foot_status_lbl = Label.new()
 	_foot_status_lbl.text = _ui_text(
-			"НЕБЕСНИЙ ГОРИЗОНТ · ТАКТИЧНИЙ FPV-СИМУЛЯТОР · v1.19.0",
-			"NEBESNYI HORIZONT · TACTICAL FPV SIMULATOR · v1.19.0")
+			"НЕБЕСНИЙ ГОРИЗОНТ · ТАКТИЧНИЙ FPV-СИМУЛЯТОР · v1.20.0",
+			"NEBESNYI HORIZONT · TACTICAL FPV SIMULATOR · v1.20.0")
 	_foot_status_lbl.add_theme_font_size_override("font_size", 11)
 	_foot_status_lbl.add_theme_color_override("font_color", MenuUI.FPV_MUTED)
 	bottom_bar.add_child(_foot_status_lbl)
@@ -781,10 +781,11 @@ func _build() -> void:
 	help_btn.pressed.connect(_go.bind(HELP_SCREEN))
 	bottom_bar.add_child(help_btn)
 
-	var quit_btn := MenuUI.feel_button("✕  Вихід", 34, false)
-	quit_btn.custom_minimum_size.x = 120
-	quit_btn.pressed.connect(_on_quit_pressed)
-	bottom_bar.add_child(quit_btn)
+	if OS.get_name() != "iOS":
+		var quit_btn := MenuUI.feel_button("✕  Вихід", 34, false)
+		quit_btn.custom_minimum_size.x = 120
+		quit_btn.pressed.connect(_on_quit_pressed)
+		bottom_bar.add_child(quit_btn)
 
 	# 4. Tactical Campaign Briefing Modal Overlay
 	_build_briefing_modal()
@@ -1499,7 +1500,7 @@ func _update_selection_ui() -> void:
 	if _top_title_lbl != null:
 		_top_title_lbl.text = "SORTIE SETUP" if is_en else "Підготовка до вильоту"
 	if _foot_status_lbl != null:
-		_foot_status_lbl.text = "NEBESNYI HORIZONT · TACTICAL FPV SIMULATOR · v1.19.0" if is_en else "НЕБЕСНИЙ ГОРИЗОНТ · ТАКТИЧНИЙ FPV-СИМУЛЯТОР · v1.19.0"
+		_foot_status_lbl.text = "NEBESNYI HORIZONT · TACTICAL FPV SIMULATOR · v1.20.0" if is_en else "НЕБЕСНИЙ ГОРИЗОНТ · ТАКТИЧНИЙ FPV-СИМУЛЯТОР · v1.20.0"
 
 	# На фрістайл-карті Умань або з фрістайл-дронами доступний виключно Фрістайл.
 	var hide_combat_ui := _is_freestyle_map(_selected_map) or DroneCatalog.is_uman(Global.drone_preset)
@@ -2736,6 +2737,8 @@ func _go(scene: String) -> void:
 
 
 func _on_quit_pressed() -> void:
+	if OS.get_name() == "iOS":
+		return
 	get_tree().quit()
 
 

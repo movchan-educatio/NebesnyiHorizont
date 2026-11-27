@@ -129,7 +129,7 @@ func _exit_tree() -> void:
 
 
 func _process(delta: float) -> void:
-	if Engine.is_editor_hint():
+	if Engine.is_editor_hint() or (propeller != null and propeller.suppressed):
 		return
 	
 	var rot := rpm * PI / 30.0

@@ -1406,6 +1406,9 @@ func show_play() -> void:
 
 
 func show_controls() -> void:
+	var elrs := get_node_or_null("/root/ElrsWifiInput")
+	if elrs != null and elrs.has_method("ensure_started"):
+		elrs.call("ensure_started")
 	_show("controls")
 
 
@@ -1428,19 +1431,35 @@ func show_settings_tab(tab_id: String) -> void:
 		_switch_settings_tab()
 
 
+var _last_elrs_status_key := ""
+var _elrs_pill_active: StyleBoxFlat = null
+var _elrs_pill_idle: StyleBoxFlat = null
+var _cached_elrs_node: Node = null
+
+
 func _update_status() -> void:
 	if _elrs_label == null:
 		return
-	var elrs := get_node_or_null("/root/ElrsWifiInput")
+	if _cached_elrs_node == null or not is_instance_valid(_cached_elrs_node):
+		_cached_elrs_node = get_node_or_null("/root/ElrsWifiInput")
+	var elrs := _cached_elrs_node
 	var valid: bool = elrs != null and bool(elrs.get("valid"))
 	var status := str(elrs.get("status_text")) if elrs != null else ""
-	if valid or status.find("ПОТІК") >= 0:
+	var is_active := valid or status.find("ПОТІК") >= 0
+	var key := ("1:" if is_active else "0:") + status
+	if key == _last_elrs_status_key:
+		return
+	_last_elrs_status_key = key
+	if _elrs_pill_active == null:
+		_elrs_pill_active = VoltThemeScript.pill_box(VoltThemeScript.SURFACE, Color(0.298, 0.851, 0.541, 0.45), _gap(10), _gap(4))
+		_elrs_pill_idle = VoltThemeScript.pill_box(VoltThemeScript.SURFACE, VoltThemeScript.BORDER, _gap(10), _gap(4))
+	if is_active:
 		_elrs_label.text = MenuUI.translate_text("ELRS: ПОТІК")
 		_elrs_label.add_theme_color_override("font_color", VoltThemeScript.GOOD)
 		if _elrs_dot != null:
 			_elrs_dot.color = VoltThemeScript.GOOD
 		if _elrs_chip != null:
-			_elrs_chip.add_theme_stylebox_override("panel", VoltThemeScript.pill_box(VoltThemeScript.SURFACE, Color(0.298, 0.851, 0.541, 0.45), _gap(10), _gap(4)))
+			_elrs_chip.add_theme_stylebox_override("panel", _elrs_pill_active)
 		if _input_label != null:
 			_input_label.text = MenuUI.translate_text("ВХІД: ELRS (POCKET)")
 			_input_label.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
@@ -1450,7 +1469,7 @@ func _update_status() -> void:
 		if _elrs_dot != null:
 			_elrs_dot.color = VoltThemeScript.STONE_DIM
 		if _elrs_chip != null:
-			_elrs_chip.add_theme_stylebox_override("panel", VoltThemeScript.pill_box(VoltThemeScript.SURFACE, VoltThemeScript.BORDER, _gap(10), _gap(4)))
+			_elrs_chip.add_theme_stylebox_override("panel", _elrs_pill_idle)
 		if _input_label != null:
 			_input_label.text = MenuUI.translate_text("ВХІД: СЕНСОР")
 			_input_label.add_theme_color_override("font_color", VoltThemeScript.STONE)
@@ -1723,7 +1742,7 @@ func _build_3d_hero() -> Control:
 	chg_hdr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var hdr_lbl := Label.new()
 	hdr_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hdr_lbl.text = "UPDATES // v1.19.0" if is_en else "ОНОВЛЕННЯ // v1.19.0"
+	hdr_lbl.text = "UPDATES // v1.20.0" if is_en else "ОНОВЛЕННЯ // v1.20.0"
 	hdr_lbl.add_theme_font_override("font", VoltThemeScript.font_mono())
 	hdr_lbl.add_theme_font_size_override("font_size", _fs_small(10))
 	hdr_lbl.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
@@ -3726,7 +3745,6 @@ func _launch(combat_training: bool = false) -> void:
 	var scenes := {
 		"promzona_plavni": "res://sceneries/PromzonaPlavniLevel.tscn",
 		"airport": "res://sceneries/AirportLevel.tscn",
-		"uman": "res://sceneries/UmanLevel.tscn",
 		"oilrig": "res://sceneries/OilRigLevel.tscn",
 		"lis_forest_freestyle": "res://sceneries/LisLevel.tscn",
 		"ruins": "res://sceneries/RuinsLevel.tscn",
@@ -5330,8 +5348,8 @@ func _build_settings_tab_sys() -> void:
 	elrs_info.add_child(_label(("ELRS Wi-Fi Guide" if is_en else "Підключення ELRS Wi-Fi") if compact \
 			else ("ELRS Wi-Fi & RC Transmitter Guide" if is_en else "Довідка: Як підключити пульт через ELRS Wi-Fi"),
 			16 if compact else 18, VoltThemeScript.TEXT))
-	elrs_info.add_child(_label(("Step-by-step setup (UDP 14550)" if is_en else "Покрокова інструкція (UDP 14550)") if compact \
-			else ("Step-by-step instructions to connect an ExpressLRS transmitter over Wi-Fi" if is_en else "Покрокова інструкція з підключення апаратури ExpressLRS по Wi-Fi"),
+	elrs_info.add_child(_label(("Step-by-step setup (UDP 11000)" if is_en else "Покрокова інструкція (UDP 11000)") if compact \
+			else ("Step-by-step instructions to connect an ExpressLRS transmitter over Wi-Fi (UDP 11000)" if is_en else "Покрокова інструкція з підключення апаратури ExpressLRS по Wi-Fi (UDP 11000)"),
 			12 if compact else 14, VoltThemeScript.STONE_DIM))
 	elrs_box.add_child(elrs_info)
 	var elrs_btn := _button("GUIDE" if is_en else "ІНСТРУКЦІЯ", 40, false)
@@ -5342,8 +5360,115 @@ func _build_settings_tab_sys() -> void:
 	elrs_box.add_child(elrs_btn)
 	sv.add_child(elrs_box)
 
+	# 9. Privacy Policy & Open Licenses / Credits
+	var legal_box := HBoxContainer.new()
+	var legal_info := VBoxContainer.new()
+	legal_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	legal_info.add_child(_label(("Privacy & Licenses" if is_en else "Конфіденційність та ліцензії") if compact \
+			else ("Privacy Policy & Open Asset Credits" if is_en else "Політика конфіденційності та ліцензії"),
+			16 if compact else 18, VoltThemeScript.TEXT))
+	legal_info.add_child(_label(("Offline simulator · Zero data collected" if is_en else "Офлайн-симулятор · Без збору даних") if compact \
+			else ("100% offline saves, optional local Wi-Fi ELRS (UDP 11000), 3D/audio attributions" if is_en else "Повністю офлайн, локальне збереження, ELRS Wi-Fi (UDP 11000), автори асетів"),
+			12 if compact else 14, VoltThemeScript.STONE_DIM))
+	legal_box.add_child(legal_info)
+	var legal_btn := _button("VIEW" if is_en else "ВІДКРИТИ", 40, false)
+	legal_btn.custom_minimum_size = Vector2(_ui_sz(106 if compact else 160), _ui_sz(40))
+	legal_btn.pressed.connect(_open_legal_modal)
+	legal_box.add_child(legal_btn)
+	sv.add_child(legal_box)
+
+
+func _open_legal_modal() -> void:
+	var existing := get_node_or_null("MobileLegalModal")
+	if existing != null:
+		existing.queue_free()
+	var is_en := MenuUI.is_english()
+	var backdrop := ColorRect.new()
+	backdrop.name = "MobileLegalModal"
+	backdrop.color = Color(0.02, 0.02, 0.025, 0.94)
+	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	backdrop.z_index = 95
+	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(backdrop)
+
+	var sm := MenuUI.get_safe_margins(_vsize())
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", int(sm["left"]) + _gap(28))
+	margin.add_theme_constant_override("margin_right", int(sm["right"]) + _gap(28))
+	margin.add_theme_constant_override("margin_top", int(sm["top"]) + _gap(18))
+	margin.add_theme_constant_override("margin_bottom", int(sm["bottom"]) + _gap(18))
+	backdrop.add_child(margin)
+
+	var card := _panel(Color(0.039, 0.039, 0.045, 0.99), VoltThemeScript.YELLOW_BORDER, 2, 16)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	margin.add_child(card)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", _gap(12))
+	card.add_child(vbox)
+
+	var hdr := HBoxContainer.new()
+	var title := _label(
+		"PRIVACY POLICY & CREDITS — v1.20.0" if is_en else "КОНФІДЕНЦІЙНІСТЬ ТА АВТОРСТВО — v1.20.0",
+		18, VoltThemeScript.YELLOW, VoltThemeScript.font_display())
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hdr.add_child(title)
+	var close_btn := _button("CLOSE" if is_en else "ЗАКРИТИ", 38, true)
+	close_btn.icon = MenuIcons.icon_close(VoltThemeScript.TEXT_DARK, 16)
+	close_btn.add_theme_constant_override("h_separation", _gap(6))
+	close_btn.custom_minimum_size = Vector2(_ui_sz(132), _ui_sz(38))
+	close_btn.pressed.connect(func(): backdrop.queue_free())
+	hdr.add_child(close_btn)
+	vbox.add_child(hdr)
+
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	vbox.add_child(scroll)
+
+	var credits_txt := ""
+	if FileAccess.file_exists("res://CREDITS.md"):
+		credits_txt = FileAccess.get_file_as_string("res://CREDITS.md").strip_edges()
+	if credits_txt.is_empty():
+		credits_txt = (
+			"© 2026 Nebesnyi Horizont. All Rights Reserved.\n"
+			+ "• Godot Engine — MIT License (https://godotengine.org/license)\n"
+			+ "• ambientCG PBR Textures (Concrete034, Bricks075A, Metal032, RoofingTiles006) — CC0 1.0 Universal\n"
+			+ "• Poly Haven Sky (kloofendal_sky) — CC0 1.0 Universal\n"
+			+ "• Stylized Explosion FX Vol.2 (Binbun3D) — CC0 1.0 Universal\n"
+			+ "• Procedural 44.1 kHz SFX & Game Code — Nebesnyi Horizont"
+		)
+
+	var legal_txt := (
+		"ПОЛІТИКА КОНФІДЕНЦІЙНОСТІ («НЕБЕСНИЙ ГОРИЗОНТ»)\n"
+		+ "• Симулятор не збирає, не зберігає на серверах і не передає третім особам жодних персональних даних, аналітики, ідентифікаторів пристрою чи геолокації.\n"
+		+ "• Прогрес кампаній, калібрування пульта, налаштування графіки та звуку зберігаються виключно локально на вашому пристрої.\n"
+		+ "• Доступ до «Локальної мережі» (iOS) використовується лише коли ви самі відкриваєте режим ELRS Wi-Fi для прийому пакетів керування з вашого пульта (CRSF по UDP порту 11000, без виходу в інтернет).\n"
+		+ "• У застосунку відсутні рекламні SDK, аналітичні трекери та покупки.\n\n"
+		+ "ЛІЦЕНЗІЇ ТА АВТОРИ АСЕТІВ:\n"
+		+ credits_txt
+	) if not is_en else (
+		"PRIVACY POLICY (NEBESNYI HORIZONT)\n"
+		+ "• This simulator collects, stores on servers, and shares zero personal data, analytics, device identifiers, location, camera, or microphone data.\n"
+		+ "• All campaign progress, controller calibrations, rates, and audio/graphics settings stay strictly on your device.\n"
+		+ "• iOS Local Network permission is only requested when you activate ELRS Wi-Fi radio input to receive local CRSF packets on UDP port 11000 from your RC transmitter.\n"
+		+ "• Zero ad SDKs, third-party analytics, or tracking.\n\n"
+		+ "THIRD-PARTY ASSET CREDITS:\n"
+		+ credits_txt
+	)
+	var body_lbl := _label(legal_txt, 14, VoltThemeScript.TEXT)
+	body_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(body_lbl)
+	VoltThemeScript.animate_pop_in(card, 0.16)
+
 
 func _open_elrs_guide_modal() -> void:
+	var elrs := get_node_or_null("/root/ElrsWifiInput")
+	if elrs != null and elrs.has_method("ensure_started"):
+		elrs.call("ensure_started")
 	var existing := get_node_or_null("MobileElrsGuideModal")
 	if existing != null:
 		existing.queue_free()
@@ -5402,7 +5527,7 @@ func _open_elrs_guide_modal() -> void:
 		+ "   • Стандартний пароль мережі: expresslrs\n\n"
 		+ "3. ДОЗВІЛ «ЛОКАЛЬНА МЕРЕЖА» В iOS:\n"
 		+ "   • При першому запуску дозвольте грі пошук пристроїв у локальній мережі (Налаштування → Небесний горизонт → Локальна мережа: УВІМК).\n\n"
-		+ "4. АВТОМАТИЧНИЙ ПРИЙОМ КАНАЛІВ (CRSF / UDP 14550):\n"
+		+ "4. АВТОМАТИЧНИЙ ПРИЙОМ КАНАЛІВ (CRSF / UDP 11000):\n"
 		+ "   • Відкрийте розділ «ПУЛЬТ ТА ELRS» у грі. При русі стіків індикатори ГАЗ / РИСКАННЯ / ТАНГАЖ / КРЕН та 3D-модель пульта реагуватимуть у реальному часі.\n"
 		+ "   • Натисніть «КАЛІБРУВАТИ СТІКИ» для точного центрування осей.\n\n"
 		+ "5. СТАНДАРТНА СХЕМА КАНАЛІВ Mode 2 (AETR):\n"
@@ -5420,7 +5545,7 @@ func _open_elrs_guide_modal() -> void:
 		+ "   • Default Wi-Fi password: expresslrs\n\n"
 		+ "3. iOS LOCAL NETWORK PERMISSION:\n"
 		+ "   • Allow Local Network access when prompted (or enable it in iOS Settings → NebesnyiHorizont → Local Network).\n\n"
-		+ "4. AUTOMATIC CHANNEL STREAMING (CRSF / UDP 14550):\n"
+		+ "4. AUTOMATIC CHANNEL STREAMING (CRSF / UDP 11000):\n"
 		+ "   • Open “RADIO & ELRS” in the game. Moving your physical sticks will immediately animate the 3D transmitter and live channel bars.\n"
 		+ "   • Tap “CALIBRATE STICKS” to center and scale all axes.\n\n"
 		+ "5. STANDARD Mode 2 (AETR) CHANNEL MAPPING:\n"

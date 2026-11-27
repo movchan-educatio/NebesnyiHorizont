@@ -43,6 +43,13 @@ var _los_timer := 0.0
 var _burst_left := 0
 var _shot_cd := 0.0
 var _recover := 1.2
+var _los_query := PhysicsRayQueryParameters3D.create(Vector3.ZERO, Vector3.ZERO)
+var _flash_node: MeshInstance3D = null
+var _flash_mat: StandardMaterial3D = null
+var _flash_tween: Tween = null
+static var _shared_muzzle_outer_mesh: SphereMesh = null
+static var _shared_muzzle_core_mesh: SphereMesh = null
+static var _shared_muzzle_core_mat: StandardMaterial3D = null
 var _muzzle_index := 0
 var _aim_yaw := 0.0
 var _demo_miss := false
@@ -158,11 +165,12 @@ func _update_target() -> void:
 		return
 	var from := _turret.global_position + Vector3.UP * 0.35
 	var target := _drone.global_position
-	var query := PhysicsRayQueryParameters3D.create(from, target)
-	query.collision_mask = 1
-	query.collide_with_areas = false
-	query.exclude = [get_rid()]
-	var hit := space.intersect_ray(query)
+	_los_query.collision_mask = 1
+	_los_query.collide_with_areas = false
+	_los_query.exclude = [get_rid()]
+	_los_query.from = from
+	_los_query.to = target
+	var hit := space.intersect_ray(_los_query)
 	if hit.is_empty():
 		_los_clear = true
 		return
@@ -228,43 +236,49 @@ func _muzzle_flash(position: Vector3) -> void:
 	var parent := get_parent()
 	if parent == null:
 		return
-	var sphere := SphereMesh.new()
-	sphere.radius = 0.34
-	sphere.height = 0.68
-	sphere.radial_segments = 8
-	sphere.rings = 4
-	var flash := MeshInstance3D.new()
-	flash.mesh = sphere
-	var material := StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	material.albedo_color = Color(1.0, 0.78, 0.25, 0.96)
-	material.emission_enabled = true
-	material.emission = Color(1.0, 0.55, 0.10)
-	material.emission_energy_multiplier = 7.5
-	flash.material_override = material
-	flash.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	parent.add_child(flash)
-	flash.global_position = position
-	var core_mesh := SphereMesh.new()
-	core_mesh.radius = 0.16
-	core_mesh.height = 0.32
-	core_mesh.radial_segments = 6
-	core_mesh.rings = 3
-	var core := MeshInstance3D.new()
-	core.mesh = core_mesh
-	var core_mat := StandardMaterial3D.new()
-	core_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	core_mat.albedo_color = Color(1.0, 0.96, 0.78)
-	core.material_override = core_mat
-	core.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	flash.add_child(core)
-	var tween := flash.create_tween()
-	tween.set_parallel(true)
-	tween.tween_property(flash, "scale", Vector3.ONE * 2.8, 0.11)
-	tween.tween_property(material, "albedo_color", Color(1.0, 0.42, 0.05, 0.0), 0.11)
-	tween.chain().tween_callback(flash.queue_free)
+	if _shared_muzzle_outer_mesh == null:
+		_shared_muzzle_outer_mesh = SphereMesh.new()
+		_shared_muzzle_outer_mesh.radius = 0.34
+		_shared_muzzle_outer_mesh.height = 0.68
+		_shared_muzzle_outer_mesh.radial_segments = 8
+		_shared_muzzle_outer_mesh.rings = 4
+		_shared_muzzle_core_mesh = SphereMesh.new()
+		_shared_muzzle_core_mesh.radius = 0.16
+		_shared_muzzle_core_mesh.height = 0.32
+		_shared_muzzle_core_mesh.radial_segments = 6
+		_shared_muzzle_core_mesh.rings = 3
+		_shared_muzzle_core_mat = StandardMaterial3D.new()
+		_shared_muzzle_core_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_shared_muzzle_core_mat.albedo_color = Color(1.0, 0.96, 0.78)
+	if _flash_node == null or not is_instance_valid(_flash_node):
+		_flash_node = MeshInstance3D.new()
+		_flash_node.mesh = _shared_muzzle_outer_mesh
+		_flash_mat = StandardMaterial3D.new()
+		_flash_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_flash_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_flash_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		_flash_mat.emission_enabled = true
+		_flash_mat.emission = Color(1.0, 0.55, 0.10)
+		_flash_mat.emission_energy_multiplier = 7.5
+		_flash_node.material_override = _flash_mat
+		_flash_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		parent.add_child(_flash_node)
+		var core := MeshInstance3D.new()
+		core.mesh = _shared_muzzle_core_mesh
+		core.material_override = _shared_muzzle_core_mat
+		core.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_flash_node.add_child(core)
+	if _flash_tween != null and _flash_tween.is_valid():
+		_flash_tween.kill()
+	_flash_node.global_position = position
+	_flash_node.scale = Vector3.ONE
+	_flash_mat.albedo_color = Color(1.0, 0.78, 0.25, 0.96)
+	_flash_node.visible = true
+	_flash_tween = _flash_node.create_tween()
+	_flash_tween.set_parallel(true)
+	_flash_tween.tween_property(_flash_node, "scale", Vector3.ONE * 2.8, 0.11)
+	_flash_tween.tween_property(_flash_mat, "albedo_color", Color(1.0, 0.42, 0.05, 0.0), 0.11)
+	_flash_tween.chain().tween_callback(_flash_node.hide)
 
 
 func take_damage(amount: float, hit_position: Vector3 = Vector3.ZERO) -> void:
@@ -345,6 +359,10 @@ func _destroy() -> void:
 		ExplosionScript.spawn(parent, global_position + Vector3.UP * 1.35, 7.0, 0.0)
 		ExplosionScript.smoke_column(parent, global_position + Vector3.UP * 1.8, 32.0)
 		ExplosionScript.fire_column(parent, global_position + Vector3.UP * 0.8, 9.0)
+	if _flash_node != null and is_instance_valid(_flash_node):
+		_flash_node.visible = false
+	set_process(false)
+	set_physics_process(false)
 	destroyed.emit(points)
 
 

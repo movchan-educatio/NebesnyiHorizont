@@ -201,6 +201,7 @@ func _tune_map_environment() -> void:
 		var pano := PanoramaSkyMaterial.new()
 		pano.panorama = load("res://maps/oil_rig/textures/kloofendal_sky.png")
 		var sky := Sky.new()
+		sky.process_mode = Sky.PROCESS_MODE_INCREMENTAL
 		sky.sky_material = pano
 		env.sky = sky
 		env.background_mode = Environment.BG_SKY

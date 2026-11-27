@@ -176,6 +176,15 @@ var _los_to_drone := false
 var _los_cache_timer := 0.0
 var _group_cache: Dictionary = {}
 var _group_cache_timer := 0.0
+var _corridor_ray_q := PhysicsRayQueryParameters3D.create(Vector3.ZERO, Vector3.ZERO)
+var _path_ray_q := PhysicsRayQueryParameters3D.create(Vector3.ZERO, Vector3.ZERO)
+var _ground_sample_q := PhysicsRayQueryParameters3D.create(Vector3.ZERO, Vector3.ZERO)
+var _shared_excl: Array[RID] = []
+var _shared_excl_at_ms := -1000
+var _sample_excl: Array[RID] = []
+var _sample_excl_at_ms := -1000
+var _path_origins: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]
+var _corridor_lat := [0.0, 0.0, 0.0]
 var _ground := 0.0
 var _ground_normal := Vector3.UP
 var _prev_speed := 0.0
@@ -2084,13 +2093,18 @@ func _is_flat_collider(collider: Object) -> bool:
 
 
 func _corridor_exclusions() -> Array[RID]:
-	var out: Array[RID] = [get_rid()]
+	var now := Time.get_ticks_msec()
+	if now - _shared_excl_at_ms < 250 and not _shared_excl.is_empty():
+		return _shared_excl
+	_shared_excl_at_ms = now
+	_shared_excl.clear()
+	_shared_excl.append(get_rid())
 	if _drone is CollisionObject3D:
-		out.append((_drone as CollisionObject3D).get_rid())
+		_shared_excl.append((_drone as CollisionObject3D).get_rid())
 	for node in _cached_group("vehicle"):
 		if is_instance_valid(node) and node is CollisionObject3D and node != self:
-			out.append((node as CollisionObject3D).get_rid())
-	return out
+			_shared_excl.append((node as CollisionObject3D).get_rid())
+	return _shared_excl
 
 
 ## Fraction of the look-ahead corridor that is free (1.0 = completely clear).
@@ -2109,17 +2123,20 @@ func _corridor_clearance(dir: Vector3, distance: float) -> float:
 		right = right.normalized()
 	var half_w := maxf(_model_box().x * 0.5, 1.2) + 1.2
 	var y_off := 1.4 if not _is_air() else 0.0
-	var excl := _corridor_exclusions()
+	_corridor_ray_q.collision_mask = 1
+	_corridor_ray_q.collide_with_areas = false
+	_corridor_ray_q.exclude = _corridor_exclusions()
 	var space := world.direct_space_state
 	var clear := 1.0
-	for lat: float in [0.0, -half_w, half_w]:
+	_corridor_lat[0] = 0.0
+	_corridor_lat[1] = -half_w
+	_corridor_lat[2] = half_w
+	for lat: float in _corridor_lat:
 		var ray_from := global_position + Vector3.UP * y_off + right * lat
 		var ray_to := ray_from + dnorm * distance
-		var q := PhysicsRayQueryParameters3D.create(ray_from, ray_to)
-		q.collision_mask = 1
-		q.collide_with_areas = false
-		q.exclude = excl
-		var hit := space.intersect_ray(q)
+		_corridor_ray_q.from = ray_from
+		_corridor_ray_q.to = ray_to
+		var hit := space.intersect_ray(_corridor_ray_q)
 		if hit.is_empty() or _is_flat_collider(hit.get("collider")):
 			continue
 		var hp: Vector3 = hit.get("position", ray_to)
@@ -2197,29 +2214,22 @@ func _is_path_blocked(forward: Vector3, dist: float) -> bool:
 	var space := world.direct_space_state
 	if space == null:
 		return false
-	var excl: Array[RID] = [get_rid()]
-	if _drone is CollisionObject3D:
-		excl.append((_drone as CollisionObject3D).get_rid())
-	for node in _cached_group("vehicle"):
-		if is_instance_valid(node) and node is CollisionObject3D and node != self:
-			excl.append((node as CollisionObject3D).get_rid())
 
 	var center_y := global_position.y + 0.9
 	var start_center := Vector3(global_position.x, center_y, global_position.z)
 	var right_dir := Vector3(forward.z, 0.0, -forward.x).normalized()
 	var half_w := maxf(_model_box().x * 0.44, 1.1)
 
-	var origins := [
-		start_center,
-		start_center + right_dir * half_w,
-		start_center - right_dir * half_w
-	]
+	_path_origins[0] = start_center
+	_path_origins[1] = start_center + right_dir * half_w
+	_path_origins[2] = start_center - right_dir * half_w
+	_path_ray_q.collision_mask = 1
+	_path_ray_q.exclude = _corridor_exclusions()
 
-	for origin in origins:
-		var query := PhysicsRayQueryParameters3D.create(origin, origin + forward * probe_dist)
-		query.collision_mask = 1
-		query.exclude = excl
-		var hit := space.intersect_ray(query)
+	for origin in _path_origins:
+		_path_ray_q.from = origin
+		_path_ray_q.to = origin + forward * probe_dist
+		var hit := space.intersect_ray(_path_ray_q)
 		if not hit.is_empty():
 			var n: Vector3 = hit.get("normal", Vector3.UP)
 			# Wall, building, or steep structure (not gently sloping terrain)
@@ -2854,20 +2864,24 @@ func _sample_ground(x: float, z: float) -> Dictionary:
 	var space := world.direct_space_state
 	if space == null:
 		return {"y": _ground, "normal": Vector3.UP}
-	var excl: Array[RID] = [get_rid()]
-	if _drone is CollisionObject3D:
-		excl.append((_drone as CollisionObject3D).get_rid())
-	for node in _cached_group("combat_target"):
-		if is_instance_valid(node) and node is CollisionObject3D:
-			excl.append((node as CollisionObject3D).get_rid())
-	for node in _cached_group("vehicle"):
-		if is_instance_valid(node) and node is CollisionObject3D:
-			excl.append((node as CollisionObject3D).get_rid())
-	var query := PhysicsRayQueryParameters3D.create(
-			Vector3(x, 260.0, z), Vector3(x, -120.0, z))
-	query.collision_mask = 1
-	query.exclude = excl
-	var hit := space.intersect_ray(query)
+	var now := Time.get_ticks_msec()
+	if now - _sample_excl_at_ms >= 250 or _sample_excl.is_empty():
+		_sample_excl_at_ms = now
+		_sample_excl.clear()
+		_sample_excl.append(get_rid())
+		if _drone is CollisionObject3D:
+			_sample_excl.append((_drone as CollisionObject3D).get_rid())
+		for node in _cached_group("combat_target"):
+			if is_instance_valid(node) and node is CollisionObject3D:
+				_sample_excl.append((node as CollisionObject3D).get_rid())
+		for node in _cached_group("vehicle"):
+			if is_instance_valid(node) and node is CollisionObject3D:
+				_sample_excl.append((node as CollisionObject3D).get_rid())
+	_ground_sample_q.from = Vector3(x, 260.0, z)
+	_ground_sample_q.to = Vector3(x, -120.0, z)
+	_ground_sample_q.collision_mask = 1
+	_ground_sample_q.exclude = _sample_excl
+	var hit := space.intersect_ray(_ground_sample_q)
 	if hit.is_empty():
 		return {"y": _ground, "normal": Vector3.UP}
 	var pos: Vector3 = hit["position"]

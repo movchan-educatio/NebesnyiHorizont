@@ -192,10 +192,18 @@ func _hide_procedural_grass() -> void:
 		call_deferred("_hide_procedural_grass")
 
 
+var _airport_drone: RigidBody3D = null
+var _airport_radio: Node = null
+
+
 func _process(delta: float) -> void:
 	super._process(delta)
-	var d := get_node_or_null("Drone") as RigidBody3D
-	var radio := get_node_or_null("RadioController")
+	if _airport_drone == null or not is_instance_valid(_airport_drone):
+		_airport_drone = get_node_or_null("Drone") as RigidBody3D
+	if _airport_radio == null or not is_instance_valid(_airport_radio):
+		_airport_radio = get_node_or_null("RadioController")
+	var d := _airport_drone
+	var radio := _airport_radio
 	if d == null or radio == null or d.freeze:
 		return
 	var inp: Array = radio.get("input")
@@ -461,6 +469,7 @@ func _spawn_detailed_props() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7777
 	var spawned := 0
+	var spawned_props: Array[Node3D] = []
 	var prop_count := 44 if QualityManagerScript.get_active_level() == QualityManagerScript.Level.LOW else 96
 	for i in range(prop_count):
 		var nm: String = str(names[i % names.size()])
@@ -493,8 +502,84 @@ func _spawn_detailed_props() -> void:
 								box_s.size = Vector3(0.45, h, 0.45)
 								(cs as CollisionShape3D).shape = box_s
 								(cs as CollisionShape3D).position = cen
+			spawned_props.append(prop)
 			spawned += 1
-	print("[Airport] detailed props: ", spawned)
+	var batch_count := _batch_detailed_prop_meshes(spawned_props)
+	print("[Airport] detailed props: ", spawned, " batches=", batch_count)
+
+
+## Consolidate identical prop visuals into MultiMeshInstance3D batches while
+## preserving every DetailedProp* node and its StaticBody3D colliders in place.
+func _batch_detailed_prop_meshes(props: Array[Node3D]) -> int:
+	if props.is_empty():
+		return 0
+	var groups: Dictionary = {}
+	var root_inv := global_transform.affine_inverse()
+	for prop in props:
+		if prop == null or not is_instance_valid(prop):
+			continue
+		var visual_mis: Array[MeshInstance3D] = []
+		if prop is MeshInstance3D:
+			visual_mis.append(prop as MeshInstance3D)
+		for child in prop.find_children("*", "MeshInstance3D", true, false):
+			if child is MeshInstance3D:
+				visual_mis.append(child as MeshInstance3D)
+		for mi in visual_mis:
+			if mi.mesh == null or not mi.visible:
+				continue
+			var parts := PackedStringArray()
+			parts.append("O:%d" % (mi.material_override.get_instance_id() if mi.material_override != null else 0))
+			var surf_cnt := mi.mesh.get_surface_count()
+			for s in range(surf_cnt):
+				var sm := mi.get_surface_override_material(s)
+				parts.append(str(sm.get_instance_id()) if sm != null else "-")
+			var key := "%d|%s|%d" % [mi.mesh.get_instance_id(), "|".join(parts), int(mi.cast_shadow)]
+			if not groups.has(key):
+				groups[key] = {
+					"sample": mi,
+					"xforms": [],
+					"mis": [],
+				}
+			var g: Dictionary = groups[key]
+			(g["xforms"] as Array).append(root_inv * mi.global_transform)
+			(g["mis"] as Array).append(mi)
+	var batch_idx := 0
+	for g in groups.values():
+		var xforms: Array = g["xforms"]
+		if xforms.size() < 2:
+			continue
+		var sample := g["sample"] as MeshInstance3D
+		var mis: Array = g["mis"]
+		var src_mesh := sample.mesh
+		var baked_mesh := src_mesh
+		var has_surf_override := false
+		for s in range(src_mesh.get_surface_count()):
+			if sample.get_surface_override_material(s) != null:
+				has_surf_override = true
+				break
+		if has_surf_override:
+			baked_mesh = src_mesh.duplicate() as Mesh
+			for s in range(baked_mesh.get_surface_count()):
+				var sm := sample.get_surface_override_material(s)
+				if sm != null:
+					baked_mesh.surface_set_material(s, sm)
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = baked_mesh
+		mm.instance_count = xforms.size()
+		for idx in range(xforms.size()):
+			mm.set_instance_transform(idx, xforms[idx] as Transform3D)
+		var mmi := MultiMeshInstance3D.new()
+		mmi.name = "AirportPropBatch_%d" % batch_idx
+		mmi.multimesh = mm
+		mmi.cast_shadow = sample.cast_shadow
+		if sample.material_override != null:
+			mmi.material_override = sample.material_override
+		add_child(mmi)
+		for mi_node in mis:
+			(mi_node as MeshInstance3D).mesh = null
+		batch_idx += 1
+	return batch_idx
 
 
 ## Mission props and trees are spawned *after* the escort route is planned,

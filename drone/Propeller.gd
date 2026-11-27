@@ -43,6 +43,11 @@ var forces := [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.Z
 var radius := 0.0635
 var theta_tip := 0.0
 var w := 0.0
+var _cached_disk_delta := -1.0
+var _cached_log_dd := 0.0
+var _cached_radius := -1.0
+var _cached_r4 := 0.0
+var _cached_r5 := 0.0
 
 
 func update_geometry() -> void:
@@ -104,9 +109,9 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if Engine.is_editor_hint() or suppressed:
 		if suppressed:
-			if cw != null: cw.visible = false
-			if ccw != null: ccw.visible = false
-			if prop_disk != null: prop_disk.visible = false
+			if cw != null and cw.visible: cw.visible = false
+			if ccw != null and ccw.visible: ccw.visible = false
+			if prop_disk != null and prop_disk.visible: prop_disk.visible = false
 		return
 	
 	if abs(rpm) > 500:
@@ -225,75 +230,104 @@ func update_forces() -> void:
 	# Forces computed according to paper from ETH Zurich: Rajan Gill and Raffaello D'Andrea
 	# Computationally Efficient Force and Moment Models for Propellers in UAV Forward Flight Applications
 	var rho := 1.225
-	w = rpm * PI / 30.0
+	w = rpm * (PI / 30.0)
+	if disk_delta != _cached_disk_delta:
+		_cached_disk_delta = disk_delta
+		_cached_log_dd = log(disk_delta)
+	if radius != _cached_radius:
+		_cached_radius = radius
+		var r2 := radius * radius
+		_cached_r4 = r2 * r2
+		_cached_r5 = _cached_r4 * radius
+	var log_dd := _cached_log_dd
+	var dd := disk_delta
 	var v := -velocity
 	var v_len := v.length()
-	var beta := acos(-v.normalized().dot(Vector3.UP))
 	var lambda_c := 0.0
 	var mu := 0.0
-	if w != 0.0:
-		lambda_c = v_len * cos(beta) / (w * radius)
-		mu = v_len * sin(beta) / (w * radius)
+	var beta := PI * 0.5
+	if w != 0.0 and v_len > 1e-6:
+		var cos_beta := clampf(-v.y / v_len, -1.0, 1.0)
+		var sin_beta := sqrt(maxf(0.0, 1.0 - cos_beta * cos_beta))
+		if debug > 0:
+			beta = acos(cos_beta)
+		var inv_wr := 1.0 / (w * radius)
+		lambda_c = v_len * cos_beta * inv_wr
+		mu = v_len * sin_beta * inv_wr
+	elif debug > 0 and v_len > 1e-6:
+		beta = acos(clampf(-v.y / v_len, -1.0, 1.0))
 	var sigma := num_blades * c_tip / (PI * radius)
+	var dd_m1 := dd - 1.0
+	var dd_p1 := dd + 1.0
+	var mu_sq := mu * mu
 	
 	# Induced inflow
-	var a1 := -4 * lambda_c + cla * sigma * (disk_delta - 1)
-	var a2 := 16 * lambda_c * lambda_c + 8 * cla * (disk_delta - 1) * lambda_c * sigma
-	var a3 := (disk_delta - 1) / disk_delta * sigma
-	var a4 := -8 * cl0 * disk_delta * (1 + disk_delta)
-	var a5 := cla * (disk_delta - 1) * disk_delta * sigma
-	var a6 := 8 * (2 * disk_delta + mu * mu * theta_tip)
-	var a7 := 8 * cl0 * mu * mu * sigma * log(disk_delta)
-	var lambda_i := (a1 + sqrt(a2 + a3 * (a4 + cla * (a5 - a6)) - a7)) / 8.0
+	var a1 := -4.0 * lambda_c + cla * sigma * dd_m1
+	var a2 := 16.0 * lambda_c * lambda_c + 8.0 * cla * dd_m1 * lambda_c * sigma
+	var a3 := dd_m1 / dd * sigma
+	var a4 := -8.0 * cl0 * dd * dd_p1
+	var a5 := cla * dd_m1 * dd * sigma
+	var a6 := 8.0 * (2.0 * dd + mu_sq * theta_tip)
+	var a7 := 8.0 * cl0 * mu_sq * sigma * log_dd
+	var lambda_i := (a1 + sqrt(a2 + a3 * (a4 + cla * (a5 - a6)) - a7)) * 0.125
 	
 	var lambda := lambda_c + lambda_i
+	var dyn_press := 0.5 * rho * PI * w * w
+	var thrust_scale := dyn_press * _cached_r4
+	var moment_scale := dyn_press * _cached_r5
+	var inv_2dd := 1.0 / (2.0 * dd)
+	var one_m_dd := 1.0 - dd
 	
 	# Thrust
-	a1 = sigma / (2 * disk_delta)
-	a2 = cl0 * disk_delta * (1 + disk_delta)
-	a3 = 2 * cla * disk_delta * (lambda - theta_tip)
-	a4 = cla * mu * mu * theta_tip
-	a5 = cl0 * disk_delta * mu * mu * log(disk_delta)
-	var cft := a1 * ((1 - disk_delta) * (a2 - a3 + a4) - a5)
-	var thrust := 0.5 * rho * PI * radius * radius * w * w * radius * radius * cft
+	a1 = sigma * inv_2dd
+	a2 = cl0 * dd * dd_p1
+	a3 = 2.0 * cla * dd * (lambda - theta_tip)
+	a4 = cla * mu_sq * theta_tip
+	a5 = cl0 * dd * mu_sq * log_dd
+	var cft := a1 * (one_m_dd * (a2 - a3 + a4) - a5)
+	var thrust := thrust_scale * cft
 	
 	# Drag
-	a1 = mu * sigma / (2 * disk_delta)
-	a2 = 2 * cd0 * disk_delta
-	a3 = (cla - 2 * cda) * lambda
-	a4 = 2 * cda * theta_tip
-	a5 = cl0 * disk_delta * lambda * log(disk_delta)
-	var cfh := a1 * ((1 - disk_delta) * (a2 + theta_tip * (a3 + a4)) - a5)
-	var drag := 0.5 * rho * PI * radius * radius * w * w * radius * radius * cfh
+	a1 = mu * sigma * inv_2dd
+	a2 = 2.0 * cd0 * dd
+	a3 = (cla - 2.0 * cda) * lambda
+	a4 = 2.0 * cda * theta_tip
+	a5 = cl0 * dd * lambda * log_dd
+	var cfh := a1 * (one_m_dd * (a2 + theta_tip * (a3 + a4)) - a5)
+	var drag := thrust_scale * cfh
 	
 	# Torque
-	a1 = (1 - disk_delta) * sigma / 6.0
-	a2 = 2 * cd0 * (1 + disk_delta + disk_delta * disk_delta)
-	a3 = 3 * cl0 * (disk_delta + 1) * lambda
-	a4 = 6 * (cda * (lambda - theta_tip) - cla * lambda) * (lambda - theta_tip)
-	a5 = (3 * mu * mu * (cd0 * disk_delta + cda * theta_tip * theta_tip)) / disk_delta
+	a1 = one_m_dd * sigma / 6.0
+	a2 = 2.0 * cd0 * (1.0 + dd + dd * dd)
+	a3 = 3.0 * cl0 * dd_p1 * lambda
+	a4 = 6.0 * (cda * (lambda - theta_tip) - cla * lambda) * (lambda - theta_tip)
+	a5 = (3.0 * mu_sq * (cd0 * dd + cda * theta_tip * theta_tip)) / dd
 	var cmq := a1 * (a2 + a3 + a4 + a5)
-	var torque := 0.5 * rho * PI * radius * radius * w * w * radius * radius * radius * cmq
+	var torque := moment_scale * cmq
 	
 	# Rolling moment
-	a1 = (1 - disk_delta) * sigma * mu / 2.0
-	a2 = cl0 * (disk_delta + 1)
-	a3 = cla * (lambda - 2 * theta_tip)
+	a1 = one_m_dd * sigma * mu * 0.5
+	a2 = cl0 * dd_p1
+	a3 = cla * (lambda - 2.0 * theta_tip)
 	var cmr := a1 * (a2 - a3)
-	var roll_moment := 0.5 * rho * PI * radius * radius * w * w * radius * radius * radius * cmr
+	var roll_moment := moment_scale * cmr
 	
 	# Pitching moment
-	a1 = c_tip / (2 * disk_delta * radius) * sigma * mu
-	a2 = cma * (disk_delta - 1) * (lambda - 2 * theta_tip)
-	a3 = 2 * cm0 * disk_delta * log(disk_delta)
+	a1 = c_tip * inv_2dd / radius * sigma * mu
+	a2 = cma * dd_m1 * (lambda - 2.0 * theta_tip)
+	a3 = 2.0 * cm0 * dd * log_dd
 	var cmp := a1 * (a2 - a3)
-	var pitch_moment := 0.5 * rho * PI * radius * radius * w * w * radius * radius * radius * cmp
+	var pitch_moment := moment_scale * cmp
 	
 	# Vector form
-	var direction := 1
-	if clockwise:
-		direction = -1
-	var drag_direction := Vector3(v.x, 0.0, v.z).normalized()
+	var direction := -1 if clockwise else 1
+	var drag_hx := v.x
+	var drag_hz := v.z
+	var drag_len_sq := drag_hx * drag_hx + drag_hz * drag_hz
+	var drag_direction := Vector3.ZERO
+	if drag_len_sq > 1e-12:
+		var inv_dlen := 1.0 / sqrt(drag_len_sq)
+		drag_direction = Vector3(drag_hx * inv_dlen, 0.0, drag_hz * inv_dlen)
 	if debug > 0:
 		debug += 1
 		if debug >= 10:
@@ -303,15 +337,17 @@ func update_forces() -> void:
 						% [beta, lambda_c, mu, lambda_i])
 				print("T: %5.3f, D: %5.3f, Q: %5.3f, R: %5.3f, P: %5.3f"
 						% [thrust, drag, torque, roll_moment, pitch_moment])
-	var thrust_vec := thrust * Vector3.UP
+	var thrust_vec := thrust * Vector3.UP * get_ground_effect()
 	var drag_vec := drag * drag_direction
 	var torque_vec := torque * Vector3.UP * direction
 	var roll_moment_vec := roll_moment * drag_direction * direction
 	var pitch_moment_vec := pitch_moment * Vector3.UP.cross(drag_direction) * direction
 	
-	thrust_vec = thrust_vec * get_ground_effect()
-	
-	forces = [thrust_vec, drag_vec, torque_vec, roll_moment_vec, pitch_moment_vec]
+	forces[0] = thrust_vec
+	forces[1] = drag_vec
+	forces[2] = torque_vec
+	forces[3] = roll_moment_vec
+	forces[4] = pitch_moment_vec
 
 
 func set_ground_effect_parameters(rad: float, d: float, b: float, kb: float) ->  void:

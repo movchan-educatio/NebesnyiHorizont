@@ -21,8 +21,33 @@ uniform float halation : hint_range(0.0, 0.2) = 0.05;
 uniform float light_leak : hint_range(0.0, 1.0) = 0.22;
 uniform float letterbox : hint_range(0.0, 0.2) = 0.0;
 uniform vec2 resolution = vec2(1920.0, 1080.0);
+uniform float render_scale_3d : hint_range(0.25, 1.0) = 1.0;
+uniform float sharpen_strength : hint_range(0.0, 1.5) = 0.72;
+uniform bool enable_rcas = true;
 uniform vec3 highlight_tint : source_color = vec3(1.045, 1.012, 0.945);
 uniform vec3 shadow_tint : source_color = vec3(0.945, 0.982, 1.045);
+
+vec3 rcas_sharpen(vec2 uv, vec3 center, vec2 inv_size, float strength) {
+	if (strength <= 0.001) {
+		return center;
+	}
+	vec3 n = texture(screen_tex, uv + vec2(0.0, -inv_size.y)).rgb;
+	vec3 s = texture(screen_tex, uv + vec2(0.0,  inv_size.y)).rgb;
+	vec3 w = texture(screen_tex, uv + vec2(-inv_size.x, 0.0)).rgb;
+	vec3 e = texture(screen_tex, uv + vec2( inv_size.x, 0.0)).rgb;
+	float nc = dot(center, vec3(0.299, 0.587, 0.114));
+	float nn = dot(n, vec3(0.299, 0.587, 0.114));
+	float ns = dot(s, vec3(0.299, 0.587, 0.114));
+	float nw = dot(w, vec3(0.299, 0.587, 0.114));
+	float ne = dot(e, vec3(0.299, 0.587, 0.114));
+	float min_l = min(min(min(nn, ns), min(nw, ne)), nc);
+	float max_l = max(max(max(nn, ns), max(nw, ne)), nc);
+	float hit_min = min_l / max(4.0 * max_l, 0.0001);
+	float hit_max = (1.0 - max_l) / min(4.0 * min_l - 4.0, -0.0001);
+	float lobe = max(-hit_min, hit_max);
+	float w_rcas = clamp(lobe, -0.1875, 0.0) * strength;
+	return clamp((center + (n + s + w + e) * w_rcas) / (1.0 + 4.0 * w_rcas), 0.0, 1.0);
+}
 
 float hash21(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21));
@@ -33,6 +58,11 @@ float hash21(vec2 p) {
 void fragment() {
 	vec2 uv = SCREEN_UV;
 	vec3 c = texture(screen_tex, uv).rgb;
+	if (enable_rcas && render_scale_3d < 0.95) {
+		float upscale_boost = clamp((0.98 - render_scale_3d) * 1.8, 0.28, 1.0);
+		vec2 rcas_px = 1.0 / max(resolution * mix(render_scale_3d, 1.0, 0.35), vec2(1.0));
+		c = rcas_sharpen(uv, c, rcas_px, sharpen_strength * upscale_boost);
+	}
 
 	// 1. Filmic S-curve around middle grey. Lifts the shadow shoulder without
 	//    crushing the darks, which is what makes a flat render read as "film".

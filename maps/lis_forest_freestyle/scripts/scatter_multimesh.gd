@@ -6,7 +6,7 @@ extends Node3D
 
 const SCATTER_JSON := "res://maps/lis_forest_freestyle/scatter_transforms.json"
 const PROTO_DIR := "res://maps/lis_forest_freestyle/meshes/"
-const CHUNK_SIZE: float = 150.0
+const CHUNK_SIZE: float = 85.0
 const CONIFERS := ["pine_tall", "pine_mid", "pine_slim", "fir_dense"]
 
 const VIS_RANGE := {

@@ -72,6 +72,25 @@ var _rifle_rest := Vector3.ZERO
 var _rifle_basis := Basis()
 var _ready_ok := false
 
+## An owner may mirror its destroyed state here. `_dead` drives the collapse
+## animation; once that has settled (or `dead` is set) the corpse is static and
+## `_process` no longer needs to touch the skeleton at all.
+var dead: bool = false
+
+## Measuring foot/chest height forces a full bone-transform pass every time, so
+## idle soldiers reuse the last measurement. The live `_crouch` value is always
+## checked, including when a caller writes the blend directly and invokes
+## `_update_pose()` without going through `set_crouch()` / `_process()`.
+var _last_crouch := -1.0
+var _last_foot_crouch := -1.0
+var _last_foot_walk_phase := -1.0
+var _last_foot_walk_stride := -1.0
+var _last_foot_aim := 0.0
+var _last_foot_flinch := 0.0
+var _foot_cache_valid := false
+var _cached_foot_correction := 0.0
+var _cached_chest_dy := 0.0
+
 # Measured principal axes of the authored M4 mesh (Object_57).  The mesh is
 # authored diagonally in its own XY plane; these let us map the barrel to the
 # node's -Z without guessing Euler angles.
@@ -119,7 +138,9 @@ func setup_rig(team_id: int = -1, model_variant: String = "") -> bool:
 	if skeleton == null:
 		return false
 	for mi in model.find_children("*", "MeshInstance3D", true, false):
-		mi.extra_cull_margin = 300.0
+		# A huge margin kept skinned meshes alive offscreen; the rig re-anchors
+		# its feet in local space, so the normal small margin is safe.
+		mi.extra_cull_margin = 2.5
 	_cache_bones()
 	_apply_base_pose()
 	_build_rifle_prop()
@@ -340,12 +361,17 @@ func _build_team_patch(team_id: int) -> void:
 
 
 func set_walk(phase: float, stride: float) -> void:
+	var next_stride := clampf(stride, 0.0, 1.5)
+	var changed := not is_equal_approx(phase, _walk_phase) \
+			or not is_equal_approx(next_stride, _walk_stride)
 	_walk_phase = phase
-	_walk_stride = clampf(stride, 0.0, 1.5)
+	_walk_stride = next_stride
 	_run_blend = clampf((_walk_stride - 0.78) / 0.57, 0.0, 1.0)
 	# Mobile LOD applies the latest walk parameters on its next pose tick. Calling
 	# this from every physics frame would otherwise bypass the 30/15 Hz cap.
-	if _mobile_animation_hz < 0.0:
+	# On the desktop path an idle caller passes the same values every frame, so
+	# only re-pose when the gait actually changed.
+	if changed and _mobile_animation_hz < 0.0:
 		_update_pose(0.0)
 
 
@@ -447,6 +473,12 @@ func stop_preview() -> void:
 func _process(delta: float) -> void:
 	if not _ready_ok:
 		return
+	if dead:
+		return
+	# Play the collapse once, then stop driving the skeleton entirely: a settled
+	# corpse has no breathing, sway, aim or gait to update.
+	if _dead and _death_progress >= 1.0:
+		return
 	if _mobile_animation_hz == 0.0:
 		return
 	var pose_delta := delta
@@ -470,6 +502,8 @@ func _process(delta: float) -> void:
 	if _dead:
 		_death_progress = move_toward(_death_progress, 1.0, pose_delta * 2.1)
 	_update_pose(pose_delta)
+	if _dead and _death_progress >= 1.0:
+		set_process(false)
 
 
 func _update_pose(_delta: float) -> void:
@@ -554,12 +588,35 @@ func _update_pose(_delta: float) -> void:
 		model.position = _base_model_pos
 		model.rotation = _base_model_rot
 		if _b_foot_l >= 0 or _b_foot_r >= 0:
-			skeleton.force_update_all_bone_transforms()
-			var foot_y := _lowest_foot_rig_y()
-			foot_correction = _rest_foot_y - foot_y
+			# The full bone-transform pass is only needed when the geometry that
+			# decides foot/chest height changed. Idle soldiers reuse the cached
+			# measurement; a direct write to `_crouch` is always caught by the
+			# live comparisons below, so foot anchoring still works when the
+			# blend is set by hand and `_update_pose(0.0)` is called directly.
+			var remeasure := not _foot_cache_valid \
+					or not is_equal_approx(_crouch, _last_crouch) \
+					or not is_equal_approx(_crouch, _last_foot_crouch) \
+					or not is_equal_approx(_walk_phase, _last_foot_walk_phase) \
+					or not is_equal_approx(_walk_stride, _last_foot_walk_stride) \
+					or not is_equal_approx(_aim_smooth, _last_foot_aim) \
+					or not is_equal_approx(_hit_flinch, _last_foot_flinch)
+			if remeasure:
+				skeleton.force_update_all_bone_transforms()
+				_cached_foot_correction = _rest_foot_y - _lowest_foot_rig_y()
+				var measure_bone := _b_spine3 if _b_spine3 >= 0 else _b_pelvis
+				if measure_bone >= 0:
+					_cached_chest_dy = (_rig_local_bone_y(measure_bone) + _cached_foot_correction) - _rest_spine3_y
+				_last_crouch = _crouch
+				_last_foot_crouch = _crouch
+				_last_foot_walk_phase = _walk_phase
+				_last_foot_walk_stride = _walk_stride
+				_last_foot_aim = _aim_smooth
+				_last_foot_flinch = _hit_flinch
+				_foot_cache_valid = true
+			foot_correction = _cached_foot_correction
 			var chest_bone := _b_spine3 if _b_spine3 >= 0 else _b_pelvis
 			if chest_bone >= 0:
-				chest_dy = (_rig_local_bone_y(chest_bone) + foot_correction) - _rest_spine3_y
+				chest_dy = _cached_chest_dy
 		model.position = _base_model_pos + Vector3(0.0, foot_correction + bob, 0.0)
 
 	# Idle weapon sway: a slow, low-amplitude drift that dies down while the

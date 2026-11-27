@@ -75,6 +75,26 @@ var _lod_impostor: Sprite3D = null
 var _using_proxy := false
 var _lod_tick := 0.0
 
+## Physics queries are reused between ticks: only from/to/exclude are rewritten.
+var _ground_query: PhysicsRayQueryParameters3D = null
+var _step_query: PhysicsRayQueryParameters3D = null
+var _step_side_query: PhysicsRayQueryParameters3D = null
+var _los_query: PhysicsRayQueryParameters3D = null
+var _ray_exclude: Array[RID] = []
+## Distant (>120 m) LOS results are held for ~1/6 s instead of raycasting at 60 Hz.
+var _far_los_at_ms := -1000
+var _far_los_clear := false
+var _far_los_target: Object = null
+
+## Muzzle-flash geometry and materials are shared class-wide; only the fading
+## outer material is cloned per shot so overlapping flashes do not fight over it.
+static var _muzzle_outer_mesh: SphereMesh = null
+static var _muzzle_core_mesh: SphereMesh = null
+static var _muzzle_outer_mesh_demo: SphereMesh = null
+static var _muzzle_core_mesh_demo: SphereMesh = null
+static var _muzzle_outer_mat: StandardMaterial3D = null
+static var _muzzle_core_mat: StandardMaterial3D = null
+
 # Simple procedural locomotion, driven by the Blender hip/knee pivots.
 var _hip_l: Node3D = null
 var _knee_l: Node3D = null
@@ -157,6 +177,56 @@ func _ready() -> void:
 		burst_pause_min = 2.1
 		burst_pause_max = 3.1
 		shot_interval = 0.19
+
+
+func _ensure_ray_queries() -> void:
+	if _ground_query != null:
+		return
+	_ground_query = PhysicsRayQueryParameters3D.create(Vector3.ZERO, Vector3.DOWN)
+	_ground_query.collision_mask = 1
+	_step_query = PhysicsRayQueryParameters3D.create(Vector3.ZERO, Vector3.FORWARD)
+	_step_query.collision_mask = 1
+	_step_side_query = PhysicsRayQueryParameters3D.create(Vector3.ZERO, Vector3.FORWARD)
+	_step_side_query.collision_mask = 1
+	_los_query = PhysicsRayQueryParameters3D.create(Vector3.ZERO, Vector3.FORWARD)
+	_los_query.collision_mask = 1
+	_los_query.collide_with_areas = false
+
+
+static func _ensure_muzzle_resources() -> void:
+	if _muzzle_outer_mat != null:
+		return
+	_muzzle_outer_mesh = SphereMesh.new()
+	_muzzle_outer_mesh.radius = 0.13 * 1.15
+	_muzzle_outer_mesh.height = 0.26 * 1.15
+	_muzzle_outer_mesh.radial_segments = 8
+	_muzzle_outer_mesh.rings = 4
+	_muzzle_outer_mesh_demo = SphereMesh.new()
+	_muzzle_outer_mesh_demo.radius = 0.13 * 1.35
+	_muzzle_outer_mesh_demo.height = 0.26 * 1.35
+	_muzzle_outer_mesh_demo.radial_segments = 8
+	_muzzle_outer_mesh_demo.rings = 4
+	_muzzle_core_mesh = SphereMesh.new()
+	_muzzle_core_mesh.radius = 0.06 * 1.15
+	_muzzle_core_mesh.height = 0.12 * 1.15
+	_muzzle_core_mesh.radial_segments = 6
+	_muzzle_core_mesh.rings = 3
+	_muzzle_core_mesh_demo = SphereMesh.new()
+	_muzzle_core_mesh_demo.radius = 0.06 * 1.35
+	_muzzle_core_mesh_demo.height = 0.12 * 1.35
+	_muzzle_core_mesh_demo.radial_segments = 6
+	_muzzle_core_mesh_demo.rings = 3
+	_muzzle_outer_mat = StandardMaterial3D.new()
+	_muzzle_outer_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_muzzle_outer_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_muzzle_outer_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_muzzle_outer_mat.albedo_color = Color(1.0, 0.78, 0.26, 0.96)
+	_muzzle_outer_mat.emission_enabled = true
+	_muzzle_outer_mat.emission = Color(1.0, 0.55, 0.10)
+	_muzzle_outer_mat.emission_energy_multiplier = 7.5
+	_muzzle_core_mat = StandardMaterial3D.new()
+	_muzzle_core_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_muzzle_core_mat.albedo_color = Color(1.0, 0.96, 0.75)
 
 
 func _build() -> void:
@@ -709,21 +779,23 @@ func _can_step(move_dir: Vector3, step_len: float) -> bool:
 			if not on_bridge and wl > -100.0:
 				if next_h < wl + 0.34 and next_h <= cur_h:
 					return false
-	var query := PhysicsRayQueryParameters3D.create(from, to)
-	query.collision_mask = 1
-	query.exclude = [get_rid()]
-	var hit := space.intersect_ray(query)
+	_ensure_ray_queries()
+	_ray_exclude.clear()
+	_ray_exclude.append(get_rid())
+	_step_query.from = from
+	_step_query.to = to
+	_step_query.exclude = _ray_exclude
+	var hit := space.intersect_ray(_step_query)
 	if not hit.is_empty():
 		return false
 	# Probe both shoulder lines so thin posts, walls, and fences do not trap soldiers.
 	var right := Vector3(move_dir.z, 0.0, -move_dir.x).normalized()
 	for side: float in [-0.45, 0.45]:
 		var origin := from + right * side
-		var side_query := PhysicsRayQueryParameters3D.create(
-				origin, origin + move_dir * (step_len + 0.55))
-		side_query.collision_mask = 1
-		side_query.exclude = [get_rid()]
-		if not space.intersect_ray(side_query).is_empty():
+		_step_side_query.from = origin
+		_step_side_query.to = origin + move_dir * (step_len + 0.55)
+		_step_side_query.exclude = _ray_exclude
+		if not space.intersect_ray(_step_side_query).is_empty():
 			return false
 	return true
 
@@ -993,21 +1065,21 @@ func _snap_to_ground() -> void:
 	var space := world.direct_space_state
 	if space == null:
 		return
-	var excl: Array[RID] = [get_rid()]
+	_ensure_ray_queries()
+	_ray_exclude.clear()
+	_ray_exclude.append(get_rid())
 	if _drone is CollisionObject3D:
-		excl.append((_drone as CollisionObject3D).get_rid())
+		_ray_exclude.append((_drone as CollisionObject3D).get_rid())
 	for node in _cached_group("combat_target"):
 		if is_instance_valid(node) and node is CollisionObject3D:
-			excl.append((node as CollisionObject3D).get_rid())
+			_ray_exclude.append((node as CollisionObject3D).get_rid())
 	for node in _cached_group("vehicle"):
 		if is_instance_valid(node) and node is CollisionObject3D:
-			excl.append((node as CollisionObject3D).get_rid())
-	var query := PhysicsRayQueryParameters3D.create(
-			Vector3(global_position.x, global_position.y + 1.8, global_position.z),
-			Vector3(global_position.x, global_position.y - 25.0, global_position.z))
-	query.collision_mask = 1
-	query.exclude = excl
-	var hit := space.intersect_ray(query)
+			_ray_exclude.append((node as CollisionObject3D).get_rid())
+	_ground_query.from = Vector3(global_position.x, global_position.y + 1.8, global_position.z)
+	_ground_query.to = Vector3(global_position.x, global_position.y - 25.0, global_position.z)
+	_ground_query.exclude = _ray_exclude
+	var hit := space.intersect_ray(_ground_query)
 	if not hit.is_empty():
 		global_position.y = (hit["position"] as Vector3).y
 
@@ -1123,17 +1195,32 @@ func _has_clear_los(from: Vector3, target: Vector3, target_node: Node) -> bool:
 	var space := world.direct_space_state
 	if space == null:
 		return false
-	var query := PhysicsRayQueryParameters3D.create(from, target)
-	query.collision_mask = 1
-	query.collide_with_areas = false
-	query.exclude = [get_rid()]
-	var hit := space.intersect_ray(query)
+	# Beyond 120 m the firing line barely changes between frames: reuse the last
+	# result for ~1/6 s rather than paying for a raycast on every physics tick.
+	var far := from.distance_to(target) > 120.0
+	var now := Time.get_ticks_msec()
+	if far and target_node == _far_los_target and now - _far_los_at_ms < 167:
+		return _far_los_clear
+	_ensure_ray_queries()
+	_ray_exclude.clear()
+	_ray_exclude.append(get_rid())
+	_los_query.from = from
+	_los_query.to = target
+	_los_query.exclude = _ray_exclude
+	var hit := space.intersect_ray(_los_query)
+	var clear := false
 	if hit.is_empty():
-		return true
-	if hit.get("collider") == target_node:
-		return true
-	var point: Vector3 = hit.get("position", target)
-	return from.distance_to(point) >= from.distance_to(target) - 0.8
+		clear = true
+	elif hit.get("collider") == target_node:
+		clear = true
+	else:
+		var point: Vector3 = hit.get("position", target)
+		clear = from.distance_to(point) >= from.distance_to(target) - 0.8
+	if far:
+		_far_los_target = target_node
+		_far_los_at_ms = now
+		_far_los_clear = clear
+	return clear
 
 
 func _update_target() -> void:
@@ -1254,38 +1341,21 @@ func _apply_recoil(delta: float) -> void:
 func _muzzle_flash(position: Vector3) -> void:
 	if DisplayServer.get_name() == "headless" or _muzzle == null:
 		return
-	var flash_scale := 1.35 if _demo_visual else 1.15
-	var sphere := SphereMesh.new()
-	sphere.radius = 0.13 * flash_scale
-	sphere.height = 0.26 * flash_scale
-	sphere.radial_segments = 8
-	sphere.rings = 4
+	_ensure_muzzle_resources()
+	var demo := _demo_visual
 	var flash := MeshInstance3D.new()
-	flash.mesh = sphere
-	var material := StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	material.albedo_color = Color(1.0, 0.78, 0.26, 0.96)
-	material.emission_enabled = true
-	material.emission = Color(1.0, 0.55, 0.10)
-	material.emission_energy_multiplier = 7.5
+	flash.mesh = _muzzle_outer_mesh_demo if demo else _muzzle_outer_mesh
+	# Only the fading outer material needs a per-shot clone; geometry and the
+	# steady inner star are shared class-wide.
+	var material := _muzzle_outer_mat.duplicate() as StandardMaterial3D
 	flash.material_override = material
 	flash.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	flash.position = Vector3.ZERO
 	_muzzle.add_child(flash)
 	# Hot white inner star so gunfire pops against grass/sky from FPV altitude.
-	var core_mesh := SphereMesh.new()
-	core_mesh.radius = 0.06 * flash_scale
-	core_mesh.height = 0.12 * flash_scale
-	core_mesh.radial_segments = 6
-	core_mesh.rings = 3
 	var core := MeshInstance3D.new()
-	core.mesh = core_mesh
-	var core_mat := StandardMaterial3D.new()
-	core_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	core_mat.albedo_color = Color(1.0, 0.96, 0.75)
-	core.material_override = core_mat
+	core.mesh = _muzzle_core_mesh_demo if demo else _muzzle_core_mesh
+	core.material_override = _muzzle_core_mat
 	core.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	flash.add_child(core)
 	var life := 0.28 if _demo_visual else 0.10
@@ -1391,6 +1461,10 @@ func _destroy() -> void:
 	if is_destroyed:
 		return
 	is_destroyed = true
+	# The ragdoll death pose lives on the rig child and keeps animating; this
+	# body has no AI or visuals left to drive, so stop its callbacks for good.
+	set_physics_process(false)
+	set_process(false)
 	remove_from_group("combat_target")
 	remove_from_group("primary_combat_target")
 	remove_from_group("bonus_combat_target")

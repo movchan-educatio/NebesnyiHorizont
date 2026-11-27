@@ -114,20 +114,40 @@ func _ready() -> void:
 	add_child(_http)
 	_http.request_completed.connect(_on_http_completed)
 	set_process(true)
-	_start()
+	if OS.get_name() == "iOS" and not OS.has_environment("ELRS_WIFI") \
+			and not bool(GameSettings.hud_config.get("elrs_wifi_enabled", false)):
+		status_text = "ELRS: ВИМК."
+	else:
+		_start()
+
+
+var _started := false
 
 
 func _start() -> void:
+	if _started:
+		return
 	var err := _udp.bind(UDP_PORT, "0.0.0.0")
 	if err != OK:
 		status_text = "ELRS: UDP %d" % err
 		print_verbose("[ELRS] UDP port %d busy or unavailable (%d)" % [UDP_PORT, err])
 		return
+	_started = true
 	_udp.set_broadcast_enabled(true)
 	status_text = "ELRS: ПОШУК"
 
 
+func ensure_started() -> void:
+	if OS.get_name() == "iOS" and not bool(GameSettings.hud_config.get("elrs_wifi_enabled", false)):
+		GameSettings.hud_config["elrs_wifi_enabled"] = true
+		GameSettings.save_hud_config()
+	if not _started:
+		_start()
+
+
 func _process(delta: float) -> void:
+	if not _started:
+		return
 	# Absorb main-thread hitches during scene/level loading so an active Wi-Fi TX
 	# session is not falsely marked stale before UDP packets are polled again.
 	if valid and delta > 0.35:
@@ -174,6 +194,7 @@ func was_recently_active(window_ms: int = 20000) -> bool:
 
 
 func scan_now() -> void:
+	ensure_started()
 	if not valid:
 		_try_activate("10.0.0.1")
 		_try_activate("192.168.4.1")
@@ -184,6 +205,8 @@ func scan_now() -> void:
 ## socket buffer, so the sticks read a packet that was already stale.
 ## Draining to the latest packet adds zero queued-frame latency.
 func poll_now() -> void:
+	if not _started:
+		return
 	var latest_ip := ""
 	var latest_packet := PackedByteArray()
 	var beacon_ip := ""

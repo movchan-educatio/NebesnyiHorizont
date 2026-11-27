@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Небесний горизонт — Підтримка та ELRS Wi-Fi / App Support</title>
+  <style>
+    :root {
+      --bg: #0c110e;
+      --surface: #141c17;
+      --border: #2b382f;
+      --text: #edf2ee;
+      --muted: #a4b2a8;
+      --accent: #f3c63f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: radial-gradient(circle at top, #17221b 0%, var(--bg) 60%);
+      color: var(--text);
+      line-height: 1.65;
+      padding: 32px 16px;
+    }
+    main {
+      max-width: 860px;
+      margin: 0 auto;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+    }
+    header { border-bottom: 1px solid var(--border); padding-bottom: 16px; margin-bottom: 24px; }
+    h1 { margin: 0 0 6px; font-size: 1.75rem; color: var(--accent); }
+    h2 { margin-top: 26px; color: var(--accent); font-size: 1.18rem; }
+    .card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin: 14px 0;
+    }
+    a { color: var(--accent); }
+    code { background: rgba(255, 255, 255, 0.08); padding: 2px 6px; border-radius: 5px; }
+    ol, ul { padding-left: 20px; }
+    nav { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 0.92rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Небесний горизонт — Підтримка / Support (v1.20.0)</h1>
+      <div>Офлайн 3D-симулятор FPV-дронів для iPhone та iPad / Offline 3D FPV Drone Simulator for iOS</div>
+    </header>
+
+    <div class="card">
+      <h2>Підключення пульта ExpressLRS по Wi-Fi (UDP 11000) / ELRS Wi-Fi Setup</h2>
+      <ol>
+        <li>На пульті відкрийте <strong>ExpressLRS Lua → WiFi Connectivity → Enable WiFi</strong> (<code>10.0.0.1</code>).</li>
+        <li>На iPhone/iPad підключіться до Wi-Fi мережі <strong>ExpressLRS TX</strong> (пароль: <code>expresslrs</code>).</li>
+        <li>У грі відкрийте <strong>Пульт 3D / Radio 3D</strong> і надайте дозвіл iOS <strong>Локальна мережа (Local Network)</strong>.</li>
+        <li>Гра автоматично приймає канали CRSF на порту <code>UDP 11000</code> (Mode 2: Roll CH1, Pitch CH2, Throttle CH3, Yaw CH4, ARM CH5).</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <h2>Часті питання / FAQ</h2>
+      <ul>
+        <li><strong>Чи потрібен фізичний пульт?</strong> Ні — усі режими (Школа пілота, Тренування, Кампанії, Спецоперації) повністю працюють через сенсорні стіки на екрані або Bluetooth/MFi геймпади.</li>
+        <li><strong>Оптимальні налаштування FPS:</strong> на старіших пристроях (iPhone 11/12/SE) рекомендується пресет <code>LOW</code> або <code>MEDIUM</code> у меню Налаштування → Графіка; динамічне масштабування автоматично тримає плавні 60 FPS.</li>
+        <li><strong>Проблема чи побажання?</strong> Повідомте про помилку на сторінці підтримки нижче, вказавши модель iPhone/iPad та назву карти.</li>
+      </ul>
+    </div>
+
+    <h2>Контакти / Contact</h2>
+    <p>Technical Support &amp; Bug Reports: <a href="https://github.com/movchan-educatio/NebesnyiHorizont/issues">https://github.com/movchan-educatio/NebesnyiHorizont/issues</a></p>
+
+    <nav>
+      <a href="privacy.html">Політика конфіденційності / Privacy Policy</a> ·
+      Bundle ID: <code>com.nebesnyihorizont.game</code>
+    </nav>
+  </main>
+</body>
+</html>

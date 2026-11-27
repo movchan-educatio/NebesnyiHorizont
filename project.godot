@@ -12,7 +12,7 @@ config_version=5
 
 config/name="Небесний горизонт"
 config/description="Небесний горизонт — тактичний тренувальний FPV-симулятор"
-config/version="1.19.0-v19"
+config/version="1.20.0-v20"
 run/main_scene="res://GUI/StartScreen.tscn"
 config/features=PackedStringArray("4.6")
 run/max_fps=120

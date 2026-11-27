@@ -221,7 +221,13 @@ func _spawn_training_rings() -> void:
 	print("[LisLevel] spawned %d authored kit_ring_gate checkpoints" % _rings_total)
 
 
+var _ground_y_cache: Dictionary = {}
+
+
 func _find_ground_y(x: float, z: float) -> float:
+	var cell := Vector2i(int(round(x * 0.5)), int(round(z * 0.5)))
+	if _ground_y_cache.has(cell):
+		return float(_ground_y_cache[cell])
 	var space := get_world_3d().direct_space_state
 	if space == null:
 		return DEFAULT_SPAWN.y
@@ -242,13 +248,14 @@ func _find_ground_y(x: float, z: float) -> float:
 					var rid := (n as CollisionObject3D).get_rid()
 					if not exclude.has(rid):
 						exclude.append(rid)
+	var query := PhysicsRayQueryParameters3D.create(
+			Vector3(x, 400.0, z), Vector3(x, -200.0, z))
+	query.collision_mask = 1
+	query.exclude = exclude
 	for _i in range(16):
-		var query := PhysicsRayQueryParameters3D.create(
-				Vector3(x, 400.0, z), Vector3(x, -200.0, z))
-		query.collision_mask = 1
-		query.exclude = exclude
 		var hit := space.intersect_ray(query)
 		if hit.is_empty():
+			_ground_y_cache[cell] = DEFAULT_SPAWN.y
 			return DEFAULT_SPAWN.y
 		var collider: Object = hit.get("collider")
 		var is_map_hit := ground_root == null
@@ -256,11 +263,14 @@ func _find_ground_y(x: float, z: float) -> float:
 			var col_node := collider as Node
 			is_map_hit = col_node == ground_root or ground_root.is_ancestor_of(col_node)
 		if is_map_hit:
-			return (hit["position"] as Vector3).y
+			var y_hit := (hit["position"] as Vector3).y
+			_ground_y_cache[cell] = y_hit
+			return y_hit
 		if collider is CollisionObject3D:
 			var hit_rid := (collider as CollisionObject3D).get_rid()
 			if not exclude.has(hit_rid):
 				exclude.append(hit_rid)
+				query.exclude = exclude
 				continue
 		break
 	return DEFAULT_SPAWN.y

@@ -180,9 +180,15 @@ func _count_bodies(node: Node) -> int:
 	return n
 
 func _fix_foliage_materials(node: Node) -> void:
+	var mesh: Mesh = null
 	if node is MeshInstance3D:
-		for i in range(node.mesh.get_surface_count() if node.mesh else 0):
-			var m: Material = node.mesh.surface_get_material(i)
+		mesh = (node as MeshInstance3D).mesh
+	elif node is MultiMeshInstance3D:
+		var mm := (node as MultiMeshInstance3D).multimesh
+		mesh = mm.mesh if mm != null else null
+	if mesh != null:
+		for i in range(mesh.get_surface_count()):
+			var m: Material = mesh.surface_get_material(i)
 			if m is BaseMaterial3D:
 				var nm: String = m.resource_name.to_lower()
 				if nm.contains("needle") or nm.contains("fern") or nm.contains("shrub") \

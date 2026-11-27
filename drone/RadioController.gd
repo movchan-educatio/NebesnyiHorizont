@@ -58,9 +58,15 @@ var _throttle_filter_ready := false
 ## channels are already filtered in Controls.channel_value/apply_stick_filter.
 var _stick_filtered := Vector3.ZERO
 var _stick_filter_ready := false
+var _wifi: Node = null
+var _touch: Node = null
+var _mobile: Node = null
 
 
 func _ready() -> void:
+	_wifi = get_node_or_null("/root/ElrsWifiInput")
+	_touch = get_node_or_null("/root/TouchControls")
+	_mobile = get_node_or_null("/root/MobileInput")
 	# Run before Drone._physics_process so the sticks sampled here are the ones
 	# the airframe integrates in the same physics step.
 	process_physics_priority = -100
@@ -272,9 +278,9 @@ func read_input() -> void:
 	# channels when an old config has duplicate bindings.  On a phone the
 	# on-screen twin sticks are a deliberate mode switch and take precedence;
 	# otherwise a live WiFi ELRS stream overrides the physical gamepad.
-	var wifi := get_node_or_null("/root/ElrsWifiInput")
-	var touch := get_node_or_null("/root/TouchControls")
-	var mobile := get_node_or_null("/root/MobileInput")
+	var wifi := _wifi if (_wifi != null and is_instance_valid(_wifi)) else get_node_or_null("/root/ElrsWifiInput")
+	var touch := _touch if (_touch != null and is_instance_valid(_touch)) else get_node_or_null("/root/TouchControls")
+	var mobile := _mobile if (_mobile != null and is_instance_valid(_mobile)) else get_node_or_null("/root/MobileInput")
 	# Drain queued ELRS packets before sampling the channels so this physics
 	# tick uses the newest frame instead of one buffered several frames ago.
 	# poll_now() is effectively free when the queue is empty.
@@ -420,8 +426,10 @@ func read_input() -> void:
 					lerpf(_stick_filtered.z, target_sticks.z, blend), max_step)
 		else:
 			_stick_filtered.z = target_sticks.z
-	input = [_throttle_filtered, _stick_filtered.x, _stick_filtered.y,
-			_stick_filtered.z]
+	input[0] = _throttle_filtered
+	input[1] = _stick_filtered.x
+	input[2] = _stick_filtered.y
+	input[3] = _stick_filtered.z
 	_apply_link_effects()
 
 
@@ -447,7 +455,10 @@ func _apply_link_effects() -> void:
 		_input_history.clear()
 
 	if bool(link_provider.get("failsafe")):
-		input = [0.0, 0.0, 0.0, 0.0]
+		input[0] = 0.0
+		input[1] = 0.0
+		input[2] = 0.0
+		input[3] = 0.0
 
 
 ## Throttle from the calibrated radio axis, or -1 when there is no radio

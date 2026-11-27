@@ -56,6 +56,9 @@ var _fall_velocity := Vector3.ZERO
 var _fall_timer: float = 0.0
 var _warned: bool = false
 var _dead_notified: bool = false
+var _level_ref: Node = null
+var _cached_floor_cell: Vector2i = Vector2i(2147483647, 2147483647)
+var _cached_floor_y: float = 0.0
 
 
 func _ready() -> void:
@@ -558,10 +561,17 @@ func _spin_props(delta: float) -> void:
 func _ground_floor_y() -> float:
 	if not is_inside_tree():
 		return 0.0
-	var lvl := _find_level()
-	if lvl != null and lvl.has_method("_find_ground_y"):
-		return float(lvl.call("_find_ground_y", global_position.x, global_position.z))
-	return 0.0
+	var cell := Vector2i(int(floor(global_position.x * 0.5)), int(floor(global_position.z * 0.5)))
+	if cell == _cached_floor_cell:
+		return _cached_floor_y
+	if _level_ref == null or not is_instance_valid(_level_ref):
+		_level_ref = _find_level()
+	if _level_ref != null and _level_ref.has_method("_find_ground_y"):
+		_cached_floor_y = float(_level_ref.call("_find_ground_y", global_position.x, global_position.z))
+	else:
+		_cached_floor_y = 0.0
+	_cached_floor_cell = cell
+	return _cached_floor_y
 
 
 func take_damage(amount: float, _hit_position: Vector3 = Vector3.ZERO) -> void:

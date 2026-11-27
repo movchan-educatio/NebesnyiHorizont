@@ -2,16 +2,26 @@ Nebesnyi Horizont — Proprietary Software License
 
 Copyright (c) 2026 Nebesnyi Horizont. All Rights Reserved.
 
-This software, including its source scripts, user interface, mission logic,
-and original game assets, is proprietary and confidential unless explicitly
-distributed in binary form by the copyright holder (e.g., via official app
-stores or authorized builds).
+1. Ownership & License Grant
+This software ("Nebesnyi Horizont", v1.20.0+), including its source scripts,
+user interface, mission logic, shaders, procedural audio synthesizers, and
+original game assets, is proprietary unless explicitly distributed in compiled
+binary form by the copyright holder (e.g., via the Apple App Store or
+authorized builds).
 
 Except as expressly permitted in writing by the copyright holder, you may not
-reproduce, redistribute, republish, sell, sublicense, or create competing
-commercial distributions from this software or its bundled assets.
+reproduce, redistribute, republish, decompile, sell, sublicense, or create
+competing commercial distributions from this software or its bundled assets.
 
-Third-Party Components & Open Assets:
-- Godot Engine is licensed under the MIT License (https://godotengine.org/license).
-- Bundled third-party CC0 textures and explosion VFX packs remain under
-  CC0 1.0 Universal; see CREDITS.md for attributions.
+2. Apple App Store Distribution (Standard EULA)
+When obtained through the Apple App Store for iOS/iPadOS, your use of the
+application is additionally governed by Apple's Licensed Application End User
+License Agreement (Standard EULA):
+https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
+
+3. Privacy & Open-Source / CC0 Third-Party Notices
+- Privacy Policy: see PRIVACY_POLICY.md (offline by design, zero personal data collected).
+- Third-Party Components:
+  * Godot Engine — MIT License (https://godotengine.org/license).
+  * ambientCG PBR textures, Poly Haven sky maps, and Binbun3D Stylized Explosion
+    FX Vol.2 remain under CC0 1.0 Universal; see CREDITS.md for attributions.

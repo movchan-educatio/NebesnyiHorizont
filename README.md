@@ -1,11 +1,12 @@
-# Небесний горизонт — FPV-симулятор дрона
+# Небесний горизонт — FPV-симулятор дрона (v1.20.0 · Build 20)
 
-FPV-симулятор бойового/цивільного дрона на **Godot 4.6**. Містить процедурні
-карти, режими тренування, гонки, бойові місії, спецоперації та вільний політ.
+FPV-симулятор бойового/цивільного дрона на **Godot 4.6 / 4.7 (iOS)**. Містить
+5 деталізованих карт, Школу пілота, фрістайл-траси з воротами, бойові місії та спецоперації.
 
-> Поточна цільова платформа: **iOS** (unsigned IPA через GitHub Actions,
-> Sideloadly + безкоштовний Apple ID). iPhone 14 + ELRS WiFi.
-> Деталі: `docs/IOS_GITHUB_BUILD.md`.
+> Цільова платформа: **iOS (App Store pre-launch ready · v1.20.0 / Build 20)** із збереженням
+> **unsigned IPA для AltStore/Sideloadly** через GitHub Actions (`.github/workflows/ios.yml`).  
+> • Конфіденційність: [`PRIVACY_POLICY.md`](PRIVACY_POLICY.md) · [`docs/privacy.html`](docs/privacy.html) · Підтримка: [`docs/support.html`](docs/support.html)  
+> • Маніфест приватності: [`ios/PrivacyInfo.xcprivacy`](ios/PrivacyInfo.xcprivacy) · Стор-метадані: [`docs/APPSTORE_LISTING.md`](docs/APPSTORE_LISTING.md) · Чеклист релізу: [`docs/ios/APPSTORE_SIGNING.md`](docs/ios/APPSTORE_SIGNING.md)
 
 ## Запуск
 
@@ -95,8 +96,7 @@ FPV-симулятор бойового/цивільного дрона на **G
   `.github/workflows/ios.yml`.
 - Встановлення на iPhone 14 (Lightning) через **AltStore + LocalDevVPN** з
   безкоштовним Apple ID; підпис діє 7 днів.
-- Пульт Radiomaster Pocket підключається **по Wi-Fi ELRS** (протокол
-  «Velocidrone Mobile»): iPhone → `ExpressLRS TX`, у грі `ELRS: ПОТІК`.
+- Пульт Radiomaster Pocket підключається **по Wi-Fi ELRS** (`ExpressLRS TX`, локальний **UDP 11000**, проєктний протокол CRSF/Velocidrone Mobile): у грі статус `ELRS: ПОТІК`. На iOS сокет UDP 11000 не відкривається на холодному старті — дозвіл **Локальна мережа** запитується лише коли користувач сам відкриває `Пульт 3D / Radio 3D` або інструкцію ELRS.
 - Канали: CH1 roll, CH2 pitch, CH3 throttle, CH4 yaw, CH5 arm, CH6 режими,
   CH7 відео. На екрані є кнопка **АРМ**.
 - **Сенсорне керування:** два великі віртуальні стіки (лівий — газ/рискання,
@@ -312,6 +312,18 @@ FPV-симулятор бойового/цивільного дрона на **G
 - У меню лишилися **3 графічні пресети** — Низька / Середня / Висока; старі
   конфіги мігрують автоматично.
 
+## Що нового у v1.20.0 (Build 20) — оптимізація FPS та App Store
+
+- **Максимізація FPS без зниження графіки:**
+  - Об’єднано екранний постобробний прохід: опційне RCAS-підсилення різкості вбудовано прямо в `shaders/cinematic_overlay.gdshader`, тож у чистому режимі `FPVOverlay` не копіює фреймбуфер удруге.
+  - Оптимізовано фізику та рендер дрона (`Drone.gd`, `Propeller.gd`, `Motor.gd`, `RadioController.gd`): кешовано запити колізій, прибрано тригонометричні перерахунки та алокації на кожному підкроці.
+  - Батчинг пропсів в Аеропорту (`AirportLevel.gd` → `MultiMeshInstance3D`) зі збереженням усіх колізій `DetailedProp*`, тонше розбиття чанків лісу (`LisLevel`, `CHUNK_SIZE = 85.0`), інкрементальне небо нафтової платформи (`OilRigLevel`), кеш висоти ґрунту й оптимізовані raycast-черги для `vehicle.gd`, `chaos_soldier.gd`, `aa_gun.gd`, `tracer.gd`.
+- **Звук влучань і вибухів:** 44.1 kHz бойові звукові сигнали влучання в ціль та вибуху (`combat/sfx.gd`).
+- **Готовність до App Store:**
+  - `ios/PrivacyInfo.xcprivacy` + автоматична інтеграція й жорстка перевірка в `.github/workflows/ios.yml` (зі збереженням unsigned IPA та опційним TestFlight-кроком).
+  - Прибрано зайві діалоги локальної мережі на холодному старті iOS (`ElrsWifiInput.gd`), приховано кнопки `Вихід / Quit` на iOS (`StartScreen.gd`, `MainMenu.gd`, `PauseMenu.gd`), оновлено документацію UDP 11000, додано модальне вікно конфіденційності та ліцензій у `MobileMenu.gd`, зменшено розмір iOS-бандлу в `export_presets.cfg`.
+  - Повний набір документів і скріншотів: [`PRIVACY_POLICY.md`](PRIVACY_POLICY.md), [`docs/privacy.html`](docs/privacy.html), [`docs/support.html`](docs/support.html), [`docs/APPSTORE_LISTING.md`](docs/APPSTORE_LISTING.md), [`docs/ios/APPSTORE_SIGNING.md`](docs/ios/APPSTORE_SIGNING.md), `docs/appstore_screenshots/`.
+
 ## Структура
 
 - `sceneries/` — сцени карт і режимів.
@@ -323,16 +335,16 @@ FPV-симулятор бойового/цивільного дрона на **G
 - `test/` — headless QA-тести та аудити.
 - `tools/` — Blender/Python-скрипти підготовки асетів.
 - `qa_shots/` — службові скріншоти перевірок.
-- `docs/AUDIT_2026-11-08.md` — детальний діагноз скріншотів, зміни
-  spawn/доріг/POI та результати QA.
-- `CREDITS.md` — автори та сторонні ліцензії (Godot MIT, CC0). `LICENSE` — ліцензія проєкту.
+- `ios/` та `docs/` — iOS Privacy Manifest, сторінки приватності/підтримки, скриншоти та інструкції App Store.
+- `CREDITS.md` — автори та сторонні ліцензії (Godot MIT, CC0). `LICENSE` — ліцензія проєкту + Apple Standard EULA. `PRIVACY_POLICY.md` — політика конфіденційності.
 
 ## Статус збірки
 
-- Підготовлено режими Desktop (Windows) та iOS (`export_presets.cfg`, `.github/workflows/ios.yml`).
-- Підтримується українська та англійська локалізація меню й телеметрії, адаптивні профілі графіки, сенсорне керування та ELRS Wi-Fi.
+- **Версія:** `1.20.0` (Build `20`, `project.godot`: `1.20.0-v20`).
+- Підготовлено Desktop (Windows) та iOS App Store (`export_presets.cfg`, `.github/workflows/ios.yml`, TestFlight ready + AltStore unsigned IPA fallback).
+- Підтримується українська та англійська локалізація меню й телеметрії, адаптивні профілі графіки, сенсорне керування, Bluetooth/MFi геймпади та ELRS Wi-Fi (UDP 11000).
 
 ## Ліцензія
 
-**Copyright © 2026 Nebesnyi Horizont. All Rights Reserved.** (див. `LICENSE`).
-Рушій **Godot Engine** поширюється на умовах **MIT License**; відкриті текстури й VFX — на умовах **CC0** (див. `CREDITS.md`).
+**Copyright © 2026 Nebesnyi Horizont. All Rights Reserved.** (див. [`LICENSE`](LICENSE) та Apple App Store Standard EULA).  
+Рушій **Godot Engine** поширюється на умовах **MIT License**; відкриті текстури, небо й VFX — на умовах **CC0** (див. [`CREDITS.md`](CREDITS.md)).

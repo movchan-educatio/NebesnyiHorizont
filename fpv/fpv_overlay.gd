@@ -21,6 +21,21 @@ var _mode: int = 0
 var _user_visible := false
 var _auto_visible := false
 var _manual_override := false
+var _no_sharpen := false
+var _auto_timer := 0.0
+var _cinematic_node: CanvasItem = null
+var _last_s3d := -1.0
+var _last_screen_size := Vector2(-1.0, -1.0)
+var _last_clean_only := -1
+var _last_mode := -1
+var _last_lq := -1.0
+var _last_sig := -1.0
+var _last_bitrate := -1.0
+var _last_loss := -1.0
+var _last_spike := -1.0
+var _last_throttle := -1.0
+var _last_tear := -1.0
+var _last_emi := -1.0
 
 # Cached shader parameter names keep the per-frame update allocation-free.
 const _P := [
@@ -30,12 +45,15 @@ const _P := [
 
 
 func _ready() -> void:
+	_no_sharpen = DisplayServer.get_name() == "headless" or OS.has_environment("DRONE_NO_SHARPEN")
 	# Camera simulation effects are opt-in for a clean lens.  The link-loss
 	# auto layer is independent: it only appears when the radio actually breaks.
 	_user_visible = (DisplayServer.get_name() != "headless") \
 			and (OS.has_environment("DRONE_VIDEO_MODE") \
 			or OS.has_environment("DRONE_SHOW_FPV_EFFECTS"))
 	_material = overlay.material as ShaderMaterial
+	_reb = get_tree().get_first_node_in_group("reb_system")
+	_cinematic_node = get_tree().get_first_node_in_group("cinematic_overlay") as CanvasItem
 	_update_auto_visibility()
 	_mode = int(Graphics.fpv_video_mode)
 	# QA hook: render a specific downlink look without touching saved settings.
@@ -44,35 +62,55 @@ func _ready() -> void:
 	if not Graphics.fpv_video_mode_changed.is_connected(_on_video_mode_changed):
 		Graphics.fpv_video_mode_changed.connect(_on_video_mode_changed)
 	_on_video_mode_changed(_mode)
-	_reb = get_tree().get_first_node_in_group("reb_system")
 	var parent := get_parent()
 	if parent != null:
 		_radio = parent.get_node_or_null("RadioController")
 
 
+func _has_visible_cinematic_overlay() -> bool:
+	if _cinematic_node == null or not is_instance_valid(_cinematic_node):
+		_cinematic_node = get_tree().get_first_node_in_group("cinematic_overlay") as CanvasItem
+	return _cinematic_node != null and _cinematic_node.visible
+
+
 func _needs_clean_sharpen() -> bool:
-	if DisplayServer.get_name() == "headless" or OS.has_environment("DRONE_NO_SHARPEN"):
+	if _no_sharpen:
 		return false
 	if QualityManager.get_active_level() == QualityManager.Level.LOW:
+		return false
+	if _has_visible_cinematic_overlay():
 		return false
 	var vp := get_viewport()
 	var s3d := clampf(vp.scaling_3d_scale, 0.25, 1.0) if vp != null else 1.0
 	return s3d < 0.95
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if _material == null:
 		return
-	_update_auto_visibility()
+	if visible or _manual_override:
+		_update_auto_visibility()
+	else:
+		_auto_timer += delta
+		if _auto_timer >= 0.1:
+			_auto_timer = 0.0
+			_update_auto_visibility()
 	if not visible:
 		return
 	var vp := get_viewport()
 	var s3d := clampf(vp.scaling_3d_scale, 0.25, 1.0) if vp != null else 1.0
+	var vsize := vp.get_visible_rect().size if vp != null else Vector2(1920.0, 1080.0)
 	var clean_only := not (_user_visible or _auto_visible)
-	_material.set_shader_parameter("screen_size",
-			vp.get_visible_rect().size if vp != null else Vector2(1920.0, 1080.0))
-	_material.set_shader_parameter("render_scale_3d", s3d)
-	_material.set_shader_parameter("clean_sharpen_only", clean_only)
+	if vsize != _last_screen_size:
+		_last_screen_size = vsize
+		_material.set_shader_parameter("screen_size", vsize)
+	if absf(s3d - _last_s3d) > 0.002:
+		_last_s3d = s3d
+		_material.set_shader_parameter("render_scale_3d", s3d)
+	var clean_i := 1 if clean_only else 0
+	if clean_i != _last_clean_only:
+		_last_clean_only = clean_i
+		_material.set_shader_parameter("clean_sharpen_only", clean_only)
 	if clean_only:
 		return
 	if _reb == null or not is_instance_valid(_reb):
@@ -97,15 +135,33 @@ func _process(_delta: float) -> void:
 		var input_arr = _radio.get("input")
 		if input_arr is Array and input_arr.size() > 0:
 			throttle = clampf(float(input_arr[0]), 0.0, 1.0)
-	_material.set_shader_parameter("video_mode", _mode)
-	_material.set_shader_parameter("link_quality", lq)
-	_material.set_shader_parameter("signal_strength", sig)
-	_material.set_shader_parameter("bitrate_mbps", bitrate)
-	_material.set_shader_parameter("packet_loss", loss)
-	_material.set_shader_parameter("latency_spike", spike)
-	_material.set_shader_parameter("throttle", throttle)
-	_material.set_shader_parameter("tear_amount", tear)
-	_material.set_shader_parameter("interference", interference)
+	if _mode != _last_mode:
+		_last_mode = _mode
+		_material.set_shader_parameter("video_mode", _mode)
+	if absf(lq - _last_lq) > 0.002:
+		_last_lq = lq
+		_material.set_shader_parameter("link_quality", lq)
+	if absf(sig - _last_sig) > 0.002:
+		_last_sig = sig
+		_material.set_shader_parameter("signal_strength", sig)
+	if absf(bitrate - _last_bitrate) > 0.05:
+		_last_bitrate = bitrate
+		_material.set_shader_parameter("bitrate_mbps", bitrate)
+	if absf(loss - _last_loss) > 0.002:
+		_last_loss = loss
+		_material.set_shader_parameter("packet_loss", loss)
+	if absf(spike - _last_spike) > 0.002:
+		_last_spike = spike
+		_material.set_shader_parameter("latency_spike", spike)
+	if absf(throttle - _last_throttle) > 0.005:
+		_last_throttle = throttle
+		_material.set_shader_parameter("throttle", throttle)
+	if absf(tear - _last_tear) > 0.002:
+		_last_tear = tear
+		_material.set_shader_parameter("tear_amount", tear)
+	if absf(interference - _last_emi) > 0.002:
+		_last_emi = interference
+		_material.set_shader_parameter("interference", interference)
 
 
 func _update_auto_visibility() -> void:

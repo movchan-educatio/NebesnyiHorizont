@@ -252,10 +252,11 @@ func _build_home_overlay() -> void:
 		"phone", false, func():
 			get_tree().change_scene_to_file.call_deferred(MOBILE_MENU)
 	))
-	_nav_entries.append(_make_nav_entry(
-		"ВИХІД", "QUIT",
-		"ЗАВЕРШИТИ ГРУ", "QUIT THE GAME",
-		"power", false, _on_quit_pressed))
+	if OS.get_name() != "iOS":
+		_nav_entries.append(_make_nav_entry(
+			"ВИХІД", "QUIT",
+			"ЗАВЕРШИТИ ГРУ", "QUIT THE GAME",
+			"power", false, _on_quit_pressed))
 	for entry in _nav_entries:
 		nav_box.add_child(entry["button"])
 
@@ -619,9 +620,9 @@ func _refresh_home_language() -> void:
 		var campaign_done := Global.campaign_completed_count()
 		var campaign_stars := Global.campaign_stars_total()
 		if is_en:
-			_status_label.text = "FPV SIMULATOR · VERSION 1.6.0-test · UKRAINE · CAMPAIGN %d/4 · ★ %d/12" % [campaign_done, campaign_stars]
+			_status_label.text = "FPV SIMULATOR · VERSION 1.20.0 · UKRAINE · CAMPAIGN %d/4 · ★ %d/12" % [campaign_done, campaign_stars]
 		else:
-			_status_label.text = "FPV-СИМУЛЯТОР · ВЕРСІЯ 1.6.0-test · УКРАЇНА · КАМПАНІЯ %d/4 · ★ %d/12" % [campaign_done, campaign_stars]
+			_status_label.text = "FPV-СИМУЛЯТОР · ВЕРСІЯ 1.20.0 · УКРАЇНА · КАМПАНІЯ %d/4 · ★ %d/12" % [campaign_done, campaign_stars]
 	if _mode_prompt != null:
 		_mode_prompt.text = "SELECT FLIGHT MODE" if is_en else "ОБЕРІТЬ РЕЖИМ ПОЛЬОТУ"
 	_refresh_home_mode()
@@ -743,6 +744,8 @@ func _on_start_pressed() -> void:
 
 
 func _on_quit_pressed() -> void:
+	if OS.get_name() == "iOS":
+		return
 	get_tree().quit()
 
 

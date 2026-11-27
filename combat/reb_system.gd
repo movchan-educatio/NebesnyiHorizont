@@ -63,6 +63,10 @@ var _rng := RandomNumberGenerator.new()
 var _masts: Array[Node3D] = []
 var _los_timer := 0.0
 var _cached_los := true
+var _global_node: Node = null
+var _unlimited_applied := false
+var _los_query: PhysicsRayQueryParameters3D = null
+var _los_exclude_rid: RID = RID()
 
 
 func _ready() -> void:
@@ -144,10 +148,12 @@ func _physics_process(delta: float) -> void:
 	distance_m = drone_pos.distance_to(home_position)
 
 	if unlimited_freestyle:
-		limits_enabled = false
-		reb_zones_enabled = false
-		_set_masts_visible(false)
-		_apply_unlimited_link()
+		if limits_enabled or reb_zones_enabled:
+			limits_enabled = false
+			reb_zones_enabled = false
+			_set_masts_visible(false)
+		if not _unlimited_applied:
+			_apply_unlimited_link()
 		return
 	# Simulator aid: "link_limit" off means no range, terrain, EW or failsafe
 	# effects.  Reading the setting live lets the pause menu toggle it in flight.
@@ -157,15 +163,20 @@ func _physics_process(delta: float) -> void:
 		limits_enabled = limits
 		reb_zones_enabled = zones
 		_set_masts_visible(limits_enabled and reb_zones_enabled)
+		_unlimited_applied = false
 	if not limits_enabled:
-		_apply_unlimited_link()
+		if not _unlimited_applied:
+			_apply_unlimited_link()
 		return
-	var global_node := get_node_or_null("/root/Global")
+	var global_node := _global_node if _global_node != null else get_node_or_null("/root/Global")
 	if global_node != null:
+		_global_node = global_node
 		var ms = global_node.get("menu_settings")
 		if ms is Dictionary and bool((ms as Dictionary).get("fiber_optic_mode", false)):
-			_apply_unlimited_link()
+			if not _unlimited_applied:
+				_apply_unlimited_link()
 			return
+	_unlimited_applied = false
 
 	# 1. Free-space distance loss.
 	var distance_lq := clampf(1.0 - distance_m / maxf(base_range_m, 1.0), 0.0, 1.0)
@@ -271,6 +282,7 @@ func _set_masts_visible(active: bool) -> void:
 
 ## Perfect downlink and clean controls; used when link limits are disabled.
 func _apply_unlimited_link() -> void:
+	_unlimited_applied = true
 	if failsafe:
 		failsafe = false
 		failsafe_changed.emit(false)
@@ -293,12 +305,18 @@ func _apply_unlimited_link() -> void:
 
 func _line_of_sight(from: Vector3, to: Vector3) -> bool:
 	var space := get_world_3d().direct_space_state
-	var query := PhysicsRayQueryParameters3D.create(from, to)
-	query.collision_mask = 1
-	query.collide_with_areas = false
+	if _los_query == null:
+		_los_query = PhysicsRayQueryParameters3D.new()
+		_los_query.collision_mask = 1
+		_los_query.collide_with_areas = false
+	_los_query.from = from
+	_los_query.to = to
 	if _drone is CollisionObject3D:
-		query.exclude = [(_drone as CollisionObject3D).get_rid()]
-	var hit := space.intersect_ray(query)
+		var rid := (_drone as CollisionObject3D).get_rid()
+		if _los_exclude_rid != rid:
+			_los_exclude_rid = rid
+			_los_query.exclude = [rid]
+	var hit := space.intersect_ray(_los_query)
 	return hit.is_empty()
 
 

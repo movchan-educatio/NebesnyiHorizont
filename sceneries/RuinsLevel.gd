@@ -679,7 +679,13 @@ func _build_freestyle_ring_positions() -> bool:
 	return true
 
 
+var _ground_y_cache: Dictionary = {}
+
+
 func _find_ground_y(x: float, z: float) -> float:
+	var cell := Vector2i(int(round(x * 0.5)), int(round(z * 0.5)))
+	if _ground_y_cache.has(cell):
+		return float(_ground_y_cache[cell])
 	var space := get_world_3d().direct_space_state
 	if space == null:
 		return 0.0
@@ -701,9 +707,9 @@ func _find_ground_y(x: float, z: float) -> float:
 	q.collision_mask = 1
 	q.exclude = exclude
 	var hit := space.intersect_ray(q)
-	if hit.is_empty():
-		return 0.0
-	return clampf((hit["position"] as Vector3).y, -0.5, 2.0)
+	var y_val := 0.0 if hit.is_empty() else clampf((hit["position"] as Vector3).y, -0.5, 2.0)
+	_ground_y_cache[cell] = y_val
+	return y_val
 
 
 func _spawn_ground_height(x: float, z: float) -> float:

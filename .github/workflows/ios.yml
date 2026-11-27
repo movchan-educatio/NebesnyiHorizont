@@ -98,6 +98,9 @@ jobs:
           IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
           IOS_MOBILEPROVISION_BASE64: ${{ secrets.IOS_MOBILEPROVISION_BASE64 }}
           IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
         run: |
           if [ -n "$IOS_P12_BASE64" ] && [ -n "$IOS_MOBILEPROVISION_BASE64" ] && [ -n "$IOS_TEAM_ID" ]; then
             echo "signed=true" >> "$GITHUB_OUTPUT"
@@ -105,6 +108,11 @@ jobs:
           else
             echo "signed=false" >> "$GITHUB_OUTPUT"
             echo "Signing secrets absent: falling back cleanly to unsigned IPA."
+          fi
+          if [ -n "$ASC_KEY_ID" ] && [ -n "$ASC_ISSUER_ID" ] && [ -n "$ASC_KEY_BASE64" ]; then
+            echo "testflight=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "testflight=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Patch Team ID in export_presets.cfg when provided
@@ -203,33 +211,48 @@ jobs:
                   plistlib.dump({"CFBundleDisplayName": "NebesnyiHorizont"}, f)
               print("Patched InfoPlist.strings:", s)
 
-          privacy_manifest = {
-              "NSPrivacyTracking": False,
-              "NSPrivacyTrackingDomains": [],
-              "NSPrivacyCollectedDataTypes": [],
-              "NSPrivacyAccessedAPITypes": [
-                  {
-                      "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryFileTimestamp",
-                      "NSPrivacyAccessedAPITypeReasons": ["C617.1"],
-                  },
-                  {
-                      "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategorySystemBootTime",
-                      "NSPrivacyAccessedAPITypeReasons": ["35F9.1"],
-                  },
-                  {
-                      "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryDiskSpace",
-                      "NSPrivacyAccessedAPITypeReasons": ["E174.1", "85F4.1"],
-                  },
-                  {
-                      "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
-                      "NSPrivacyAccessedAPITypeReasons": ["CA92.1"],
-                  },
-              ],
-          }
-          for pm in glob.glob("build/ios/**/PrivacyInfo.xcprivacy", recursive=True):
+          with open("ios/PrivacyInfo.xcprivacy", "rb") as f:
+              privacy_manifest = plistlib.load(f)
+
+          existing_manifests = glob.glob("build/ios/**/PrivacyInfo.xcprivacy", recursive=True)
+          for pm in existing_manifests:
               with open(pm, "wb") as f:
                   plistlib.dump(privacy_manifest, f)
               print("Patched PrivacyInfo.xcprivacy (ITMS-91053 compliance):", pm)
+
+          if not existing_manifests:
+              # Godot export templates may omit PrivacyInfo.xcprivacy; copy ours and wire it into Xcode Resources.
+              info_plists = glob.glob("build/ios/*/*-Info.plist") + glob.glob("build/ios/*/Info.plist")
+              target_dir = os.path.dirname(info_plists[0]) if info_plists else "build/ios"
+              dest_pm = os.path.join(target_dir, "PrivacyInfo.xcprivacy")
+              shutil.copy2("ios/PrivacyInfo.xcprivacy", dest_pm)
+              print("Copied fallback PrivacyInfo.xcprivacy to:", dest_pm)
+              rel_pm = os.path.basename(dest_pm)
+              for pb in glob.glob("build/ios/**/*.pbxproj", recursive=True):
+                  txt = open(pb, "r", encoding="utf-8").read()
+                  if "PrivacyInfo.xcprivacy" not in txt:
+                      ref_id = uuid.uuid4().hex[:24].upper()
+                      bf_id = uuid.uuid4().hex[:24].upper()
+                      txt = re.sub(
+                          r"(/\* Begin PBXBuildFile section \*/\n)",
+                          lambda m: m.group(1) + f"\t\t{bf_id} /* PrivacyInfo.xcprivacy in Resources */ = {{isa = PBXBuildFile; fileRef = {ref_id} /* PrivacyInfo.xcprivacy */; }};\n",
+                          txt,
+                          count=1,
+                      )
+                      txt = re.sub(
+                          r"(/\* Begin PBXFileReference section \*/\n)",
+                          lambda m: m.group(1) + f"\t\t{ref_id} /* PrivacyInfo.xcprivacy */ = {{isa = PBXFileReference; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = {os.path.basename(target_dir)}/{rel_pm}; sourceTree = \"<group>\"; }};\n",
+                          txt,
+                          count=1,
+                      )
+                      txt = re.sub(
+                          r"(isa = PBXResourcesBuildPhase;[^}]*files = \(\n)",
+                          lambda m: m.group(1) + f"\t\t\t\t{bf_id} /* PrivacyInfo.xcprivacy in Resources */,\n",
+                          txt,
+                          count=1,
+                      )
+                      open(pb, "w", encoding="utf-8").write(txt)
+                      print("Registered PrivacyInfo.xcprivacy in Xcode project:", pb)
 
           for pb in glob.glob("build/ios/**/*.pbxproj", recursive=True):
               txt = open(pb, "r", encoding="utf-8").read()
@@ -372,6 +395,64 @@ jobs:
           cp -R App.xcarchive/Products/Applications/*.app Payload/
           zip -qry "${NAME}-unsigned.ipa" Payload
           ls -lh "${NAME}-unsigned.ipa"
+
+      - name: Verify App Store Archive Compliance
+        run: |
+          python3 -c '
+          import glob, os, plistlib, struct
+
+          apps = glob.glob("build/ios/App.xcarchive/Products/Applications/*.app")
+          assert apps, "Missing .app inside App.xcarchive!"
+          app_dir = apps[0]
+
+          pm_path = os.path.join(app_dir, "PrivacyInfo.xcprivacy")
+          assert os.path.isfile(pm_path), f"Missing PrivacyInfo.xcprivacy inside {app_dir}!"
+          with open(pm_path, "rb") as f:
+              pm = plistlib.load(f)
+          assert pm.get("NSPrivacyTracking") is False, "NSPrivacyTracking must be false"
+          apis = {e.get("NSPrivacyAccessedAPIType") for e in pm.get("NSPrivacyAccessedAPITypes", [])}
+          for req in (
+              "NSPrivacyAccessedAPICategoryFileTimestamp",
+              "NSPrivacyAccessedAPICategoryUserDefaults",
+              "NSPrivacyAccessedAPICategorySystemBootTime",
+              "NSPrivacyAccessedAPICategoryDiskSpace",
+          ):
+              assert req in apis, f"Missing Required Reason API {req} in {pm_path}"
+
+          info_path = os.path.join(app_dir, "Info.plist")
+          with open(info_path, "rb") as f:
+              pl = plistlib.load(f)
+          assert pl.get("CFBundleDisplayName", "").isascii(), "CFBundleDisplayName must be ASCII"
+          assert pl.get("ITSAppUsesNonExemptEncryption") is False, "ITSAppUsesNonExemptEncryption must be false"
+          assert pl.get("UIRequiresFullScreen") is True, "UIRequiresFullScreen must be true"
+          assert str(pl.get("NSLocalNetworkUsageDescription", "")).strip(), "Missing NSLocalNetworkUsageDescription"
+
+          icon_bytes = open("Assets/ios_icons/app_store_1024x1024.png", "rb").read()
+          assert icon_bytes[:8] == b"\x89PNG\r\n\x1a\n", "App Store icon must be PNG"
+          w, h, _, color_type = struct.unpack(">IIBB", icon_bytes[16:26])
+          assert w == 1024 and h == 1024, f"Icon size {w}x{h} != 1024x1024"
+          assert color_type == 2, f"App Store 1024 icon must be opaque RGB (color_type=2), got {color_type}"
+          print("App Store compliance checks PASSED for", app_dir, "v" + str(pl.get("CFBundleShortVersionString")), "(" + str(pl.get("CFBundleVersion")) + ")")
+          '
+
+      - name: Upload Signed Build to TestFlight (Optional)
+        if: >-
+          steps.sign_check.outputs.signed == 'true' &&
+          steps.sign_check.outputs.testflight == 'true'
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+        run: |
+          set -e
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          echo "$ASC_KEY_BASE64" | base64 --decode > "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          xcrun altool --upload-app \
+            -f "build/ios/${NAME}.ipa" \
+            -t ios \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"
+          rm -rf "$HOME/.appstoreconnect/private_keys"
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4

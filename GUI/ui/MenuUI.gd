@@ -102,6 +102,7 @@ const EN_TEXT: Dictionary = {
 	"КП трек": "Checkpoint course",
 	"FPV СИМУЛЯТОР · UKRAINE · v1.18.0": "FPV SIMULATOR · UKRAINE · v1.18.0",
 	"FPV СИМУЛЯТОР · UKRAINE · v1.19.0": "FPV SIMULATOR · UKRAINE · v1.19.0",
+	"FPV СИМУЛЯТОР · UKRAINE · v1.20.0": "FPV SIMULATOR · UKRAINE · v1.20.0",
 
 	# First-flight / first-strike onboarding entries
 	"🎓 ШВИДКИЙ СТАРТ: ПЕРШИЙ ПОЛІТ (ANGLE)": "🎓 QUICK START: FIRST FLIGHT (ANGLE)",

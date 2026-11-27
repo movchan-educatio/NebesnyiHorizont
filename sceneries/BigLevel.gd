@@ -1934,6 +1934,25 @@ func _disable_collisions_recursive(node: Node) -> void:
 		_disable_collisions_recursive(child)
 
 
+var _perf_ground_cache: Dictionary = {}
+var _perf_ground_cache_map := ""
+var _perf_ground_ray_q: PhysicsRayQueryParameters3D = null
+var _perf_drone_ref: Drone = null
+var _perf_radio_ref: Node = null
+
+
+func _get_perf_drone() -> Drone:
+	if _perf_drone_ref == null or not is_instance_valid(_perf_drone_ref):
+		_perf_drone_ref = get_node_or_null("Drone") as Drone
+	return _perf_drone_ref
+
+
+func _get_perf_radio() -> Node:
+	if _perf_radio_ref == null or not is_instance_valid(_perf_radio_ref):
+		_perf_radio_ref = get_node_or_null("RadioController")
+	return _perf_radio_ref
+
+
 func _find_ground_y(x: float, z: float) -> float:
 	# Inside a hero hall a downward ray hits the roof, which is correct for the
 	# building but wrong for every gameplay object placed on its floor.  Use the
@@ -1951,18 +1970,27 @@ func _find_ground_y(x: float, z: float) -> float:
 	# probe here.
 	if not frontline_map.is_empty() and not _is_authored_glb_map():
 		return FrontlineTerrainScript.height_at(frontline_map, x, z) + 0.02
+	if _perf_ground_cache_map != frontline_map:
+		_perf_ground_cache.clear()
+		_perf_ground_cache_map = frontline_map
+	var cell := Vector2i(int(round(x * 0.5)), int(round(z * 0.5)))
+	if _perf_ground_cache.has(cell):
+		return float(_perf_ground_cache[cell])
 	var space := get_world_3d().direct_space_state
-	var from := Vector3(x, 400.0, z)
-	var to := Vector3(x, -200.0, z)
-	var query := PhysicsRayQueryParameters3D.create(from, to)
-	query.collision_mask = 1
-	var drone := get_node_or_null("Drone")
+	if _perf_ground_ray_q == null:
+		_perf_ground_ray_q = PhysicsRayQueryParameters3D.create(Vector3.ZERO, Vector3.ZERO)
+		_perf_ground_ray_q.collision_mask = 1
+	_perf_ground_ray_q.from = Vector3(x, 400.0, z)
+	_perf_ground_ray_q.to = Vector3(x, -200.0, z)
+	var drone := _get_perf_drone()
 	if drone is CollisionObject3D:
-		query.exclude = [(drone as CollisionObject3D).get_rid()]
-	var hit := space.intersect_ray(query)
-	if hit.is_empty():
-		return 0.0
-	return (hit["position"] as Vector3).y
+		_perf_ground_ray_q.exclude = [(drone as CollisionObject3D).get_rid()]
+	else:
+		_perf_ground_ray_q.exclude = []
+	var hit := space.intersect_ray(_perf_ground_ray_q)
+	var y_hit := 0.0 if hit.is_empty() else (hit["position"] as Vector3).y
+	_perf_ground_cache[cell] = y_hit
+	return y_hit
 
 
 func _is_authored_glb_map() -> bool:
@@ -5395,16 +5423,16 @@ func _update_audio_mix(delta: float) -> void:
 				target_db = -24.0
 			_:
 				target_db = -21.0
-	var drone := get_node_or_null("Drone") as Node3D
+	var drone := _get_perf_drone() as Node3D
 	if drone != null:
-		var nearest := 1e9
+		var nearest_sq := 1e18
 		for unit in get_tree().get_nodes_in_group("combat_target"):
 			if is_instance_valid(unit) and unit.get("is_destroyed") != true:
-				nearest = minf(nearest, drone.global_position.distance_to(
+				nearest_sq = minf(nearest_sq, drone.global_position.distance_squared_to(
 						(unit as Node3D).global_position))
-		if nearest < 130.0:
+		if nearest_sq < 16900.0:
 			target_db += 2.5
-		if nearest < 65.0:
+		if nearest_sq < 4225.0:
 			target_db += 1.5
 	_combat_music.volume_db = lerpf(_combat_music.volume_db,
 			clampf(target_db, -30.0, -16.0), 0.16)
@@ -8144,12 +8172,12 @@ func _on_viewport_size_changed() -> void:
 func _update_telemetry(delta: float) -> void:
 	if _telem_left == null:
 		return
-	var drone := get_node_or_null("Drone") as Drone
+	var drone := _get_perf_drone()
 	if drone == null:
 		return
 	var armed: bool = drone.flight_controller != null and drone.flight_controller.state_armed
 	var throttle := 0.0
-	var radio := get_node_or_null("RadioController")
+	var radio := _get_perf_radio()
 	if radio != null:
 		var input_arr = radio.get("input")
 		if input_arr is Array and input_arr.size() > 0:
@@ -8396,27 +8424,28 @@ func _update_threats(delta: float) -> void:
 	if _threat_scan_tick > 0.0:
 		return
 	_threat_scan_tick = 0.2
-	var drone := get_node_or_null("Drone") as Drone
-	if drone == null or not is_instance_valid(drone):
+	var drone := _get_perf_drone()
+	if drone == null:
 		return
 	var nearest_sam: Vehicle = null
-	var sam_dist := 1e9
+	var sam_dist_sq := 202500.0
 	var nearest_shahed: Vehicle = null
-	var shahed_dist := 1e9
+	var shahed_dist_sq := 129600.0
 	for node in get_tree().get_nodes_in_group("combat_target"):
 		if not is_instance_valid(node) or not (node is Vehicle):
 			continue
 		var vehicle := node as Vehicle
 		if vehicle.is_destroyed or not vehicle.hostile:
 			continue
-		var d := drone.global_position.distance_to(vehicle.global_position)
-		if vehicle.kind == Vehicle.Kind.SAM and d < 450.0 and d < sam_dist:
-			sam_dist = d
+		var d_sq := drone.global_position.distance_squared_to(vehicle.global_position)
+		if vehicle.kind == Vehicle.Kind.SAM and d_sq < sam_dist_sq:
+			sam_dist_sq = d_sq
 			nearest_sam = vehicle
-		elif vehicle.kind == Vehicle.Kind.SHAHED and d < 360.0 and d < shahed_dist:
-			shahed_dist = d
+		elif vehicle.kind == Vehicle.Kind.SHAHED and d_sq < shahed_dist_sq:
+			shahed_dist_sq = d_sq
 			nearest_shahed = vehicle
 	if nearest_sam != null:
+		var sam_dist := sqrt(sam_dist_sq)
 		_threat_position = nearest_sam.global_position
 		_threat_kind = "ЗРК"
 		_threat_timer = maxf(_threat_timer, 0.45)
@@ -8438,7 +8467,7 @@ func _update_threats(delta: float) -> void:
 func _update_threat_indicator() -> void:
 	if _threat_indicator == null:
 		return
-	var drone := get_node_or_null("Drone") as Drone
+	var drone := _get_perf_drone()
 	if drone == null or _threat_timer <= 0.0 or _threat_position == Vector3.ZERO:
 		_threat_indicator.visible = false
 		return
@@ -11731,8 +11760,8 @@ var _current_wind_vector: Vector3 = Vector3.ZERO
 
 
 func _update_wind_simulation(delta: float) -> void:
-	var drone_body := get_node_or_null("Drone") as Drone
-	if drone_body == null or not is_instance_valid(drone_body):
+	var drone_body := _get_perf_drone()
+	if drone_body == null:
 		return
 	if not bool(GameSettings.hud_config.get("wind_sim", true)):
 		_wind_accum = 0.0
