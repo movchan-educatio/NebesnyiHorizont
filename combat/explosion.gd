@@ -57,6 +57,8 @@ func _apply_damage() -> void:
 	query.collide_with_bodies = true
 	query.collide_with_areas = false
 	var seen: Dictionary = {}
+	var any_hit := false
+	var any_killed := false
 	for hit in space.intersect_shape(query, 256):
 		var body = hit.get("collider")
 		if body == null or not is_instance_valid(body):
@@ -75,7 +77,12 @@ func _apply_damage() -> void:
 		var center: Vector3 = (body as Node3D).global_position + Vector3.UP * 0.8
 		var distance := global_position.distance_to(center)
 		var falloff := clampf(1.0 - distance / maxf(radius, 0.01), 0.15, 1.0)
+		var was_destroyed := bool(body.get("is_destroyed"))
 		body.take_damage(damage * falloff, global_position)
+		if not was_destroyed:
+			any_hit = true
+			if bool(body.get("is_destroyed")):
+				any_killed = true
 	# Direct distance sweep guarantees infantry/targets near dense geometry
 	# still receive splash damage even if physics shape overlap hits saturate.
 	var tree := get_tree()
@@ -104,7 +111,12 @@ func _apply_damage() -> void:
 				seen[owner_ref.get_instance_id()] = true
 			var falloff := clampf(1.0 - distance / maxf(effective_radius, 0.01),
 					0.25 if target.is_in_group("air_target") else 0.15, 1.0)
+			var t_was_destroyed := bool(target.get("is_destroyed"))
 			target.take_damage(damage * falloff, global_position)
+			if not t_was_destroyed:
+				any_hit = true
+				if bool(target.get("is_destroyed")):
+					any_killed = true
 		var alert_dist := maxf(radius * 2.4, 24.0)
 		for soldier in tree.get_nodes_in_group("enemy_infantry"):
 			if soldier == null or not is_instance_valid(soldier) or not (soldier is Node3D):
@@ -112,6 +124,8 @@ func _apply_damage() -> void:
 			if (soldier as Node3D).global_position.distance_to(global_position) <= alert_dist:
 				if soldier.has_method("notify_blast"):
 					soldier.call("notify_blast", global_position, alert_dist)
+	if damage > 0.0 and any_hit:
+		CombatSfxScript.play_target_hit(get_parent(), global_position, any_killed, true)
 	_push_drone()
 
 
@@ -148,7 +162,12 @@ func _build_vfx() -> void:
 	if DisplayServer.get_name() == "headless":
 		return
 	var p := get_parent()
-	CombatSfxScript.play_boom(p, global_position)
+	var is_real_blast := damage > 0.0
+	var is_heavy_blast := radius >= 9.0 or damage >= 800.0
+	CombatSfxScript.play_boom(p, global_position,
+			5.5 if is_real_blast else 2.0,
+			is_real_blast,
+			is_heavy_blast if is_real_blast else false)
 	_route_last_sfx_bus(p, &"Combat")
 	if damage > 0.0:
 		# A delayed, quieter tail makes the blast read as a real pressure wave

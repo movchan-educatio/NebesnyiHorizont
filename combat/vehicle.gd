@@ -2926,8 +2926,7 @@ func take_damage(amount: float, hit_position: Vector3 = Vector3.ZERO) -> void:
 		ExplosionScript.spark_burst(get_parent(), hit_position)
 		DestructionFxScript.hit(get_parent(), self, hit_position, _fx_kind(),
 				clampf(applied / 70.0, 0.28, 1.0))
-		CombatSfxScript.play_hitmarker(get_parent(), false, -6.0)
-		CombatSfxScript.play_armor_hit(get_parent(), hit_position,
+		CombatSfxScript.play_target_hit(get_parent(), hit_position, false,
 				kind in [Kind.TANK, Kind.BMP, Kind.APC, Kind.SAM])
 	if health <= 0.0:
 		if multiplier >= 1.22:
@@ -3044,7 +3043,7 @@ func _destroy() -> void:
 			"burn": not aerial,
 			"debris": true,
 		})
-		CombatSfxScript.play_boom(parent, global_position, -4.0)
+		CombatSfxScript.play_boom(parent, global_position, 4.5, true, true)
 		_route_last_sfx_bus(parent, &"Combat")
 		if not aerial:
 			CombatSfxScript.start_burning(parent, global_position, 28.0)
@@ -3341,7 +3340,7 @@ func _crash_impact(gy: float) -> void:
 	DestructionFxScript.stop_trail(self)
 	if parent != null:
 		DestructionFxScript.impact(parent, self, _fx_kind(), gy)
-		CombatSfxScript.play_boom(parent, global_position, 1.0)
+		CombatSfxScript.play_boom(parent, global_position, 4.5, true, true)
 		_route_last_sfx_bus(parent, &"Combat")
 		CombatSfxScript.start_burning(parent, global_position, 30.0)
 		_route_last_sfx_bus(parent, &"Combat")

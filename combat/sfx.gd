@@ -4,16 +4,68 @@ class_name CombatSfx
 
 
 const MAX_LOW_VOICES := 16
+const BOOM_MAIN_PATH := "res://Assets/Audio/SFX/Combat/explosion_main.wav"
+const BOOM_HEAVY_PATH := "res://Assets/Audio/SFX/Combat/explosion_heavy.wav"
+const TARGET_HIT_PATH := "res://Assets/Audio/SFX/Combat/target_hit.wav"
+const TARGET_KILL_PATH := "res://Assets/Audio/SFX/Combat/target_kill.wav"
+
 static var _active_3d_voices := 0
+static var _last_hit_sfx_ms := -1000
+static var _last_hit_was_kill := false
+static var _last_boom_2d_ms := -1000
 
 static var _boom_stream: AudioStreamWAV = null
+static var _boom_heavy_stream: AudioStreamWAV = null
 static var _shot_stream: AudioStreamWAV = null
 static var _rifle_stream: AudioStreamWAV = null
 static var _radio_stream: AudioStreamWAV = null
 static var _hitmarker_stream: AudioStreamWAV = null
+static var _target_kill_stream: AudioStreamWAV = null
 static var _kamikaze_engines: Dictionary = {}
 static var _kamikaze_warning_stream: AudioStreamWAV = null
 static var _kamikaze_fall_stream: AudioStreamWAV = null
+
+
+static func _load_wav_asset(res_path: String) -> AudioStreamWAV:
+	if ResourceLoader.exists(res_path):
+		var loaded := ResourceLoader.load(res_path)
+		if loaded is AudioStreamWAV and not (loaded as AudioStreamWAV).data.is_empty():
+			return loaded as AudioStreamWAV
+	if not FileAccess.file_exists(res_path):
+		return null
+	var raw := FileAccess.get_file_as_bytes(res_path)
+	if raw.size() < 44 or raw.slice(0, 4).get_string_from_ascii() != "RIFF":
+		return null
+	var offset := 12
+	var sample_rate := 44100
+	var channels := 1
+	var bits_per_sample := 16
+	var audio_format := 1
+	var has_fmt := false
+	var pcm_data := PackedByteArray()
+	while offset + 8 <= raw.size():
+		var chunk_id := raw.slice(offset, offset + 4).get_string_from_ascii()
+		var chunk_size := int(raw.decode_u32(offset + 4))
+		var chunk_start := offset + 8
+		var chunk_end := mini(chunk_start + chunk_size, raw.size())
+		if chunk_id == "fmt " and chunk_size >= 16 and chunk_end <= raw.size():
+			audio_format = int(raw.decode_u16(chunk_start))
+			channels = maxi(int(raw.decode_u16(chunk_start + 2)), 1)
+			sample_rate = maxi(int(raw.decode_u32(chunk_start + 4)), 8000)
+			bits_per_sample = int(raw.decode_u16(chunk_start + 14))
+			has_fmt = true
+		elif chunk_id == "data" and chunk_end > chunk_start:
+			pcm_data = raw.slice(chunk_start, chunk_end)
+		offset = chunk_start + chunk_size + (chunk_size & 1)
+	if not has_fmt or pcm_data.is_empty() or audio_format != 1 or bits_per_sample != 16:
+		return null
+	var wav := AudioStreamWAV.new()
+	wav.format = AudioStreamWAV.FORMAT_16_BITS
+	wav.mix_rate = sample_rate
+	wav.stereo = channels >= 2
+	wav.loop_mode = AudioStreamWAV.LOOP_DISABLED
+	wav.data = pcm_data
+	return wav
 
 
 static func _can_spawn_3d_voice(priority: bool = false) -> bool:
@@ -30,6 +82,10 @@ static func _track_3d_voice(player: AudioStreamPlayer3D) -> void:
 
 static func boom_stream() -> AudioStreamWAV:
 	if _boom_stream != null:
+		return _boom_stream
+	var wav := _load_wav_asset(BOOM_MAIN_PATH)
+	if wav != null:
+		_boom_stream = wav
 		return _boom_stream
 	var rate := 22050
 	var length := 1.15
@@ -59,24 +115,68 @@ static func boom_stream() -> AudioStreamWAV:
 	return _boom_stream
 
 
-static func play_boom(parent: Node, world_position: Vector3, volume_db: float = 4.0) -> void:
+static func heavy_boom_stream() -> AudioStreamWAV:
+	if _boom_heavy_stream != null:
+		return _boom_heavy_stream
+	var wav := _load_wav_asset(BOOM_HEAVY_PATH)
+	if wav != null:
+		_boom_heavy_stream = wav
+		return _boom_heavy_stream
+	_boom_heavy_stream = boom_stream()
+	return _boom_heavy_stream
+
+
+static func play_boom_2d(parent: Node, world_position: Vector3, heavy: bool = false,
+		base_db: float = 5.0) -> void:
 	if DisplayServer.get_name() == "headless":
 		return
 	if parent == null or not parent.is_inside_tree():
 		return
-	if not _can_spawn_3d_voice(true):
+	var now := Time.get_ticks_msec()
+	if now - _last_boom_2d_ms < 90:
 		return
-	var player := AudioStreamPlayer3D.new()
-	player.stream = boom_stream()
-	player.volume_db = volume_db
-	player.bus = "Combat"
-	player.unit_size = 26.0
-	player.max_distance = 500.0
-	_track_3d_voice(player)
+	_last_boom_2d_ms = now
+	var atten_db := 0.0
+	var vp := parent.get_viewport()
+	var cam := vp.get_camera_3d() if vp != null else null
+	if cam != null and is_instance_valid(cam):
+		var dist := cam.global_position.distance_to(world_position)
+		if dist > 420.0:
+			return
+		atten_db = clampf(-dist * 0.032, -10.5, 0.0)
+	var player := AudioStreamPlayer.new()
+	player.stream = heavy_boom_stream() if heavy else boom_stream()
+	player.pitch_scale = randf_range(0.95, 1.04)
+	player.volume_db = base_db - 2.5 + atten_db
+	player.bus = &"Combat"
+	player.process_mode = Node.PROCESS_MODE_ALWAYS
 	parent.add_child(player)
-	player.global_position = world_position
 	player.play()
 	player.finished.connect(player.queue_free)
+
+
+static func play_boom(parent: Node, world_position: Vector3, volume_db: float = 5.0,
+		punch_2d: bool = false, heavy: bool = false) -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	if parent == null or not parent.is_inside_tree():
+		return
+	if _can_spawn_3d_voice(true):
+		var player := AudioStreamPlayer3D.new()
+		player.stream = heavy_boom_stream() if heavy else boom_stream()
+		player.pitch_scale = randf_range(0.93, 1.07)
+		player.volume_db = volume_db
+		player.bus = &"Combat"
+		player.unit_size = 55.0
+		player.max_distance = 950.0
+		player.process_mode = Node.PROCESS_MODE_ALWAYS
+		_track_3d_voice(player)
+		parent.add_child(player)
+		player.global_position = world_position
+		player.play()
+		player.finished.connect(player.queue_free)
+	if punch_2d:
+		play_boom_2d(parent, world_position, heavy, volume_db)
 
 
 ## Short, dry AA cannon crack. Cached once and reused for every tracer.
@@ -433,9 +533,9 @@ static func play_bullet_whiz(parent: Node, world_position: Vector3,
 
 
 static func play_infantry_hit(parent: Node, world_position: Vector3,
-		volume_db: float = -11.0) -> void:
+		volume_db: float = -4.0) -> void:
 	_play_3d(parent, infantry_hit_stream(), world_position, volume_db,
-			1.6, 45.0, randf_range(0.94, 1.06))
+			18.0, 280.0, randf_range(0.94, 1.06))
 
 
 ## `variant < 0` picks a random voice; callers may request a specific one.
@@ -766,9 +866,9 @@ static func play_air_brake(parent: Node, world_position: Vector3,
 
 
 static func play_armor_hit(parent: Node, world_position: Vector3,
-		heavy: bool = true, volume_db: float = -10.0) -> void:
+		heavy: bool = true, volume_db: float = -3.0) -> void:
 	_play_3d(parent, armor_hit_stream(heavy), world_position, volume_db,
-			7.0, 160.0, randf_range(0.94, 1.06))
+			28.0, 450.0, randf_range(0.94, 1.06))
 
 
 static func play_cookoff(parent: Node, world_position: Vector3,
@@ -1619,9 +1719,13 @@ static func play_radio(parent: Node, _text: String = "", volume_db: float = -7.0
 	player.finished.connect(player.queue_free)
 
 
-## Crisp 2D tactile hitmarker confirmation click for combat hits/kills.
+## Crisp 2D tactile target hit & kill confirmation SFX.
 static func hitmarker_stream() -> AudioStreamWAV:
 	if _hitmarker_stream != null:
+		return _hitmarker_stream
+	var wav := _load_wav_asset(TARGET_HIT_PATH)
+	if wav != null:
+		_hitmarker_stream = wav
 		return _hitmarker_stream
 	var rate := 22050
 	var length := 0.085
@@ -1643,28 +1747,54 @@ static func hitmarker_stream() -> AudioStreamWAV:
 	return _hitmarker_stream
 
 
+static func target_kill_stream() -> AudioStreamWAV:
+	if _target_kill_stream != null:
+		return _target_kill_stream
+	var wav := _load_wav_asset(TARGET_KILL_PATH)
+	if wav != null:
+		_target_kill_stream = wav
+		return _target_kill_stream
+	_target_kill_stream = hitmarker_stream()
+	return _target_kill_stream
+
+
 static func play_hitmarker(parent: Node, is_kill: bool = false,
-		volume_db: float = -4.5) -> void:
+		volume_db: float = -1.0) -> void:
 	if DisplayServer.get_name() == "headless":
 		return
 	if parent == null or not parent.is_inside_tree():
 		return
+	var now := Time.get_ticks_msec()
+	if now - _last_hit_sfx_ms < 65 and (not is_kill or _last_hit_was_kill):
+		return
+	_last_hit_sfx_ms = now
+	_last_hit_was_kill = is_kill
 	var player := AudioStreamPlayer.new()
-	player.stream = hitmarker_stream()
-	player.pitch_scale = 1.22 if is_kill else 1.0
+	player.stream = target_kill_stream() if is_kill else hitmarker_stream()
+	player.pitch_scale = randf_range(0.97, 1.04)
 	player.volume_db = volume_db
 	player.bus = &"Combat"
+	player.process_mode = Node.PROCESS_MODE_ALWAYS
 	parent.add_child(player)
 	player.play()
 	player.finished.connect(player.queue_free)
 
 
+static func play_target_hit(parent: Node, world_position: Vector3,
+		is_kill: bool = false, heavy: bool = true) -> void:
+	play_hitmarker(parent, is_kill, 0.5 if is_kill else -1.5)
+	if world_position != Vector3.ZERO:
+		play_armor_hit(parent, world_position, heavy, -2.0)
+
+
 static func prewarm() -> void:
 	boom_stream()
+	heavy_boom_stream()
 	shot_stream()
 	rifle_stream()
 	cannon_stream()
 	hitmarker_stream()
+	target_kill_stream()
 	drop_stream()
 	drone_impact_stream()
 	soldier_death_stream()
@@ -1672,10 +1802,15 @@ static func prewarm() -> void:
 
 static func clear_caches() -> void:
 	_boom_stream = null
+	_boom_heavy_stream = null
 	_shot_stream = null
 	_rifle_stream = null
 	_radio_stream = null
 	_hitmarker_stream = null
+	_target_kill_stream = null
+	_last_hit_sfx_ms = -1000
+	_last_hit_was_kill = false
+	_last_boom_2d_ms = -1000
 	_cannon_stream = null
 	_autocannon_stream = null
 	_track_stream = null

@@ -77,6 +77,7 @@ func take_damage(amount: float, hit_position: Vector3 = Vector3.ZERO) -> void:
 	health -= amount
 	if hit_position != Vector3.ZERO and health > 0.0:
 		ExplosionScript.spark_burst(get_parent(), hit_position)
+		CombatSfxScript.play_target_hit(get_parent(), hit_position, false, true)
 	if health <= 0.0:
 		_destroy()
 
@@ -104,7 +105,8 @@ func _destroy() -> void:
 		ExplosionScript.spawn(parent, centre + Vector3.UP * 3.0, 13.0, 0.0)
 		ExplosionScript.fire_column(parent, centre + Vector3.UP * 2.0, 14.0)
 		ExplosionScript.smoke_column(parent, centre + Vector3.UP * 6.0, 42.0)
-		CombatSfxScript.play_boom(parent, centre, -2.0)
+		CombatSfxScript.play_boom(parent, centre, 4.5, true, true)
+		CombatSfxScript.play_hitmarker(parent, true, 0.5)
 		_spawn_rubble(parent, centre)
 	destroyed.emit(points)
 

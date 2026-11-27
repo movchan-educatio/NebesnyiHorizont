@@ -5436,7 +5436,7 @@ func _update_audio_priority(delta: float) -> void:
 	var targets := {
 		"Engine": -2.0 if danger else 0.0,
 		"Wind": -5.0 if danger else 0.0,
-		"Combat": -4.0 if danger else 0.0,
+		"Combat": 0.0,
 		"Music": -9.0 if danger else 0.0,
 	}
 	if link_bad:
@@ -5444,7 +5444,7 @@ func _update_audio_priority(delta: float) -> void:
 		targets["Wind"] = -5.0
 	if _audio_duck_timer > 0.0:
 		# Radio has the highest priority: engines, wind and gunfire step back.
-		targets = {"Engine": -8.0, "Wind": -7.0, "Combat": -11.0, "Music": -15.0}
+		targets = {"Engine": -8.0, "Wind": -7.0, "Combat": -5.0, "Music": -15.0}
 	var blend := clampf(delta * 2.6, 0.0, 1.0)
 	for bus_name in targets.keys():
 		var bname := String(bus_name)
@@ -9643,7 +9643,7 @@ func _activate_fpv_payload() -> void:
 	var blast := 10.5
 	var dmg := 1350.0
 	ExplosionScript.spawn(self, at + Vector3.UP * 0.4, blast, dmg)
-	CombatSfxScript.play_boom(self, at, 2.0)
+	CombatSfxScript.play_boom(self, at, 6.0, true, true)
 	Haptics.trigger_explosion(1.15)
 	var has_next_airframe := consume_sortie_airframe("STRIKE")
 	_set_flash(_txt("БЧ АКТИВОВАНО", "WARHEAD DETONATED") if has_next_airframe else _txt("БЧ АКТИВОВАНО · ОСТАННІЙ БОРТ", "WARHEAD DETONATED · FINAL AIRFRAME"))

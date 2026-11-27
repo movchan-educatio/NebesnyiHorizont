@@ -1308,7 +1308,9 @@ func take_damage(amount: float, hit_position: Vector3 = Vector3.ZERO) -> void:
 		var fx_pos := hit_position if hit_position != Vector3.ZERO \
 				else global_position + Vector3.UP * 1.15
 		DestructionFxScript.hit(get_parent(), self, fx_pos, "infantry", 1.0)
-		CombatSfxScript.play_infantry_hit(get_parent(), fx_pos, -11.0)
+		CombatSfxScript.play_infantry_hit(get_parent(), fx_pos, -4.0)
+		if health > 0.0:
+			CombatSfxScript.play_hitmarker(get_parent(), false, -2.5)
 	_suppress_timer = 2.6
 	if _detailed_rig != null:
 		_detailed_rig.hit_react(amount >= 20.0)
