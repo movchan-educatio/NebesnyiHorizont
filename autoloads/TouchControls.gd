@@ -402,6 +402,9 @@ func is_controller_locked() -> bool:
 
 func set_controller_only(controller_only: bool) -> void:
 	if controller_only:
+		var elrs := get_node_or_null("/root/ElrsWifiInput")
+		if elrs != null and elrs.has_method("ensure_started"):
+			elrs.call("ensure_started", true)
 		_set_configured_input_mode("controller")
 		touch_mode = false
 		_reset_sticks()
@@ -466,6 +469,9 @@ func set_enabled(value: bool) -> void:
 		_layout()
 		var cfg_mode := _configured_input_mode()
 		if cfg_mode == "controller":
+			var elrs := get_node_or_null("/root/ElrsWifiInput")
+			if elrs != null and elrs.has_method("ensure_started"):
+				elrs.call("ensure_started", true)
 			touch_mode = false
 		elif cfg_mode == "touch":
 			touch_mode = true

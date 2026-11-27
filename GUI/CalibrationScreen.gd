@@ -216,6 +216,9 @@ class _ResponseCurvePreview extends Control:
 
 
 func _ready() -> void:
+	var elrs := get_node_or_null("/root/ElrsWifiInput")
+	if elrs != null and elrs.has_method("ensure_started"):
+		elrs.call("ensure_started", true)
 	theme = MenuUI.theme()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	Controls.load_input_map()

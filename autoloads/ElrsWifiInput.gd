@@ -88,6 +88,7 @@ var _udp := PacketPeerUDP.new()
 var _http: HTTPRequest = null
 var _http_busy := false
 var _pending_ip := ""
+var _fallback_scan_ip := ""
 var _last_frame_ms := 0
 var _last_valid_ms := 0
 var _frame_interval_ms := 100.0
@@ -119,6 +120,8 @@ func _ready() -> void:
 		status_text = "ELRS: ВИМК."
 	else:
 		_start()
+		if OS.get_name() == "iOS" and _started and not valid:
+			call_deferred("scan_now")
 
 
 var _started := false
@@ -135,14 +138,17 @@ func _start() -> void:
 	_started = true
 	_udp.set_broadcast_enabled(true)
 	status_text = "ELRS: ПОШУК"
+	emit_signal("status_changed", status_text)
 
 
-func ensure_started() -> void:
+func ensure_started(auto_scan: bool = false) -> void:
 	if OS.get_name() == "iOS" and not bool(GameSettings.hud_config.get("elrs_wifi_enabled", false)):
 		GameSettings.hud_config["elrs_wifi_enabled"] = true
 		GameSettings.save_hud_config()
 	if not _started:
 		_start()
+	if auto_scan and _started and not valid:
+		scan_now()
 
 
 func _process(delta: float) -> void:
@@ -194,10 +200,14 @@ func was_recently_active(window_ms: int = 20000) -> bool:
 
 
 func scan_now() -> void:
-	ensure_started()
-	if not valid:
-		_try_activate("10.0.0.1")
-		_try_activate("192.168.4.1")
+	ensure_started(false)
+	if not valid and not _http_busy:
+		if not module_ip.is_empty():
+			_fallback_scan_ip = ""
+			_try_activate(module_ip)
+		else:
+			_fallback_scan_ip = "192.168.4.1"
+			_try_activate("10.0.0.1")
 
 
 ## Drain the UDP socket right now and feed only the newest channel frame to
@@ -354,10 +364,16 @@ func _on_http_completed(result: int, response_code: int, _headers: PackedStringA
 		_body: PackedByteArray) -> void:
 	_http_busy = false
 	if result == HTTPRequest.RESULT_SUCCESS and response_code >= 200 and response_code < 300:
+		_fallback_scan_ip = ""
 		module_ip = _pending_ip
 		status_text = "ELRS: ПІДКЛЮЧЕНО " + module_ip
 		emit_signal("status_changed", status_text)
 	else:
+		if not valid and not _fallback_scan_ip.is_empty():
+			var next_ip := _fallback_scan_ip
+			_fallback_scan_ip = ""
+			_try_activate(next_ip)
+			return
 		if not valid:
 			status_text = "ELRS: ОЧІКУВАННЯ"
 			emit_signal("status_changed", status_text)

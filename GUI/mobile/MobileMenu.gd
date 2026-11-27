@@ -1158,18 +1158,28 @@ func _build_root() -> void:
 	chips.add_child(lang_top_btn)
 
 	_elrs_chip = _chip_panel(VoltThemeScript.BORDER, VoltThemeScript.SURFACE)
+	_elrs_chip.mouse_filter = Control.MOUSE_FILTER_STOP
+	_elrs_chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	var elrs_row := HBoxContainer.new()
+	elrs_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	elrs_row.add_theme_constant_override("separation", _gap(6))
 	elrs_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	_elrs_dot = ColorRect.new()
+	_elrs_dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_elrs_dot.custom_minimum_size = Vector2(7, 7)
 	_elrs_dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_elrs_dot.color = VoltThemeScript.STONE_DIM
 	elrs_row.add_child(_elrs_dot)
 	_elrs_label = _label("ELRS: ПОШУК", 12, VoltThemeScript.STONE_DIM, VoltThemeScript.font_mono())
+	_elrs_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_elrs_label.add_theme_font_size_override("font_size", _fs_small(12))
 	elrs_row.add_child(_elrs_label)
 	_elrs_chip.add_child(elrs_row)
+	_elrs_chip.gui_input.connect(func(ev: InputEvent):
+		if (ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed and (ev as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT) \
+				or (ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed):
+			_show("controls")
+	)
 	chips.add_child(_elrs_chip)
 
 	_input_chip = _chip_panel(VoltThemeScript.BORDER, VoltThemeScript.SURFACE)
@@ -1322,6 +1332,10 @@ func _show(name: String) -> void:
 		_top_brand.visible = true
 	_apply_masthead_layout()
 	_update_nav_capsule()
+	if name == "controls":
+		var elrs := get_node_or_null("/root/ElrsWifiInput")
+		if elrs != null and elrs.has_method("ensure_started"):
+			elrs.call("ensure_started", true)
 	if name == "main":
 		_update_hero_drone_info(Global.drone_preset)
 		if is_visible_in_tree() and _hero_loaded_preset != Global.drone_preset and _hero_loading_preset != Global.drone_preset:
@@ -1406,9 +1420,6 @@ func show_play() -> void:
 
 
 func show_controls() -> void:
-	var elrs := get_node_or_null("/root/ElrsWifiInput")
-	if elrs != null and elrs.has_method("ensure_started"):
-		elrs.call("ensure_started")
 	_show("controls")
 
 
@@ -1446,7 +1457,7 @@ func _update_status() -> void:
 	var valid: bool = elrs != null and bool(elrs.get("valid"))
 	var status := str(elrs.get("status_text")) if elrs != null else ""
 	var is_active := valid or status.find("ПОТІК") >= 0
-	var key := ("1:" if is_active else "0:") + status
+	var key := ("E:" if MenuUI.is_english() else "U:") + ("1:" if is_active else "0:") + status
 	if key == _last_elrs_status_key:
 		return
 	_last_elrs_status_key = key
@@ -5468,7 +5479,7 @@ func _open_legal_modal() -> void:
 func _open_elrs_guide_modal() -> void:
 	var elrs := get_node_or_null("/root/ElrsWifiInput")
 	if elrs != null and elrs.has_method("ensure_started"):
-		elrs.call("ensure_started")
+		elrs.call("ensure_started", true)
 	var existing := get_node_or_null("MobileElrsGuideModal")
 	if existing != null:
 		existing.queue_free()
