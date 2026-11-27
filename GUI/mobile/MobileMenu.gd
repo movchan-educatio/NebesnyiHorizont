@@ -1461,7 +1461,7 @@ func _update_status() -> void:
 		if _elrs_chip != null:
 			_elrs_chip.add_theme_stylebox_override("panel", _elrs_pill_active)
 		if _input_label != null:
-			_input_label.text = MenuUI.translate_text("ВХІД: ELRS (POCKET)")
+			_input_label.text = MenuUI.translate_text("ВХІД: ELRS (RC)")
 			_input_label.add_theme_color_override("font_color", VoltThemeScript.YELLOW)
 	else:
 		_elrs_label.text = MenuUI.translate_text(status if not status.is_empty() else "ELRS: ВИМК.")
@@ -2767,7 +2767,7 @@ func _build_rates() -> void:
 	# a hard-coded "BETAFLIGHT" while the simulator defaults to ACTUAL rates.
 	var rate_mode_name := "ACTUAL RATES"
 	match int(QuadSettings.rate_type):
-		1: rate_mode_name = "BETAFLIGHT"
+		1: rate_mode_name = "CLASSIC"
 		2: rate_mode_name = "QUICK"
 
 	var is_en := MenuUI.is_english()
@@ -4917,8 +4917,8 @@ func _build_settings_tab_gfx() -> void:
 	scroll.add_child(sv)
 
 	var gfx_heading := ("GRAPHICS / FPS" if is_en else "ГРАФІКА / FPS") if compact \
-			else ("GRAPHICS & IPHONE 14 OPTIMIZATION" if is_en \
-			else "ГРАФІКА ТА ОПТИМІЗАЦІЯ ДЛЯ IPHONE 14")
+			else ("GRAPHICS & MOBILE OPTIMIZATION" if is_en \
+			else "ГРАФІКА ТА ОПТИМІЗАЦІЯ ДЛЯ iOS")
 	sv.add_child(_label(gfx_heading, 17 if compact else 20, VoltThemeScript.YELLOW, VoltThemeScript.font_mono()))
 
 	# 3 Quality Presets Row
@@ -5075,7 +5075,7 @@ func _build_settings_tab_gfx() -> void:
 	_style_option_button(fps_lim_opt)
 	var fps_lim_vals := [0, 30, 60, 90, 120, 144]
 	var fps_lim_items := ["UNLIMITED", "30", "60", "90", "120", "144"] if compact \
-			else ["Без обмежень", "30", "60", "90", "120 (iPhone Pro)", "144"]
+			else ["Без обмежень", "30", "60", "90", "120 (ProMotion)", "144"]
 	for item in fps_lim_items:
 		fps_lim_opt.add_item(item)
 	var cur_fps_lim: int = int(Graphics.graphics_settings.get("fps_limit", 60))
@@ -5245,7 +5245,7 @@ func _build_settings_tab_sys() -> void:
 			else ("Haptic Feedback (Vibration)" if is_en else "Тактильний відгук (Haptics / Вібрація)"),
 			16 if compact else 18, VoltThemeScript.TEXT))
 	hap_info.add_child(_label(("Impact / landing vibration" if is_en else "Вібрація при ударах і посадці") if compact \
-			else ("Taptic Engine feedback on G-force, landing and impacts" if is_en else "Вібрація Taptic Engine iPhone при перевантаженнях, торканні землі та вибухах"),
+			else ("Haptic feedback on G-force, landing and impacts" if is_en else "Тактильний відгук при перевантаженнях, торканні землі та вибухах"),
 			12 if compact else 14, VoltThemeScript.STONE_DIM))
 	hap_box.add_child(hap_info)
 	var is_hap: bool = bool(Global.menu_settings.get("haptics_enabled", true))
@@ -5261,7 +5261,7 @@ func _build_settings_tab_sys() -> void:
 	var safe_box := HBoxContainer.new()
 	var safe_info := VBoxContainer.new()
 	safe_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	safe_info.add_child(_label("Safe area" if compact else "iPhone Safe Area / Dynamic Island",
+	safe_info.add_child(_label("Safe area" if compact else ("Screen Safe Area" if is_en else "Безпечна зона екрана (Safe Area)"),
 			16 if compact else 18, VoltThemeScript.TEXT))
 	safe_info.add_child(_label(("Notch / home bar" if is_en else "Виріз / домашня панель") if compact \
 			else ("Automatic insets for Notch, Dynamic Island and Home bar" if is_en else "Автоматичні поля від динамічного острова (Dynamic Island) та закруглень"),

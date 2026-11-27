@@ -144,7 +144,7 @@ func _target_type_name(n3: Node3D, is_en: bool) -> String:
 	if n3.is_in_group("enemy_infantry") or n3 is EnemyRifleman:
 		var v := String(n3.get("variant")) if n3.get("variant") != null else ""
 		if v == "spetsnaz":
-			return "SPETSNAZ" if is_en else "СПЕЦНАЗ"
+			return "OPFOR RECON" if is_en else "РОЗВІДГРУПА"
 		return "INFANTRY" if is_en else "ПІХОТА"
 	if n3 is AAGun:
 		return "AA GUN" if is_en else "ЗЕНІТКА"
@@ -152,23 +152,23 @@ func _target_type_name(n3: Node3D, is_en: bool) -> String:
 		var k := int(n3.get("kind"))
 		var v := String(n3.get("variant")) if n3.get("variant") != null else ""
 		if v == "oreshnik":
-			return "ORESHNIK" if is_en else "ОРЄШНІК"
+			return "LAUNCHER" if is_en else "РАКЕТНИЙ КОМПЛЕКС"
 		elif v == "ural":
-			return "URAL TRUCK" if is_en else "ВАНТАЖІВКА УРАЛ"
+			return "CARGO TRUCK" if is_en else "ВАНТАЖІВКА"
 		elif v == "mtsm":
-			return "MT-SM" if is_en else "ТЯГАЧ МТ-СМ"
+			return "TRACKED CARRIER" if is_en else "ГУСЕНИЧНИЙ ТЯГАЧ"
 		elif v == "btr8":
-			return "BTR-80" if is_en else "БТР-80"
+			return "APC" if is_en else "БРОНЕТРАНСПОРТЕР"
 		elif v == "cruise_missile":
 			return "CRUISE MISSILE" if is_en else "КРИЛАТА РАКЕТА"
 		match k:
-			0: return "T-72 TANK" if is_en else "ТАНК Т-72"
-			1: return "BMP-2M" if is_en else "БМП-2М"
-			2: return "BTR-90" if is_en else "БТР-90"
-			3: return "TIGR" if is_en else "БРОНЕАВТО ТИГР"
+			0: return "HEAVY TANK" if is_en else "ВАЖКИЙ ТАНК"
+			1: return "IFV" if is_en else "БМП"
+			2: return "WHEELED APC" if is_en else "БРОНЕТРАНСПОРТЕР"
+			3: return "ARMORED CAR" if is_en else "БРОНЕАВТО"
 			4: return "SAM AA" if is_en else "ЗРК ППО"
 			5: return "HELICOPTER" if is_en else "ГЕЛІКОПТЕР"
-			6: return "SHAHED" if is_en else "ШАХЕД-136"
+			6: return "DELTA-136" if is_en else "БПЛА-136"
 	return "TARGET" if is_en else "ЦІЛЬ"
 
 

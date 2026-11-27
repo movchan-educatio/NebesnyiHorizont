@@ -597,7 +597,7 @@ func drop_payload() -> bool:
 		return false
 	var has_drop: bool = bool(p.get("has_drop", false))
 	if not has_drop:
-		_message("КАМІКАДЗЕ — СКИД ВІДСУТНІЙ (ДЕТОНАЦІЯ ПРИ УДАРІ)", Color(1.0, 0.65, 0.3), 1.8)
+		_message("КОНТАКТНА БЧ — СКИД ВІДСУТНІЙ (ДЕТОНАЦІЯ ПРИ УДАРІ)", Color(1.0, 0.65, 0.3), 1.8)
 		return false
 	var controller := _drone.get_node_or_null("FlightController") as FlightController
 	if controller == null or not controller.state_armed:
@@ -790,7 +790,7 @@ func _check_aerial_and_moving_kamikaze() -> void:
 					and get_parent().has_method("try_strike_warhead_contact"):
 				if bool(get_parent().call("try_strike_warhead_contact", n3, speed)):
 					return
-			_message("УДАР КАМІКАДЗЕ!", Color(1.0, 0.6, 0.2), 1.6)
+			_message("КОНТАКТНИЙ УДАР!", Color(1.0, 0.6, 0.2), 1.6)
 			node.call("take_damage", kamikaze_damage, d_pos)
 			_destroy_drone("ДРОН ВТРАЧЕНО — РЕСПАВН")
 			return
@@ -911,7 +911,7 @@ func _on_drone_body_entered(body: Node) -> void:
 	if has_warhead and body.is_in_group("combat_target") and body.has_method("take_damage"):
 		if speed < kamikaze_min_speed:
 			return
-		_message("KAMIKAZE HIT", Color(1.0, 0.6, 0.2), 1.6)
+		_message("IMPACT STRIKE", Color(1.0, 0.6, 0.2), 1.6)
 		body.call("take_damage", kamikaze_damage, _drone.global_position)
 		_destroy_drone("DRONE LOST — RESPAWNING")
 		return

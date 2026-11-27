@@ -248,7 +248,7 @@ func _build_home_overlay() -> void:
 		"gear", false, _open_options))
 	_nav_entries.append(_make_nav_entry(
 		"МОБІЛЬНИЙ РЕЖИМ", "MOBILE UI",
-		"IPHONE 14 ІНТЕРФЕЙС", "IPHONE 14 UI",
+		"МОБІЛЬНИЙ ІНТЕРФЕЙС", "MOBILE UI",
 		"phone", false, func():
 			get_tree().change_scene_to_file.call_deferred(MOBILE_MENU)
 	))
@@ -601,7 +601,7 @@ func _refresh_home_language() -> void:
 		"• Рекомендований старт: Туторіал (10 модулів + м'яка стабілізація Angle для першого вильоту).",
 		"• Фрістайл: вільний політ, запис Привида на трасі, рейтинги ★ / S–B та калібрування стіків.",
 		"• Тактична кампанія 1–4: послідовне відкриття місій, брифінг → виліт → дебрифінг.",
-		"• Ангар FPV: українські та спортивні дрони, інтерактивний 3D-огляд і швидке налаштування кривих.",
+		"• Ангар FPV: тактичні та спортивні дрони, інтерактивний 3D-огляд і швидке налаштування кривих.",
 		"• Повна підтримка української й англійської мов, геймпадів, USB-C ELRS та сенсорного керування.",
 	]
 	var news_lines_en := [
@@ -620,9 +620,9 @@ func _refresh_home_language() -> void:
 		var campaign_done := Global.campaign_completed_count()
 		var campaign_stars := Global.campaign_stars_total()
 		if is_en:
-			_status_label.text = "FPV SIMULATOR · VERSION 1.20.0 · UKRAINE · CAMPAIGN %d/4 · ★ %d/12" % [campaign_done, campaign_stars]
+			_status_label.text = "FPV SIMULATOR · VERSION 1.20.0 · CAMPAIGN %d/4 · ★ %d/12" % [campaign_done, campaign_stars]
 		else:
-			_status_label.text = "FPV-СИМУЛЯТОР · ВЕРСІЯ 1.20.0 · УКРАЇНА · КАМПАНІЯ %d/4 · ★ %d/12" % [campaign_done, campaign_stars]
+			_status_label.text = "FPV-СИМУЛЯТОР · ВЕРСІЯ 1.20.0 · КАМПАНІЯ %d/4 · ★ %d/12" % [campaign_done, campaign_stars]
 	if _mode_prompt != null:
 		_mode_prompt.text = "SELECT FLIGHT MODE" if is_en else "ОБЕРІТЬ РЕЖИМ ПОЛЬОТУ"
 	_refresh_home_mode()

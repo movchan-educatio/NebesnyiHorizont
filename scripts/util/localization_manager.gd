@@ -34,7 +34,7 @@ const DICT: Dictionary = {
 	"BTN_LANG_TOGGLE": {Language.UA: "МОВА: UA / EN", Language.EN: "LANG: EN / UA"},
 	"MAP_OILRIG": {Language.UA: "НАФТОВА ПЛАТФОРМА", Language.EN: "OIL RIG"},
 	"MAP_FOREST": {Language.UA: "ЛІС", Language.EN: "FOREST"},
-	"THREAT_KAMIKAZE": {Language.UA: "ВОРОЖИЙ КАМІКАДЗЕ", Language.EN: "ENEMY KAMIKAZE"},
+	"THREAT_KAMIKAZE": {Language.UA: "ВОРОЖИЙ ДРОН-ПЕРЕХОПЛЮВАЧ", Language.EN: "ENEMY INTERCEPTOR UAV"},
 	"PROFILE_COINS": {Language.UA: "МОНЕТИ", Language.EN: "COINS"},
 	"PROFILE_UNLOCK": {Language.UA: "ВІДКРИТИ", Language.EN: "UNLOCK"},
 	"BTN_QUICK_TUTORIAL": {Language.UA: "▶ ШВИДКИЙ СТАРТ: ТУТОРІАЛ (60с)", Language.EN: "▶ QUICK START: TUTORIAL (60s)"},
@@ -209,7 +209,7 @@ static func get_palette_name(pal: OsdPalette = _current_palette) -> String:
 		OsdPalette.RED_NIGHT:
 			return "НІЧНИЙ ЧЕРВОНИЙ" if _current_lang == Language.UA else "NIGHT CRIMSON"
 		_:
-			return "СТАНДАРТ ЗСУ" if _current_lang == Language.UA else "STANDARD TACTICAL"
+			return "ТАКТИЧНИЙ СТАНДАРТ" if _current_lang == Language.UA else "STANDARD TACTICAL"
 
 
 static func get_palette_colors(pal: OsdPalette = _current_palette) -> Dictionary:

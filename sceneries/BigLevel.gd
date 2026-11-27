@@ -3164,7 +3164,7 @@ func _special_mission_hint(mission_id: int) -> String:
 		7:
 			return _txt("ТИЛОВА КОЛОНА", "REAR CONVOY")
 		8:
-			return _txt("ОРЕШНИК", "ORESHNIK")
+			return _txt("РАКЕТНИЙ КОМПЛЕКС", "BALLISTIC LAUNCHER")
 		9:
 			return _txt("ГЛИБОКИЙ ТИЛ", "DEEP STRIKE")
 		10:
@@ -3188,7 +3188,7 @@ func _combat_mission_banner(m_id: int) -> String:
 		3:
 			return _txt("МІСІЯ 3/4: ЗНИЩИТИ ГЕЛІКОПТЕР", "MISSION 3/4: DESTROY HELICOPTER")
 		_:
-			return _txt("МІСІЯ 4/4: ПЕРЕХОПИТИ ШАХЕД", "MISSION 4/4: INTERCEPT SHAHED-136")
+			return _txt("МІСІЯ 4/4: ПЕРЕХОПИТИ «ДЕЛЬТА-136»", "MISSION 4/4: INTERCEPT DELTA-136")
 
 
 func _finish_mission(reason: String, failed: bool = false) -> void:
@@ -5527,7 +5527,7 @@ func _kind_name(kind: int) -> String:
 		Vehicle.Kind.HELI:
 			return _txt("ГЕЛІКОПТЕР", "HELICOPTER")
 		Vehicle.Kind.SHAHED:
-			return _txt("ШАХЕД", "SHAHED-136")
+			return _txt("ДЕЛЬТА-136", "DELTA-136")
 	return _txt("ЦІЛЬ", "TARGET")
 
 
@@ -5656,8 +5656,8 @@ func _spawn_kamikaze_wave() -> void:
 		_kamikaze_wave_count += 1
 		print("[KAMIKAZE] wave spawn: ", enemy.name, " at ", spawn_pos,
 				" dist=", roundf(best_dist))
-	var warning := _txt("УВАГА! ВОРОЖИЙ FPV-КАМІКАДЗЕ В СЕКТОРІ!",
-			"WARNING! ENEMY FPV KAMIKAZE IN SECTOR!")
+	var warning := _txt("УВАГА! ВОРОЖИЙ ПЕРЕХОПЛЮВАЧ В СЕКТОРІ!",
+			"WARNING! ENEMY INTERCEPTOR IN SECTOR!")
 	_set_flash(warning)
 	_play_radio_callout(warning, false)
 
@@ -5667,7 +5667,7 @@ func _on_kamikaze_destroyed(points: int, unit: Node = null) -> void:
 	var is_primary := bool(unit.get("is_primary_target")) if valid_unit else false
 	var hit_player := bool(unit.get("impacted_player")) if valid_unit else false
 	if hit_player:
-		_set_flash(_txt("ВОРОЖИЙ КАМІКАДЗЕ АТАКУВАВ!", "ENEMY KAMIKAZE IMPACT!"))
+		_set_flash(_txt("ВОРОЖИЙ ПЕРЕХОПЛЮВАЧ АТАКУВАВ!", "ENEMY INTERCEPTOR IMPACT!"))
 		if is_primary:
 			_mission_targets_destroyed += 1
 			var kc_hit := _kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active()
@@ -5681,11 +5681,11 @@ func _on_kamikaze_destroyed(points: int, unit: Node = null) -> void:
 		strike_pos = (unit as Node3D).global_position
 		_last_strike_pos = strike_pos
 	if not is_primary:
-		_set_flash(_txt("ВОРОЖИЙ КАМІКАДЗЕ ЗБИТО +%d" % points,
-				"ENEMY KAMIKAZE DOWN +%d" % points))
+		_set_flash(_txt("ВОРОЖИЙ ПЕРЕХОПЛЮВАЧ ЗБИТО +%d" % points,
+				"ENEMY INTERCEPTOR DOWN +%d" % points))
 		return
 	_mission_targets_destroyed += 1
-	_set_flash(_txt("ВОРОЖИЙ КАМІКАДЗЕ ЗБИТО", "ENEMY KAMIKAZE DOWN") + " %d/%d" % [
+	_set_flash(_txt("ВОРОЖИЙ ПЕРЕХОПЛЮВАЧ ЗБИТО", "ENEMY INTERCEPTOR DOWN") + " %d/%d" % [
 			_mission_targets_destroyed, _mission_targets_total])
 	var triggered := _maybe_trigger_kill_cam(strike_pos, true) if valid_unit else false
 	var kc_active := triggered or (_kill_cam != null and is_instance_valid(_kill_cam) and _kill_cam.is_active())
@@ -8456,7 +8456,7 @@ func _update_threats(delta: float) -> void:
 					"sam_lock", -13.0, 24.0, 520.0)
 	elif nearest_shahed != null:
 		_threat_position = nearest_shahed.global_position
-		_threat_kind = "ШАХЕД"
+		_threat_kind = "БПЛА"
 		_threat_timer = maxf(_threat_timer, 0.45)
 		if _kamikaze_warn_timer <= 0.0:
 			_kamikaze_warn_timer = 0.85
@@ -10498,16 +10498,16 @@ func _mission_chain_tasks(mission_id: int) -> String:
 				"MISSION: Locate and neutralize six infantry in the tree line.\nTARGETS: infantry, trenches, and machine-gun positions.")
 		2:
 			return _txt(
-				"ЗАВДАННЯ: знищити танк Т-72 та БТР-90, що маневрують біля заводу.\nЦІЛІ: 2 одиниці бронетехніки + піхота прикриття.",
-				"MISSION: Destroy the T-72 tank and BTR-90 maneuvering near the plant.\nTARGETS: two armored vehicles with infantry escort.")
+				"ЗАВДАННЯ: знищити ОБТ М-72 та БТР-800, що маневрують біля заводу.\nЦІЛІ: 2 одиниці бронетехніки + піхота прикриття.",
+				"MISSION: Destroy the MBT-72 tank and APC-800 maneuvering near the plant.\nTARGETS: two armored vehicles with infantry escort.")
 		3:
 			return _txt(
 				"ЗАВДАННЯ: перехопити ударний гелікоптер і знищити мобільну ППО.\nЦІЛІ: гелікоптер, ЗРК, прикриття.",
 				"MISSION: Intercept the attack helicopter and destroy the mobile air-defense unit.\nTARGETS: helicopter, SAM system, and escort.")
 		_:
 			return _txt(
-				"ЗАВДАННЯ: перехопити два «Шахеди-136» на маршруті.\nЦІЛІ: 2 БПЛА, ЗРК і БМП прикриття.",
-				"MISSION: Intercept two Shahed-136 UAVs along their route.\nTARGETS: two UAVs, a SAM system, and an IFV escort.")
+				"ЗАВДАННЯ: перехопити два БПЛА «Дельта-136» на маршруті.\nЦІЛІ: 2 БПЛА, ЗРК і БМП прикриття.",
+				"MISSION: Intercept two Delta-136 UAVs along their route.\nTARGETS: two UAVs, a SAM system, and an IFV escort.")
 
 
 func _mission_phase_plan_text(_mission_id: int) -> String:
@@ -11225,7 +11225,7 @@ func _update_hud() -> void:
 						_txt("ЗРК", "SAM"), int(_kills.get(Vehicle.Kind.SAM, 0))]
 				4:
 					detail = "%s %d/2 · %s %d/2" % [
-						_txt("ШАХЕД", "SHAHED"), int(_kills.get(Vehicle.Kind.SHAHED, 0)),
+						_txt("БПЛА-136", "UAV-136"), int(_kills.get(Vehicle.Kind.SHAHED, 0)),
 						_txt("ППО", "ADA"), int(_kills.get(Vehicle.Kind.SAM, 0)) + int(_kills.get(Vehicle.Kind.BMP, 0))]
 				_:
 					detail = "%s %d/1" % [_txt("ГЕС", "HYDRO"), int(_kills.get("HYDRO_PLANT", 0))]

@@ -35,7 +35,7 @@
 • **5 деталізованих карт:** Промзона і Плавні, Покинутий аеропорт, Індустріальні руїни, Лісовий масив та Нафтова платформа з воротами тренування та повторами.
 • **Тактичні кампанії та спецоперації:** розвідка секторів, супровід колони, доставка вантажу, прорив крізь перешкоди РЕБ і перехоплення повітряних цілей.
 • **Ангар із різними типами БПЛА:** легкі 5-дюймові квадрокоптери, 7–10-дюймові платформи, важкий нічний гексакоптер із системою скидання, крила розвідки та реактивний перехоплювач.
-• **Реалістична фізика та Betaflight Rates:** точне налаштування RC Rate, Super Rate, Expo, кута нахилу FPV-камери, маси батареї, вітру та зон радіоелектронної протидії.
+• **Реалістична фізика та FPV Rates:** точне налаштування RC Rate, Super Rate, Expo, кута нахилу FPV-камери, маси батареї, вітру та зон радіоелектронної протидії.
 • **Підтримка апаратури керування (ELRS Wi-Fi та USB/Bluetooth):** вбудований приймач протоколу CRSF по Wi-Fi (UDP 11000) для підключення зовнішніх пультів керування без кабелів, а також сенсорне керування з плаваючими стіками.
 • **Оптимізовано для iOS:** плавна робота у 60 FPS, автоматичний переворот екрана між лівим і правим горизонтальним положенням із врахуванням Dynamic Island / Safe Area.
 
@@ -63,12 +63,12 @@ Master FPV drone flight in ACRO, HORIZON, and ANGLE modes! Complete Flight Schoo
 • **5 Distinct 3D Environments:** Fly through Promzona Wetlands, Abandoned Airport, Industrial Ruins, Pine Forest, and Offshore Oil Rig with sequential checkpoint rings.
 • **Tactical Campaign & Special Operations:** Execute reconnaissance, convoy escort, cargo delivery, electronic-warfare (EW) navigation, and aerial target interception.
 • **Diverse Aircraft Fleet:** From agile 5-inch freestyle quads and 7–10-inch tactical platforms to a 6-rotor heavy night hexacopter with wind-compensated payload release, fixed-wing recon UAVs, and a jet interceptor.
-• **Authentic Flight Physics & Betaflight Rates:** Customize RC Rate, Super Rate, Expo, camera tilt angle, battery sag, wind turbulence, and link limits.
+• **Authentic Flight Physics & FPV Rates:** Customize RC Rate, Super Rate, Expo, camera tilt angle, battery sag, wind turbulence, and link limits.
 • **ELRS Wi-Fi & Controller Support:** Built-in CRSF-over-UDP (port 11000) receiver for wireless ExpressLRS RC transmitters, alongside Bluetooth/USB gamepads and customizable dual touch sticks.
 • **Designed for iOS:** Adaptive 3D resolution for cool, sustained performance, full Ukrainian and English localization, and seamless 180° landscape rotation with Dynamic Island safe-area support.
 
 ### Keywords (up to 100 characters)
-`fpv,drone,simulator,uav,quadcopter,trainer,acro,elrs,flight,racing,pilot,rc,betaflight,wings`
+`fpv,drone,simulator,uav,quadcopter,trainer,acro,elrs,flight,racing,pilot,rc,rates,wings`
 
 ---
 

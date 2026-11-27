@@ -29,8 +29,8 @@ const SPECIAL_MISSIONS := [
 	{"id": 4, "code": "CARG-04", "name": "Доставка вантажу", "name_en": "Cargo Delivery", "desc": "Забрати й доставити вантаж", "desc_en": "Recover and deliver the cargo.", "diff": "Легка", "diff_en": "Easy", "col": Color("79a58a")},
 	{"id": 5, "code": "NGHT-05", "name": "Нічний виліт", "name_en": "Night Strike", "desc": "Удар по ЗРК у темряві", "desc_en": "Strike the SAM site under cover of darkness.", "diff": "Важка", "diff_en": "Hard", "col": Color("c96f67")},
 	{"id": 6, "code": "EW-06", "name": "Прорив РЕБ", "name_en": "EW Breach", "desc": "Пробитися крізь глушіння", "desc_en": "Penetrate the enemy electronic-warfare jamming zone.", "diff": "Екстрим", "diff_en": "Extreme", "col": Color("c96f67")},
-	{"id": 7, "code": "CONV-07", "name": "Тилова колона", "name_en": "Rear-Area Convoy", "desc": "Знищити колону забезпечення: Урал, МТ-СМ, БТР", "desc_en": "Destroy the supply convoy: Ural truck, MTSM carrier, and BTR.", "diff": "Середня", "diff_en": "Medium", "col": Color("e2c276")},
-	{"id": 8, "code": "MSL-08", "name": "Орешник", "name_en": "Oreshnik Strike", "desc": "Знищити ракетний комплекс і його охорону", "desc_en": "Destroy the Oreshnik launcher and its escort.", "diff": "Важка", "diff_en": "Hard", "col": Color("c96f67")},
+	{"id": 7, "code": "CONV-07", "name": "Тилова колона", "name_en": "Rear-Area Convoy", "desc": "Знищити колону забезпечення: вантажівка, тягач, бронетранспортер", "desc_en": "Destroy the supply convoy: cargo truck, tracked carrier, and APC.", "diff": "Середня", "diff_en": "Medium", "col": Color("e2c276")},
+	{"id": 8, "code": "MSL-08", "name": "Ракетний комплекс", "name_en": "Launcher Strike", "desc": "Знищити ракетний комплекс і його охорону", "desc_en": "Destroy the ballistic launcher and its escort.", "diff": "Важка", "diff_en": "Hard", "col": Color("c96f67")},
 	{"id": 9, "code": "DEEP-09", "name": "Глибокий тил", "name_en": "Deep-Strike Operation", "desc": "Комбінований удар по тиловій базі", "desc_en": "Conduct a combined strike on the rear-area base.", "diff": "Екстрим", "diff_en": "Extreme", "col": Color("c96f67")},
 	{"id": 10, "code": "MSL-10", "name": "Перехоплення ракет", "name_en": "Cruise Missile Intercept", "desc": "Відбити 6 хвиль — по одній крилатій ракеті", "desc_en": "Defend against 6 waves of single cruise missiles.", "diff": "Екстрим", "diff_en": "Extreme", "col": Color("c96f67")},
 	{"id": 11, "code": "DUAL-11", "name": "Подвійний конвой", "name_en": "Dual Convoy Escort", "desc": "Супроводити дві дружні колони паралельними маршрутами", "desc_en": "Escort two friendly convoys along dual routes.", "diff": "Важка", "diff_en": "Hard", "col": Color("e2c276")},
@@ -167,19 +167,19 @@ const BRIEFINGS := {
 		"sector": "Маршрут S-40 · Навчальний коридор",
 		"time": "20:00 хв",
 		"diff": "СЕРЕДНЯ",
-		"desc": "Ураження макетів танка Т-72Б та БТР-82А на марші.",
-		"intel": "Навчальна бронегрупа у складі танка Т-72Б та колісного БТР-82А висувається маршрутом у степовому секторі. Техніка рухається колоною під прикриттям бортових систем.",
+		"desc": "Ураження макетів танка та БТР на марші.",
+		"intel": "Навчальна бронегрупа у складі основного танка та колісного БТР висувається маршрутом у навчальному секторі. Техніка рухається колоною під прикриттям бортових систем.",
 		"tasks": [
-			"Знищити головний танк Т-72Б (удар у дах башти або корму двигуна)",
-			"Уразити бронетранспортер БТР-82А (бортова проекція або відсік МТО)",
+			"Знищити головний танк (удар у дах башти або корму двигуна)",
+			"Уразити бронетранспортер (бортова проекція або відсік МТО)",
 			"Знешкодити колону до досягнення рубежу розгортання"
 		],
 		"threats": [
-			"30-мм автоматична гармата 2А72 на БТР-82А (високий темп вогню)",
-			"Зенітний кулемет Корд на командирській вежі Т-72Б",
-			"Комбінована броня та динамічний захист «Контакт-1»"
+			"30-мм автоматична гармата на БТР (високий темп вогню)",
+			"Зенітний кулемет на командирській вежі танка",
+			"Комбінована броня та динамічний захист"
 		],
-		"drone": "10\" Важкий ударний FPV з кумулятивним макетом БЧ (ПГ-7ВР)",
+		"drone": "10\" Важкий ударний FPV з кумулятивним макетом БЧ",
 		"weather": "Вітер: поривчастий 5–8 м/с · Локальне задимлення палаючої посадки",
 		"rewards": [
 			"★★★ Золотий Хрест (Ас): Час < 5:00 або рівень «Ас»",
@@ -195,7 +195,7 @@ const BRIEFINGS := {
 		"time": "20:00 хв",
 		"diff": "ВАЖКА",
 		"desc": "Низьковисотне перехоплення повітряної цілі.",
-		"intel": "Навчальний гелікоптер типу Мі-8/Ка-52 баражує на гранично малій висоті (20–30 м) зі швидкістю до 45 км/год вздовж річкового русла. Необхідно зайти на зустрічно-пересічний курс.",
+		"intel": "Навчальний ударний гелікоптер баражує на гранично малій висоті (20–30 м) зі швидкістю до 45 км/год вздовж річкового русла. Необхідно зайти на зустрічно-пересічний курс.",
 		"tasks": [
 			"Набрати висоту 20–30 метрів по вектору руху борту",
 			"Здійснити лобовий або верхній таран несучого гвинта або кабіни екіпажу",
@@ -259,9 +259,9 @@ const BRIEFINGS_EN := {
 		"name": "ARMORED COLUMN",
 		"op_name": "OPERATION \"STEEL PHANTOM\"",
 		"sector": "Route S-40 · Training Corridor",
-		"intel": "A simulated OPFOR armor group—one T-72B tank and one BTR-82A APC—is moving along the training route. The column is escorted by onboard defensive systems.",
-		"tasks": ["Disable the lead T-72B (turret roof or rear engine deck)", "Disable the BTR-82A from the side or engine compartment", "Stop the column before it reaches its deployment line"],
-		"threats": ["BTR-82A 30 mm autocannon", "Turret machine gun on the T-72B", "Composite and reactive armor plating"],
+		"intel": "A simulated OPFOR armor group—one main battle tank and one wheeled APC—is moving along the training route. The column is escorted by onboard defensive systems.",
+		"tasks": ["Disable the lead tank (turret roof or rear engine deck)", "Disable the wheeled APC from the side or engine compartment", "Stop the column before it reaches its deployment line"],
+		"threats": ["APC 30 mm autocannon", "Turret machine gun on the tank", "Composite and reactive armor plating"],
 		"drone": "10-inch heavy strike quad with shaped-charge payload",
 		"weather": "Gusty wind: 5–8 m/s · Local smoke over the tree line",
 		"rewards": ["★★★ Gold Cross (Ace): under 5:00 or complete on Ace", "★★ Silver award: under 9:00 or complete on Operator", "★ Bronze award: disable the entire armor group"]
@@ -270,7 +270,7 @@ const BRIEFINGS_EN := {
 		"name": "ATTACK HELICOPTER",
 		"op_name": "OPERATION \"WINGS CLIPPED\"",
 		"sector": "Air corridor · 20–30 m AGL · Riverbed · Heading 085°",
-		"intel": "A simulated Mi-8 / Ka-52 helicopter target is flying low along the river at 20–30 m and up to 45 km/h. Intercept on a crossing or head-on course.",
+		"intel": "A simulated tactical helicopter target is flying low along the river at 20–30 m and up to 45 km/h. Intercept on a crossing or head-on course.",
 		"tasks": ["Climb to 20–30 m along the aircraft's flight vector", "Intercept the rotor or cockpit on a crossing course", "Compensate for severe rotor-wash turbulence"],
 		"threats": ["Closing speed up to 45 km/h", "Strong rotor downwash may destabilize the quad", "Side defensive fire arcs"],
 		"drone": "7–8-inch high-speed interceptor (3000 KV, TWR 8.5:1)",
@@ -410,14 +410,14 @@ class _TacticalMapCanvas extends Control:
 			draw_line(tank_pos + Vector2(5, 0), tank_pos + Vector2(0, 5), tgt_red, 1.5)
 			draw_line(tank_pos + Vector2(0, 5), tank_pos + Vector2(-5, 0), tgt_red, 1.5)
 			draw_line(tank_pos + Vector2(-5, 0), tank_pos + Vector2(0, -5), tgt_red, 1.5)
-			_draw_map_text(font, tank_pos + Vector2(8, 3), "Т-72Б", 11, tgt_red)
+			_draw_map_text(font, tank_pos + Vector2(8, 3), "ТАНК", 11, tgt_red)
 
 			# BTR diamond
 			draw_line(btr_pos + Vector2(0, -4), btr_pos + Vector2(4, 0), amber, 1.5)
 			draw_line(btr_pos + Vector2(4, 0), btr_pos + Vector2(0, 4), amber, 1.5)
 			draw_line(btr_pos + Vector2(0, 4), btr_pos + Vector2(-4, 0), amber, 1.5)
 			draw_line(btr_pos + Vector2(-4, 0), btr_pos + Vector2(0, -4), amber, 1.5)
-			_draw_map_text(font, btr_pos + Vector2(7, 3), "БТР-82А", 10, amber)
+			_draw_map_text(font, btr_pos + Vector2(7, 3), "БТР", 10, amber)
 			_draw_map_text(font, Vector2(center.x - 20, sz.y - 6), "КОЛОНА НА МАРШІ (ЗАГРОЗА ППО)", 11, amber, HORIZONTAL_ALIGNMENT_CENTER)
 
 		elif mission_id == 3:
@@ -426,7 +426,7 @@ class _TacticalMapCanvas extends Control:
 			draw_circle(heli_pos, 4.0, tgt_red)
 			draw_arc(heli_pos, 9.0, 0.0, TAU, 18, tgt_red, 1.1)
 			draw_line(heli_pos, heli_pos + Vector2(-36, 10), tgt_red, 1.4)
-			_draw_map_text(font, heli_pos + Vector2(12, -3), "МІ-8 / КА-52", 11, tgt_red)
+			_draw_map_text(font, heli_pos + Vector2(12, -3), "ГЕЛІКОПТЕР", 11, tgt_red)
 			_draw_map_text(font, heli_pos + Vector2(12, 7), "20–30 м · 45 км/год", 10, amber)
 			_draw_map_text(font, Vector2(center.x - 20, sz.y - 6), "ПЕРЕХОПЛЕННЯ В ПОВІТРІ", 11, amber, HORIZONTAL_ALIGNMENT_CENTER)
 
@@ -689,7 +689,7 @@ func _build() -> void:
 	left_box.add_child(_combat_section)
 	var m_defs := [
 		{"id": 1, "code": "TAC-01", "name": "1. Піхота в окопах", "desc": "Виявлення та ліквідація живої сили", "diff": "Легка", "col": MenuUI.FPV_GREEN},
-		{"id": 2, "code": "TAC-02", "name": "2. Колона бронетехніки", "desc": "Ураження танка Т-72Б та БТР-82А", "diff": "Середня", "col": MenuUI.FPV_AMBER},
+		{"id": 2, "code": "TAC-02", "name": "2. Колона бронетехніки", "desc": "Ураження танка та бронетранспортера", "diff": "Середня", "col": MenuUI.FPV_AMBER},
 		{"id": 3, "code": "TAC-03", "name": "3. Гелікоптер у русі", "desc": "Перехоплення низьковисотної авіації", "diff": "Важка", "col": MenuUI.FPV_AMBER},
 		{"id": 4, "code": "TAC-04", "name": "4. БПЛА «Дельта-136»", "desc": "Швидкісне перехоплення БПЛА", "diff": "Екстрим", "col": MenuUI.FPV_RED},
 	]
@@ -703,7 +703,7 @@ func _build() -> void:
 	_special_section = MenuUI.feel_section("Спецоперації")
 	left_box.add_child(_special_section)
 	var special_hint := MenuUI.body(
-			"Окремі вильоти поза кампанією: розвідка, супровід, евакуація, доставка, нічний удар, прорив РЕБ, тилова колона, «Орешник» і глибокий тил.",
+			"Окремі вильоти поза кампанією: розвідка, супровід, евакуація, доставка, нічний удар, прорив РЕБ, тилова колона, ракетний комплекс і глибокий тил.",
 			11, MenuUI.FPV_MUTED)
 	special_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	left_box.add_child(special_hint)
@@ -1452,7 +1452,7 @@ func _update_selection_ui() -> void:
 				_launch_btn.text = "▶  START MISSION: TAC-01" if is_en else "▶  ПОЧАТИ ВИЛІТ: TAC-01"
 			2:
 				_map_title_lbl.text = "TAC-02: ROUTE S-40 · ARMOR" if is_en else "TAC-02: Маршрут S-40 · Бронетехніка"
-				_map_obj_lbl.text = "Disable T-72B tank and BTR-82A APC on the move." if is_en else "Знешкодити танк Т-72Б та бронетранспортер БТР-82А на марші."
+				_map_obj_lbl.text = "Disable the tank and wheeled APC on the move." if is_en else "Знешкодити танк і колісний БТР на марші."
 				_map_stats_lbl.text = ("Targets: 1 tank + 1 APC  ·  Time: %s  ·  Diff: %s" if is_en else "Цілей: 1 танк + 1 БТР  ·  Час: %s  ·  Складність: %s") % [t_limit_str, diff_str]
 				_launch_btn.text = "▶  START MISSION: TAC-02" if is_en else "▶  ПОЧАТИ ВИЛІТ: TAC-02"
 			3:
@@ -1879,7 +1879,7 @@ func _build_briefing_modal() -> void:
 	top_bar.add_child(sp)
 
 	var secret_badge := Label.new()
-	secret_badge.text = "[ БОЙОВА ОПЕРАЦІЯ ЗСУ ]"
+	secret_badge.text = "[ СПЕЦІАЛЬНА ОПЕРАЦІЯ ]"
 	secret_badge.add_theme_font_size_override("font_size", 11)
 	secret_badge.add_theme_color_override("font_color", MenuUI.FPV_CYAN)
 	top_bar.add_child(secret_badge)

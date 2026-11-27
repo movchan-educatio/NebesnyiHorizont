@@ -311,8 +311,8 @@ func _build_mobile() -> void:
 	column.add_child(MenuUI.body(_ui_text("КНОПКИ ТА ПЕРЕМИКАЧІ",
 			"BUTTONS & SWITCHES"), 32, MenuUI.ACCENT))
 	var bind_hint := MenuUI.body(_ui_text(
-			"Натисни «Авто» біля дії й перемкни тумблер Pocket (CH5–CH16).",
-			"Press Auto next to an action, then flip a Pocket switch (CH5–CH16)."),
+			"Натисни «Авто» біля дії й перемкни тумблер RC-пульта (CH5–CH16).",
+			"Press Auto next to an action, then flip an RC transmitter switch (CH5–CH16)."),
 			28, MenuUI.MUTED)
 	bind_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(bind_hint)
@@ -329,8 +329,8 @@ func _build_mobile() -> void:
 	column.add_child(_latency_label)
 
 	_mobile_note = MenuUI.body(
-			_ui_text("ELRS: натисни «Авто» біля дії й перемкни тумблер на Pocket (CH5–CH16). Сенсорні кнопки АРМ/СКИД/ЗАСТ./РЕСЕТ/ВІДЕО/МЕНЮ вже на екрані.",
-					"ELRS: press Auto next to an action, then flip a Pocket switch (CH5–CH16). Touch ARM/DROP/USE/RESET/VIDEO/MENU buttons are already on screen."),
+			_ui_text("ELRS: натисни «Авто» біля дії й перемкни тумблер на RC-пульті (CH5–CH16). Сенсорні кнопки АРМ/СКИД/ЗАСТ./РЕСЕТ/ВІДЕО/МЕНЮ вже на екрані.",
+					"ELRS: press Auto next to an action, then flip an RC switch (CH5–CH16). Touch ARM/DROP/USE/RESET/VIDEO/MENU buttons are already on screen."),
 			28, MenuUI.MUTED)
 	_mobile_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(_mobile_note)
@@ -778,8 +778,8 @@ func _binding_row(kind: String, key: String, label_text: String) -> Control:
 	detect.pressed.connect(_start_detect.bind(kind, key))
 	if kind == "action" and key == "activate_payload":
 		var tip := _ui_text(
-				"Призначте цю дію на тумблер/кнопку пульта. Працює для камікадзе та дронів з БЧ: підрив на місці.",
-				"Bind this action to a transmitter switch/button. Works for kamikaze and warhead drones: instant detonation.")
+				"Призначте цю дію на тумблер/кнопку пульта. Працює для ударних дронів із БЧ: підрив на місці.",
+				"Bind this action to a transmitter switch/button. Works for strike and payload drones: instant detonation.")
 		label.tooltip_text = tip
 		detect.tooltip_text = tip
 	row.add_child(detect)
@@ -1148,8 +1148,8 @@ func _start_virtual_detect(action: String) -> void:
 	var channels: PackedFloat32Array = elrs.get("channels")
 	_detect_virtual_baseline = channels.duplicate()
 	_message.text = _ui_text(
-			"Перемкни тумблер або кнопку на Pocket (CH5–CH16) для «%s»",
-			"Flip a switch or press a button on the Pocket (CH5–CH16) for “%s”") \
+			"Перемкни тумблер або кнопку на RC-пульті (CH5–CH16) для «%s»",
+			"Flip a switch or press a button on the RC transmitter (CH5–CH16) for “%s”") \
 			% _action_label(action)
 
 

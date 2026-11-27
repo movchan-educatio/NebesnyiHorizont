@@ -15,7 +15,7 @@
 - фотографії, камеру, мікрофон, контакти або діагностичну телеметрію.
 
 ### 2. Локальне збереження на пристрої
-Усі налаштування гри (графічний пресет, гучність аудіо, Betaflight Rates, калібрування стіків, прогрес Школи пілота, кампаній та спецоперацій) зберігаються **виключно локально** у захищеній пам’яті вашого iPhone або iPad (`user://`). Видалити ці дані можна в будь-який момент, видаливши застосунок із пристрою.
+Усі налаштування гри (графічний пресет, гучність аудіо, FPV Rates (RC / Super / Expo), калібрування стіків, прогрес Школи пілота, кампаній та спецоперацій) зберігаються **виключно локально** у захищеній пам’яті вашого iPhone або iPad (`user://`). Видалити ці дані можна в будь-який момент, видаливши застосунок із пристрою.
 
 ### 3. Дозвіл «Локальна мережа» (iOS Local Network — ELRS Wi-Fi)
 Застосунок запитує доступ до локальної мережі лише тоді, коли ви самі активуєте режим бездротового пульта керування **ExpressLRS (ELRS Wi-Fi)**. Дозвіл використовується виключно для прямого прийому пакетів керування по протоколу CRSF через локальний UDP-порт **11000** від вашого власного пульта (`10.0.0.1` / `192.168.4.1`). Жодні дані не надсилаються в інтернет або стороннім серверам. Відмова від дозволу локальної мережі не обмежує гру з сенсорними стіками чи Bluetooth/USB-геймпадами.
@@ -39,7 +39,7 @@ GitHub Issues: https://github.com/movchan-educatio/NebesnyiHorizont/issues
 - camera, microphone, photos, or behavioral analytics.
 
 ### 2. Local On-Device Storage Only
-All simulator preferences—such as graphics preset, audio volumes, Betaflight rates, controller calibration, Flight School progress, and mission records—are saved strictly locally inside the app sandbox (`user://`) on your device. Deleting the app removes all local data.
+All simulator preferences—such as graphics preset, audio volumes, FPV rates (RC / Super / Expo), controller calibration, Flight School progress, and mission records—are saved strictly locally inside the app sandbox (`user://`) on your device. Deleting the app removes all local data.
 
 ### 3. Optional Local Network Permission (iOS ELRS Wi-Fi)
 On iOS, Local Network permission is requested only when you choose to activate **ELRS Wi-Fi radio input** (`Пульт 3D / Radio 3D` or the ELRS guide). It is used solely to listen for local CRSF joystick packets on UDP port **11000** directly from your personal ExpressLRS transmitter (`10.0.0.1`). No traffic leaves your local Wi-Fi link. Declining Local Network permission never blocks offline flight with on-screen touch controls or standard Bluetooth/MFi controllers.

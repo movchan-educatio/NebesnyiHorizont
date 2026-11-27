@@ -290,7 +290,7 @@ func _weapon_badge(p: Dictionary) -> String:
 	if has_drop:
 		return _tx("СКИД ×%d" % maxi(1, payload_n), "DROP ×%d" % maxi(1, payload_n))
 	if kamikaze:
-		return _tx("КАМІКАДЗЕ БЧ", "KAMIKAZE")
+		return _tx("УДАРНИЙ FPV", "STRIKE FPV")
 	return _tx("РОЗВІДКА", "RECON")
 
 

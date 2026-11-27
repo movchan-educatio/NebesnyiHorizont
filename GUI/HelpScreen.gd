@@ -18,7 +18,7 @@ R / LB — респавн; у школі T / B — повторити модул
 
 [b]БОЙОВІ ФУНКЦІЇ[/b]
 G / X — скинути бомбу (дрони зі скидом)
-F / Y — активувати БЧ / миттєва детонація камікадзе
+F / Y — активувати БЧ / ручна детонація контактної БЧ
 T — тепловізор (бомбер)
 F3 — якість графіки
 F6 — FPV-ефекти (за бажанням)
@@ -89,7 +89,7 @@ const MODES_TEXT := """[b]БОЙОВІ МІСІЇ (КАМПАНІЯ 1–4)[/b]
 • TAC-01: Піхота (виявлення та ліквідація живої сили)
 • TAC-02: Танк і БТР (знищення броньованої колони)
 • TAC-03: Гелікоптер (перехоплення низьковисотної авіації)
-• TAC-04: Шахед-136 (перехоплення швидкісного дрона-камікадзе)
+• TAC-04: БПЛА «Дельта-136» (перехоплення швидкісного ударного БПЛА)
 Місії відкриваються послідовно: наступна — лише після завершення
 попередньої. Брифінг → виліт → дебрифінг ідуть безперервно, а кнопка
 «ПРОДОВЖИТИ КАМПАНІЮ» веде до першої незавершеної місії.
@@ -102,7 +102,7 @@ const MODES_TEXT := """[b]БОЙОВІ МІСІЇ (КАМПАНІЯ 1–4)[/b]
 
 [b]ЕФЕКТИ ВЛУЧАНЬ[/b]
 Кожен тип цілі має власну Blender-сцену влучання: танк, БМП, БТР,
-вантажівка, ЗРК, гелікоптер, «Шахед» і піхота. Додатково працюють
+вантажівка, ЗРК, гелікоптер, «Дельта-136» і піхота. Додатково працюють
 іскри, пил, дим і спалах, тому влучання читається навіть у русі.
 
 [b]ШКОЛА ПІЛОТА (10 МОДУЛІВ)[/b]
@@ -132,7 +132,7 @@ const MODES_TEXT := """[b]БОЙОВІ МІСІЇ (КАМПАНІЯ 1–4)[/b]
 Траса з неонових воріт із хронометражем.
 
 [b]РЕЙТИ ТА ФІЗИКА[/b]
-ESC → «Параметри борту та рейти»: кут FPV-камери, маса акумулятора, Betaflight Rates (RC / Super / Expo)."""
+ESC → «Параметри борту та рейти»: кут FPV-камери, маса акумулятора, FPV Rates (RC / Super / Expo)."""
 
 
 const CONTROLS_TEXT_EN := """[b]FLIGHT & CONTROLS[/b]
@@ -147,7 +147,7 @@ R / LB — respawn; in school T / B — retry module
 
 [b]COMBAT ACTIONS[/b]
 G / X — release bomb (drones with a drop payload)
-F / Y — arm / instant-detonate the kamikaze warhead
+F / Y — arm / trigger the contact payload
 T — thermal camera (bomber)
 F3 — graphics quality
 F6 — FPV downlink effects (optional)
@@ -174,7 +174,7 @@ const MODES_TEXT_EN := """[b]COMBAT CAMPAIGN 1–4[/b]
 • TAC-01: infantry
 • TAC-02: tank and APC
 • TAC-03: helicopter
-• TAC-04: Shahed-136
+• TAC-04: Delta-136 UAV
 Missions unlock sequentially. The next sortie opens only after the previous
 one is completed. Briefing → mission → debriefing flows continuously, and
 “CONTINUE CAMPAIGN” jumps to the first unfinished mission.
@@ -187,7 +187,7 @@ The phase marker shows distance and hold percentage.
 
 [b]HIT EFFECTS[/b]
 Every target class has its own authored Blender hit scene: tank, BMP, APC,
-truck, SAM, helicopter, Shahed and infantry. Additive sparks, dust, smoke
+truck, SAM, helicopter, Delta-136 and infantry. Additive sparks, dust, smoke
 and a flash layer make the impact readable even at speed.
 
 [b]FLIGHT SCHOOL (10 MODULES)[/b]
@@ -217,7 +217,7 @@ Combat drones launch from a field tube.
 Neon checkpoint course with a precise timer.
 
 [b]RATES & PHYSICS[/b]
-ESC → Aircraft & Rates: FPV camera tilt, battery mass, Betaflight rates (RC / Super / Expo)."""
+ESC → Aircraft & Rates: FPV camera tilt, battery mass, FPV rates (RC / Super / Expo)."""
 
 
 func _ready() -> void:

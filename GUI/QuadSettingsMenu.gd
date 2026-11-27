@@ -265,11 +265,11 @@ func _refresh_summary_card() -> void:
 	var is_en := MenuUI.is_english()
 	var drone_name := str(p.get("name_en", MenuUI.translate_text(str(p.get("name", "UAV"))))) if is_en else str(p.get("name", "БПЛА"))
 	var drone_tag := MenuUI.translate_text(str(p.get("tag", "FPV"))) if is_en else str(p.get("tag", "FPV"))
-	var drop_info := "Kamikaze / no drop" if is_en else "Камікадзе / без скиду"
+	var drop_info := "Contact payload / no drop" if is_en else "Контактна БЧ / без скиду"
 	if not bool(p.get("combat", false)):
 		drop_info = "Training / civilian" if is_en else "Тренувальний / цивільний"
 	elif is_en:
-		drop_info = str(p.get("drop_name_en", "Kamikaze payload" if not bool(p.get("has_drop", false)) else "Payload drop"))
+		drop_info = str(p.get("drop_name_en", "Contact payload" if not bool(p.get("has_drop", false)) else "Payload drop"))
 	else:
 		drop_info = str(p.get("drop_name", drop_info))
 	if is_en:

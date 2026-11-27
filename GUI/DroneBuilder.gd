@@ -732,7 +732,7 @@ func _build_right_dashboard() -> PanelContainer:
 	v.add_child(MenuUI.hline())
 
 	# Combat Specifications Box
-	v.add_child(MenuUI.section("БОЙОВИЙ ПРОФІЛЬ ТА БЧ", "ЗСУ"))
+	v.add_child(MenuUI.section("БОЙОВИЙ ПРОФІЛЬ ТА БЧ", "ТАКТИЧНИЙ"))
 	var combat_box := PanelContainer.new()
 	var c_sb := StyleBoxFlat.new()
 	c_sb.bg_color = MenuUI.PANEL_HEADER
@@ -1095,7 +1095,7 @@ func _update_telemetry() -> void:
 
 	if _val_combat_type != null:
 		if is_pg7:
-			_val_combat_type.text = "STRIKE / KAMIKAZE" if is_en else "УДАРНИЙ КАМІКАДЗЕ"
+			_val_combat_type.text = "STRIKE FPV" if is_en else "УДАРНИЙ FPV"
 			_val_combat_type.add_theme_color_override("font_color", MenuUI.DANGER)
 		elif is_vog:
 			_val_combat_type.text = "BOMBER" if is_en else "БОМБАРДУВАЛЬНИК"
